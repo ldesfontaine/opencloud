@@ -110,6 +110,18 @@ export function Empty({
   );
 }
 
+// L'état vide compact d'une liste : une phrase et l'action principale, sur
+// une ligne. Pour une liste qui se remplit d'un geste ; Empty garde l'icône
+// et le titre pour un écran entier à expliquer.
+export function EmptyLine({ text, action }: { text: string; action?: ReactNode }) {
+  return (
+    <div className="empty-line">
+      <p>{text}</p>
+      {action}
+    </div>
+  );
+}
+
 // Une liste vide : une carte qui ne porte que son message. Ce qui le
 // complète (une commande à copier) va en enfant, sous lui.
 export function EmptyCard({

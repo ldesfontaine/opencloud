@@ -38,9 +38,59 @@
   }
 }
 
+// Colonnes au contenu : la première, le nom, prend le reste de la largeur.
+.table-fit {
+  th:not(:first-child),
+  td:not(:first-child) {
+    width: 1%;
+    white-space: nowrap;
+  }
+}
+
+// Une ligne cliquable (elle porte un RowLink) : le survol la dit entière.
+.table tr:has(.row-link) {
+  cursor: pointer;
+
+  &:hover td {
+    background: var(--surface-2);
+  }
+}
+
+// Le nom, puis son menu « … » tout contre.
+.row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.row-link {
+  min-width: 0;
+  color: var(--ink);
+
+  &:hover {
+    color: var(--ink);
+  }
+}
+
 .scroll-x,
 .table-scroll {
   overflow-x: auto;
+}
+
+// Le survol d'une ligne s'arrête aux coins arrondis de sa carte : seulement
+// les coins que le tableau partage avec elle, et seulement s'il a des lignes
+// cliquables ; les autres tableaux ne changent pas.
+.card > .table-scroll:has(.row-link) {
+  &:first-child {
+    border-top-left-radius: 13px;
+    border-top-right-radius: 13px;
+  }
+
+  &:last-child {
+    border-bottom-left-radius: 13px;
+    border-bottom-right-radius: 13px;
+  }
 }
 
 // Les colonnes de confort d'une liste principale : sur téléphone, la ligne
