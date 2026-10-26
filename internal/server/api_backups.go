@@ -13,12 +13,12 @@ import (
 )
 
 // Ce que la page Sauvegardes lit : la clé (jamais sa part privée, ni la
-// phrase), les destinations avec le droit de leur agent, le plan et son
-// dernier ordre.
+// phrase), les destinations avec le droit de leur agent, les plans et le
+// dernier ordre de chacun.
 type backupsJSON struct {
 	Keyring      *backupKeyringJSON      `json:"keyring"`
 	Destinations []backupDestinationJSON `json:"destinations"`
-	Plan         *backupPlanJSON         `json:"plan"`
+	Plans        []backupPlanJSON        `json:"plans"`
 }
 
 type backupKeyringJSON struct {
@@ -42,14 +42,31 @@ type backupDestinationJSON struct {
 }
 
 type backupPlanJSON struct {
-	DestinationID string     `json:"destination_id"`
-	Keep          int        `json:"keep"`
-	Schedule      string     `json:"schedule"`
-	LastAttemptAt *time.Time `json:"last_attempt_at"`
-	// La clé du refus de la dernière tentative qui n'a pas pu partir.
+	Subject string `json:"subject"`
+	// Le libellé affiché ; vide, la page montre le sujet.
+	Name string `json:"name"`
+	// database ou agent. Avec agent, la machine qui produit, le producteur et
+	// ce qu'il en prend ; vides pour la base.
+	SourceKind        string     `json:"source_kind"`
+	SourceMachineID   string     `json:"source_machine_id"`
+	SourceMachineName string     `json:"source_machine_name"`
+	Producer          string     `json:"producer"`
+	Selector          string     `json:"selector"`
+	DestinationID     string     `json:"destination_id"`
+	Keep              int        `json:"keep"`
+	Schedule          string     `json:"schedule"`
+	LastAttemptAt     *time.Time `json:"last_attempt_at"`
+	// La clé du refus de la dernière tentative qui n'a pas pu partir, ou le
+	// premier souci de son passage (« backup.target_failed:5012:producer_failed »).
 	LastError string `json:"last_error"`
-	// Le dernier ordre backup.receive, null s'il n'y en a pas ou plus.
+	// Le dernier ordre du plan : le backup.receive du dernier passage, ou
+	// l'ordre en cours pendant qu'il dure ; null s'il n'y en a pas ou plus.
 	LastRun *actionRunJSON `json:"last_run"`
+	// Les cibles du dernier passage d'un plan machine, reçues et en échec ;
+	// zéro et zéro pour la base, ou après un redémarrage de serve (les comptes
+	// ne sont pas gardés en base).
+	LastTargetsOK     int `json:"last_targets_ok"`
+	LastTargetsFailed int `json:"last_targets_failed"`
 }
 
 type backupKeyringRequest struct {
@@ -63,9 +80,15 @@ type backupDestinationRequest struct {
 	Path      string `json:"path"`
 }
 
+// Le sujet du plan vient de l'adresse, pas du corps.
 type backupPlanRequest struct {
-	DestinationID string `json:"destination_id"`
-	Keep          int    `json:"keep"`
+	Name            string `json:"name"`
+	SourceKind      string `json:"source_kind"`
+	SourceMachineID string `json:"source_machine_id"`
+	Producer        string `json:"producer"`
+	Selector        string `json:"selector"`
+	DestinationID   string `json:"destination_id"`
+	Keep            int    `json:"keep"`
 }
 
 func backupKeyringToJSON(keyring backup.Keyring) backupKeyringJSON {
@@ -83,8 +106,11 @@ func backupDestinationToJSON(view backup.DestinationView) backupDestinationJSON 
 // pas.
 func backupPlanToJSON(plan backup.Plan, run *action.Run) backupPlanJSON {
 	out := backupPlanJSON{
+		Subject: plan.Subject, Name: plan.Name, SourceKind: plan.SourceKind, SourceMachineID: plan.SourceMachineID,
+		SourceMachineName: plan.SourceMachineName, Producer: plan.Producer, Selector: plan.Selector,
 		DestinationID: plan.DestinationID, Keep: plan.Keep, Schedule: plan.Schedule,
 		LastAttemptAt: httpx.TimeOrNil(plan.LastAttemptAt), LastError: plan.LastError,
+		LastTargetsOK: plan.LastTargetsOK, LastTargetsFailed: plan.LastTargetsFailed,
 	}
 	if run != nil {
 		converted := actionRunToJSON(*run)
@@ -119,13 +145,13 @@ func (s *Server) getBackups(w http.ResponseWriter, r *http.Request) {
 		keyring := backupKeyringToJSON(*overview.Keyring)
 		response.Keyring = &keyring
 	}
-	if overview.Plan != nil {
-		run, err := s.lastBackupRun(r.Context(), *overview.Plan)
+	response.Plans = make([]backupPlanJSON, 0, len(overview.Plans))
+	for _, plan := range overview.Plans {
+		run, err := s.lastBackupRun(r.Context(), plan)
 		if s.failed(w, r, err, nil) {
 			return
 		}
-		plan := backupPlanToJSON(*overview.Plan, run)
-		response.Plan = &plan
+		response.Plans = append(response.Plans, backupPlanToJSON(plan, run))
 	}
 	s.writeAPI(w, http.StatusOK, response)
 }
@@ -177,7 +203,11 @@ func (s *Server) saveBackupPlan(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	plan, err := s.backups.SavePlan(r.Context(), backup.PlanDefinition(request))
+	plan, err := s.backups.SavePlan(r.Context(), backup.PlanDefinition{
+		Subject: r.PathValue("subject"), Name: request.Name, SourceKind: request.SourceKind,
+		SourceMachineID: request.SourceMachineID, Producer: request.Producer, Selector: request.Selector,
+		DestinationID: request.DestinationID, Keep: request.Keep,
+	})
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -189,17 +219,18 @@ func (s *Server) saveBackupPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteBackupPlan(w http.ResponseWriter, r *http.Request) {
-	s.finishAPIAction(w, r, s.backups.DeletePlan(r.Context()), backup.ErrNotFound)
+	s.finishAPIAction(w, r, s.backups.DeletePlan(r.Context(), r.PathValue("subject")), backup.ErrNotFound)
 }
 
-// runBackup lance la sauvegarde tout de suite ; la réponse est l'ordre
-// backup.receive, dont l'état avance ensuite par le direct.
+// runBackup lance la sauvegarde du plan tout de suite ; la réponse est son
+// premier ordre, dont l'état avance ensuite par le direct : backup.receive pour
+// la base, backup.produce pour un plan machine, dont le passage dure des heures.
 func (s *Server) runBackup(w http.ResponseWriter, r *http.Request) {
 	var request struct{}
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	run, err := s.backups.RunNow(r.Context())
+	run, err := s.backups.RunNow(r.Context(), r.PathValue("subject"))
 	if s.failed(w, r, err, nil) {
 		return
 	}

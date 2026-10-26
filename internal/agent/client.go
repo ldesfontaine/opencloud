@@ -431,3 +431,30 @@ func serverError(response *http.Response) error {
 	_ = json.Unmarshal(content, &body)
 	return &ServerError{Status: response.StatusCode, Code: body.Error}
 }
+
+// PutParcel téléverse un fichier dans le colis que le serveur a ouvert à cette
+// machine, sous le jeton de session du flux : le corps est le fichier, la taille
+// et la somme sont annoncées en en-têtes. Le serveur répond 201. « Expect »
+// laisse le serveur refuser (colis inconnu, disque plein) avant qu'un seul
+// octet ne parte. Pas de délai propre, comme GetParcel : le contexte de
+// l'appelant borne la durée.
+func (c *Client) PutParcel(ctx context.Context, session, parcel, name string, body io.Reader, size int64, sum string) error {
+	request, err := c.newRequest(ctx, http.MethodPut, agentwire.ParcelPath(parcel, name), io.NopCloser(body))
+	if err != nil {
+		return err
+	}
+	request.ContentLength = size
+	request.Header.Set("Authorization", "Bearer "+session)
+	request.Header.Set("Content-Type", "application/octet-stream")
+	request.Header.Set(agentwire.HeaderParcelSHA256, sum)
+	request.Header.Set("Expect", "100-continue")
+	response, err := c.http.Do(request)
+	if err != nil {
+		return fmt.Errorf("put parcel: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		return fmt.Errorf("put parcel: %w", serverError(response))
+	}
+	return nil
+}

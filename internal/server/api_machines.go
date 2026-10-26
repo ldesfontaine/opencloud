@@ -10,6 +10,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
@@ -27,6 +28,8 @@ type machineJSON struct {
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	// L'agent courant, null tant qu'aucun ne s'est enrôlé.
 	Agent *agentJSON `json:"agent"`
+	// Ce que la machine porte, ou est, pour Proxmox : voir api_proxmox.go.
+	Proxmox proxmoxSummaryJSON `json:"proxmox"`
 	// Le support du système, seulement quand l'opérateur a activé la fin
 	// de support.
 	Lifecycle *lifecycleJSON `json:"lifecycle,omitempty"`
@@ -167,10 +170,11 @@ func capabilityFromJSON(capability capabilityJSON) machine.Capability {
 	return machine.Capability{Name: capability.Name, Paths: capability.Paths}
 }
 
-// machineJSONOf ajoute aux faits de la machine le support de son système,
-// quand la fin de support est activée.
-func (s *Server) machineJSONOf(machineStatus machine.Status, withLifecycle bool) machineJSON {
+// machineJSONOf ajoute aux faits de la machine ce qu'elle est pour Proxmox et
+// le support de son système, quand la fin de support est activée.
+func (s *Server) machineJSONOf(machineStatus machine.Status, summary proxmox.Summary, withLifecycle bool) machineJSON {
 	converted := machineToJSON(machineStatus)
+	converted.Proxmox = proxmoxSummaryToJSON(summary)
 	if withLifecycle {
 		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(machineStatus.OS))
 	}
@@ -195,9 +199,15 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
+	summaries, err := s.reader.ProxmoxSummaries(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
 	response := machinesResponse{
-		Machines: httpx.ConvertAll(statuses, func(machineStatus machine.Status) machineJSON { return s.machineJSONOf(machineStatus, withLifecycle) }),
-		Pending:  make([]pendingTokenJSON, 0, len(pending)),
+		Machines: httpx.ConvertAll(statuses, func(machineStatus machine.Status) machineJSON {
+			return s.machineJSONOf(machineStatus, summaries[machineStatus.ID], withLifecycle)
+		}),
+		Pending: make([]pendingTokenJSON, 0, len(pending)),
 	}
 	for _, token := range pending {
 		response.Pending = append(response.Pending, pendingTokenJSON{
@@ -220,7 +230,11 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, withLifecycle))
+	summaries, err := s.reader.ProxmoxSummaries(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, summaries[found.ID], withLifecycle))
 }
 
 // L'opérateur nomme la machine ; le jeton naît et se montre une seule fois.
@@ -314,6 +328,7 @@ func installPreparation(capabilities []machine.Capability, number string, local 
 		asAccount + "install -m 0755 " + source + " " + binDir + "/" + binaryName +
 			" && " + asAccount + "ln -sfn " + binaryName + " " + binDir + "/" + brand.AgentCurrentLink,
 	}
+	lines = append(lines, producePreparation(capabilities, asAccount)...)
 	folders := writtenFolders(capabilities)
 	accountFolders := []string{brand.AgentStateDir}
 	for _, folder := range folders {
@@ -330,6 +345,45 @@ func installPreparation(capabilities []machine.Capability, number string, local 
 		lines = append(lines, "test ! -L "+folder.path+" && install -d -m "+folder.mode+" "+owner+" "+folder.path+comment)
 	}
 	return strings.Join(append(lines, nested...), "\n")
+}
+
+// producePreparation : ce que backup.produce=proxmox-vzdump demande de plus,
+// une ligne par geste (six), après le compte. NoNewPrivileges=true, dans
+// l'unité de l'agent, interdit tout sudo : le drop-in le desserre, c'est le
+// seul desserrement. Le script de root et la règle sudo sont de root, sur des
+// chemins que le compte ne contrôle pas ; seul le dossier de production, sous
+// l'état, est fait sous le compte. Les textes viennent de machine/produce.go :
+// aucune apostrophe, aucun nom de l'opérateur. Ce droit vaut root pour un agent
+// compromis (vzdump --script), comme le groupe docker.
+func producePreparation(capabilities []machine.Capability, asAccount string) []string {
+	if !machine.CoversProducer(capabilities, machine.ProducerProxmoxVzdump) {
+		return nil
+	}
+	return []string{
+		asAccount + "install -d -m 0700 " + machine.ProduceDir,
+		printfLines(machine.VzdumpWrapperLines()) + " | install -m 0755 -o root -g root /dev/stdin " + brand.VzdumpWrapperPath,
+		sudoersPreparation(),
+		"install -d -m 0755 " + machine.ProduceDropInDir,
+		printfLines(machine.ProduceDropInLines()) + " | install -m 0644 /dev/stdin " + machine.ProduceDropInFile,
+		"systemctl daemon-reload",
+	}
+}
+
+// sudoersPreparation pose la règle sudo en un geste : écrite dans un fichier que
+// sudo ignore, jugée par visudo, puis renommée. Si l'un des trois échoue, le
+// fichier provisoire part et rien n'est posé ; la ligne rend alors une erreur
+// (false), que le shell de l'opérateur voit.
+func sudoersPreparation() string {
+	temp := machine.SudoersTempFile
+	return printfLines(machine.SudoersRuleLines()) + " | install -m 0440 -o root -g root /dev/stdin " + temp +
+		" && visudo -cf " + temp + " && mv " + temp + " " + machine.SudoersFile +
+		" || { rm -f " + temp + "; false; }"
+}
+
+// printfLines écrit des lignes de texte en une commande : printf, un builtin,
+// une ligne par argument entre apostrophes. Les textes n'en portent pas.
+func printfLines(lines []string) string {
+	return "printf '%s\\n' '" + strings.Join(lines, "' '") + "'"
 }
 
 // insideAny dit si path est sous l'un des dossiers (pas l'un d'eux).

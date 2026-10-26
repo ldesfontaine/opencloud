@@ -14,6 +14,7 @@ import { CertificateList } from "../components/Certificate";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
 import { MachineHead, Tabs } from "../components/MachineHead";
+import { HostedCard, MachineHypervisor, ProxmoxCard } from "../components/MachineHypervisor";
 import { MachineSSHKeys } from "../components/MachineSSHKeys";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
@@ -74,7 +75,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
       <Card>
         <CardBody gap={12}>
           <MachineHead current={current} all={all} />
-          <Tabs machineID={current.id} />
+          <Tabs machineID={current.id} hostsProxmox={current.proxmox.declared} />
         </CardBody>
       </Card>
       {tab === "" ? (
@@ -83,6 +84,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
           <ResourceHistory machineID={current.id} />
           <DiskVolumesCard current={resources.data} />
           {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
+          {current.proxmox.hosted !== null && <HostedCard hosted={current.proxmox.hosted} />}
+          <ProxmoxCard machine={current} />
           <AgentCard machineID={current.id} agent={current.agent} now={now} />
           <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
         </>
@@ -92,6 +95,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         <NetworkView machineID={current.id} />
       ) : tab === "ssh" ? (
         <MachineSSHKeys machine={current} />
+      ) : tab === "hyperviseur" ? (
+        <MachineHypervisor machine={current} />
       ) : tab === "journaux" ? (
         <MachineLogs machineID={current.id} />
       ) : (

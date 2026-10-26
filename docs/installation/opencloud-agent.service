@@ -58,6 +58,14 @@ RestartPreventExitStatus=2
 # Il lit /proc, les volumes et, s'il a Docker, la socket ; il n'écrit que
 # dans son état (StateDirectory ci-dessus, aussi son dossier personnel, où
 # docker et compose rangent leur configuration).
+# NoNewPrivileges=true interdit tout sudo. Seul le droit backup.produce
+# (vzdump Proxmox) le desserre, et seulement sur l'hôte qui le porte : la
+# préparation de la page du jeton pose le drop-in
+# /etc/systemd/system/opencloud-agent.service.d/produce.conf
+#   [Service]
+#   NoNewPrivileges=false
+# (voir « backup.produce équivaut à root » dans installation.md). Ne le posez
+# pas ailleurs, et ne changez pas cette ligne-ci.
 NoNewPrivileges=true
 ProtectSystem=strict
 # Un droit qui écrit ailleurs (backup.receive=/srv/backups) demande un

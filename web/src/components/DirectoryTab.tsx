@@ -10,8 +10,8 @@ import { Button } from "./Button";
 import { Card, Empty, EmptyCard } from "./Card";
 import { DeclaredServiceTable } from "./DeclaredServiceTable";
 import { Failure } from "./Failure";
-import { Select } from "./Field";
 import { MachineSelect } from "./MachineSelect";
+import { Select } from "./Select";
 import { UndeclaredList } from "./UndeclaredList";
 import { PageHead } from "./PageHead";
 import { ServicesTabs } from "./ServicesTabs";
@@ -70,14 +70,12 @@ export function DirectoryTab() {
                 onChange={setMachineID}
                 noneLabel={t("services.all_machines")}
               />
-              <Select aria-label={t("directory.col_projects")} value={projectID} onChange={(event) => setProjectID(event.target.value)}>
-                <option value="">{t("directory.all_projects")}</option>
-                {(projects.data?.projects ?? []).map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </Select>
+              <Select
+                aria-label={t("directory.col_projects")}
+                value={projectID}
+                options={[{ value: "", label: t("directory.all_projects") }, ...(projects.data?.projects ?? []).map((project) => ({ value: project.id, label: project.name }))]}
+                onChange={setProjectID}
+              />
             </span>
           </div>
           {shown.length > 0 ? (

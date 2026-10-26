@@ -17,7 +17,7 @@
 | L'opérateur | L'opérateur, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche. Tant qu'aucun compte n'existe, l'écran de première configuration à la place de l'interface : il crée le compte, puis l'interface s'ouvre |
 | La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base. **Et son agent, `opencloud agent`, comme toute machine** : `serve` n'observe rien de sa propre machine. La ligne qui l'installe s'affiche dès la première configuration (« La machine openCloud ») |
 | La commande locale | `opencloud export` et `opencloud apply`, lancées sur la machine openCloud, sous le compte du service ou en root | Rien de son côté : elles parlent au `serve` qui tourne par la socket `state_dir/control.sock`. `export` écrit ce qu'il répond ; `apply` lit un fichier, montre le plan que le serveur en tire, demande confirmation, puis lui demande de l'écrire. Elles n'ouvrent pas la base |
-| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker, **sous un compte dédié (`opencloud-agent`), root sur demande**. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
+| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker, **sous un compte dédié (`opencloud-agent`), root sur demande**. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `backup.produce` (lance un producteur sur la machine, chiffre ce qu'il écrit et le téléverse au serveur), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
 | Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : pour observer, l'agent le lit par sa socket, en lecture seule. Il ne lui écrit que par `docker compose up`, pour déployer un service déclaré, avec le droit `docker.deploy` ou `docker.update` (« Comment un service se déploie ») |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
@@ -87,6 +87,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un aléa qu'il tire, l'identifiant de sa machine et l'heure (protocole 2), openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré, dans un débit borné par machine ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse des **commandes d'observation** (« suis les journaux du conteneur X », « arrête », le jeu de sondes, les images à ne pas interroger) : des lectures, **non signées**, que l'agent ne reçoit que du serveur qui tient son flux. Elles ne sont pas crues pour autant : l'agent rejuge le jeu de sondes et n'ouvre que le journal d'un conteneur qu'il a lui-même rapporté (« Comment une cible est sondée », « Comment les conteneurs sont suivis »). Les **ordres** voyagent dans une enveloppe **signée Ed25519 par la clé du serveur** (`server.key`), que l'agent vérifie avec la clé épinglée à l'enrôlement avant d'en lire un champ : qui tient le flux sans la clé (un mandataire, un faux serveur) peut couper ou retarder un ordre, pas en fabriquer ; un ordre périmé ou rejoué est refusé (« Comment un ordre part et revient ») |
 | Sauvegarde, le départ | `serve` → agent d'une autre machine : l'ordre signé `backup.receive` sur le flux, puis `GET /agent/parcels/{colis}/{nom}` sous le jeton de session de l'agent | TLS de Traefik ; le fichier est **déjà** chiffré (age, pour la clé publique de sauvegarde) avant de quitter `serve` | L'ordre est signé par `server.key` et porte la taille et le SHA-256 de chaque fichier : l'agent ne garde que ce qui correspond. Le colis ne se sert qu'à la machine pour laquelle il est écrit (`404` sinon), 30 requêtes par minute et par machine |
+| Sauvegarde produite par un agent | agent producteur → `serve` : `PUT /agent/parcels/{colis}/{nom}` sous le jeton de session de l'agent, puis `serve` → agent de destination par le `GET` ci-dessus | **Chiffrée age sur la machine source avant tout transport** (pour la clé publique de sauvegarde) ; téléversée à `serve` sous TLS ; `serve` ne peut pas la lire | L'agent producteur n'a que la clé publique : le clair du producteur n'existe que dans `produce/`, `0600`, et part avec l'ordre. `serve` range le fichier tel qu'il arrive, vérifie la taille et la somme annoncées, et n'a pas la clé privée : il ne la lit pas. 30 requêtes par minute et par machine, comme le téléchargement |
 | Sauvegarde, au repos | la destination, sur la machine d'un agent | age : X25519 et ChaCha20-Poly1305 pour l'archive ; la clé privée, déposée à côté, est scellée par scrypt avec la phrase de passe de l'opérateur | Seule la phrase ouvre la clé, seule la clé ouvre l'archive. L'agent n'a ni l'une ni l'autre : il vérifie la somme et l'en-tête `age-encryption.org/v1`, il ne déchiffre jamais |
 | Journaux | navigateur → `/api/containers/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le SSO. En mode `none`, refusé comme le reste de l'interface (`401 auth.setup_required`). Une seconde connexion par onglet ; seize lectures de journaux en tout, suivis des onglets et tirages uniques compris |
 | Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
@@ -103,6 +104,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
 | Alerte Matrix | openCloud → le serveur d'accueil | TLS : le serveur d'accueil est exigé en `https://` | openCloud écrit au nom du bot par `Authorization: Bearer <jeton>`, le jeton du canal ; qui a ce jeton parle au nom du bot partout où il est invité. Le serveur d'accueil prouve qui il est par son certificat. Le message dit ce que dit le corps d'un webhook, et le salon le garde |
+| Hyperviseur | openCloud → l'API de Proxmox (`https://hôte:8006`), en lecture, toutes les cinq minutes | TLS : le certificat se juge par le magasin du système, ou par l'**empreinte SHA-256** que l'opérateur a épinglée (un Proxmox livre un certificat auto-signé) ; pas de redirection suivie | Un jeton d'API Proxmox en lecture seule (rôle `PVEAuditor`), dans `Authorization: PVEAPIToken=…` ; le jeton ne voyage nulle part ailleurs. Voir « Comment un hôte Proxmox se lit » |
 | Alerte | openCloud → le canal | Celui de l'URL : TLS si elle est en `https://`, rien sinon, et l'interface le dit | openCloud prouve au récepteur que c'est lui, par `OpenCloud-Signature`, HMAC-SHA256 du corps avec le secret du canal, quand il y en a un. Le récepteur ne prouve rien : un 2xx suffit. Le corps dit le nom de l'objet, de la machine, la cible d'une sonde, le point de montage : ce qu'un canal reçoit, son service le garde |
 
 Donc non, rien ne passe en clair sur le LAN de l'infra : le seul clair est sur
@@ -135,6 +137,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
@@ -146,15 +149,16 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
 | Machine openCloud, `state_dir` | `server.key` | La clé qui **signe les ordres** envoyés aux agents : une ligne `ed25519-v1:<graine>`, Ed25519, tirée au premier démarrage de `serve`, jamais en base ; une seconde ligne, la clé précédente, le temps d'une rotation (`opencloud secrets rotate-server-key`, puis `finish-server-key`). Sa moitié publique est livrée à chaque agent à l'enrôlement, qui l'épingle | Les règles de `secret.key` : mode 0600 jugé sur le descripteur, refusée si un autre compte peut la lire, création exclusive (deux `serve` lancés ensemble gardent la même). Illisible ou abîmée, `serve` refuse de démarrer plutôt que d'en tirer une autre. **Qui l'a commande toutes les machines** ; perdue, chaque agent refuse les ordres (`bad_signature`) jusqu'à son ré-enrôlement ; volée, aussi : une rotation se fait sous la signature de l'ancienne clé, elle ne chasse pas qui la tient. À sauvegarder avec `secret.key` |
-| Machine openCloud, `state_dir` | `opencloud.db` | La sauvegarde de la base : `backup_keyring` (une ligne : la clé **publique** `age1…` en clair, la privée `identity_sealed` scellée par la phrase de passe, l'empreinte), `backup_destinations` (nom, machine en `restrict`, chemin), `backup_plans` (le plan `database`, la destination en `restrict`, combien garder, la dernière tentative, la clé de son refus, le dernier ordre en `set null`). **La phrase de passe n'est écrite nulle part** : ni base, ni journal, ni audit | La clé privée n'est lisible qu'avec la phrase ; la publique ne chiffre que |
-| Machine openCloud, `state_dir` | `outgoing/<colis>/` | Les colis des ordres longs : l'instantané de la base (`VACUUM INTO`) le temps de l'emballer, puis l'archive chiffrée jusqu'à son téléchargement par l'agent, **la vie de son ordre au plus** (`action.ParcelLifetime` : 2 min pour être pris, une heure pour finir). Vidé au démarrage de `serve`. Aucune sauvegarde n'est gardée sur cette machine | `0700`, `0600`, même disque et mêmes droits que la base ; l'instantané en clair est effacé avant l'envoi |
+| Machine openCloud, `state_dir` | `opencloud.db` | La sauvegarde de la base : `backup_keyring` (une ligne : la clé **publique** `age1…` en clair, la privée `identity_sealed` scellée par la phrase de passe, l'empreinte), `backup_destinations` (nom, machine en `restrict`, chemin), `backup_plans` (le sujet, unique, le libellé, le type de source `database` ou `agent`, la machine source en `restrict`, le producteur, la sélection, la destination en `restrict`, combien garder, la dernière tentative, la clé de son refus, le dernier ordre en `set null`). **La phrase de passe n'est écrite nulle part** : ni base, ni journal, ni audit | La clé privée n'est lisible qu'avec la phrase ; la publique ne chiffre que |
+| Machine openCloud, `state_dir` | `outgoing/<colis>/` | Les colis des ordres longs, de deux sortes. *À télécharger* (la base, `backup.receive`) : l'instantané de la base (`VACUUM INTO`) le temps de l'emballer, puis l'archive chiffrée jusqu'à son téléchargement par l'agent, **la vie de son ordre au plus** (`action.ParcelLifetime` : 2 min pour être pris, une heure pour finir). *À téléverser* (`backup.produce`, `Outbox.CreateForUpload`) : un colis que la machine **source** remplit par `PUT /agent/parcels/{colis}/{nom}` (l'archive chiffrée d'une VM, 64 Gio au plus, 1 Gio libre de marge ; la clé scellée y est déposée par `serve`), jusqu'à ce que la destination l'ait téléchargé ; `serve` le jette dès la cible traitée, et **un seul vit à la fois**. Vidé au démarrage de `serve`. Aucune sauvegarde n'est gardée sur cette machine | `0700`, `0600`, même disque et mêmes droits que la base ; l'instantané en clair est effacé avant l'envoi ; un téléversement n'apporte que du chiffré |
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
 | Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` (au compte de l'agent, `opencloud-agent`, ou root s'il tourne en root ; `0700`, hors du dossier du serveur) | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main (la clé change seule pendant une rotation, par l'ordre `agent.server_key`) : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart. Le dossier est à root et **hors de `/var/lib/opencloud`**, que le compte du serveur possède sur la machine openCloud : ce compte ne peut ni remplacer le fichier ni renommer le dossier. L'agent juge sa chaîne de dossiers au démarrage (« Les droits d'un agent », état mal gardé) |
+| Un hôte Proxmox dont l'agent a `backup.produce`, `/var/lib/opencloud-agent/produce/` | `<préfixe>-AAAAMMJJ-HHMMSS.tar.age.raw`, puis `….tar.age` | Les archives en cours de production : le flux brut de `vzdump` (compressé `zstd`, **en clair**), puis le même emballé dans un `tar` et chiffré pour la clé publique du trousseau ; les deux coexistent avant l'envoi, d'où **deux fois** la plus grosse VM compressée. L'agent refuse de commencer sous 1 Gio libre (`disk_full`) | `0700` et `0600`, au compte de l'agent. Vidé à la fin de **chaque** ordre, réussi ou non, et au démarrage de l'agent (un arrêt en pleine production ne laisse rien). Posé par la préparation du droit, créé par l'agent s'il manque. Le clair de la VM ne quitte jamais cet hôte |
 
-**Ce que le chiffrement couvre.** Quatre colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
-`settings.mail_password`, `alert_channels.url`, `alert_channels.secret` et
-`heartbeats.token_sealed`. Un secret vide reste vide. Un chiffré a la forme `v1:<8 hexadécimaux>:<base64>` ; une valeur non vide d'une autre forme n'est jamais rendue comme un secret, la lecture la refuse. Les jetons d'enrôlement, les jetons
+**Ce que le chiffrement couvre.** Cinq colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
+`settings.mail_password`, `alert_channels.url`, `alert_channels.secret`,
+`heartbeats.token_sealed` et `machine_proxmox.token_secret`. Un secret vide reste vide. Un chiffré a la forme `v1:<8 hexadécimaux>:<base64>` ; une valeur non vide d'une autre forme n'est jamais rendue comme un secret, la lecture la refuse. Les jetons d'enrôlement, les jetons
 d'API et le mot de passe de l'interface sont hachés.
 
 **Ce qu'il ne couvre pas.** Les identifiants qu'une cible de sonde portait
@@ -313,12 +317,16 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
+| `backup.produce` | un à quatre **producteurs** (aujourd'hui `proxmox-vzdump`) | Produire une sauvegarde sur cette machine avec ce producteur : `proxmox-vzdump` lance `vzdump` en root par une règle `sudo` étroite (voir plus bas). **Vaut root** pour un agent compromis. Le droit se pose et se juge ici ; l'ordre qui s'en sert est décrit dans « Comment une sauvegarde se fait » |
 | `files.write` | un à huit chemins | Écrire des fichiers, dans ces dossiers |
 
 - **Forme texte**, la même dans la ligne d'installation, le fichier de
   l'agent, l'en-tête et la base : droits séparés par `,`, un droit borné
   suivi de `=` et de ses chemins séparés par `:`
-  (`observe,docker.update,files.write=/opt/site:/srv/workspace`). Un chemin
+  (`observe,docker.update,files.write=/opt/site:/srv/workspace`) ; pour
+  `backup.produce`, ce sont des noms de producteurs et non des chemins
+  (`backup.produce=proxmox-vzdump`, `^[a-z0-9][a-z0-9-]{1,31}$`, un à quatre,
+  dans la liste fermée `machine.Producers`). Un chemin
   est absolu, propre (`path.Clean`), fait de lettres, chiffres, `.`, `-`,
   `_`, `/`, jamais `/` seul : la ligne se colle sans guillemets. `observe`
   s'ajoute toujours ; les droits se rangent dans l'ordre du tableau, les
@@ -326,7 +334,8 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 - **À l'émission** : `POST /api/machines/tokens` reçoit `{name,
   capabilities: [{name, paths}]}` ; un droit inconnu, un chemin faux ou une
   portée fausse se refusent en 422 (`machine.capability_unknown`,
-  `machine.capability_path`, `machine.capability_scope`). Le jeton garde la
+  `machine.capability_path`, `machine.capability_scope`,
+  `machine.capability_producer` : un producteur hors liste). Le jeton garde la
   forme texte (`requested_capabilities`). Un jeton de ré-enrôlement reprend
   ce que le jeton de l'agent courant demandait, `observe` seul s'il ne
   demandait rien.
@@ -375,6 +384,9 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   | `path_denied` | le dossier du droit (la racine des services pour Docker, ou son plus proche parent s'il manque) n'est pas au compte : `access(2)` rend `EACCES` | `docker.*`, `backup.receive`, `files.write` |
   | `path_unwritable` | `EROFS`, ou ce qui n'est pas un dossier : l'unité ne l'ouvre pas (`ReadWritePaths`) | idem |
   | `not_self_updatable` | l'agent ne tourne pas depuis `<état>/bin/` | `agent.update` |
+  | `sudo_missing` | pas de `sudo` sur le `PATH` de l'agent | `backup.produce` |
+  | `producer_missing` | le script de root `/usr/local/sbin/opencloud-vzdump` ou `/usr/bin/vzdump` manque ou ne s'exécute pas | `backup.produce` |
+  | `sudo_denied` | `sudo -n -l /usr/local/sbin/opencloud-vzdump` échoue : la règle manque, ou l'unité interdit `sudo` (`NoNewPrivileges=true`) | `backup.produce` |
 
   `agent.update` demande en plus que le compte écrive dans `<état>/bin/` : sinon
   `path_denied` avant de télécharger quoi que ce soit. `access(2)` juge l'uid
@@ -401,6 +413,36 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   une ligne qui le dit, ou le nom et l'uid ; « pas encore rapporté » pour un
   agent plus ancien) et, dans une note, les droits cochés que ce compte ne peut
   pas exercer.
+- **`backup.produce=proxmox-vzdump` : sa préparation et son jugement** (#266,
+  proposé par Claude, validé par Lucas le 24 octobre 2026). Sur un hôte
+  Proxmox, l'agent reste sous `opencloud-agent` : `vzdump` ne se lance pas
+  sous ce compte, ni dans le bac à sable de l'unité (`ProtectSystem=strict`,
+  `PrivateTmp`). La page du jeton ajoute donc, après les lignes du compte, une
+  ligne par geste (textes dans `internal/machine/produce.go`, une seule fois) :
+  le dossier `produce/` de l'état, au compte (`0700`) ; le script de root
+  `/usr/local/sbin/opencloud-vzdump` (`0755`), qui fait `exec systemd-run
+  --pipe --wait --collect --quiet /usr/bin/vzdump "$@"` : `vzdump` tourne dans
+  une unité transitoire, **hors** du bac à sable de l'agent, et `--pipe` relie
+  sa sortie à l'agent ; la règle `opencloud-agent ALL=(root) NOPASSWD:
+  /usr/local/sbin/opencloud-vzdump` dans `/etc/sudoers.d/opencloud-agent`
+  (`0440`), posée en **un seul geste sûr** : écrite d'abord sous un nom que
+  `sudo` ignore (`.opencloud-agent.tmp`, un fichier qui commence par un point
+  n'est pas lu), jugée par `visudo -cf` sur ce nom, et seulement alors renommée.
+  Si l'un des trois échoue, le fichier provisoire part et rien n'est posé : une
+  règle fausse ne bloque jamais `sudo` pour toute la machine, même quand
+  l'opérateur colle la ligne sans lire ce qu'elle dit ; le drop-in `produce.conf` de l'unité,
+  `NoNewPrivileges=false`, **seul desserrement** (avec `true`, `sudo` ne peut
+  rien : le bit setuid est ignoré) ; `systemctl daemon-reload`. Les cinq
+  lignes de root écrivent sur des chemins que le compte ne contrôle pas. Ce
+  que ça coûte : la règle ne nomme que le script, mais `vzdump` accepte
+  `--script`, un crochet lancé en root ; **le droit vaut root sur la machine
+  pour un agent compromis**, comme le groupe `docker`, et `NoNewPrivileges=false`
+  retire à l'unité une protection de plus. La page du jeton le dit dans un
+  encadré à côté de celui du groupe `docker`. L'agent juge le droit comme les
+  autres, avant chaque ouverture du flux, dans l'ordre `sudo_missing` (pas de
+  `sudo`), `producer_missing` (le script ou `vzdump` manque), `sudo_denied`
+  (`sudo -n -l <script>` échoue : il répond sans rien exécuter ni demander de
+  mot de passe) ; la question se pose sans lancer `vzdump`.
 - **Un état mal gardé n'applique que `observe`** (#235, décisions 3 et 4 du
   22 octobre 2026). Au démarrage, après l'avoir ouvert, la commande juge
   l'état (`agent.CheckStateDir`) : elle suit son chemin comme le noyau, depuis
@@ -470,6 +512,124 @@ toujours eue : c'est par lui qu'elle garde son historique.
 | Hors ligne | Sans le flux de son agent, la machine openCloud est hors ligne, comme les autres ; tant qu'elle n'a pas d'agent actif, elle n'est jamais déclarée **perdue** |
 | Retrait | Comme les autres, par son plan : elle emporte son agent. Au démarrage suivant, sans ligne `local`, le jeton est de nouveau offert |
 
+## Comment un hôte Proxmox se lit
+
+C'est la première étape de #266 : **lire**, jamais écrire (la sauvegarde d'une
+VM est un autre geste, qui ne passe pas par cette lecture : l'agent de l'hôte
+lance `vzdump`, « Comment une sauvegarde se fait » ; la lecture lui donne la
+liste des VM du sélecteur `all`). L'opérateur déclare,
+sur la fiche d'une machine, l'hôte Proxmox qu'elle porte ; openCloud interroge
+l'API de l'hyperviseur et montre ses VM et conteneurs, ses stockages et la
+dernière sauvegarde de chaque VM (onglet « Hyperviseur » de la machine), et, sur
+la fiche d'une machine qui est une de ces VM, l'encadré « Sur l'hôte Proxmox »
+(« VM 5012, 2 vCPU, 2 Gio, dernière sauvegarde le … (233 Mio) »). **Aucun ordre
+n'est donné à Proxmox** : ni démarrage, ni arrêt, ni sauvegarde lancée, ni
+fichier écrit. **Aucune alerte** ne naît d'un relevé : une VM arrêtée, un
+stockage plein ou une sauvegarde ancienne se lisent, rien ne sonne. Le droit
+d'agir ou d'alerter viendra, s'il vient, d'une décision à part.
+
+**Ce qui est lu.** Quatre appels, tous en `GET` sur `/api2/json` :
+
+| Appel | Ce qu'on en garde |
+| --- | --- |
+| `/version` | La version de Proxmox VE. C'est aussi la plus petite lecture qui exige un jeton valide : la déclaration s'en sert |
+| `/cluster/resources?type=vm` | Chaque VM (`qemu`) et conteneur (`lxc`) de toute la grappe : numéro, nom, nœud, état, modèle ou non, vCPU, mémoire et disque **alloués** (pas ce qu'ils consomment) |
+| `/cluster/resources?type=storage` | Chaque stockage, un par nœud pour un stockage local : type, taille, utilisé, libre, contenus acceptés, actif ou non |
+| `/nodes/{nœud}/storage/{stockage}/content?content=backup` | Les archives de sauvegarde, pour chaque stockage **actif qui accepte les sauvegardes** ; on retient, par VM, la plus récente et sa taille. Le nœud et le stockage viennent de l'API : ils sont échappés avant d'entrer dans le chemin |
+
+**Le rythme.** Un premier relevé part dès la déclaration, puis la boucle
+`proxmox` relit chaque hôte au démarrage de `serve` et toutes les cinq minutes
+(`watchPeriod`), un hôte à la fois. Un relevé entier est borné à deux minutes ;
+chaque appel à vingt secondes et à 8 Mio de réponse. Chaque texte rendu par
+l'API (nom, état, nœud, stockage, type, contenu) est coupé à 128 octets avant
+d'entrer en base ; un numéro de VM vu deux fois ne compte qu'une ; plus de 5 000
+VM ou de 1 000 stockages est une réponse refusée (`proxmox.bad_response`). Ce qui revient du relevé est
+écrit d'un bloc (« Ce qui est stocké, et où ») et prévient le direct (sujet
+`machines`).
+
+**Un relevé qui échoue** ne remplace rien : la fiche garde ce que le dernier
+relevé réussi a montré et dit la raison d'en haut (`last_error`), parmi quatre
+refus : `proxmox.unreachable` (l'hôte ne répond pas : adresse, port 8006,
+pare-feu), `proxmox.certificate` (le certificat n'est pas reconnu, ou n'est pas
+celui de l'empreinte), `proxmox.unauthorized` (`401` ou `403` : le jeton est
+refusé ou n'a pas le droit), `proxmox.bad_response` (statut inattendu, réponse
+qui n'est pas celle de l'API, plus de 8 Mio). Le prochain relevé réussi efface la
+raison. Un secret que la perte de `secret.key` a vidé est lu comme un jeton
+refusé : l'hôte reste déclaré, l'opérateur ressaisit le jeton.
+
+**Le jeton.** Un jeton d'API Proxmox, créé pour openCloud, **en lecture seule** :
+le rôle `PVEAuditor` sur `/` suffit, soit les privilèges `Sys.Audit`,
+`VM.Audit` et `Datastore.Audit` (ce dernier sert à lister les archives des
+stockages de sauvegarde). Sa création est décrite dans
+`installation.md`, « Déclarer un hôte Proxmox ». Il part dans l'en-tête
+`Authorization: PVEAPIToken=<identifiant>=<secret>` et nulle part ailleurs : ni
+dans l'adresse, ni dans une erreur, ni dans un journal, ni dans l'audit. Son
+**secret est chiffré** dans la base (`machine_proxmox.token_secret`, lié à sa
+machine), et **l'API ne le rend jamais** : la fiche de l'hôte montre l'adresse,
+l'identifiant du jeton, l'empreinte, jamais le secret ; pour le changer on le
+ressaisit.
+
+**Le certificat.** Sans empreinte, le magasin du système juge le certificat de
+l'hôte (un Proxmox avec un certificat d'une autorité reconnue, par exemple
+Let's Encrypt par ACME). Avec une empreinte SHA-256, **elle seule juge** : la
+chaîne n'est pas vérifiée, mais le certificat présenté doit avoir exactement
+cette empreinte, sans quoi rien n'est envoyé à l'hôte, jeton compris. C'est le
+cas d'un Proxmox livré avec son certificat auto-signé. L'empreinte se saisit
+avec ou sans deux-points, avec ou sans `sha256:`, ou en collant la ligne
+d'openssl entière (`sha256 Fingerprint=AA:BB:…`). Aucune redirection n'est
+suivie : une API qui redirige n'est pas celle qu'on a déclarée.
+
+**Les destinations.** Le client sort par la garde d'`egress` (`DialWith`, réseau
+local ouvert : c'est le cas normal d'un Proxmox ; le lien-local, qui porte les
+métadonnées des hébergeurs, reste fermé) et n'utilise pas de mandataire
+d'environnement. La machine openCloud doit joindre le port 8006 de l'hôte.
+
+**Déclarer, modifier, retirer.** `PUT /api/machines/{id}/proxmox` déclare ou
+remplace l'hôte (adresse en `https://hôte[:port]` sans chemin, identifiant de
+jeton `utilisateur@domaine!nom`, secret, empreinte facultative). **Le jeton
+répond à `/version` avant que rien ne s'écrive** : une adresse muette, un
+certificat refusé ou un jeton faux répondent `422` (`proxmox.unreachable`,
+`proxmox.certificate`, `proxmox.unauthorized`, `proxmox.bad_response`) et la
+base ne change pas ; une saisie mal formée répond `422` aussi
+(`proxmox.url_invalid`, `proxmox.token_id_invalid`, `proxmox.secret_invalid`,
+`proxmox.pin_invalid`), sans appeler l'hôte. La réponse est la fiche de l'hôte
+après un premier relevé ; si ce relevé échoue, l'hôte est déclaré et la fiche
+dit pourquoi. Redéclarer avec une autre adresse est un autre hôte : ce que
+l'ancien avait relevé part. `POST /api/machines/{id}/actions/remove-proxmox`
+retire l'hôte (`204`, `404` si la machine n'en porte pas) : un retrait en action
+et non en `DELETE …/proxmox`, parce que ce motif recoupe
+`DELETE /api/machines/tokens/{id}` et que le multiplexeur de Go refuse deux
+motifs dont aucun n'est plus précis. `GET /api/machines/{id}/proxmox` rend la
+fiche (`404` sans hôte). Chaque machine de `GET /api/machines` et
+`GET /api/machines/{id}` porte un résumé `proxmox` : `declared`, `guests`,
+`last_error`, et `hosted` quand la machine est la VM d'un hôte. Journal d'audit :
+`machine.proxmox_set` (hôte, identifiant du jeton, épinglé ou non ; **ni
+l'adresse complète ni le secret**) et `machine.proxmox_unset`.
+
+**Qui est quelle machine.** Une VM est rapprochée de la machine enrôlée dont le
+**nom d'hôte** (`hostname`, relevé par l'agent) est égal à son nom : l'égalité
+exacte d'abord, puis, à défaut, une casse différente **si une seule machine
+convient** ; deux candidates qui ne diffèrent que par la casse ne rapprochent
+rien. La machine de l'hôte n'est jamais sa propre VM. Le rapprochement est
+recalculé à chaque relevé ; la machine openCloud elle-même (`local`) peut porter
+un hôte comme toute autre. Si deux hôtes montrent une VM de même nom, la
+première (par nom de machine) décrit la machine.
+
+**Le jeton d'API.** `GET /api/machines/{id}/proxmox` est dans la liste fermée de
+« Comment un agent IA lit openCloud » : elle ne rend aucun secret. La
+déclaration et le retrait n'y sont pas.
+
+**La clé perdue.** `opencloud secrets forget` vide le secret de chaque hôte
+Proxmox (il ne se relit plus) et dit combien : les hôtes restent déclarés, leur
+dernier relevé reste affiché, le relevé suivant échoue en `proxmox.unauthorized`
+jusqu'à ce que l'opérateur ressaisisse le jeton.
+
+**Ce qui n'est pas fait.** Aucun ordre à Proxmox ; aucune alerte sur ses VM ou ses
+stockages ; pas de consommation (CPU, mémoire, disque réellement utilisés) ; pas
+d'historique des relevés ; pas de découverte d'une grappe par ses nœuds (un hôte
+est déclaré par l'adresse d'un seul nœud, l'API de la grappe est la même) ; pas
+de Proxmox Backup Server.
+
 ## Comment un ordre part et revient
 
 Un **ordre** agit sur une machine ; une **commande d'observation** la lit.
@@ -478,7 +638,7 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 
 | | Commandes d'observation | Ordres |
 | --- | --- | --- |
-| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping` : il ne change rien et prouve le chemin ; `agent.server_key`, que le serveur envoie seul pendant une rotation de sa clé ; `backup.receive` et `backup.prune`, les ordres longs de la sauvegarde (« Comment la base est sauvegardée »). `agent.update`, l'ordre long qui change le binaire de l'agent (« Comment un agent se met à jour »). `docker.deploy` et `docker.update`, les ordres longs du déploiement (« Comment un service se déploie »). Les autres gestes (`files.write`…) viendront avec #153 étape 5 |
+| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping` : il ne change rien et prouve le chemin ; `agent.server_key`, que le serveur envoie seul pendant une rotation de sa clé ; `backup.receive` et `backup.prune`, les ordres longs de la sauvegarde (« Comment une sauvegarde se fait »). `agent.update`, l'ordre long qui change le binaire de l'agent (« Comment un agent se met à jour »). `docker.deploy` et `docker.update`, les ordres longs du déploiement (« Comment un service se déploie »). `backup.produce`, l'ordre long qui fait produire une sauvegarde par la machine elle-même (voir plus bas). Les autres gestes (`files.write`…) viendront avec #153 étape 5 |
 | Sur le fil | un événement SSE à leur nom, au contenu typé (`agentwire.Command`) | l'événement `order` : le corps JSON tel qu'il a été signé, sa signature, l'empreinte de la clé |
 | Signées | **non** : elles ne font que lire, et ne partent que du serveur qui tient le flux | **oui**, Ed25519, par `server.key` |
 | Écrites avant l'envoi | non | oui : le run dans `action_runs`, l'événement `action.order` au journal d'audit |
@@ -540,8 +700,8 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 | --- | --- | --- |
 | `queued` | le serveur, à l'écriture | non |
 | `sent` | le serveur, juste avant de pousser | non |
-| `accepted` | l'agent, quand un ordre dure (`backup.receive`, `backup.prune`, `docker.deploy`, `docker.update`) | non |
-| `refused` | l'agent, avec sa raison ; aussi après `accepted` pour un déploiement que le worker arrête avant d'écrire (dossier, racine, prérequis) : rien n'a changé sur la machine | oui |
+| `accepted` | l'agent, quand un ordre dure (`backup.receive`, `backup.prune`, `backup.produce`, `docker.deploy`, `docker.update`) | non |
+| `refused` | l'agent, avec sa raison ; aussi après `accepted` pour un déploiement ou une production que le worker arrête avant d'écrire (dossier, racine, prérequis, producteur indisponible, moins de 1 Gio libre) : rien n'a changé sur la machine | oui |
 | `succeeded`, `failed` | l'agent ; `failed` aussi par le serveur (`undelivered`, `timeout`) | oui |
 | `expired` | la boucle des ordres, après `not_after` | oui |
 
@@ -567,6 +727,78 @@ parcel_not_found`, 30 requêtes par minute et par machine (`429`). Le jeton
 de session change à chaque reconnexion : un téléchargement commencé sur une
 session tombée échoue (`download_failed`), il n'est pas repris. Le même
 mécanisme sert aussi à `agent.update`, qui y trouve le binaire et sa signature.
+
+**Le colis qu'un agent remplit** (`backup.produce`). Le sens inverse existe :
+le serveur ouvre un colis vide pour une machine de destination
+(`Outbox.CreateForUpload`), l'agent producteur y **téléverse** son fichier par
+`PUT /agent/parcels/{colis}/{nom}` (même jeton de session, même en-tête de
+protocole, mêmes 30 requêtes par minute), puis l'agent de destination le
+télécharge comme n'importe quel colis. Le corps est le fichier, de la taille de
+`Content-Length` (obligatoire), et la somme est dans l'en-tête
+`OpenCloud-SHA256` ; le client demande `Expect: 100-continue`, pour qu'un refus
+arrive avant l'envoi. Le serveur juge la taille annoncée **avant** d'ouvrir le
+corps, écrit un `.part` `0600`, ne lit pas un octet de plus que la taille
+annoncée, vérifie taille et somme, puis renomme. Le nom doit être celui d'une
+sauvegarde (`<préfixe>-AAAAMMJJ-HHMMSS.tar.age`, `agentwire.IsBackupFile`). Un fichier à la fois par
+colis, huit au plus, jamais deux fois le même nom. La limite de corps de 1 Mio
+du serveur ne vaut pas pour cette seule route.
+
+| Réponse | Quand |
+| --- | --- |
+| `201` | le fichier est écrit et vérifié |
+| `404 parcel_not_found` | le colis n'existe pas, est échu, ou attend une autre machine |
+| `409 parcel_conflict` | ce nom est déjà écrit, ou un autre fichier arrive dans ce colis |
+| `411 length_required` | pas de `Content-Length` |
+| `413 parcel_too_large` | plus de 64 Gio (`action.MaxUploadBytes`) |
+| `413 disk_full` | moins de 1 Gio libre sous `state_dir` une fois le fichier écrit |
+| `422 bad_name` / `bad_digest` | un nom qui n'est pas celui d'une sauvegarde, une somme qui n'est pas 64 hexadécimaux, ou un fichier arrivé qui n'a ni la taille ni la somme annoncées |
+| `400 upload_interrupted` | l'envoi s'est coupé avant la taille annoncée, ou a duré plus que le colis (`action.ParcelLifetime` : le serveur n'a pas de délai de lecture général, cette route borne le sien) ; rien n'est gardé |
+
+**L'ordre `backup.produce`.** Paramètres (`agentwire.BackupProduceParams`) :
+`producer` (le producteur, `proxmox-vzdump`), `target` (la cible : des chiffres,
+l'identifiant de l'invité), `prefix` (le préfixe du nom de l'archive), `recipient`
+(la clé publique `age1…` de sauvegarde) et `parcel` (le colis où téléverser).
+Rien ici n'est un secret. Le droit est `backup.produce=<producteur>` ; le
+serveur refuse d'envoyer l'ordre à un agent qui a rapporté ses droits sans ce
+producteur (`409 action.right_missing`), et l'agent le juge à son tour. Il
+refuse tout de suite, sans rien lancer : `right_missing:backup.produce` (le
+droit ne nomme pas ce producteur), `producer_unknown` (le droit le nomme, cet
+agent ne sait pas le lancer), `bad_order` (cible, préfixe, clé ou colis mal
+formés, ou le préfixe de la base, `database` ou `opencloud` : une cible qui n'est pas faite de chiffres ne devient jamais un argument
+de ligne de commande). Accepté, l'ordre passe au worker, qui d'abord vérifie ce
+que le droit exige de la machine (`sudo_missing`, `producer_missing`,
+`sudo_denied`) et 1 Gio libre sous l'état (`disk_full`) : des refus avant la
+première écriture. Puis :
+
+1. le producteur `proxmox-vzdump` lance `sudo -n /usr/local/sbin/opencloud-vzdump
+   <cible> --mode snapshot --compress zstd --stdout --quiet 1`, sous un
+   environnement **remplacé** (`PATH`, `LC_ALL=C`), et écrit son flux dans
+   `produce/<nom>.raw` : un fichier, jamais la mémoire. La fin de sa sortie
+   d'erreur (32 lignes) est gardée pour le résultat ;
+2. l'agent emballe le flux dans un tar d'une seule entrée (nommée comme vzdump
+   nomme ses archives : `vzdump-qemu-<cible>-AAAA_MM_JJ-HH_MM_SS.vma.zst`, ou
+   `…lxc….tar.zst`) et le chiffre pour `recipient`, vers `<nom>.part`, puis efface le
+   brut : deux archives de la taille d'une machine virtuelle ne restent pas
+   ensemble pendant l'envoi ;
+3. il renomme, `fsync`, relit le fichier du disque (taille, somme, en-tête
+   `age-encryption.org/v1`, comme `backup.receive`), puis le téléverse, trois
+   essais au plus sur une coupure du réseau (pas de nouvel essai sur un refus
+   du serveur, il dirait la même chose) ;
+4. `produce/` est vidé à la fin, réussie ou non, et au démarrage de l'agent : un
+   arrêt en pleine production y laisse un fichier de la taille d'une machine.
+   Un `produce/` qui serait un lien symbolique n'est ni vidé ni écrit
+   (`path_unwritable`) : vider un lien vers l'état emporterait la clé de l'agent.
+
+Le résultat : `written <nom> <taille> sha256:<hex>` puis `uploaded <nom>`, ou en
+cas d'échec ces mêmes lignes jusqu'où l'ordre est allé, et la fin de la sortie
+d'erreur du producteur. Les raisons d'échec : `producer_failed` (le producteur
+sort en erreur ou n'écrit rien), `upload_failed` (le serveur refuse ou ne répond
+pas après les essais), `disk_full` (le disque se remplit en route),
+`path_unwritable` (le reste). Le nom est `<préfixe>-AAAAMMJJ-HHMMSS.tar.age`
+(UTC), comme celui de la base. L'agent n'a que la clé publique : **il ne peut pas
+relire ce qu'il a produit**, la vérification est celle du fichier, jamais un
+déchiffrement. Le droit vaut root sur la machine pour un agent compromis
+(« Les droits d'un agent »).
 
 **Le champ write-only.** `OrderBody.Secret` est **signé avec l'ordre** (64 Kio
 au plus, `agentwire.MaxSecretBytes`) mais **jamais écrit** : ni dans
@@ -621,23 +853,32 @@ plus récent au plus ancien, avec la sortie ; `400 bad_query` sur un nombre
 illisible, un jeton d'API la lit aussi), la carte « Ordres » de la fiche
 d'une machine, relue sur le sujet du direct `actions`.
 
-## Comment la base est sauvegardée
+## Comment une sauvegarde se fait
 
-Chaque nuit, `serve` prend un instantané cohérent de sa base, l'emballe avec
-ses deux clés, le chiffre pour une clé publique, et l'envoie à l'agent d'une
-**autre machine**. Il n'en garde aucune copie. Seule la base est sauvegardée
-ici ; le `data/` et le `.env` d'un service déployé ne sont pas emportés (« Comment un service se déploie »).
+Une installation porte **plusieurs plans** de sauvegarde. Chacun a un
+**sujet** (son nom, qui préfixe ses fichiers), une **source** (ce qu'il
+sauvegarde), une **destination** et un nombre de copies à garder. Le plan
+`database` est celui de la base : chaque nuit, `serve` prend un instantané
+cohérent de sa base, l'emballe avec ses deux clés, le chiffre pour une clé
+publique, et l'envoie à l'agent d'une **autre machine**. Il n'en garde aucune
+copie. Un plan dont la source est une **machine** (`agent`) dit quelle machine
+produit la sauvegarde, avec quel producteur et quelle sélection : la machine
+source chiffre elle-même ce qu'elle produit, et `serve` ne fait que le
+transporter (« Une source produite par un agent », plus bas). Le
+`data/` et le `.env` d'un service déployé ne sont pas emportés (« Comment un service se déploie »).
 
 | | |
 | --- | --- |
-| Ce qui part | Un tar sans compression de trois entrées exactement : `opencloud.db` (l'instantané `VACUUM INTO`), `secret.key`, `server.key`, en `0600`. Nom : `opencloud-AAAAMMJJ-HHMMSS.tar.age` (UTC). À côté, `opencloud-key-<empreinte>.age` : la clé privée scellée |
+| Ce qui part | Un tar sans compression de trois entrées exactement : `opencloud.db` (l'instantané `VACUUM INTO`), `secret.key`, `server.key`, en `0600`. Nom : `<préfixe>-AAAAMMJJ-HHMMSS.tar.age` (UTC), le préfixe étant `opencloud` pour le plan `database` (`brand.ID`) et le sujet du plan pour les autres. À côté, `opencloud-key-<empreinte>.age` : la clé privée scellée |
 | Chiffré comment | [age](https://age-encryption.org) : la clé publique `age1…` (X25519) chiffre ; la privée est scellée par `age.NewScryptRecipient(phrase)` (scrypt, facteur 2^18). L'empreinte est les 16 premiers hexadécimaux du SHA-256 de la clé publique. La bibliothèque est `filippo.io/age` : le format est lu par l'outil `age` courant, on restaure sans openCloud |
 | La phrase | 16 caractères au moins (runes, espaces de bord retirés), 1024 au plus. Saisie deux fois dans le navigateur, **une** reçue par le serveur, le temps de sceller la clé ; **jamais écrite**. Perdue, aucune sauvegarde ne se relit |
 | Une paire à la fois | `POST /api/backups/keyring` refuse si elle existe (`409 backup.keyring_exists`), sauf `replace: true`. Remplacer ne rend rien illisible : chaque sauvegarde a sa clé scellée à côté d'elle, nommée par empreinte |
 | Pas de copie locale | L'instantané en clair n'existe que le temps de l'emballer, dans `outgoing/<colis>/`, et il est effacé **avant** l'envoi. L'archive chiffrée y reste jusqu'au téléchargement par l'agent, le temps que son ordre peut vivre au plus (un peu plus d'une heure), puis part ; `serve` vide `outgoing/` au démarrage |
 | Où | Une **destination** : une machine dont l'agent a le droit `backup.receive`, et un dossier, celui du droit ou un sous-dossier. Jugé à la création si l'agent a rapporté ses droits (`409 backup.right_missing`), et toujours par l'agent à l'exécution (`path_outside_right`, puis `path_denied` ou `path_unwritable` si son compte ne peut pas écrire le dossier, avant d'accepter l'ordre ; la vue dit alors `unavailable`). Huit destinations au plus. Une machine qui en porte une ne se supprime pas (`restrict`, `machine.has_backup_destinations`) |
-| Quand | Un **plan** (`database`, `daily`) : la boucle de 15 minutes lance la sauvegarde à son premier tour après 3 h (heure du serveur) si aucune tentative n'a eu lieu depuis ce 3 h-là. « Sauvegarder maintenant » la lance tout de suite. Une tentative qui échoue avant l'ordre (machine hors ligne, pas de clé, droit absent, archive non préparée) s'écrit dans `last_error`, une clé de refus ; elle n'est pas rejouée avant la nuit suivante ou le bouton |
-| Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes |
+| Les plans | Un **plan** (`backup_plans`) se nomme par son **sujet**, un mot de `a-z`, `0-9` et `-` (40 caractères au plus, pas de `-` en tête), unique : c'est son identité dans l'API et dans le journal. `database` est le plan de la base (source `database`, sans machine ni producteur ni sélection) ; il n'y en a qu'un. Tous les autres ont une source `agent` et un sujet autre que `database` et `opencloud` (le préfixe des fichiers de la base : un plan machine ne peut pas venir marcher dessus), et qui ne finit pas par `-vm-<chiffres>` (le suffixe des archives par machine virtuelle : `x-vm-100` se confondrait avec la VM 100 du plan `x`). Un libellé facultatif (80 caractères au plus) est affiché à la place du sujet. Le nombre de plans n'est pas borné par le code |
+| Quand | Chaque plan : la boucle de 15 minutes lance la sauvegarde de **chacun** à son premier tour après 3 h (heure du serveur) si aucune tentative n'a eu lieu depuis ce 3 h-là. Un plan refusé n'arrête pas les autres. « Sauvegarder maintenant » lance un plan tout de suite. Une tentative qui échoue avant l'ordre (machine hors ligne, pas de clé, droit absent, archive non préparée, machine source hors ligne ou sans le droit de produire, agent de destination trop ancien) s'écrit dans `last_error`, une clé de refus ; elle n'est pas rejouée avant la nuit suivante ou le bouton |
+| Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes **du préfixe du plan** ; pour un plan machine, du préfixe de **chaque machine virtuelle** |
+| Une copie de plus | Deux plans de même source (même type, même machine, même producteur, même sélection) **et** de même destination sont refusés (`409 backup.plan_exists`) : le second referait le travail du premier, sous un autre nom. Le même contenu vers une autre destination est permis, c'est une seconde copie |
 
 **Ce que fait l'agent.** `backup.receive` est le premier ordre qui **écrit
 sur une machine** : l'agent n'écrit que ce que son compte possède (ou tout, s'il est
@@ -650,10 +891,21 @@ du colis (borné à la taille signée, plus un octet pour voir un dépassement),
 `fsync`, renomme, `fsync` du dossier, puis **relit** le fichier : somme
 recalculée sur le disque, et en-tête `age-encryption.org/v1` pour un `.age`
 (`not_an_age_file`). Il rend une ligne par fichier, `written <nom> <taille>
-sha256:<hex>`, et n'envoie aucun contenu. `backup.prune` ne supprime que les
-fichiers de la forme exacte `opencloud-AAAAMMJJ-HHMMSS.tar.age`, garde les
+sha256:<hex>`, et n'envoie aucun contenu. `backup.prune` porte un
+`Prefix` obligatoire (le préfixe du plan : un sujet ou `opencloud`) ; sans lui,
+ou s'il n'a pas la forme d'un préfixe, l'ordre est refusé `bad_order`. Il ne
+supprime que les fichiers de la forme exacte `<préfixe>-AAAAMMJJ-HHMMSS.tar.age` :
+après `<préfixe>-`, le reste doit être **exactement** l'horodatage. Le plan `pve`
+ne prend donc jamais un fichier `pve-vm-100-…` ni `opencloud-…`. Il garde les
 `keep` plus récents (tri par nom), ne touche jamais une clé `-key-` ni autre
-chose, et rend `removed <nom>` puis `kept <n>`.
+chose, et rend `removed <nom>` puis `kept <n>`. Aucune compatibilité avec un
+ancien ordre sans `Prefix` n'est gardée : aucun agent installé n'a reçu de
+`backup.prune` d'un serveur de cette version. Dans l'autre sens, un agent
+d'avant ignore `prefix` et n'élague que `opencloud-…` : sans danger pour le
+plan `database`, mais un plan machine ne doit pas élaguer chez lui (il
+élaguerait la base avec le `keep` de ce plan) : `serve` refuse donc de le
+lancer vers un agent d'avant `agentwire.PrefixSinceVersion`
+(`backup.destination_agent_outdated`, « Une source produite par un agent »).
 
 **La vérification** est cette relecture, faite à chaque sauvegarde : jamais un
 déchiffrement, l'agent n'a pas la clé. L'état affiché par la page est celui du
@@ -668,18 +920,135 @@ connues sont extraites, chacune bornée (base 64 Gio, clés 64 Kio), en `0600`,
 et rien n'apparaît sous son nom définitif tant que l'archive n'est pas lue
 jusqu'au bout. La commande imprime la suite (`chown`, démarrer `serve`).
 
+**Les plans à source machine.** Un plan `agent` dit : la machine
+(`source_machine_id`, qui existe), le producteur (`proxmox-vzdump`, la seule
+valeur de la liste fermée `machine.Producers()`, la même que juge le droit `backup.produce`) et la sélection (`all`, ou des
+identifiants séparés par des virgules comme `100,101`, 255 caractères au plus).
+La machine source d'un plan ne se supprime pas (`restrict`,
+`machine.has_backup_plans`) : on retire d'abord le plan.
+
+**Une source produite par un agent.** Le passage d'un plan `agent` (la nuit,
+ou « Sauvegarder maintenant ») sauvegarde **une cible à la fois**, c'est-à-dire
+une machine virtuelle ou un conteneur, et **un seul colis vit** sur la machine
+openCloud à chaque instant, quelle que soit la taille de la cible.
+
+*Avant le moindre ordre*, `serve` juge, dans cet ordre : la clé de sauvegarde
+(`backup.keyring_missing`), la destination en ligne et son droit
+(`backup.machine_offline`, `backup.right_missing`), **l'agent de la
+destination**, la machine source, puis les cibles. Un refus ici ne crée ni
+ordre ni colis ; sa clé s'écrit dans `last_error`.
+
+| Refus | Quand |
+| --- | --- |
+| `409 backup.destination_agent_outdated` | l'agent de la destination est plus ancien que `agentwire.PrefixSinceVersion` (`v0.2.0`), ou sa version ne se lit pas (`dev`, vide). Les agents d'avant ignorent `prefix` dans `backup.prune` et élagueraient `opencloud-…` avec le `keep` du plan : un plan machine ne part pas vers eux. Le plan `database` n'est pas concerné, il part toujours |
+| `409 backup.source_offline` | la machine source n'a pas d'agent en ligne |
+| `409 backup.source_right_missing` | pas d'agent actif, ou l'agent a rapporté ses droits et `backup.produce` ne nomme pas le producteur du plan |
+| `409 backup.selector_needs_list` | `all`, alors que la source n'a pas d'hôte Proxmox déclaré avec au moins un invité relevé (les modèles sont écartés) : `serve` n'invente pas de liste, l'opérateur donne les numéros |
+| `409 backup.run_in_progress` | un passage court déjà, de ce plan ou de n'importe lequel : un seul à la fois sur la machine openCloud. Le plan n'est pas touché |
+
+*Par cible*, dans l'ordre :
+
+1. `serve` ouvre un colis pour la machine de destination, que seule la machine
+   source remplit (`Outbox.CreateForUpload`), et y dépose la **clé privée
+   scellée**, nommée par empreinte, comme pour la base ;
+2. il envoie `backup.produce` à la machine source (`producer`, `target`,
+   `prefix` = `<sujet>-vm-<numéro>`, la clé publique, le colis) et **attend la
+   fin de l'ordre** (réponse de l'agent, expiration à `not_after`, ou échec
+   `timeout` au bout de `MaxRunDuration`, une heure). L'agent produit, chiffre,
+   téléverse (voir plus haut) ;
+3. l'archive est là : `serve` **remet** le colis (`Upload.Handover` : la source
+   n'y écrit plus, et la destination a toute la durée d'un colis pour le
+   télécharger, comptée d'ici et non de sa création), refuse la cible
+   `upload_failed` si le colis ne porte pas **exactement** une archive du
+   préfixe de la cible et la clé scellée (une source compromise qui glisserait
+   `opencloud-2099…` ou l'archive d'une autre machine virtuelle ferait chasser
+   les vraies sauvegardes par l'élagage : rien ne part), puis envoie
+   `backup.receive` à la destination avec la liste des fichiers (archive et
+   clé) et **attend** ;
+4. `serve` **jette le colis**, puis envoie `backup.prune{Path, Prefix, Keep}`
+   (le préfixe de **cette** machine virtuelle) et attend : l'élagage d'une
+   cible ne touche jamais celles des autres ;
+5. la cible suivante commence. Le colis de la précédente n'existe plus.
+
+Les ordres d'un passage sont ceux de tout ordre : signés, deux minutes pour
+être pris, un rang par agent, une ligne d'audit `action.order` chacun
+(sous `rule:backup` la nuit, ou l'opérateur qui a cliqué).
+
+*Ce que `serve` voit.* Des noms, des tailles, des sommes, des octets chiffrés :
+**jamais le clair** d'une machine virtuelle, ni de son archive ni de sa
+sortie ; la clé publique chiffre sur la machine source, la privée n'est sur
+`serve` que scellée par la phrase, et jamais sur la source. Un agent compromis n'apporte au serveur
+que du chiffré. À côté de chaque archive, sur la destination, la clé privée
+scellée : `<sujet>-vm-<numéro>-AAAAMMJJ-HHMMSS.tar.age` et
+`opencloud-key-<empreinte>.age`.
+
+*Un échec n'arrête pas le passage.* Une cible qui échoue (le producteur sort
+en erreur, un droit manque, l'ordre expire ou se perd, la destination refuse)
+est comptée en échec, son colis est jeté, **la suivante part**. `last_error`
+garde le **premier** souci du passage, sous une forme fermée :
+
+| `last_error` | Sens |
+| --- | --- |
+| `backup.target_failed:<numéro>:<raison>` | la cible n'est pas arrivée sur la destination |
+| `backup.prune_failed:<numéro>:<raison>` | la cible est arrivée, mais ses anciennes copies n'ont pas été élaguées |
+| `backup.destination_agent_outdated` | l'agent de la destination a été remplacé par un plus ancien pendant le passage : les cibles arrivent, rien n'est élagué |
+
+La `<raison>` est l'un des mots fermés que les ordres connaissent
+(`producer_failed`, `upload_failed`, `disk_full`, `right_missing:<droit>`,
+`expired`, `timeout`, `undelivered`, les refus de l'agent…), **jamais le texte
+qu'un agent a écrit** : tout ce que `serve` ne reconnaît pas devient `unknown`
+(« raison non rapportée » sur la page). La sortie de l'agent reste sur son ordre,
+pas dans `last_error`. Aucun secret n'y entre : ni la phrase, ni la clé, ni une
+ligne de `vzdump`. Le plan ajoute à son état le **nombre de cibles reçues et en
+échec** du dernier passage (`last_targets_ok`, `last_targets_failed`).
+Ces deux nombres sont **gardés en mémoire** (aucune colonne de plus) : ils
+valent 0 et 0 pour la base et après un redémarrage de `serve`, tant que le plan
+n'a pas repassé.
+
+*Le rythme.* « Sauvegarder maintenant » rend le premier ordre `backup.produce`
+dès qu'il est parti et mène la suite derrière la requête ; la page suit
+l'avancement sur le sujet `backups`. La nuit, la boucle mène un plan machine
+jusqu'au bout avant le suivant : un plan de plusieurs heures retarde ceux qui
+passent après lui. Si `serve` s'arrête au milieu, le passage s'interrompt sans
+rien noter, le colis en cours est jeté, et les cibles restantes attendent la
+nuit suivante.
+
+*La restauration* d'une machine virtuelle se fait **sans openCloud** : on
+déchiffre la clé scellée (`age -d -o cle.txt opencloud-key-<empreinte>.age`, la
+phrase est demandée), on s'en sert pour l'archive (`age -d -i cle.txt
+<préfixe>-….tar.age | tar -x`), qui rend une seule entrée, l'archive de
+`vzdump` ; puis
+`qmrestore vzdump-qemu-<numéro>-….vma.zst <numéro>` pour une machine
+virtuelle, ou `pct restore <numéro> vzdump-lxc-<numéro>-….tar.zst` pour un
+conteneur.
+
+**Les refus d'un plan** : `422 backup.plan_invalid` (sujet, libellé ou type de
+source illisibles, ou un plan `database` qui porte une machine), `422
+backup.keep_invalid` (nombre à garder), `422 backup.source_machine_unknown`, `422 backup.producer_unknown`,
+`422 backup.selector_invalid`, `409 backup.plan_exists`, `409
+backup.plan_missing` (lancer un sujet qui n'existe pas ; supprimer un sujet
+inconnu répond `404`), et, au lancement d'un plan machine, `409
+backup.source_offline`, `backup.source_right_missing`, `backup.selector_needs_list`,
+`backup.destination_agent_outdated` et `backup.run_in_progress` (« Une source
+produite par un agent »).
+
 **L'interface** : la page **Sauvegardes** (`/sauvegardes`, sous
-« Administration ») : l'état et « Sauvegarder maintenant », la clé, les
-destinations (avec la pastille du droit de leur agent), le plan. Routes :
-`GET /api/backups`, `POST /api/backups/keyring`, `POST`/`DELETE
-/api/backups/destinations[/{id}]`, `PUT`/`DELETE /api/backups/plan`, `POST
-/api/backups/actions/run`. Sujet du direct : `backups` (et `actions`, car
-l'état d'une sauvegarde est celui de son dernier ordre).
+« Administration ») : la clé, les destinations (avec la pastille du droit de
+leur agent), puis la liste des plans, chacun avec son état, « Sauvegarder
+maintenant », « Modifier » et « Supprimer le plan », et le formulaire
+d'ajout ou de modification (le sujet et le type de source ne changent plus une
+fois le plan créé). Routes : `GET /api/backups` (`plans: []`), `POST
+/api/backups/keyring`, `POST`/`DELETE /api/backups/destinations[/{id}]`,
+`PUT`/`DELETE /api/backups/plans/{subject}`, `POST
+/api/backups/plans/{subject}/actions/run`. Sujet du direct : `backups` (et
+`actions`, car l'état d'une sauvegarde est celui de son dernier ordre).
 
 **Au journal** : `backup_keyring.create` et `.replace` (`fingerprint`),
 `backup_destination.create` et `.delete` (`name`, `machine_id`, `path`),
-`backup_plan.update` (`destination_id`, `keep`), `.delete`, et `.run` (`run_id`,
-`destination_id`, sous la règle `rule:backup` la nuit), plus les deux
+`backup_plan.update` (`source_kind`, `destination_id`, `keep`, et pour une
+source machine `source_machine_id`, `producer`, `selector`), `.delete`, et `.run`
+(`run_id`, `destination_id`, sous la règle `rule:backup` la nuit), le sujet du
+plan servant de nom d'objet, plus les deux
 `action.order` de chaque sauvegarde. Jamais la phrase (`passphrase` rejoint les
 noms de détail interdits), jamais `identity_sealed`.
 
@@ -687,8 +1056,8 @@ noms de détail interdits), jamais `identity_sealed`.
 base, `secret.key` et `server.key` : la phrase se garde dans un coffre, ailleurs
 que les sauvegardes. Qui a la machine openCloud n'a pas besoin des
 sauvegardes. Une destination qui perd son disque perd ses sauvegardes : en
-avoir deux est à la charge de l'opérateur (huit au plus, un plan pour
-l'instant).
+avoir deux est à la charge de l'opérateur (huit au plus ; plusieurs plans
+peuvent viser des destinations différentes).
 
 ## Comment un service se déploie
 
@@ -3044,7 +3413,7 @@ toute requête `/api/…` : mcp-maison joint openCloud par l'IP de `listen`
 (`OPENCLOUD_URL`), un hôte reconnu ; un nom que `public_url` ignore est refusé
 en `403 bad_host`.
 
-**La liste fermée** (`apiTokenRoutes`, `internal/server/routes.go`) : 25
+**La liste fermée** (`apiTokenRoutes`, `internal/server/routes.go`) : 26
 lectures, toutes en `GET`, figées par un test qui vérifie que chaque entrée
 est une vraie route et que **toute autre route de l'API, y compris
 `POST /api/settings/api-tokens`, répond 403 à un jeton**.
@@ -3052,7 +3421,7 @@ est une vraie route et que **toute autre route de l'API, y compris
 | Domaine | Routes |
 | --- | --- |
 | Session, compteurs | `/api/session`, `/api/counts` |
-| Machines | `/api/machines`, `/api/machines/{id}`, `…/network`, `…/resources` |
+| Machines | `/api/machines`, `/api/machines/{id}`, `…/network`, `…/resources`, `…/proxmox` |
 | Conteneurs | `/api/containers`, `/api/containers/{id}`, `…/logs` |
 | Annuaire | `/api/directory/services`, `/api/directory/gaps`, `/api/manifest/export` |
 | Tâches, sondes | `/api/jobs`, `/api/jobs/{id}`, `/api/probes`, `/api/probes/{id}` |
@@ -3404,7 +3773,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 
 | Supprimer | Retenue tant que (restrict) — clé du 409 | Emporte (cascade, compté) | Détache (compté) | Ensuite |
 | --- | --- | --- | --- | --- |
-| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
+| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; destinations de sauvegarde qu'elle porte `machine.has_backup_destinations` ; plans de sauvegarde dont elle est la source `machine.has_backup_plans` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés SSH relevées, hôte Proxmox déclaré (compté ; ses VM et ses stockages partent avec lui, non comptés), clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul), VM Proxmox rapprochées d'elle (le lien seul : la VM reste dans l'hôte) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
 | Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur), incidents (le lien seul) | rapprochement refait ; rien ne touche la machine |
 | Projet | sa page de statut : `project.has_status_page` | — | liens de projet (les services restent) | — |
 | Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes, incidents (le lien seul) | jeu de sondes renvoyé à sa machine |
@@ -3485,6 +3854,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Enrôlement par l'agent | `agent.enroll` (avant la table `agents` : `machine.enroll`, que les lignes déjà écrites gardent) | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
 | Révoquer l'agent | `agent.revoke` | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
 | Retirer une machine | `machine.delete` | La machine | `hostname`, `address` |
+| Déclarer, retirer l'hôte Proxmox d'une machine | `machine.proxmox_set`, `machine.proxmox_unset` | La machine qui porte l'hôte | `token_id`, `host` (l'hôte et le port, sans le schéma ni le chemin), `pinned` (`yes` ou `no`) ; au retrait, rien. **Ni l'adresse complète ni le secret** |
 | Projet | `project.create`, `.update`, `.delete` | Le projet | `title` |
 | Service déclaré | `service.create`, `.update`, `.delete`, `.review` | Le service | `machine_id`, `nature`, `origin`, `units` |
 | Politique d'une unité | `unit.update_policy` | L'unité, nommée `service/unité` | `service_id`, `policy` |
@@ -3506,7 +3876,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` |
 | Clé de sauvegarde créée, remplacée | `backup_keyring.create`, `.replace` | La clé | `fingerprint` ; jamais la phrase ni la clé privée scellée |
 | Destination de sauvegarde | `backup_destination.create`, `.delete` | La destination | `name`, `machine_id`, `path` |
-| Plan de sauvegarde | `backup_plan.update`, `.delete`, `.run` | Le plan | `destination_id`, `keep` ; `.run` : `run_id`, `destination_id` (sous `rule:backup` la nuit) |
+| Plan de sauvegarde | `backup_plan.update`, `.delete`, `.run` | Le plan (son sujet) | `source_kind`, `destination_id`, `keep` ; source machine : `source_machine_id`, `producer`, `selector` en plus ; `.run` : `run_id`, `destination_id` (sous `rule:backup` la nuit) |
 | Un ordre refusé par l'agent, rapporté par son signal | `action.refused` (une fois : un rapport rejoué ne s'écrit pas) | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id`, `reason` (`right_missing:agent.update`, `bad_signature`…) |
 
 ### Ce qui ne l'est jamais
@@ -3819,7 +4189,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
 | Le groupe `docker` équivaut à root | Le compte dédié de l'agent (`opencloud-agent`, décision 2 du 22 octobre 2026) est dans le groupe `docker` quand la machine a Docker, et la socket de Docker lance un conteneur privilégié qui monte `/` : sur une machine avec Docker, le compte dédié protège des erreurs et d'une compromission maladroite (pas de réécriture directe de `/etc`, `/usr`, des comptes), pas d'un attaquant décidé. Sans Docker, c'est un compte sans privilège. Root reste possible (drop-in `root.conf`), au prix de la machine entière | Un observateur non privilégié et un exécuteur root étroit : seulement si l'usage le demande (décision 2) |
 | Docker muet sur une machine en ligne | La machine signale, mais Docker ne répond plus (ou l'agent dit « Docker absent ») : ses conteneurs gardent leur dernier état, pas encore « Inconnu » | Après #136 point 1 (issue de suite : 12 min, ou tout de suite si l'agent dit « Docker absent ») |
-| Des ordres qui n'existent pas encore | Sept ordres existent (« Les acteurs »). Aucun ne retire un déploiement (supprimer le service de l'annuaire laisse conteneurs, dossier et `data/` sur la machine), aucun ne sauvegarde le `data/` ni le `.env` d'un service (« Comment la base est sauvegardée »), et `files.write` ne se juge pas encore par chemin : aucun ordre n'en nomme | À décider |
+| Des ordres qui n'existent pas encore | Huit ordres existent (« Les acteurs »). Aucun ne retire un déploiement (supprimer le service de l'annuaire laisse conteneurs, dossier et `data/` sur la machine), aucun ne sauvegarde le `data/` ni le `.env` d'un service (« Comment une sauvegarde se fait »), et `files.write` ne se juge pas encore par chemin : aucun ordre n'en nomme | À décider |
 | Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |
 | Les clés SSH ne se relèvent qu'en lecture, dans deux fichiers par compte | Un `AuthorizedKeysFile` personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus. Sous un compte dédié, l'agent ne lit pas les clés des autres comptes (« Illisible pour le compte de l'agent ») ; il ne faut **pas** lui donner `CAP_DAC_READ_SEARCH` pour y remédier : il lirait aussi `/etc/shadow`. L'écriture (`ssh.keys`, #152 étape 2) n'existe pas : ajouter ou retirer une clé reste un geste sur la machine | L'écriture attend une décision (`23-direction.md`, §10 étape 8) |
@@ -3919,6 +4289,7 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Versions signées | Le paquet `internal/release` (minisign en Go, sommes, version, `VerifyFile`, clé publique embarquée `TrustedPublicKey`), la sous-commande `opencloud release` (`verify`, `sign`, `keygen`), le workflow `release.yml` (tag `vX.Y.Z` sur `main`, build reproductible, signature, attestation, version jamais réécrite), les constantes `Release*` de `internal/brand`. Pas de migration |
 | Incidents par objets, silences annoncés | La migration `005_incident_targets.sql` (`incident_targets` à la place de `incident_components`, chaque composant visé déplié en ses membres ; `mutes.announce` et `mutes.public_title`), la règle `touches` et les maintenances synthétiques de `internal/status` (`targets.go`, `maintenance.go`), `status.Target` et `ErrTargetInvalid` (`incident.target_invalid`), `alert.ErrMuteAnnounceInvalid` (`silence.announce_invalid`), le détache « incidents » des plans de suppression d'une machine, d'un service, d'une sonde et d'une tâche (`deletion.KindIncidentLinks`), `targets` à la place de `component_ids` dans l'API et l'outil MCP `open_incident`, le sélecteur d'objets partagé (`ObjectPicker`) du composant et de l'incident, la case « annoncer » d'un silence |
 | Sauvegarde de la base (#153, 05) | La migration `006_backups.sql` (`backup_keyring`, `backup_destinations`, `backup_plans`), le paquet `internal/backup` (paire de clés age scellée par la phrase, archive tar chiffrée, `run`, boucle de 15 minutes, `ExtractArchive`), les ordres `backup.receive` et `backup.prune` (`agentwire`), les ordres longs de l'agent (`internal/agent/worker.go`, `backup.go`) et la fin d'un run `accepted` trop long (`timeout`), les colis (`action.Outbox`, `/agent/parcels/{colis}/{nom}`), le champ write-only `OrderBody.Secret` (`SendWithSecret`), `machine.CoversPath`, la commande `opencloud backup restore`, les routes `/api/backups…`, le sujet `backups`, la page Sauvegardes, la dépendance `filippo.io/age` |
+| Sauvegardes de VM Proxmox (#266, G01 à G05) | **G01 (#268)** : la migration `012_backup_sources.sql` (`backup_plans` refaite : `subject`, `name`, `source_kind`, `source_machine_id` en `restrict`, `producer`, `selector`), `internal/backup/plan.go` (`PlanDefinition`, `Validate`), `agentwire.BackupFilePrefix`, `IsBackupFileOf` et `BackupPruneParams.Prefix`, les routes `/api/backups/plans/{subject}`, `deletion.KindBackupPlans` et `machine.has_backup_plans`, les refus `backup.plan_*` et `backup.source_*`, le golden `backups_plans.golden.json`, la liste de plans de la page Sauvegardes. **G02 (#267)** : le droit `backup.produce` (`internal/machine/produce.go` : producteurs, textes de la préparation ; `capability.go`), ses raisons `sudo_missing`, `producer_missing`, `sudo_denied` (`machine/availability.go`, `agent/availability.go`), la préparation de la page du jeton (`api_machines.go`, `producePreparation`), la case de `MachineToken.tsx`. **G05 (#269)** : la migration `013_proxmox.sql` (`machine_proxmox`, `proxmox_guests`, `proxmox_storages`), le paquet `internal/proxmox` (client de l'API en lecture, empreinte épinglée, relevé toutes les 5 minutes, rapprochement par nom d'hôte), `api_proxmox.go`, le secret du jeton chiffré (`store/secrets.go`), les actions d'audit `machine.proxmox_set` et `machine.proxmox_unset`, `deletion.KindProxmoxHosts` et `KindProxmoxLinks`, l'onglet Hyperviseur. **G03 (#270)** : l'ordre `backup.produce` (`agentwire/produce.go`, `agent/produce.go` : le producteur `proxmox-vzdump`, l'emballage `backup.WriteEntryArchive`, le téléversement), les colis à téléverser (`action.Outbox.CreateForUpload`, `action/upload.go`) et la route `PUT /agent/parcels/{colis}/{nom}` (`agentapi`), l'en-tête `OpenCloud-SHA256`, `produce/` dans l'état de l'agent. **G04 (#271)** : le passage d'un plan à source machine (`internal/backup/agent_run.go` : une cible à la fois, `Upload.Handover`, `action.Service.Wait`), `agentwire.PrefixSinceVersion` (`v0.2.0`), les clés `backup.target_failed`, `backup.prune_failed`, `backup.destination_agent_outdated`, `backup.selector_needs_list` et les comptes `last_targets_ok` et `last_targets_failed` (en mémoire), le sélecteur à cocher de `PlanForm.tsx`. **G06** : la section « Sauvegarder des VM Proxmox » de `installation.md`, le délai de lecture de Traefik. Pas de migration au-delà de `013` |
 | Mise à jour des agents (#153, 07) | Le paquet `internal/release` étendu (`Library` : `Import`, `Artifact`, `releasetest`), la sous-commande `opencloud release import`, l'ordre `agent.update` (`agentwire.AgentUpdateParams` et six refus : `not_self_updatable`, `release_key_missing`, `signature_invalid`, `version_mismatch`, `downgrade`, `self_check_failed`), `action.Service` (`SetReleases`, `OfferUpdate`, `UpdateAgent`, `ConfirmAgentUpdate`), `store.CompleteAgentUpdates`, la confirmation à l'ouverture du flux (`agentapi`), l'exécuteur de l'agent (`internal/agent/update.go`, `ErrUpdated`, sortie de code 3), `Options.ReleaseKey`, les routes `GET /api/machines/{id}/agent-update` et `POST …/actions/update-agent`, le bouton « Mettre à jour l'agent » de la fiche, les clés `machine.agent_update*` et `action.reason_*`, le golden `agent_update_offer.golden.json`. Pas de migration |
 | Sortie du MCP (#224, #225) | La migration `008_api_tokens.sql` (`api_tokens` reconstruite à partir de `mcp_tokens`, `mcp_clients` et `mcp_codes` supprimées), les paquets `internal/apitoken` et `internal/mcpcheck`, `store/api_tokens.go`, la clé `mcp_url` de `config.toml`, `GET /api/settings/mcp`, `/api/settings/api-tokens`, l'admission d'un Bearer sur 25 routes en lecture (`admitAPIToken`), le masquage des secrets pour un jeton, l'acteur d'audit `api` et `details.on_behalf_of`, la carte « Agent IA » et la section « Jetons d'API » de Paramètres, `docs/installation/compose.mcp-maison.yml`. Retirés : `internal/mcp`, `/mcp`, `/oauth/…`, `opencloud mcp`, les 21 outils (les outils MCP cités dans les lignes plus haut sont de l'histoire), `go-sdk` |
 | Déploiement Docker Compose (06) | La migration `007_deploy.sql` (`service_units.data_path`, `action_runs.service_id` en `set null`), le paquet `internal/deploy` (le `compose.yml` généré, le plan, `Deploy`/`Redeploy`), les ordres `docker.deploy` et `docker.update` et leurs sept raisons (`agentwire`, `internal/agent/docker.go`), `action.SendForService`, `-root-dir` et l'en-tête `OpenCloud-Agent-Root` (`agents.root_dir`), `data_path` dans l'annuaire, le fichier d'`apply` et l'export, les trois routes `deploy-plan`, `actions/deploy` et `actions/redeploy`, `service_id` dans les ordres, la carte Déploiement et le champ « Dossier de données » du formulaire |

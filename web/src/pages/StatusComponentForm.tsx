@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { deleteStatusComponent, fetchComponentDeletePlan, saveStatusComponent, useStatusComponent, useStatusPages, type StatusComponent, type StatusMember } from "../api/status";
+import { deleteStatusComponent, fetchComponentDeletePlan, saveStatusComponent, useStatusComponent, useStatusPages, type StatusComponent, type StatusMember, type StatusPage } from "../api/status";
 import { Button } from "../components/Button";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
-import { Field, Input, Select } from "../components/Field";
+import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { ObjectPicker } from "../components/ObjectPicker";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
+import { Select } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
@@ -19,21 +21,24 @@ import { StatusPagePill } from "./status/StatusPagePill";
 // Créer ou modifier un composant : sa page (à la création), un nom public,
 // un ordre, et les objets rattachés, choisis parmi ce qu'openCloud surveille
 // déjà. Une création part de la page de ?page=.
+//
+// Les pages lues ici passent au formulaire : une seconde lecture, dans le
+// formulaire, partait vide et le menu Page montrait une autre page que
+// celle du formulaire.
 export function StatusComponentForm() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const component = useStatusComponent(id ?? null);
   const pages = useStatusPages();
   if (id === undefined) {
-    return <Loaded resource={pages}>{(data) => <ComponentForm existing={null} pageID={chosenPageID(data.pages, params.get("page")) ?? ""} />}</Loaded>;
+    return <Loaded resource={pages}>{(data) => <ComponentForm existing={null} pageID={chosenPageID(data.pages, params.get("page")) ?? ""} pages={data.pages} />}</Loaded>;
   }
-  return <Loaded resource={component}>{(data) => <ComponentForm existing={data} pageID={data.page_id} />}</Loaded>;
+  return <Loaded resource={component}>{(data) => <ComponentForm existing={data} pageID={data.page_id} pages={pages.data?.pages ?? []} />}</Loaded>;
 }
 
-function ComponentForm({ existing, pageID }: { existing: StatusComponent | null; pageID: string }) {
+export function ComponentForm({ existing, pageID, pages }: { existing: StatusComponent | null; pageID: string; pages: readonly StatusPage[] }) {
   const t = useT();
   const navigate = useNavigate();
-  const pages = useStatusPages();
   const form = useForm(existing === null ? emptyComponentForm(pageID) : componentFormOf(existing));
   // Le retour mène aux composants de la page du formulaire.
   const back = `/page-statut/composants?page=${encodeURIComponent(form.values.pageID)}`;
@@ -52,7 +57,7 @@ function ComponentForm({ existing, pageID }: { existing: StatusComponent | null;
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead
         title={existing ? t("component.edit_title") : t("component.new_title")}
         subtitle={t("component.new_subtitle")}
@@ -89,13 +94,13 @@ function ComponentForm({ existing, pageID }: { existing: StatusComponent | null;
         }
       >
         <Field label={t("component.page_label")} htmlFor="component-page" help={t("component.page_help")}>
-          <Select id="component-page" value={values.pageID} onChange={(event) => change("pageID", event.target.value)} disabled={existing !== null}>
-            {(pages.data?.pages ?? []).map((page) => (
-              <option key={page.id} value={page.id}>
-                {pageName(page)}
-              </option>
-            ))}
-          </Select>
+          <Select
+            id="component-page"
+            value={values.pageID}
+            options={pages.map((page) => ({ value: page.id, label: pageName(page) }))}
+            onChange={(chosen) => change("pageID", chosen)}
+            disabled={existing !== null}
+          />
         </Field>
         <Field label={t("component.name_label")} htmlFor="component-name" help={t("component.name_help")}>
           <Input
@@ -129,7 +134,7 @@ function ComponentForm({ existing, pageID }: { existing: StatusComponent | null;
           />
         </Field>
       </FormCard>
-    </>
+    </FormPage>
   );
 }
 

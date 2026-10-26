@@ -94,6 +94,21 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   tant que la fin n'est pas atteinte, à gauche une fois défilée, par
   `mask-image` ; l'onglet courant est amené dans la vue au chargement. Rien ne
   change quand tout tient.
+- **Menu déroulant** (`Select`, `EnumSelect`, `MachineSelect`) : jamais de
+  `<select>` natif, dont la liste est dessinée par le navigateur et ne suit
+  ni le thème ni cette page. Le déclencheur a la forme d'un contrôle (36 px,
+  rayon 8, icône optionnelle, chevron à droite) ; dans un champ, il prend la
+  largeur de la colonne et toute la boîte l'ouvre. Il montre toujours le
+  libellé de la valeur reçue, l'invite discrète (« Choisir… ») quand aucune
+  option ne la porte. La liste ouverte : surface, trait, rayon 10, ombre
+  portée, option active en `--surface-2`, option choisie en 500 avec une
+  coche d'accent ; sous le déclencheur, dessus s'il manque de place, jamais
+  hors de la fenêtre ni coupée par une carte. Clavier : ↑ ↓ Début Fin,
+  Entrée ou Espace choisit, Échap ferme et rend le focus, Tab ferme, une
+  lettre saute à l'option qui commence par elle. **Au-delà de 8 options**,
+  un champ de recherche en tête de liste, sans casse ni accent ; Début et Fin
+  y restent au texte. Sous 860 px, 44 px pour le déclencheur et chaque
+  option.
 - **En-tête de machine** : sélecteur de machine, pastille d'état, métadonnées
   séparées par des points (IP, système, version d'agent, dernier signal), puis
   les onglets livrés : Résumé, Services, Disponibilité, Réseau,
@@ -118,8 +133,27 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   qui va bien reste du texte neutre. Même règle pour l'échéance d'un
   certificat (pastille dès le seuil d'attention, texte discret avant) et le
   code de sortie d'une exécution (danger si non nul, neutre à 0).
-- **Tableau** : en-têtes en étiquette de section, lignes de 44 px minimum,
-  valeurs en mono, menu « … » en fin de ligne.
+- **Tableau** : pour ce qui est nombreux (conteneurs, tâches, exécutions,
+  clés). En-têtes en étiquette de section, lignes de 44 px minimum, valeurs
+  en mono. La ligne entière mène à la fiche (`RowLink` sur le nom : un vrai
+  lien, Ctrl-clic compris ; survol en `--surface-2`) : plus de bouton
+  « Ouvrir » en fin de ligne. Les actions secondaires vont dans un menu
+  « … » juste après le nom, toujours visible, discret. Avec `fit`, chaque
+  colonne prend la largeur de son contenu et le nom prend le reste : le vide
+  ne s'étale plus entre les colonnes.
+- **Carte d'objet** (`EntityCard` dans une `CardGrid`) : pour ce qui est peu
+  nombreux et riche en état (machines, services déclarés, pages de statut).
+  Icône, nom (14 px / 600), menu « … » à droite ; dessous le type et la
+  pastille d'état ; puis deux à quatre faits (étiquette discrète, valeur en
+  mono) et, au besoin, des mini-jauges. Toute la carte mène à la fiche (le
+  lien du nom s'étire sur elle) ; survol par le trait appuyé, jamais
+  d'ombre ; padding 16. La grille met autant de cartes de 260 px au moins
+  que la largeur en tient, sans étirer deux cartes sur tout l'écran ; une
+  seule colonne sur un téléphone. Là où cartes et tableau ont tous deux du
+  sens, une bascule (`ViewToggle`, icônes grille et liste) les échange ; le
+  choix est mémorisé par le navigateur, liste par liste. Une liste vide dit
+  une phrase et son action principale sur une ligne (`EmptyLine`), pas une
+  grande carte presque vide.
 - **Liste d'événements** : point d'état, fait en gras léger, contexte en
   dessous, moment à droite.
 - **Verdict** : en tête de la page d'un objet, la pastille d'état et le fait
@@ -161,6 +195,38 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
     jeton) ; les autres pages passent encore par `window.confirm`
     (`useAction({ confirm })`). La boîte `DeletePlanDialog` reste pour un
     plan de suppression, qu'il faut lire avant de confirmer.
+- **Formulaire** (`FormPage`) : l'en-tête de page et la carte dans une
+  colonne de 560 px au plus, centrée comme Paramètres ; sur un téléphone,
+  pleine largeur dans les marges de page. Toute page de formulaire
+  (création, modification, jeton d'une machine) y passe. Un formulaire logé
+  dans une carte partagée ou une grille (Paramètres, Sauvegardes, la mise à
+  jour d'un incident) garde sa place ; ouvert sous la fiche d'un objet (la
+  correction d'un incident), il en prend la largeur.
+  - **Aide de champ** : une ligne, ce qu'il faut savoir pour remplir, pas
+    plus. Le détail, s'il sert vraiment, va dans le « ? » à côté de
+    l'étiquette (`tip` de `Field`) : une info-bulle qui passe à la ligne, au
+    clavier comme à la souris ; Échap la referme.
+- **Assistant** (`Wizard`) : la création d'un objet à plus de cinq champs
+  environ ou à plusieurs notions (service, sonde, tâche, page de statut).
+  Pas pour une page de réglages (Paramètres, Sauvegardes) ni pour un
+  formulaire de trois champs : il ajoute des clics là où tout tient à
+  l'écran. Colonne de 720 px (`FormPage width="wizard"`), la place de la
+  barre d'étapes.
+  - **Barre d'étapes** : une pastille numérotée et le nom ; la courante en
+    encre pleine, une étape faite cochée, à venir en discret. Sous 860 px,
+    une ligne, « Étape 2 sur 4 » : le nom suit, en tête de carte.
+  - **Une étape à l'écran**, son titre en tête de carte (le focus y passe,
+    il s'annonce). Précédent en secondaire, Suivant en principal, Annuler
+    discret : une seule action principale. Entrée dans un champ vaut
+    Suivant. Une étape en erreur retient : la note sous les champs dit
+    pourquoi, et s'annonce. Le brouillon reste chez la page : rien ne se perd d'une étape
+    à l'autre.
+  - **Récapitulatif** en dernière étape : ce qui a été saisi, étape par
+    étape, chacune avec « Modifier » ; puis l'action finale (« Déclarer »,
+    « Créer »), la seule qui écrit. L'erreur du serveur s'y dit. Revenu d'un
+    « Modifier », Suivant devient « Revenir au récapitulatif ».
+  - **En modification**, l'assistant s'ouvre sur le récapitulatif et chaque
+    étape de la barre y mène ; un saut en avant valide les étapes franchies.
 - **Graphe réseau** : fond pointé, nœuds de 184 px (icône, nom, sous-titre
   mono, point d'état), arêtes orthogonales arrondies, groupes en pointillé,
   nœud « Internet » en noir, sélection par anneau d'accent, inspecteur de

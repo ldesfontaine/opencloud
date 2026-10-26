@@ -6,10 +6,12 @@ import { useMailSettings } from "../api/settings";
 import { Button } from "../components/Button";
 import { Note } from "../components/Card";
 import { Failure } from "../components/Failure";
-import { Checkbox, Checks, EnumSelect, Field, Input } from "../components/Field";
+import { Checkbox, Checks, Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
+import { EnumSelect } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
@@ -77,7 +79,7 @@ export function AlertChannelForm() {
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead title={id === undefined ? t("channel.new_title") : t("channel.edit_title")} subtitle={t("channel.new_subtitle")} />
       {existing.error && <Failure error={existing.error} />}
       {justCreated && <Note tone="ok">{t("channel.created")}</Note>}
@@ -168,7 +170,7 @@ export function AlertChannelForm() {
         </Checks>
         <p className="field-help">{t("channel.receives_audit_help")}</p>
       </FormCard>
-    </>
+    </FormPage>
   );
 }
 

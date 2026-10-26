@@ -6,9 +6,11 @@ import { useDeclaredServices } from "../api/directory";
 import { useJobs } from "../api/jobs";
 import { useMachines } from "../api/machines";
 import { useProbes } from "../api/probes";
-import { Checkbox, Checks, Field, Input, Select } from "../components/Field";
+import { Checkbox, Checks, Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
+import { Select } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
@@ -58,7 +60,7 @@ export function AlertMuteNew() {
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead title={t("silence.new_title")} subtitle={t("silence.new_subtitle")} />
       <FormCard
         onSubmit={save}
@@ -76,35 +78,33 @@ export function AlertMuteNew() {
       >
         {/* Des Select et non des EnumSelect : l'option vide a sa propre clé, et la durée est un nombre. */}
         <Field label={t("silence.kind_label")} htmlFor="silence-kind">
-          <Select id="silence-kind" value={values.kind} onChange={(event) => change("kind", asKind(event.target.value))}>
-            <option value="">{t("silence.kind_any")}</option>
-            {alertKinds.map((candidate) => (
-              <option key={candidate} value={candidate}>
-                {t(`alert.kind_${candidate}`)}
-              </option>
-            ))}
-          </Select>
+          <Select
+            id="silence-kind"
+            value={values.kind}
+            options={[{ value: "", label: t("silence.kind_any") }, ...alertKinds.map((candidate) => ({ value: candidate, label: t(`alert.kind_${candidate}`) }))]}
+            onChange={(chosen) => change("kind", asKind(chosen))}
+          />
         </Field>
         <div className="grid-2">
           <Field label={t("silence.target_kind_label")} htmlFor="silence-target-kind">
-            <Select id="silence-target-kind" value={values.targetKind} onChange={(event) => pickKind(asTargetKind(event.target.value))}>
-              {(alertContainer !== null ? [...targetKinds, "container" as const] : targetKinds).map((candidate) => (
-                <option key={candidate} value={candidate}>
-                  {candidate === "" ? t("silence.target_kind_none") : t(`silence.target_kind_${candidate}`)}
-                </option>
-              ))}
-            </Select>
+            <Select
+              id="silence-target-kind"
+              value={values.targetKind}
+              options={(alertContainer !== null ? [...targetKinds, "container" as const] : targetKinds).map((candidate) => ({
+                value: candidate,
+                label: candidate === "" ? t("silence.target_kind_none") : t(`silence.target_kind_${candidate}`),
+              }))}
+              onChange={(chosen) => pickKind(asTargetKind(chosen))}
+            />
           </Field>
           {values.targetKind !== "" && values.targetKind !== "container" && (
             <Field label={t("silence.object_label")} htmlFor="silence-object">
-              <Select id="silence-object" value={values.targetID} onChange={(event) => change("targetID", event.target.value)}>
-                <option value="">—</option>
-                {options.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name}
-                  </option>
-                ))}
-              </Select>
+              <Select
+                id="silence-object"
+                value={values.targetID}
+                options={[{ value: "", label: "—" }, ...options.map((option) => ({ value: option.id, label: option.name }))]}
+                onChange={(chosen) => change("targetID", chosen)}
+              />
             </Field>
           )}
           {values.targetKind === "container" && (
@@ -118,13 +118,12 @@ export function AlertMuteNew() {
             <Input id="silence-start" mono type="datetime-local" value={values.startsAt} onChange={(event) => change("startsAt", event.target.value)} />
           </Field>
           <Field label={t("silence.duration_label")} htmlFor="silence-duration">
-            <Select id="silence-duration" value={values.minutes} onChange={(event) => change("minutes", Number(event.target.value))}>
-              {silenceDurations.map((duration) => (
-                <option key={duration.key} value={duration.minutes}>
-                  {t(`silence.duration_${duration.key}`)}
-                </option>
-              ))}
-            </Select>
+            <Select
+              id="silence-duration"
+              value={String(values.minutes)}
+              options={silenceDurations.map((duration) => ({ value: String(duration.minutes), label: t(`silence.duration_${duration.key}`) }))}
+              onChange={(chosen) => change("minutes", Number(chosen))}
+            />
           </Field>
         </div>
         <Field label={t("silence.reason_label")} htmlFor="silence-reason" help={t("silence.reason_help")}>
@@ -144,7 +143,7 @@ export function AlertMuteNew() {
           </>
         )}
       </FormCard>
-    </>
+    </FormPage>
   );
 }
 

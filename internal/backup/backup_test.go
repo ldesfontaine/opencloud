@@ -35,20 +35,34 @@ const (
 	// Le coût de scrypt des tests : le défaut d'age demande un quart de gigaoctet.
 	testWorkFactor = 10
 	rights         = "backup.receive=/srv/backups"
+	// L'agent de la destination connaît le préfixe de backup.prune
+	// (agentwire.PrefixSinceVersion).
+	currentAgentVersion = "v0.2.0"
 )
 
 var benchNow = time.Date(2026, 10, 21, 3, 20, 0, 0, time.UTC)
 
-// commander tient lieu du flux de l'agent : il garde les ordres signés.
+// commander tient lieu du flux de l'agent : il garde les ordres signés. onOrder
+// joue l'agent, quand un test en veut un : il voit l'ordre au moment où il
+// part, avec la machine qui le reçoit, et le termine par Record.
 type commander struct {
 	refuse error
-	orders []agentwire.OrderBody
-	kinds  []agentwire.Kind
+	// refuseOnce refuse le prochain ordre seulement : le flux est tombé le
+	// temps d'un envoi.
+	refuseOnce error
+	orders     []agentwire.OrderBody
+	kinds      []agentwire.Kind
+	onOrder    func(machineID string, order agentwire.OrderBody)
 }
 
-func (c *commander) Command(_ string, command agentwire.Command) error {
+func (c *commander) Command(machineID string, command agentwire.Command) error {
 	if c.refuse != nil {
 		return c.refuse
+	}
+	if c.refuseOnce != nil {
+		err := c.refuseOnce
+		c.refuseOnce = nil
+		return err
 	}
 	var body agentwire.OrderBody
 	if err := json.Unmarshal(command.Order.Body, &body); err != nil {
@@ -56,6 +70,9 @@ func (c *commander) Command(_ string, command agentwire.Command) error {
 	}
 	c.orders = append(c.orders, body)
 	c.kinds = append(c.kinds, command.Kind)
+	if c.onOrder != nil {
+		c.onOrder(machineID, body)
+	}
 	return nil
 }
 
@@ -85,7 +102,7 @@ func newBench(t *testing.T, reportedRights string) *bench {
 	b.machines.SetClock(clock)
 	enrolled := storetest.EnrollMachine(t, b.machines, machineID, "store-1")
 	var err error
-	b.session, err = b.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", reportedRights, "", "")
+	b.session, err = b.machines.Connect(context.Background(), enrolled, "192.0.2.1", currentAgentVersion, reportedRights, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,10 +154,15 @@ func (b *bench) ready() (backup.Keyring, backup.Destination) {
 	if err != nil {
 		b.t.Fatal(err)
 	}
-	if _, err := b.backups.SavePlan(operator(), backup.PlanDefinition{DestinationID: destination.ID, Keep: 3}); err != nil {
+	if _, err := b.backups.SavePlan(operator(), databasePlan(destination.ID, 3)); err != nil {
 		b.t.Fatal(err)
 	}
 	return keyring, destination
+}
+
+// databasePlan est le plan de la base vers cette destination.
+func databasePlan(destinationID string, keep int) backup.PlanDefinition {
+	return backup.PlanDefinition{Subject: backup.SubjectDatabase, SourceKind: backup.SourceDatabase, DestinationID: destinationID, Keep: keep}
 }
 
 func requireRefusal(t *testing.T, err error, want error) {
@@ -270,7 +292,7 @@ func TestCreateDestination_AcceptsWhileRightsAreUnreported(t *testing.T) {
 	if err != nil || len(overview.Destinations) != 1 || overview.Destinations[0].ID != destination.ID || overview.Destinations[0].Right != backup.RightUnknown {
 		t.Fatalf("overview %+v %v", overview, err)
 	}
-	if overview.Keyring != nil || overview.Plan != nil {
+	if overview.Keyring != nil || len(overview.Plans) != 0 {
 		t.Fatalf("nothing else exists yet: %+v", overview)
 	}
 }
@@ -294,7 +316,7 @@ func TestRun_StagesAnEncryptedArchiveAndSendsReceiveThenPrune(t *testing.T) {
 	b := newBench(t, rights)
 	keyring, destination := b.ready()
 
-	run, err := b.backups.RunNow(operator())
+	run, err := b.backups.RunNow(operator(), backup.SubjectDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,13 +331,13 @@ func TestRun_StagesAnEncryptedArchiveAndSendsReceiveThenPrune(t *testing.T) {
 	if err := json.Unmarshal(b.commands.orders[0].Params, &receive); err != nil {
 		t.Fatal(err)
 	}
-	archiveName := agentwire.BackupFileName(benchNow)
+	archiveName := agentwire.BackupFileName(backup.SubjectDatabase, benchNow)
 	keyName := agentwire.BackupKeyFileName(keyring.Fingerprint)
 	if receive.Path != "/srv/backups" || len(receive.Files) != 2 || receive.Files[0].Name != archiveName || receive.Files[1].Name != keyName {
 		t.Fatalf("receive %+v", receive)
 	}
 	var prune agentwire.BackupPruneParams
-	if err := json.Unmarshal(b.commands.orders[1].Params, &prune); err != nil || prune.Path != "/srv/backups" || prune.Keep != 3 {
+	if err := json.Unmarshal(b.commands.orders[1].Params, &prune); err != nil || prune.Path != "/srv/backups" || prune.Prefix != "opencloud" || prune.Keep != 3 {
 		t.Fatalf("prune %+v %v", prune, err)
 	}
 
@@ -374,7 +396,7 @@ func TestRun_StagesAnEncryptedArchiveAndSendsReceiveThenPrune(t *testing.T) {
 	}
 
 	// Le plan se souvient de la tentative et de l'ordre.
-	plan, err := b.db.GetBackupPlan(context.Background())
+	plan, err := b.db.GetBackupPlan(context.Background(), backup.SubjectDatabase)
 	if err != nil || plan.LastRunID != run.ID || plan.LastError != "" || !plan.LastAttemptAt.Equal(benchNow) {
 		t.Fatalf("plan %+v %v", plan, err)
 	}

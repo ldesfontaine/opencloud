@@ -3,6 +3,20 @@
 # d'où ce fichier. Adaptez le nom, l'entrypoint, le résolveur de
 # certificats et l'adresse du serveur.
 # Vérifié avec Traefik v3.5.3, en mode host et en conteneur.
+#
+# Un réglage manque ICI parce qu'il ne peut pas y être : le délai de lecture de
+# l'entrée. Traefik v3 coupe une requête dont le corps met plus de 60 s à
+# arriver (respondingTimeouts.readTimeout), et une VM Proxmox sauvegardée par
+# openCloud arrive par un seul PUT /agent/parcels/… qui dure bien plus. Sans
+# réglage, l'ordre backup.produce finit en upload_failed. C'est un réglage de
+# l'entrée, donc de la configuration STATIQUE de Traefik, pas de ce fichier :
+#   entryPoints:
+#     websecure:
+#       transport:
+#         respondingTimeouts:
+#           readTimeout: 1h
+# (en ligne de commande : voir compose.traefik.yml, et « Les envois d'archives »
+# dans docs/installation.md.)
 http:
   routers:
     opencloud:

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { createMachineToken } from "../api/machines";
 import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
 import { RightsFields } from "../components/RightsFields";
 import { useAction } from "../hooks/useAction";
@@ -29,7 +30,7 @@ export function MachineNew() {
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead title={t("machine.new_title")} subtitle={t("machine.new_subtitle")} />
       <FormCard
         onSubmit={save}
@@ -59,6 +60,6 @@ export function MachineNew() {
         </Field>
         <RightsFields values={values} update={form.update} />
       </FormCard>
-    </>
+    </FormPage>
   );
 }

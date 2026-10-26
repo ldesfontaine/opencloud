@@ -2,17 +2,27 @@
 // l'opérateur. Ses exemples (« Debian 12 », « nextcloud ») sont des
 // valeurs de démonstration en dur, l'exception assumée à la règle du
 // catalogue.
+import { useState } from "react";
+
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty, KeyValue, Meter, Stat } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, EmptyLine, KeyValue, Meter, Stat } from "../components/Card";
 import { ConfirmInline } from "../components/ConfirmInline";
-import { Field, Input, Select } from "../components/Field";
+import { CardGrid, EntityCard } from "../components/EntityCard";
+import { Checkbox, Checks, Field, Input } from "../components/Field";
 import { Icon } from "../components/Icon";
+import type { MenuAction } from "../components/MoreMenu";
 import { PageHead } from "../components/PageHead";
 import { Dot, Pill } from "../components/Pill";
 import { SectionHead } from "../components/SectionHead";
+import { Select } from "../components/Select";
 import { DangerZone, SettingFoot, SettingRow } from "../components/SettingRow";
-import { List, RowText, RowWhen, Subject, Table } from "../components/Table";
-import { useI18n } from "../i18n/context";
+import { List, RowLink, RowText, RowWhen, Table } from "../components/Table";
+import { Wizard, type WizardStep } from "../components/Wizard";
+import { useForm } from "../hooks/useForm";
+import { useViewMode } from "../hooks/useViewMode";
+import { useI18n, type Translate } from "../i18n/context";
+import type { WizardMode } from "../lib/wizard";
+import { ViewToggle } from "../components/ViewToggle";
 import "./VisualSystem.scss";
 
 const swatches = [
@@ -30,10 +40,32 @@ const swatches = [
   ["primary", "#101216 · #eef0f4"],
 ] as const;
 
+// Douze machines : au-delà de huit, le menu ouvert porte sa recherche.
+const demoMachines = [
+  "vps-paris-1",
+  "vps-lyon-2",
+  "vps-lille-1",
+  "nas-maison",
+  "pve-atelier",
+  "pve-garage",
+  "rpi-salon",
+  "rpi-bureau",
+  "vps-roubaix-3",
+  "vps-gravelines-1",
+  "backup-froid",
+  "lab-test",
+];
+
+function machineOptions(names: readonly string[]) {
+  return names.map((name) => ({ value: name, label: name }));
+}
+
 // La vitrine de la direction artistique : chaque composant, une fois, pour
 // vérifier le clair, le sombre et les deux langues d'un coup d'œil.
 export function VisualSystem() {
   const { t, version } = useI18n();
+  const [machine, setMachine] = useState("vps-paris-1");
+  const [manyMachine, setManyMachine] = useState("vps-lyon-2");
   return (
     <>
       <PageHead
@@ -165,13 +197,12 @@ export function VisualSystem() {
           <section>
             <h2 className="side-label section-label">{t("visual.table.title")}</h2>
             <Card>
-              <Table>
+              <Table fit>
                 <thead>
                   <tr>
                     <th>{t("visual.table.service")}</th>
                     <th>{t("visual.table.image")}</th>
                     <th>{t("visual.table.state")}</th>
-                    <th className="th-end" />
                   </tr>
                 </thead>
                 <tbody>
@@ -182,6 +213,8 @@ export function VisualSystem() {
               </Table>
             </Card>
           </section>
+
+          <CardsSample />
         </div>
 
         <div className="stack gap-24">
@@ -233,10 +266,10 @@ export function VisualSystem() {
                 <Input id="vs-domain" mono type="text" defaultValue="cloud.exemple.fr" />
               </Field>
               <Field label={t("machine.select")} htmlFor="vs-machine">
-                <Select id="vs-machine" icon="server" defaultValue="vps-paris-1">
-                  <option>vps-paris-1</option>
-                  <option>vps-lyon-2</option>
-                </Select>
+                <Select id="vs-machine" icon="server" value={machine} options={machineOptions(demoMachines.slice(0, 2))} onChange={setMachine} />
+              </Field>
+              <Field label={t("visual.fields.many_machines")} htmlFor="vs-many-machines" help={t("visual.fields.many_machines_help")}>
+                <Select id="vs-many-machines" icon="server" value={manyMachine} options={machineOptions(demoMachines)} onChange={setManyMachine} />
               </Field>
               <Field label={t("visual.fields.filter")}>
                 <span className="seg" role="radiogroup" aria-label={t("visual.fields.filter")}>
@@ -293,6 +326,11 @@ export function VisualSystem() {
                 </SettingRow>
               </DangerZone>
             </Card>
+          </section>
+
+          <section>
+            <h2 className="side-label section-label">{t("visual.wizard.title")}</h2>
+            <WizardSample />
           </section>
 
           <section>
@@ -353,9 +391,7 @@ export function VisualSystem() {
             <Card>
               <CardBody gap={16}>
                 <div className="machine-head">
-                  <Select icon="server" aria-label={t("machine.select")} defaultValue="vps-paris-1">
-                    <option>vps-paris-1</option>
-                  </Select>
+                  <Select icon="server" aria-label={t("machine.select")} value={machine} options={machineOptions(demoMachines.slice(0, 2))} onChange={setMachine} />
                   <Pill tone="ok">{t("state.online")}</Pill>
                   <div className="meta">
                     <span className="mono">51.15.20.114</span>
@@ -437,20 +473,228 @@ export function VisualSystem() {
   );
 }
 
+// Un assistant de démonstration : trois étapes, une validation qui bloque
+// (le nom vide, l'intervalle hors bornes), le récapitulatif. Le mode se
+// change pour voir la modification, qui part du récapitulatif ; la clé
+// remonte l'assistant à chaque changement.
+function WizardSample() {
+  const { t } = useI18n();
+  const [mode, setMode] = useState<WizardMode>("create");
+  const filled = { name: "sauvegarde-nocturne", interval: "1440", notify: true };
+  const empty = { name: "", interval: "60", notify: false };
+  return (
+    <div className="stack gap-14">
+      <div>
+        <span className="seg" role="radiogroup" aria-label={t("visual.wizard.mode_label")}>
+          <label>
+            <input type="radio" name="vs-wizard-mode" checked={mode === "create"} onChange={() => setMode("create")} />
+            <span>{t("visual.wizard.mode_create")}</span>
+          </label>
+          <label>
+            <input type="radio" name="vs-wizard-mode" checked={mode === "edit"} onChange={() => setMode("edit")} />
+            <span>{t("visual.wizard.mode_edit")}</span>
+          </label>
+        </span>
+      </div>
+      <SampleWizard key={mode} mode={mode} initial={mode === "edit" ? filled : empty} />
+    </div>
+  );
+}
+
+function SampleWizard({ mode, initial }: { mode: WizardMode; initial: { name: string; interval: string; notify: boolean } }) {
+  const { t } = useI18n();
+  const { values, change } = useForm(initial);
+  const steps: WizardStep[] = [
+    {
+      id: "name",
+      title: t("visual.wizard.step_name"),
+      render: () => (
+        <Field label={t("visual.wizard.name_label")} htmlFor="vs-wizard-name" help={t("visual.wizard.name_help")} tip={t("visual.wizard.name_tip")}>
+          <Input id="vs-wizard-name" type="text" value={values.name} onChange={(event) => change("name", event.target.value)} maxLength={80} autoComplete="off" />
+        </Field>
+      ),
+      validate: () => (values.name.trim() === "" ? "visual.wizard.name_missing" : null),
+      summary: () => [{ label: t("visual.wizard.name_label"), value: values.name, mono: true }],
+    },
+    {
+      id: "rhythm",
+      title: t("visual.wizard.step_rhythm"),
+      render: () => (
+        <Field label={t("visual.wizard.interval_label")} htmlFor="vs-wizard-interval" help={t("visual.wizard.interval_help")}>
+          <Input id="vs-wizard-interval" mono type="number" value={values.interval} onChange={(event) => change("interval", event.target.value)} />
+        </Field>
+      ),
+      validate: () => (isSampleInterval(values.interval) ? null : "visual.wizard.interval_invalid"),
+      summary: () => [{ label: t("visual.wizard.interval_label"), value: values.interval, mono: true }],
+    },
+    {
+      id: "alert",
+      title: t("visual.wizard.step_alert"),
+      render: () => (
+        <Field label={t("visual.wizard.notify_label")}>
+          <Checks>
+            <Checkbox label={t("visual.wizard.notify_check")} checked={values.notify} onChange={(checked) => change("notify", checked)} />
+          </Checks>
+        </Field>
+      ),
+      summary: () => [{ label: t("visual.wizard.notify_label"), value: values.notify ? t("visual.wizard.notify_yes") : t("visual.wizard.notify_no") }],
+    },
+  ];
+  return (
+    <Wizard
+      steps={steps}
+      mode={mode}
+      onSubmit={() => undefined}
+      submitLabel={t("visual.wizard.submit")}
+      submitIcon={mode === "edit" ? "check" : "plus"}
+      busy={false}
+      error={null}
+      cancelLabel={t("confirm.cancel")}
+      onCancel={() => undefined}
+    />
+  );
+}
+
+function isSampleInterval(interval: string): boolean {
+  const minutes = Number(interval);
+  return Number.isInteger(minutes) && minutes >= 1 && minutes <= 10080;
+}
+
+// Les liens de la vitrine restent sur la vitrine, ses actions ne font rien.
+const samplePath = "/systeme-visuel";
+
+function sampleActions(t: Translate): MenuAction[] {
+  const nothing = () => undefined;
+  return [
+    { label: t("visual.table.logs"), to: samplePath },
+    { label: t("visual.table.restart"), onSelect: nothing },
+    { label: t("action.delete"), danger: true, onSelect: nothing },
+  ];
+}
+
 function SampleRow({ name, image, tone, state }: { name: string; image: string; tone: "ok" | "warn" | "neutral"; state: string }) {
   const { t } = useI18n();
   return (
     <tr>
       <td>
-        <Subject icon="box">{name}</Subject>
+        <RowLink to={samplePath} icon="box" actions={sampleActions(t)}>
+          {name}
+        </RowLink>
       </td>
       <td className="num">{image}</td>
       <td>
         <Pill tone={tone}>{state}</Pill>
       </td>
-      <td className="td-end">
-        <Button variant="ghost" small icon="more" aria-label={t("action.more")} />
-      </td>
     </tr>
+  );
+}
+
+// Les cartes d'objet, leur bascule vers le tableau, et l'état vide compact.
+function CardsSample() {
+  const { t } = useI18n();
+  const [mode, setMode] = useViewMode("visual", "cards");
+  const actions = sampleActions(t);
+  return (
+    <section>
+      <div className="vs-cards-head">
+        <h2 className="side-label section-label">{t("visual.cards.title")}</h2>
+        <ViewToggle mode={mode} onChange={setMode} />
+      </div>
+      <div className="stack gap-16">
+        {mode === "cards" ? (
+          <CardGrid>
+            <EntityCard
+              to={samplePath}
+              icon="server"
+              name="vps-paris-1"
+              kind={t("visual.cards.kind_machine")}
+              state={<Pill tone="ok">{t("state.online")}</Pill>}
+              facts={[
+                { label: t("visual.cards.address"), value: "51.15.20.4" },
+                { label: t("visual.cards.os"), value: "Debian 12" },
+                { label: t("visual.cards.agent"), value: "v0.0.1" },
+                { label: t("visual.cards.seen"), value: t("visual.cards.seen_value"), mono: false },
+              ]}
+              meters={[
+                { label: t("visual.cards.cpu"), value: "23 %", percent: 23 },
+                { label: t("visual.cards.disk"), value: "71 %", percent: 71, tone: "warn" },
+              ]}
+              actions={actions}
+            />
+            <EntityCard
+              to={samplePath}
+              icon="server"
+              name="vps-lyon-2"
+              kind={t("visual.cards.kind_machine")}
+              state={<Pill tone="danger">{t("state.offline")}</Pill>}
+              facts={[
+                { label: t("visual.cards.address"), value: "62.210.8.17" },
+                { label: t("visual.cards.os"), value: "Ubuntu 24.04" },
+                { label: t("visual.cards.agent"), value: "v0.0.1" },
+                { label: t("visual.cards.seen"), value: t("visual.cards.seen_old"), mono: false },
+              ]}
+              actions={actions}
+            />
+            <EntityCard
+              to={samplePath}
+              icon="globe"
+              name="statut.exemple.fr"
+              kind={t("visual.cards.kind_page")}
+              state={<Pill tone="ok">{t("state.online")}</Pill>}
+              facts={[
+                { label: t("visual.cards.probes"), value: "4" },
+                { label: t("visual.cards.uptime"), value: "99,98 %" },
+              ]}
+            />
+          </CardGrid>
+        ) : (
+          <Card>
+            <Table fit>
+              <thead>
+                <tr>
+                  <th>{t("visual.cards.kind_machine")}</th>
+                  <th>{t("visual.cards.address")}</th>
+                  <th>{t("visual.table.state")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <RowLink to={samplePath} icon="server" actions={actions}>
+                      vps-paris-1
+                    </RowLink>
+                  </td>
+                  <td className="num">51.15.20.4</td>
+                  <td>
+                    <Pill tone="ok">{t("state.online")}</Pill>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <RowLink to={samplePath} icon="server" actions={actions}>
+                      vps-lyon-2
+                    </RowLink>
+                  </td>
+                  <td className="num">62.210.8.17</td>
+                  <td>
+                    <Pill tone="danger">{t("state.offline")}</Pill>
+                  </td>
+                </tr>
+              </tbody>
+            </Table>
+          </Card>
+        )}
+        <Card>
+          <EmptyLine
+            text={t("visual.cards.empty")}
+            action={
+              <Button variant="primary" small icon="plus">
+                {t("visual.cards.empty_action")}
+              </Button>
+            }
+          />
+        </Card>
+      </div>
+    </section>
   );
 }

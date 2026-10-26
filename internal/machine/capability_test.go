@@ -2,6 +2,7 @@ package machine
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -68,6 +69,64 @@ func TestCapabilities_RefuseUnknownRightsBadPathsAndWrongScopes(t *testing.T) {
 		if _, err := ParseCapabilities(text); !errors.Is(err, want) {
 			t.Errorf("%q: %v, want %v", text, err, want)
 		}
+	}
+}
+
+// backup.produce prend des producteurs, pas des chemins : un producteur connu,
+// trié, sans doublon, rangé juste après backup.receive.
+func TestCapabilities_ProduceTakesProducersNotPaths(t *testing.T) {
+	parsed, err := ParseCapabilities("files.write=/srv/a, backup.produce=proxmox-vzdump:proxmox-vzdump,backup.receive=/srv/backups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "observe,backup.receive=/srv/backups,backup.produce=proxmox-vzdump,files.write=/srv/a"
+	if got := FormatCapabilities(parsed); got != want {
+		t.Fatalf("formatted %q, want %q", got, want)
+	}
+	again, err := ParseCapabilities(want)
+	if err != nil || !SameCapabilities(parsed, again) {
+		t.Fatalf("the text form does not read back: %+v %v", again, err)
+	}
+	if !CoversProducer(parsed, ProducerProxmoxVzdump) || CoversProducer(parsed, "other-producer") || CoversProducer(nil, ProducerProxmoxVzdump) {
+		t.Error("CoversProducer must say yes for the granted producer only")
+	}
+	// Ce n'est pas un chemin : aucun chemin n'est couvert, même un qui ressemble au nom.
+	for _, candidate := range []string{"/proxmox-vzdump", "/srv/backups", "/"} {
+		if CoversPath(parsed, CapabilityBackupProduce, candidate) {
+			t.Errorf("backup.produce covers the path %q", candidate)
+		}
+	}
+	if CoversProducer(parsed, "") || CoversProducer([]Capability{{Name: CapabilityBackupReceive, Paths: []string{"proxmox-vzdump"}}}, ProducerProxmoxVzdump) {
+		t.Error("only the produce right grants a producer")
+	}
+}
+
+func TestCapabilities_ProduceRefusesWhatIsNotAKnownProducer(t *testing.T) {
+	cases := map[string]error{
+		"backup.produce":                                      ErrCapabilityScope,
+		"backup.produce=":                                     ErrCapabilityProducer,
+		"backup.produce=a-b1:a-b2:a-b3:a-b4:a-b5":             ErrCapabilityScope,
+		"backup.produce=unknown-producer":                     ErrCapabilityProducer,
+		"backup.produce=proxmox-vzdump:unknown-producer":      ErrCapabilityProducer,
+		"backup.produce=/srv/backups":                         ErrCapabilityProducer,
+		"backup.produce=/proxmox-vzdump":                      ErrCapabilityProducer,
+		"backup.produce=Proxmox-vzdump":                       ErrCapabilityProducer,
+		"backup.produce=proxmox_vzdump":                       ErrCapabilityProducer,
+		"backup.produce=-proxmox-vzdump":                      ErrCapabilityProducer,
+		"backup.produce=x":                                    ErrCapabilityProducer,
+		"backup.produce=proxmox-vzdump;id":                    ErrCapabilityProducer,
+		"backup.produce=" + strings.Repeat("a", 33):           ErrCapabilityProducer,
+		"backup.produce=proxmox-vzdump:../etc":                ErrCapabilityProducer,
+		"backup.produce=proxmox-vzdump:proxmox-vzdump:a:b:c:": ErrCapabilityScope,
+	}
+	for text, want := range cases {
+		if _, err := ParseCapabilities(text); !errors.Is(err, want) {
+			t.Errorf("%q: %v, want %v", text, err, want)
+		}
+	}
+	// Une portée sur un droit qui n'en prend pas reste refusée.
+	if _, err := ParseCapabilities("agent.update=/proxmox-vzdump"); !errors.Is(err, ErrCapabilityScope) {
+		t.Errorf("a path on agent.update, named like a producer: %v", err)
 	}
 }
 

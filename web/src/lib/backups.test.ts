@@ -1,11 +1,42 @@
 import { describe, expect, it } from "vitest";
 
-import type { Backups } from "../api/backups";
-import { isBackedUp, passphraseProblem } from "./backups";
+import type { BackupPlan, Backups } from "../api/backups";
+import type { Translate } from "../i18n/context";
+import { emptyPlanForm, isBackedUp, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
+import type { ProxmoxGuest } from "../api/proxmox";
+
+const t: Translate = (key, ...args) => [key, ...args].join(":");
 
 const keyring = { recipient: "age1x", fingerprint: "0123456789abcdef", created_at: "2026-09-12T12:00:00Z" };
 const destination = { id: "bkd_1", name: "store-1", machine_id: "m1", machine_name: "store-1", path: "/srv/backups", right: "ok" as const, created_at: "2026-09-12T12:00:00Z" };
-const plan = { destination_id: "bkd_1", keep: 14, schedule: "daily", last_attempt_at: null, last_error: "", last_run: null };
+const databasePlan: BackupPlan = {
+  subject: "database",
+  name: "",
+  source_kind: "database",
+  source_machine_id: "",
+  source_machine_name: "",
+  producer: "",
+  selector: "",
+  destination_id: "bkd_1",
+  keep: 14,
+  schedule: "daily",
+  last_attempt_at: null,
+  last_error: "",
+  last_run: null,
+  last_targets_ok: 0,
+  last_targets_failed: 0,
+};
+const agentPlan: BackupPlan = {
+  ...databasePlan,
+  subject: "pve-vm",
+  name: "Machines virtuelles",
+  source_kind: "agent",
+  source_machine_id: "m2",
+  source_machine_name: "pve",
+  producer: "proxmox-vzdump",
+  selector: "5010,5012",
+  keep: 7,
+};
 
 describe("passphraseProblem", () => {
   it("refuses two phrases that differ, before saying anything of their length", () => {
@@ -26,15 +57,180 @@ describe("passphraseProblem", () => {
 });
 
 describe("isBackedUp", () => {
-  it("needs a key, a plan and the destination of that plan", () => {
-    expect(isBackedUp({ keyring, destinations: [destination], plan })).toBe(true);
-    expect(isBackedUp({ keyring: null, destinations: [destination], plan })).toBe(false);
-    expect(isBackedUp({ keyring, destinations: [destination], plan: null })).toBe(false);
-    expect(isBackedUp({ keyring, destinations: [], plan })).toBe(false);
+  it("needs a key and the database plan with its destination", () => {
+    expect(isBackedUp({ keyring, destinations: [destination], plans: [databasePlan] })).toBe(true);
+    expect(isBackedUp({ keyring: null, destinations: [destination], plans: [databasePlan] })).toBe(false);
+    expect(isBackedUp({ keyring, destinations: [destination], plans: [] })).toBe(false);
+    expect(isBackedUp({ keyring, destinations: [], plans: [databasePlan] })).toBe(false);
   });
 
   it("is not backed up by a plan that points elsewhere", () => {
-    const elsewhere: Backups = { keyring, destinations: [destination], plan: { ...plan, destination_id: "bkd_2" } };
+    const elsewhere: Backups = { keyring, destinations: [destination], plans: [{ ...databasePlan, destination_id: "bkd_2" }] };
     expect(isBackedUp(elsewhere)).toBe(false);
+  });
+
+  it("is not backed up by the plan of another source", () => {
+    expect(isBackedUp({ keyring, destinations: [destination], plans: [agentPlan] })).toBe(false);
+  });
+});
+
+describe("planTitle", () => {
+  it("shows the label, else the subject, and names the database by its own label", () => {
+    expect(planTitle(agentPlan, "La base")).toBe("Machines virtuelles");
+    expect(planTitle({ ...agentPlan, name: "" }, "La base")).toBe("pve-vm");
+    expect(planTitle(databasePlan, "La base")).toBe("La base");
+    expect(planTitle({ ...databasePlan, name: "Nuit" }, "La base")).toBe("Nuit");
+  });
+});
+
+describe("sourceLabel", () => {
+  it("names the database by its own label", () => {
+    expect(sourceLabel(t, databasePlan)).toBe("backup.source_kind_database");
+  });
+
+  it("names the machine, the producer and what it takes", () => {
+    expect(sourceLabel(t, { ...agentPlan, selector: "all" })).toBe("backup.source_agent:pve:backup.producer_proxmox-vzdump:backup.selector_all");
+    expect(sourceLabel(t, agentPlan)).toBe("backup.source_agent:pve:backup.producer_proxmox-vzdump:backup.selector_some:5010,5012");
+  });
+});
+
+describe("the form of a plan", () => {
+  it("starts with the database while it has no plan, then with an agent source", () => {
+    expect(emptyPlanForm(false).kind).toBe("database");
+    expect(emptyPlanForm(true).kind).toBe("agent");
+    expect(emptyPlanForm(true).selector).toBe("all");
+  });
+
+  it("is filled from a plan, and gives it back unchanged", () => {
+    const values = planFormOf(agentPlan);
+    expect(values).toMatchObject({ subject: "pve-vm", kind: "agent", machine: "m2", selector: "5010,5012", destination: "bkd_1", keep: "7" });
+    expect(planRequestOf(values, values.destination)).toEqual({
+      subject: "pve-vm",
+      request: {
+        name: "Machines virtuelles",
+        source_kind: "agent",
+        source_machine_id: "m2",
+        producer: "proxmox-vzdump",
+        selector: "5010,5012",
+        destination_id: "bkd_1",
+        keep: 7,
+      },
+    });
+  });
+
+  it("writes the database with its fixed subject and no machine, producer or selector", () => {
+    const values = { ...planFormOf(agentPlan), kind: "database" as const, subject: "peu importe" };
+    expect(planRequestOf(values, "bkd_2")).toEqual({
+      subject: "database",
+      request: { name: "Machines virtuelles", source_kind: "database", source_machine_id: "", producer: "", selector: "", destination_id: "bkd_2", keep: 7 },
+    });
+  });
+
+  it("trims the label and the selector", () => {
+    const values = { ...planFormOf(agentPlan), name: "  Nuit  ", selector: " all " };
+    const { request } = planRequestOf(values, "bkd_1");
+    expect(request.name).toBe("Nuit");
+    expect(request.selector).toBe("all");
+  });
+});
+
+describe("subjectProblem", () => {
+  const agent = planFormOf(agentPlan);
+  it("accepts a word of lowercase letters, digits and dashes", () => {
+    expect(subjectProblem(agent)).toBeNull();
+    expect(subjectProblem({ ...agent, subject: "a".repeat(40) })).toBeNull();
+  });
+
+  it("refuses what the server refuses, in the same key", () => {
+    for (const subject of ["", "Pve", "pve vm", "pve/vm", "-pve", "é", "a".repeat(41), "database"]) {
+      expect(subjectProblem({ ...agent, subject })).toBe("backup.plan_invalid");
+    }
+  });
+
+  it("does not ask the database for a subject", () => {
+    expect(subjectProblem({ ...agent, kind: "database", subject: "" })).toBeNull();
+  });
+
+  // PUT crée ou remplace : un plan neuf qui reprendrait un sujet écraserait
+  // le plan qui le porte.
+  it("refuses a new plan that takes the subject of an existing one, the database included", () => {
+    expect(subjectProblem(agent, ["database", "pve-vm"])).toBe("backup.plan_subject_taken");
+    expect(subjectProblem({ ...agent, kind: "database", subject: "" }, ["database"])).toBe("backup.plan_subject_taken");
+    expect(subjectProblem({ ...agent, subject: "pve-ct" }, ["database", "pve-vm"])).toBeNull();
+  });
+});
+
+describe("sourceKindsFor", () => {
+  it("offers the database to a new plan only while it has none", () => {
+    expect(sourceKindsFor(false)).toEqual(["database", "agent"]);
+    expect(sourceKindsFor(true)).toEqual(["agent"]);
+  });
+});
+
+describe("lastErrorText", () => {
+  const describeReason = (reason: string) => `reason(${reason})`;
+
+  it("translates a refusal key as it is", () => {
+    expect(lastErrorText(t, "backup.source_offline", describeReason)).toBe("backup.source_offline");
+  });
+
+  it("names the virtual machine and the reason of a target that failed", () => {
+    expect(lastErrorText(t, "backup.target_failed:5010:producer_failed", describeReason)).toBe("backup.target_failed:5010:reason(producer_failed)");
+    expect(lastErrorText(t, "backup.prune_failed:5010:path_unwritable", describeReason)).toBe("backup.prune_failed:5010:reason(path_unwritable)");
+  });
+
+  it("keeps the right that a reason names after its own colon", () => {
+    expect(lastErrorText(t, "backup.target_failed:7:right_missing:backup.produce", describeReason)).toBe("backup.target_failed:7:reason(right_missing:backup.produce)");
+  });
+
+  it("says a reason was not reported rather than guessing one", () => {
+    expect(lastErrorText(t, "backup.target_failed:7:unknown", describeReason)).toBe("backup.target_failed:7:backup.target_reason_unknown");
+    expect(lastErrorText(t, "backup.target_failed:7", describeReason)).toBe("backup.target_failed:7:backup.target_reason_unknown");
+  });
+});
+
+describe("passSummary", () => {
+  it("says nothing of a plan that has not passed since the server started", () => {
+    expect(passSummary(t, agentPlan)).toBeNull();
+  });
+
+  it("gives the two counters, the failed ones even when they are none", () => {
+    expect(passSummary(t, { last_targets_ok: 11, last_targets_failed: 0 })).toBe("backup.targets_ok:11 · backup.targets_failed:0");
+    expect(passSummary(t, { last_targets_ok: 9, last_targets_failed: 2 })).toBe("backup.targets_ok:9 · backup.targets_failed:2");
+  });
+});
+
+describe("the choice of virtual machines", () => {
+  const guest = (vmid: number, template = false): ProxmoxGuest => ({
+    vmid,
+    kind: "qemu",
+    name: `vm-${vmid}`,
+    status: "running",
+    template,
+    node: "pve",
+    cpus: 1,
+    max_memory: 0,
+    max_disk: 0,
+    linked_machine_id: null,
+    last_backup_at: null,
+    last_backup_bytes: 0,
+  });
+
+  it("offers the guests by number, templates left out", () => {
+    expect(selectableGuests([guest(300), guest(100, true), guest(200)]).map((item) => item.vmid)).toEqual([200, 300]);
+  });
+
+  it("reads the numbers of a selector, and none for all", () => {
+    expect(selectorIds("5010,5012")).toEqual([5010, 5012]);
+    expect(selectorIds("all")).toEqual([]);
+    expect(selectorIds("")).toEqual([]);
+  });
+
+  it("keeps the selector sorted and without duplicates when a box is toggled", () => {
+    expect(toggleSelectorId("", 200, true)).toBe("200");
+    expect(toggleSelectorId("200", 100, true)).toBe("100,200");
+    expect(toggleSelectorId("100,200", 200, true)).toBe("100,200");
+    expect(toggleSelectorId("100,200", 100, false)).toBe("200");
+    expect(toggleSelectorId("200", 200, false)).toBe("");
   });
 });

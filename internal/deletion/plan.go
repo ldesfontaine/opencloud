@@ -16,6 +16,9 @@ const (
 	// La machine qui reçoit les sauvegardes : retirée, elles n'auraient plus
 	// où aller.
 	KindBackupDestinations Kind = "backup_destinations"
+	// La machine qui produit la sauvegarde d'un plan : retirée, le plan
+	// n'aurait plus de source.
+	KindBackupPlans Kind = "backup_plans"
 
 	// Ce qui part avec l'objet, ou s'en détache : des lignes comptées.
 	KindAgents           Kind = "agents"
@@ -26,25 +29,29 @@ const (
 	KindContainerEvents  Kind = "container_events"
 	KindImageChecks      Kind = "image_checks"
 	KindSSHKeys          Kind = "ssh_keys"
-	KindIgnoredKeys      Kind = "ignored_keys"
-	KindSilences         Kind = "silences"
-	KindProbeResults     Kind = "probe_results"
-	KindProbeDays        Kind = "probe_days"
-	KindHeartbeatPings   Kind = "heartbeat_pings"
-	KindHeartbeatRuns    Kind = "heartbeat_runs"
-	KindUnits            Kind = "units"
-	KindMembers          Kind = "members"
-	KindAlerts           Kind = "alerts"
-	KindProjectLinks     Kind = "project_links"
-	KindIncidentLinks    Kind = "incident_links"
+	// L'hôte Proxmox déclaré sur la machine part avec elle ; les VM d'un autre
+	// hôte qui lui étaient rapprochées restent, sans le lien.
+	KindProxmoxHosts   Kind = "proxmox_hosts"
+	KindProxmoxLinks   Kind = "proxmox_links"
+	KindIgnoredKeys    Kind = "ignored_keys"
+	KindSilences       Kind = "silences"
+	KindProbeResults   Kind = "probe_results"
+	KindProbeDays      Kind = "probe_days"
+	KindHeartbeatPings Kind = "heartbeat_pings"
+	KindHeartbeatRuns  Kind = "heartbeat_runs"
+	KindUnits          Kind = "units"
+	KindMembers        Kind = "members"
+	KindAlerts         Kind = "alerts"
+	KindProjectLinks   Kind = "project_links"
+	KindIncidentLinks  Kind = "incident_links"
 )
 
 // Kinds rend la liste fermée : chaque genre a son libellé dans les catalogues.
 func Kinds() []Kind {
 	return []Kind{
-		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindStatusPages, KindBackupDestinations,
+		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindStatusPages, KindBackupDestinations, KindBackupPlans,
 		KindAgents, KindEnrollmentTokens, KindMachineSamples, KindMachineNetworks, KindContainers,
-		KindContainerEvents, KindImageChecks, KindSSHKeys, KindIgnoredKeys, KindSilences,
+		KindContainerEvents, KindImageChecks, KindSSHKeys, KindProxmoxHosts, KindProxmoxLinks, KindIgnoredKeys, KindSilences,
 		KindProbeResults, KindProbeDays, KindHeartbeatPings, KindHeartbeatRuns,
 		KindUnits, KindMembers, KindAlerts, KindProjectLinks, KindIncidentLinks,
 	}

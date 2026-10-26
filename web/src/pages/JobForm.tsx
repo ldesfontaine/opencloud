@@ -6,6 +6,7 @@ import { Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { MachineSelect } from "../components/MachineSelect";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
@@ -42,7 +43,7 @@ export function JobForm() {
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead
         title={isEditing ? t("job.edit_title") : t("job.new_title")}
         subtitle={isEditing ? t("job.edit_subtitle") : t("job.new_subtitle")}
@@ -94,6 +95,6 @@ export function JobForm() {
         </div>
         {isEditing && <Note tone="warn">{t("job.edit_note")}</Note>}
       </FormCard>
-    </>
+    </FormPage>
   );
 }

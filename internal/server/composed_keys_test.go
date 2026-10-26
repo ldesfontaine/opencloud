@@ -9,6 +9,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/backup"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
@@ -157,6 +158,9 @@ func closedKeyLists() []composedKeys {
 		{prefix: "machine.agent_update_reason_", values: action.OfferReasons()},
 		// Pourquoi un droit coché n'est pas exerçable : une phrase par raison.
 		{prefix: "machine.capability_unavailable_", values: machine.UnavailableReasons()},
+		// Les plans de sauvegarde : d'où ils prennent, et ce qu'un agent sait produire.
+		{prefix: "backup.source_kind_", values: []string{backup.SourceDatabase, backup.SourceAgent}},
+		{prefix: "backup.producer_", values: machine.Producers()},
 	}
 }
 

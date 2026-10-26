@@ -73,7 +73,10 @@ func ParseAccount(text string) (Account, bool) {
 // juge : ce sont des raisons de refus d'agentwire (un test le garde). Elles
 // s'écrivent ici parce qu'agentwire importe machine, par probe.
 func UnavailableReasons() []string {
-	return []string{"docker_denied", "docker_missing", "path_denied", "path_unwritable", "not_self_updatable"}
+	return []string{
+		"docker_denied", "docker_missing", "path_denied", "path_unwritable", "not_self_updatable",
+		"sudo_missing", "producer_missing", "sudo_denied",
+	}
 }
 
 // JudgedCapabilities rend les droits dont l'agent juge s'il peut les exercer,
@@ -81,7 +84,10 @@ func UnavailableReasons() []string {
 // observe, dont l'état de Docker se lit déjà par le moteur, ni un droit ajouté
 // plus tard qui n'écrit rien : la liste est écrite, pas déduite.
 func JudgedCapabilities() []string {
-	return []string{CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityFilesWrite}
+	return []string{
+		CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive,
+		CapabilityBackupProduce, CapabilityFilesWrite,
+	}
 }
 
 // FormatUnavailable écrit les droits indisponibles sous la forme de l'en-tête,

@@ -43,6 +43,9 @@ type orderRunner struct {
 	// Docker et le disque, que les déploiements touchent ; les tests les
 	// remplacent.
 	docker dockerTools
+	// Le dossier produce/ de l'état et la table des producteurs, que backup.produce
+	// touche ; les tests y mettent les leurs.
+	produce produceTools
 	// Ce que la machine répond au compte de l'agent : Docker, les dossiers, son
 	// propre dossier bin/. Les mêmes questions que le rapport des droits
 	// indisponibles ; un ordre est refusé, avant d'écrire, sur la même raison.
@@ -58,6 +61,7 @@ func newOrderRunner(stateDir *os.Root, identity Identity, version, dockerSocket 
 	return &orderRunner{
 		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
 		worker: newOrderWorker(), fetch: &fetcher{}, updater: updater, docker: newDockerTools(checks), checks: checks,
+		produce: newProduceTools(stateDir),
 	}
 }
 
@@ -159,6 +163,8 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 		return r.acceptBackupReceive(body)
 	case agentwire.KindBackupPrune:
 		return r.acceptBackupPrune(body)
+	case agentwire.KindBackupProduce:
+		return r.acceptBackupProduce(body)
 	case agentwire.KindAgentUpdate:
 		return r.acceptAgentUpdate(body)
 	case agentwire.KindDockerDeploy:
@@ -208,6 +214,22 @@ func (r *orderRunner) acceptBackupPrune(body agentwire.OrderBody) (agentwire.Act
 	}
 }
 
+// acceptBackupProduce juge l'ordre vite (le droit nomme le producteur, l'agent
+// le connaît, les paramètres sont de la bonne forme), puis l'accepte : lancer
+// le producteur, emballer et téléverser est le travail du worker. Les droits
+// sont lus ici, sous le verrou.
+func (r *orderRunner) acceptBackupProduce(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
+	job, refused := readBackupProduce(body, r.identity.Capabilities(), r.produce.producers)
+	if refused != nil {
+		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		return *refused, nil
+	}
+	return accepted(body), func(ctx context.Context) {
+		output, err := r.produce.produce(ctx, r.checks, r.fetch, job, r.now())
+		r.finishProduce(body, output, err)
+	}
+}
+
 // acceptDocker juge un déploiement vite, puis l'accepte : le dossier, les
 // prérequis, les écritures et Compose sont le travail du worker. La racine
 // des services est celle du fichier de l'agent, lue ici sous le verrou.
@@ -242,6 +264,22 @@ func (r *orderRunner) finishLong(body agentwire.OrderBody, output []agentwire.Ou
 		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
 	}
 	r.results.push(resultOf(body.RunID, output, err))
+}
+
+// finishProduce rapporte la fin d'une production. Ce que l'agent a refusé avant
+// d'écrire (rien ne se lance, pas de place) est « refusé » ; un producteur ou un
+// envoi qui échoue est « échoué ».
+func (r *orderRunner) finishProduce(body agentwire.OrderBody, output []agentwire.OutputLine, err error) {
+	if err != nil {
+		r.logger.Warn("order failed", "run_id", body.RunID, "kind", string(body.Kind), "error", err)
+	} else {
+		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+	}
+	result := resultOf(body.RunID, output, err)
+	if result.State == agentwire.ActionFailed && isUntouched(err) {
+		result.State = agentwire.ActionRefused
+	}
+	r.results.push(result)
 }
 
 // pinServerKey remplace la clé du serveur épinglée par celle que l'ordre

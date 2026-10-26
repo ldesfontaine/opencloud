@@ -1,0 +1,77 @@
+// L'étiquette et son « ? » sur une ligne.
+.field-caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-tip {
+  position: relative;
+  display: inline-flex;
+}
+
+.field-tip-button {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: help;
+
+  &:hover {
+    color: var(--ink);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+}
+
+// L'info-bulle de la direction artistique, mais qui passe à la ligne : un
+// détail de champ dépasse vite une ligne, et [data-tip] ne se coupe pas.
+.field-tip-text {
+  position: absolute;
+  left: -8px;
+  bottom: calc(100% + 8px);
+  z-index: 10;
+  width: max-content;
+  max-width: min(280px, 70vw);
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--ink);
+  color: var(--bg);
+  box-shadow: var(--shadow-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  visibility: hidden;
+}
+
+.field-tip:hover .field-tip-text,
+.field-tip-button:focus + .field-tip-text {
+  visibility: visible;
+}
+
+// Échap a refermé l'info-bulle : elle reste cachée sous le pointeur ou le
+// focus, jusqu'à ce qu'ils la quittent.
+.field-tip.field-tip-dismissed .field-tip-text {
+  visibility: hidden;
+}
+
+// Au doigt, la cible grandit sans que le rond change.
+@media (max-width: 860px) {
+  .field-tip-button::after {
+    content: "";
+    position: absolute;
+    inset: -14px;
+  }
+}

@@ -1,0 +1,14 @@
+// Plus étroite que la page, la colonne se centre ; sur un téléphone elle
+// prend la largeur, marges de page comprises, et rien ne change.
+.form-page {
+  width: 100%;
+  max-width: 560px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.form-page-wizard {
+  max-width: 720px;
+}

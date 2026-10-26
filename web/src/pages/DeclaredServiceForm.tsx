@@ -5,10 +5,12 @@ import { saveDeclaredService, useDeclaredService, useProjects, useProposal, type
 import { useMachines } from "../api/machines";
 import { Button } from "../components/Button";
 import { Failure } from "../components/Failure";
-import { Checkbox, Checks, EnumSelect, Field, Input } from "../components/Field";
+import { Checkbox, Checks, Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { MachineSelect } from "../components/MachineSelect";
 import { PageHead } from "../components/PageHead";
+import { EnumSelect } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT, type Translate } from "../i18n/context";
@@ -99,7 +101,7 @@ export function DeclaredServiceForm() {
 
   const allProjects = projects.data?.projects ?? [];
   return (
-    <>
+    <FormPage>
       <PageHead
         title={heading(t, isEditing, adopting).title}
         subtitle={heading(t, isEditing, adopting).subtitle}
@@ -234,7 +236,7 @@ export function DeclaredServiceForm() {
           )}
         </Field>
       </FormCard>
-    </>
+    </FormPage>
   );
 }
 

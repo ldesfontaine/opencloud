@@ -52,6 +52,12 @@ func (s *Server) routes() []route {
 		{"GET", "/api/machines/{id}/network", s.getMachineNetwork},
 		{"GET", "/api/machines/{id}/probes", s.listMachineProbes},
 		{"GET", "/api/machines/{id}/ssh-keys", s.getMachineSSHKeys},
+		{"GET", "/api/machines/{id}/proxmox", s.getMachineProxmox},
+		{"PUT", "/api/machines/{id}/proxmox", s.setMachineProxmox},
+		// Un retrait en action et non en DELETE /api/machines/{id}/proxmox : ce
+		// motif recoupe DELETE /api/machines/tokens/{id} (tokens/proxmox), et le
+		// multiplexeur de Go refuse deux motifs dont aucun n'est plus précis.
+		{"POST", "/api/machines/{id}/actions/remove-proxmox", s.removeMachineProxmox},
 		{"GET", "/api/ssh-keys", s.getSSHKeyMatrix},
 		{"GET", "/api/network", s.listNetworks},
 		{"GET", "/api/containers", s.listContainers},
@@ -156,9 +162,9 @@ func (s *Server) routes() []route {
 		{"POST", "/api/backups/keyring", s.createBackupKeyring},
 		{"POST", "/api/backups/destinations", s.createBackupDestination},
 		{"DELETE", "/api/backups/destinations/{id}", s.deleteBackupDestination},
-		{"PUT", "/api/backups/plan", s.saveBackupPlan},
-		{"DELETE", "/api/backups/plan", s.deleteBackupPlan},
-		{"POST", "/api/backups/actions/run", s.runBackup},
+		{"PUT", "/api/backups/plans/{subject}", s.saveBackupPlan},
+		{"DELETE", "/api/backups/plans/{subject}", s.deleteBackupPlan},
+		{"POST", "/api/backups/plans/{subject}/actions/run", s.runBackup},
 		{anyMethod, "/api/", s.apiUnknown},
 	}
 	add := func(method, pattern string, handler http.HandlerFunc) {
@@ -176,6 +182,7 @@ func (s *Server) routes() []route {
 var apiTokenRoutes = []string{
 	"GET /api/session", "GET /api/counts",
 	"GET /api/machines", "GET /api/machines/{id}", "GET /api/machines/{id}/network", "GET /api/machines/{id}/resources",
+	"GET /api/machines/{id}/proxmox",
 	"GET /api/containers", "GET /api/containers/{id}", "GET /api/containers/{id}/logs",
 	"GET /api/directory/services", "GET /api/directory/gaps", "GET /api/manifest/export",
 	"GET /api/jobs", "GET /api/jobs/{id}",

@@ -77,6 +77,7 @@ const paths: Record<string, ReactNode> = {
   ),
   x: <path d="M18 6 6 18M6 6l12 12" />,
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  list: <path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />,
   more: (
     <>
       <circle cx="5" cy="12" r="1.2" />

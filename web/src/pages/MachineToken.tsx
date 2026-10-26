@@ -4,6 +4,7 @@ import { Navigate, useLocation, useNavigate } from "react-router";
 import { Button } from "../components/Button";
 import { Card, CardBody, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
 import { useT } from "../i18n/context";
 import { unitDropIn, unitWritePaths, type TokenPageState } from "../lib/machines";
@@ -27,10 +28,11 @@ export function MachineToken() {
     return <Navigate to="/machines" replace />;
   }
   // Un droit qui écrit hors de l'état de l'agent demande un drop-in de son unité.
-  const writePaths = unitWritePaths(token.rights ?? []);
+  const rights = token.rights ?? [];
+  const writePaths = unitWritePaths(rights);
   const expiresIn = formatRemaining(t, Date.parse(token.expires_at) - Date.now());
   return (
-    <>
+    <FormPage>
       <PageHead title={t("machine.token_title")} subtitle={t("machine.token_subtitle", token.name)} />
       <Card className="form-card">
         <CardBody>
@@ -45,6 +47,7 @@ export function MachineToken() {
             <span className="field-help">{t("machine.prepare_help")}</span>
           </div>
           <Note tone="warn">{t("machine.prepare_docker_note")}</Note>
+          {rights.some((right) => right.name === "backup.produce") && <Note tone="warn">{t("machine.capability_produce_warning")}</Note>}
           <div className="field">
             <span className="field-label">{t("machine.command_label")}</span>
             <TokenBox value={token.command} />
@@ -64,6 +67,6 @@ export function MachineToken() {
           </div>
         </CardBody>
       </Card>
-    </>
+    </FormPage>
   );
 }

@@ -6,11 +6,12 @@ import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
-import { EnumSelect, Field, Input, Textarea } from "../components/Field";
+import { Field, Input, Textarea } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
 import { ObjectPicker } from "../components/ObjectPicker";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
+import { EnumSelect } from "../components/Select";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
@@ -212,6 +213,7 @@ function EditForm({ incident, done, cancel }: { incident: Incident; done: () => 
       onSubmit={save}
       error={action.error}
       header={<CardHeader title={t("incident.edit_title")} />}
+      width="fill"
       actions={
         <FormActions
           submitLabel={t("incident.save")}

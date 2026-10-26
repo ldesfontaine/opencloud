@@ -22,6 +22,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
@@ -41,6 +42,7 @@ type components struct {
 	db          *store.DB
 	actions     *action.Service
 	sshKeys     *sshkeys.Service
+	proxmox     *proxmox.Service
 	backups     *backup.Service
 	deployer    *deploy.Service
 	logger      *slog.Logger
@@ -136,10 +138,17 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	}
 	// Les clés SSH autorisées que les agents relèvent, en lecture seule.
 	sshKeys := sshkeys.New(db, logger)
+	// Les hôtes Proxmox que des machines déclarent, lus en lecture seule ; la
+	// boucle de relevé est à serve seul.
+	hypervisors := proxmox.New(db, machines, logger)
+	hypervisors.SetAuditor(journal)
 	// La sauvegarde de la base part par ces ordres. Le dépôt des colis
 	// (SetParcels) et la boucle sont à serve seul.
 	backups := backup.New(db, machines, stateDir, logger)
 	backups.SetSender(actions)
+	// « all », pour un plan machine, prend les invités que l'hôte Proxmox de la
+	// source a relevés.
+	backups.SetGuests(db)
 	backups.SetAuditor(journal)
 	// Le déploiement des services déclarés part par les mêmes ordres signés.
 	deployer := deploy.New(db, declared, machines, db, actions, logger)
@@ -159,7 +168,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator,
-		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, backups: backups, deployer: deployer,
+		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, proxmox: hypervisors, backups: backups, deployer: deployer,
 	}, nil
 }
 
@@ -187,6 +196,7 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		Auth:           c.operator,
 		Actions:        c.actions,
 		SSHKeys:        c.sshKeys,
+		Proxmox:        c.proxmox,
 		Backups:        c.backups,
 		Deploy:         c.deployer,
 		PublicURL:      cfg.PublicURL,

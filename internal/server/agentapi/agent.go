@@ -2,12 +2,15 @@ package agentapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -498,29 +501,39 @@ func (h *Handler) writeError(w http.ResponseWriter, status int, code string) {
 	h.writeJSON(w, status, agentError{Error: code})
 }
 
-// Un fichier de colis, pour la machine dont la session le demande : un colis
-// d'une autre machine, échu ou inconnu répond 404 sans distinguer ces cas.
-func (h *Handler) parcel(w http.ResponseWriter, r *http.Request) {
+// parcelMachine est la garde des deux routes de colis : le protocole, la
+// session, le débit. Elle rend la machine dont la session parle, ou répond.
+func (h *Handler) parcelMachine(w http.ResponseWriter, r *http.Request) (string, bool) {
 	if !h.speaksProtocol(w, r) {
-		return
+		return "", false
 	}
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
 		h.writeError(w, http.StatusUnauthorized, "no_session")
-		return
+		return "", false
 	}
 	machineID, err := h.machines.SessionMachine(token)
 	if err != nil {
 		h.writeError(w, http.StatusUnauthorized, "no_session")
-		return
+		return "", false
 	}
 	if !h.parcelLimit.Allow(machineID) {
 		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
-		return
+		return "", false
 	}
 	if h.actions == nil {
 		h.writeError(w, http.StatusNotFound, "parcel_not_found")
+		return "", false
+	}
+	return machineID, true
+}
+
+// Un fichier de colis, pour la machine dont la session le demande : un colis
+// d'une autre machine, échu ou inconnu répond 404 sans distinguer ces cas.
+func (h *Handler) parcel(w http.ResponseWriter, r *http.Request) {
+	machineID, ok := h.parcelMachine(w, r)
+	if !ok {
 		return
 	}
 	file, size, err := h.actions.OpenParcel(machineID, r.PathValue("parcel"), r.PathValue("name"))
@@ -540,4 +553,64 @@ func (h *Handler) parcel(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(w, file); err != nil {
 		h.logger.Warn("send parcel", "machine_id", machineID, "error", err)
 	}
+}
+
+// Un fichier téléversé par l'agent producteur dans le colis que le serveur lui
+// a ouvert (backup.produce). Le corps est le fichier, de la taille de
+// Content-Length, avec sa somme en en-tête. Un colis qui n'attend pas cette
+// machine répond 404 comme pour un téléchargement. 201 : écrit ; 409 : ce nom
+// existe ou un autre fichier arrive ; 411 : pas de taille ; 413 : trop grand
+// ou disque plein ; 422 : nom ou somme faux ; 400 : envoi coupé ou trop lent.
+func (h *Handler) uploadParcel(w http.ResponseWriter, r *http.Request) {
+	machineID, ok := h.parcelMachine(w, r)
+	if !ok {
+		return
+	}
+	size := r.ContentLength
+	sum := r.Header.Get(agentwire.HeaderParcelSHA256)
+	switch {
+	case size < 0:
+		h.writeError(w, http.StatusLengthRequired, "length_required")
+		return
+	case !isSHA256Hex(sum):
+		h.writeError(w, http.StatusUnprocessableEntity, "bad_digest")
+		return
+	}
+	// La borne générale du serveur (1 Mio) ne vaut pas ici ; la taille
+	// annoncée est jugée avant d'ouvrir le corps, puis tenue. Le serveur n'a
+	// pas de ReadTimeout : un envoi qui traîne ne dure pas plus que son colis.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(action.ParcelLifetime))
+	body := http.MaxBytesReader(w, r.Body, size)
+	err := h.actions.ReceiveParcel(machineID, r.PathValue("parcel"), r.PathValue("name"), body, size, sum)
+	switch {
+	case err == nil:
+		w.WriteHeader(http.StatusCreated)
+	case errors.Is(err, action.ErrParcelNotFound):
+		h.writeError(w, http.StatusNotFound, "parcel_not_found")
+	case errors.Is(err, action.ErrUploadConflict):
+		h.writeError(w, http.StatusConflict, "parcel_conflict")
+	case errors.Is(err, action.ErrUploadTooLarge):
+		h.writeError(w, http.StatusRequestEntityTooLarge, "parcel_too_large")
+	case errors.Is(err, action.ErrUploadDiskFull):
+		h.logger.Warn("upload refused, disk full", "machine_id", machineID, "size", size)
+		h.writeError(w, http.StatusRequestEntityTooLarge, "disk_full")
+	case errors.Is(err, action.ErrUploadName):
+		h.writeError(w, http.StatusUnprocessableEntity, "bad_name")
+	case errors.Is(err, action.ErrUploadDigest):
+		h.writeError(w, http.StatusUnprocessableEntity, "bad_digest")
+	case r.Context().Err() != nil || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, os.ErrDeadlineExceeded):
+		// L'agent a coupé en route ou traîné au-delà du colis : il réessaiera,
+		// ce n'est pas une erreur du serveur. Le .part est déjà effacé.
+		h.logger.Warn("upload interrupted", "machine_id", machineID, "error", err)
+		h.writeError(w, http.StatusBadRequest, "upload_interrupted")
+	default:
+		h.logger.Error("receive parcel", "machine_id", machineID, "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal")
+	}
+}
+
+// isSHA256Hex : 64 chiffres hexadécimaux en minuscules.
+func isSHA256Hex(text string) bool {
+	decoded, err := hex.DecodeString(text)
+	return err == nil && len(decoded) == sha256.Size && text == hex.EncodeToString(decoded)
 }

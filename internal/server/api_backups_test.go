@@ -67,7 +67,7 @@ func backupSetup(t *testing.T, server *testServer) (destinationID string) {
 	if destination.Right != "ok" || destination.MachineName != "vps-paris-1" {
 		t.Fatalf("destination %+v", destination)
 	}
-	if got := callAPI(server.Server, http.MethodPut, "/api/backups/plan", map[string]any{"destination_id": destination.ID, "keep": 14}); got.Code != http.StatusOK {
+	if got := callAPI(server.Server, http.MethodPut, "/api/backups/plans/database", map[string]any{"source_kind": "database", "destination_id": destination.ID, "keep": 14}); got.Code != http.StatusOK {
 		t.Fatalf("plan: %d %s", got.Code, got.Body.String())
 	}
 	return destination.ID
@@ -85,7 +85,7 @@ func TestBackups_ReadsMatchGoldenFiles(t *testing.T) {
 	compareGolden(t, filepath.Join("testdata", "backups_empty.golden.json"), normalizeBackups(empty.Body.String()))
 
 	backupSetup(t, server)
-	run := callAPI(server.Server, http.MethodPost, "/api/backups/actions/run", map[string]any{})
+	run := callAPI(server.Server, http.MethodPost, "/api/backups/plans/database/actions/run", map[string]any{})
 	if run.Code != http.StatusCreated {
 		t.Fatalf("run: %d %s", run.Code, run.Body.String())
 	}
@@ -113,9 +113,9 @@ func TestBackups_MapsEachRefusalToItsKey(t *testing.T) {
 		}
 	}
 	call(http.MethodPost, "/api/backups/keyring", map[string]any{"passphrase": "trop courte"}, http.StatusUnprocessableEntity, "backup.passphrase_too_short")
-	call(http.MethodPost, "/api/backups/actions/run", map[string]any{}, http.StatusConflict, "backup.plan_missing")
+	call(http.MethodPost, "/api/backups/plans/database/actions/run", map[string]any{}, http.StatusConflict, "backup.plan_missing")
 	call(http.MethodDelete, "/api/backups/destinations/bkd_inconnue", nil, http.StatusNotFound, "not_found")
-	call(http.MethodDelete, "/api/backups/plan", nil, http.StatusNotFound, "not_found")
+	call(http.MethodDelete, "/api/backups/plans/database", nil, http.StatusNotFound, "not_found")
 	call(http.MethodPost, "/api/backups/destinations", map[string]any{"name": "Store 1", "machine_id": remoteID, "path": "/srv/backups"}, http.StatusUnprocessableEntity, "backup.name_invalid")
 	call(http.MethodPost, "/api/backups/destinations", map[string]any{"name": "store-1", "machine_id": remoteID, "path": "/srv/backups"}, http.StatusUnprocessableEntity, "backup.machine_unknown")
 	call(http.MethodPost, "/api/backups/keyring", map[string]any{"passphrase": backupPassphrase, "unknown": true}, http.StatusBadRequest, "bad_json")
@@ -125,11 +125,11 @@ func TestBackups_MapsEachRefusalToItsKey(t *testing.T) {
 	call(http.MethodPost, "/api/backups/keyring", map[string]any{"passphrase": backupPassphrase, "replace": true}, http.StatusCreated, "")
 	call(http.MethodPost, "/api/backups/destinations", map[string]any{"name": "store-2", "machine_id": remoteID, "path": "/srv/ailleurs"}, http.StatusConflict, "backup.right_missing")
 	call(http.MethodDelete, "/api/backups/destinations/"+destinationID, nil, http.StatusConflict, "backup.destination_in_use")
-	call(http.MethodPut, "/api/backups/plan", map[string]any{"destination_id": destinationID, "keep": 999}, http.StatusUnprocessableEntity, "backup.keep_invalid")
+	call(http.MethodPut, "/api/backups/plans/database", map[string]any{"source_kind": "database", "destination_id": destinationID, "keep": 999}, http.StatusUnprocessableEntity, "backup.keep_invalid")
 
 	// Le plan arrêté, la destination se retire ; la machine qui la porte
 	// n'est plus retenue.
-	call(http.MethodDelete, "/api/backups/plan", nil, http.StatusNoContent, "")
+	call(http.MethodDelete, "/api/backups/plans/database", nil, http.StatusNoContent, "")
 	call(http.MethodDelete, "/api/backups/destinations/"+destinationID, nil, http.StatusNoContent, "")
 }
 
@@ -138,7 +138,7 @@ func TestBackups_MapsEachRefusalToItsKey(t *testing.T) {
 func TestBackups_RunSendsReceiveThenPruneAndAuditsWithoutThePassphrase(t *testing.T) {
 	server := newTestServer(t)
 	backupSetup(t, server)
-	run := callAPI(server.Server, http.MethodPost, "/api/backups/actions/run", map[string]any{})
+	run := callAPI(server.Server, http.MethodPost, "/api/backups/plans/database/actions/run", map[string]any{})
 	if run.Code != http.StatusCreated {
 		t.Fatalf("run: %d %s", run.Code, run.Body.String())
 	}
@@ -176,5 +176,96 @@ func TestBackups_RunSendsReceiveThenPruneAndAuditsWithoutThePassphrase(t *testin
 		if !found {
 			t.Errorf("no %s in %v", want, actions)
 		}
+	}
+}
+
+// Un plan à source agent se crée par l'API, se lit après le plan de la base
+// avec sa machine, et refuse de partir quand l'une des deux machines n'est pas
+// prête : la clé du refus est celle que la page lit sur le plan, et aucun
+// ordre n'est parti.
+func TestBackups_AnAgentPlanIsListedAfterTheDatabaseAndRefusesToRunUnready(t *testing.T) {
+	server := newTestServer(t)
+	destinationID := backupSetup(t, server)
+	body := map[string]any{
+		"name": "Machines virtuelles", "source_kind": "agent", "source_machine_id": remoteID, "producer": "proxmox-vzdump",
+		"selector": "all", "destination_id": destinationID, "keep": 7,
+	}
+	if saved := callAPI(server.Server, http.MethodPut, "/api/backups/plans/pve-vm", body); saved.Code != http.StatusOK {
+		t.Fatalf("plan: %d %s", saved.Code, saved.Body.String())
+	}
+	// L'agent de la destination date d'avant le préfixe d'élagage.
+	run := callAPI(server.Server, http.MethodPost, "/api/backups/plans/pve-vm/actions/run", map[string]any{})
+	if run.Code != http.StatusConflict || errorCode(t, run) != "backup.destination_agent_outdated" {
+		t.Fatalf("run: %d %s", run.Code, run.Body.String())
+	}
+	// Mis à jour, il reste que la source n'a pas le droit de produire.
+	remote, err := server.machines.Get(context.Background(), remoteID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", agentwire.PrefixSinceVersion, "backup.receive=/srv/backups", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	run = callAPI(server.Server, http.MethodPost, "/api/backups/plans/pve-vm/actions/run", map[string]any{})
+	if run.Code != http.StatusConflict || errorCode(t, run) != "backup.source_right_missing" {
+		t.Fatalf("run: %d %s", run.Code, run.Body.String())
+	}
+	runs, err := server.db.ListActionRuns(context.Background(), action.Query{MachineID: remoteID, Limit: 10})
+	if err != nil || len(runs) != 0 {
+		t.Fatalf("a refused plan sent orders: %+v %v", runs, err)
+	}
+	listed := callAPI(server.Server, http.MethodGet, "/api/backups", nil)
+	if listed.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", listed.Code, listed.Body.String())
+	}
+	compareGolden(t, filepath.Join("testdata", "backups_plans.golden.json"), normalizeBackups(listed.Body.String()))
+}
+
+// Les refus propres aux plans arrivent par leur clé : 422 pour une saisie,
+// 409 pour un doublon, 404 pour un plan absent.
+func TestBackups_MapsEachPlanRefusalToItsKey(t *testing.T) {
+	server := newTestServer(t)
+	destinationID := backupSetup(t, server)
+	agentPlan := func(change func(map[string]any)) map[string]any {
+		body := map[string]any{
+			"source_kind": "agent", "source_machine_id": remoteID, "producer": "proxmox-vzdump", "selector": "all",
+			"destination_id": destinationID, "keep": 7,
+		}
+		change(body)
+		return body
+	}
+	call := func(method, path string, payload any, status int, key string) {
+		t.Helper()
+		got := callAPI(server.Server, method, path, payload)
+		if got.Code != status || (key != "" && errorCode(t, got) != key) {
+			t.Fatalf("%s %s: %d %s, want %d %s", method, path, got.Code, got.Body.String(), status, key)
+		}
+	}
+	plan := func(subject string, body map[string]any, status int, key string) {
+		t.Helper()
+		call(http.MethodPut, "/api/backups/plans/"+subject, body, status, key)
+	}
+	plan("Pve", agentPlan(func(map[string]any) {}), http.StatusUnprocessableEntity, "backup.plan_invalid")
+	plan("database", agentPlan(func(map[string]any) {}), http.StatusUnprocessableEntity, "backup.plan_invalid")
+	plan("opencloud", agentPlan(func(map[string]any) {}), http.StatusUnprocessableEntity, "backup.plan_invalid")
+	plan("pve-vm", agentPlan(func(body map[string]any) { body["source_kind"] = "" }), http.StatusUnprocessableEntity, "backup.plan_invalid")
+	plan("pve-vm", agentPlan(func(body map[string]any) { body["source_machine_id"] = "inconnue" }), http.StatusUnprocessableEntity, "backup.source_machine_unknown")
+	plan("pve-vm", agentPlan(func(body map[string]any) { body["producer"] = "test-echo" }), http.StatusUnprocessableEntity, "backup.producer_unknown")
+	plan("pve-vm", agentPlan(func(body map[string]any) { body["selector"] = "100, 101" }), http.StatusUnprocessableEntity, "backup.selector_invalid")
+	plan("pve-vm", agentPlan(func(body map[string]any) { body["destination_id"] = "bkd_inconnue" }), http.StatusUnprocessableEntity, "backup.destination_unknown")
+	plan("pve-vm", agentPlan(func(body map[string]any) { body["keep"] = 999 }), http.StatusUnprocessableEntity, "backup.keep_invalid")
+	plan("pve-vm", agentPlan(func(map[string]any) {}), http.StatusOK, "")
+	plan("pve-vm-bis", agentPlan(func(map[string]any) {}), http.StatusConflict, "backup.plan_exists")
+	plan("pve-vm", agentPlan(func(body map[string]any) { body["unknown"] = true }), http.StatusBadRequest, "bad_json")
+
+	call(http.MethodPost, "/api/backups/plans/inconnu/actions/run", map[string]any{}, http.StatusConflict, "backup.plan_missing")
+	call(http.MethodDelete, "/api/backups/plans/pve-vm", nil, http.StatusNoContent, "")
+	call(http.MethodDelete, "/api/backups/plans/pve-vm", nil, http.StatusNotFound, "not_found")
+	// Arrêter un plan ne touche pas aux autres.
+	listed := callAPI(server.Server, http.MethodGet, "/api/backups", nil)
+	var overview backupsJSON
+	decodeAPI(t, listed, &overview)
+	if len(overview.Plans) != 1 || overview.Plans[0].Subject != "database" {
+		t.Fatalf("plans %+v", overview.Plans)
 	}
 }

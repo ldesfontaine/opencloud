@@ -42,6 +42,9 @@ type Store interface {
 	// CompleteAgentUpdates pose succeeded sur les mises à jour en attente de
 	// cet agent qui visaient cette version ; il rend les runs touchés.
 	CompleteAgentUpdates(ctx context.Context, agentID, version string, at time.Time) ([]Run, error)
+	// GetActionRun rend un run et sa sortie ; une erreur si la purge l'a
+	// emporté.
+	GetActionRun(ctx context.Context, id string) (Run, error)
 }
 
 // Machines est ce que le composant lit des machines : l'agent courant et
@@ -87,6 +90,9 @@ type Service struct {
 	// nil sans bibliothèque (voir SetReleases).
 	releases      Releases
 	serverVersion release.Version
+
+	// Ce qui réveille Wait : voir wait.go.
+	changes changeSignal
 }
 
 func New(store Store, machines Machines, logger *slog.Logger) *Service {
@@ -121,6 +127,7 @@ func (s *Service) SetClock(now func() time.Time) {
 }
 
 func (s *Service) changed(machineID string) {
+	s.changes.fire()
 	if s.watcher != nil {
 		s.watcher.ActionsChanged(machineID)
 	}
@@ -219,8 +226,7 @@ func (s *Service) send(ctx context.Context, order ServiceOrder) (Run, error) {
 	if s.key == nil {
 		return Run{}, ErrNoServerKey
 	}
-	right, ok := RightOf(kind)
-	if !ok || !kind.IsOrder() {
+	if _, ok := RightOf(kind); !ok || !kind.IsOrder() {
 		return Run{}, fmt.Errorf("%q: %w", kind, ErrUnknownKind)
 	}
 	if len(secret) > agentwire.MaxSecretBytes {
@@ -233,7 +239,7 @@ func (s *Service) send(ctx context.Context, order ServiceOrder) (Run, error) {
 	if !target.Agent.IsActive() {
 		return Run{}, machine.ErrNoAgent
 	}
-	if !target.Agent.ReportedAt.IsZero() && !machine.HasCapability(target.Agent.Capabilities, right) {
+	if !target.Agent.ReportedAt.IsZero() && !coversOrder(target.Agent.Capabilities, kind, params) {
 		return Run{}, ErrRightMissing
 	}
 	if !target.Online {

@@ -33,15 +33,18 @@ type Store interface {
 	// envoie, ErrNotFound si elle n'existe pas.
 	DeleteBackupDestination(ctx context.Context, id string) error
 	CountBackupDestinations(ctx context.Context) (int, error)
-	// GetBackupPlan rend ErrNotFound sans plan.
-	GetBackupPlan(ctx context.Context) (Plan, error)
-	// SaveBackupPlan crée le plan ou change sa destination, son nombre
-	// gardé et son rythme, sans toucher à sa dernière tentative.
+	// ListBackupPlans rend la base d'abord, les autres par sujet.
+	ListBackupPlans(ctx context.Context) ([]Plan, error)
+	// GetBackupPlan rend ErrNotFound si aucun plan n'a ce sujet.
+	GetBackupPlan(ctx context.Context, subject string) (Plan, error)
+	// SaveBackupPlan crée le plan ou change son libellé, sa source, sa
+	// destination, son nombre gardé et son rythme, sans toucher à sa dernière
+	// tentative.
 	SaveBackupPlan(ctx context.Context, plan Plan) error
-	DeleteBackupPlan(ctx context.Context) error
-	// NoteBackupAttempt écrit la tentative : son instant, la clé de son
-	// refus (vide si l'ordre est parti) et le run du backup.receive.
-	NoteBackupAttempt(ctx context.Context, at time.Time, errKey, runID string) error
+	DeleteBackupPlan(ctx context.Context, subject string) error
+	// NoteBackupAttempt écrit la tentative du plan : son instant, la clé de
+	// son refus (vide si l'ordre est parti) et le run du backup.receive.
+	NoteBackupAttempt(ctx context.Context, subject string, at time.Time, errKey, runID string) error
 	// SnapshotDatabase écrit dans un fichier neuf une copie cohérente de la
 	// base (VACUUM INTO).
 	SnapshotDatabase(ctx context.Context, path string) error
@@ -53,14 +56,30 @@ type Machines interface {
 	Get(ctx context.Context, id string) (machine.Status, error)
 }
 
-// Sender envoie un ordre signé à l'agent d'une machine : le composant action.
+// Sender envoie un ordre signé à l'agent d'une machine, et attend qu'il
+// finisse : le composant action.
 type Sender interface {
 	Send(ctx context.Context, machineID string, kind agentwire.Kind, params json.RawMessage) (action.Run, error)
+	// Wait rend le run quand il est fini ; le contexte de l'appelant borne
+	// l'attente.
+	Wait(ctx context.Context, runID string) (action.Run, error)
 }
 
 // Parcels prépare le colis que l'agent télécharge : la boîte d'action.
 type Parcels interface {
 	Create(machineID string) (*action.ParcelWriter, error)
+	// CreateForUpload ouvre un colis pour la machine de destination que la
+	// machine productrice remplit par téléversement.
+	CreateForUpload(destinationID, uploaderID string) (*action.Upload, error)
+}
+
+// Guests dit ce qu'un hôte Proxmox, déclaré sur la machine source, a relevé :
+// de quoi résoudre le sélecteur « all » d'un plan machine.
+type Guests interface {
+	// ListProxmoxGuestIDs rend les numéros des VM et conteneurs sauvegardables
+	// (modèles exclus), par ordre croissant ; rien si la machine ne porte pas
+	// d'hôte ou si aucun relevé n'a eu lieu.
+	ListProxmoxGuestIDs(ctx context.Context, machineID string) ([]int, error)
 }
 
 // Watcher reçoit chaque changement visible ; le direct s'y branche. nil est
@@ -77,6 +96,7 @@ type Service struct {
 	stateDir *os.Root
 	sender   Sender
 	parcels  Parcels
+	guests   Guests
 	watcher  Watcher
 	auditor  *audit.Recorder
 	logger   *slog.Logger
@@ -88,19 +108,34 @@ type Service struct {
 	// writing tient compter-puis-insérer d'un seul tenant (le plafond des
 	// destinations) et une seule création de clé à la fois.
 	writing sync.Mutex
-	// running ne laisse préparer qu'une archive à la fois.
+	// running ne laisse mener qu'un plan à la fois : une archive préparée, ou
+	// un passage de plan machine (des heures), jamais deux ensemble.
 	running sync.Mutex
+
+	// lifetime est la vie du serveur : un plan machine lancé à la main se mène
+	// derrière la requête qui l'a lancé, jusqu'à elle. background compte ces
+	// passages, que Watch attend en finissant (la base ne ferme pas dessous).
+	lifetime   context.Context
+	background sync.WaitGroup
+
+	// passes garde, par sujet, les comptes du dernier passage d'un plan machine.
+	passes passSummaries
 }
 
 func New(store Store, machines Machines, stateDir *os.Root, logger *slog.Logger) *Service {
-	return &Service{store: store, machines: machines, stateDir: stateDir, logger: logger, now: time.Now}
+	return &Service{store: store, machines: machines, stateDir: stateDir, logger: logger, now: time.Now, lifetime: context.Background()}
 }
 
 func (s *Service) SetSender(sender Sender)            { s.sender = sender }
 func (s *Service) SetParcels(parcels Parcels)         { s.parcels = parcels }
+func (s *Service) SetGuests(guests Guests)            { s.guests = guests }
 func (s *Service) SetWatcher(watcher Watcher)         { s.watcher = watcher }
 func (s *Service) SetAuditor(auditor *audit.Recorder) { s.auditor = auditor }
 func (s *Service) SetClock(now func() time.Time)      { s.now = now }
+
+// SetLifetime donne la vie du serveur : quand elle finit, les passages menés
+// en arrière-plan s'arrêtent.
+func (s *Service) SetLifetime(lifetime context.Context) { s.lifetime = lifetime }
 
 // SetWorkFactor baisse le coût de scrypt : pour les tests seulement.
 func (s *Service) SetWorkFactor(workFactor int) { s.workFactor = workFactor }
@@ -211,14 +246,27 @@ func (s *Service) DeleteDestination(ctx context.Context, id string) error {
 	return nil
 }
 
-// SavePlan crée le plan de la base, ou change sa destination et le nombre
-// de sauvegardes gardées.
+// SavePlan crée le plan, ou change son libellé, sa source, sa destination et
+// le nombre de sauvegardes gardées. Le sujet est son identité : il ne change
+// pas.
 func (s *Service) SavePlan(ctx context.Context, definition PlanDefinition) (Plan, error) {
-	if definition.Keep == 0 {
-		definition.Keep = DefaultKeep
+	definition.Complete()
+	if err := definition.Validate(); err != nil {
+		return Plan{}, err
 	}
-	if definition.Keep < MinKeep || definition.Keep > MaxKeep {
-		return Plan{}, ErrKeepInvalid
+	plan := Plan{
+		Subject: definition.Subject, Name: definition.Name, SourceKind: definition.SourceKind,
+		Producer: definition.Producer, Selector: definition.Selector, Keep: definition.Keep, Schedule: ScheduleDaily,
+	}
+	if definition.SourceKind == SourceAgent {
+		source, err := s.machines.Get(ctx, definition.SourceMachineID)
+		if errors.Is(err, machine.ErrNotFound) {
+			return Plan{}, ErrSourceMachineUnknown
+		}
+		if err != nil {
+			return Plan{}, fmt.Errorf("get source machine: %w", err)
+		}
+		plan.SourceMachineID, plan.SourceMachineName = source.ID, source.Name
 	}
 	destination, err := s.store.GetBackupDestination(ctx, definition.DestinationID)
 	if errors.Is(err, ErrNotFound) {
@@ -227,51 +275,86 @@ func (s *Service) SavePlan(ctx context.Context, definition PlanDefinition) (Plan
 	if err != nil {
 		return Plan{}, err
 	}
+	plan.DestinationID = destination.ID
 	id, err := ident.New()
 	if err != nil {
 		return Plan{}, fmt.Errorf("generate id: %w", err)
 	}
 	now := s.now()
-	plan := Plan{
-		ID: "bkp_" + id, Subject: SubjectDatabase, DestinationID: destination.ID, Keep: definition.Keep,
-		Schedule: ScheduleDaily, CreatedAt: now, UpdatedAt: now,
+	plan.ID, plan.CreatedAt, plan.UpdatedAt = "bkp_"+id, now, now
+
+	// Comparer puis écrire se tient sous le verrou : deux plans identiques
+	// ne naissent pas ensemble.
+	s.writing.Lock()
+	defer s.writing.Unlock()
+	if err := s.refuseTwin(ctx, plan); err != nil {
+		return Plan{}, err
 	}
 	if err := s.store.SaveBackupPlan(ctx, plan); err != nil {
 		return Plan{}, fmt.Errorf("save backup plan: %w", err)
 	}
-	saved, err := s.store.GetBackupPlan(ctx)
+	saved, err := s.store.GetBackupPlan(ctx, plan.Subject)
 	if err != nil {
 		return Plan{}, fmt.Errorf("read backup plan: %w", err)
 	}
-	s.logger.Info("backup plan saved", "plan_id", saved.ID, "destination_id", saved.DestinationID, "keep", saved.Keep)
+	saved = s.passes.applyTo(saved)
+	s.logger.Info("backup plan saved", "plan_id", saved.ID, "subject", saved.Subject, "destination_id", saved.DestinationID, "keep", saved.Keep)
 	s.auditor.Record(ctx, audit.Event{
-		Action: audit.BackupPlanUpdate, ObjectID: saved.ID, ObjectName: SubjectDatabase,
-		Details: audit.Details{"destination_id": saved.DestinationID, "keep": fmt.Sprint(saved.Keep)},
+		Action: audit.BackupPlanUpdate, ObjectID: saved.ID, ObjectName: saved.Subject,
+		Details: planDetails(saved),
 	})
 	s.changed()
 	return saved, nil
 }
 
-// DeletePlan arrête les sauvegardes : rien ne part plus, ce qui est déjà
-// sur la destination y reste.
-func (s *Service) DeletePlan(ctx context.Context) error {
-	plan, err := s.store.GetBackupPlan(ctx)
+// refuseTwin refuse un plan qui répéterait un autre : même source, même
+// destination, un autre sujet.
+func (s *Service) refuseTwin(ctx context.Context, plan Plan) error {
+	plans, err := s.store.ListBackupPlans(ctx)
+	if err != nil {
+		return fmt.Errorf("list backup plans: %w", err)
+	}
+	for _, existing := range plans {
+		if existing.Subject != plan.Subject && sameSource(existing, plan) {
+			return ErrPlanExists
+		}
+	}
+	return nil
+}
+
+// planDetails : ce que l'audit garde d'un plan écrit. La machine, le
+// producteur et le sélecteur n'y sont que pour une source agent.
+func planDetails(plan Plan) audit.Details {
+	details := audit.Details{"source_kind": plan.SourceKind, "destination_id": plan.DestinationID, "keep": fmt.Sprint(plan.Keep)}
+	if plan.SourceKind == SourceAgent {
+		details["source_machine_id"] = plan.SourceMachineID
+		details["producer"] = plan.Producer
+		details["selector"] = plan.Selector
+	}
+	return details
+}
+
+// DeletePlan arrête les sauvegardes du plan : rien ne part plus, ce qui est
+// déjà sur la destination y reste.
+func (s *Service) DeletePlan(ctx context.Context, subject string) error {
+	plan, err := s.store.GetBackupPlan(ctx, subject)
 	if err != nil {
 		return err
 	}
-	if err := s.store.DeleteBackupPlan(ctx); err != nil {
+	if err := s.store.DeleteBackupPlan(ctx, subject); err != nil {
 		return err
 	}
-	s.logger.Info("backup plan deleted", "plan_id", plan.ID)
+	s.passes.forget(plan.Subject)
+	s.logger.Info("backup plan deleted", "plan_id", plan.ID, "subject", plan.Subject)
 	s.auditor.Record(ctx, audit.Event{
-		Action: audit.BackupPlanDelete, ObjectID: plan.ID, ObjectName: SubjectDatabase,
+		Action: audit.BackupPlanDelete, ObjectID: plan.ID, ObjectName: plan.Subject,
 	})
 	s.changed()
 	return nil
 }
 
 // Overview rend ce que la page montre : la clé, les destinations avec l'état
-// du droit de leur agent, le plan.
+// du droit de leur agent, les plans.
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	var overview Overview
 	keyring, err := s.store.GetBackupKeyring(ctx)
@@ -293,12 +376,12 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		}
 		overview.Destinations = append(overview.Destinations, view)
 	}
-	plan, err := s.store.GetBackupPlan(ctx)
-	switch {
-	case err == nil:
-		overview.Plan = &plan
-	case !errors.Is(err, ErrNotFound):
-		return Overview{}, fmt.Errorf("read backup plan: %w", err)
+	overview.Plans, err = s.store.ListBackupPlans(ctx)
+	if err != nil {
+		return Overview{}, fmt.Errorf("list backup plans: %w", err)
+	}
+	for index, plan := range overview.Plans {
+		overview.Plans[index] = s.passes.applyTo(plan)
 	}
 	return overview, nil
 }

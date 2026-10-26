@@ -2,16 +2,18 @@ package backup
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
-// Watch est la boucle de fond : toutes les quinze minutes, le plan est-il
+// Watch est la boucle de fond : toutes les quinze minutes, un plan est-il
 // dû ? Un serveur arrêté à 3 h rattrape à son retour.
 func (s *Service) Watch(ctx context.Context) {
+	// Un plan machine lancé à la main court encore : la base ne ferme pas
+	// dessous.
+	defer s.background.Wait()
 	ticker := time.NewTicker(watchPeriod)
 	defer ticker.Stop()
 	for {
@@ -24,31 +26,41 @@ func (s *Service) Watch(ctx context.Context) {
 	}
 }
 
-// RunIfDue lance la sauvegarde si le plan est dû, sous l'acteur « backup » :
-// c'est une règle du serveur qui l'a décidée, pas l'opérateur.
+// RunIfDue lance les sauvegardes des plans dus, l'un après l'autre, sous
+// l'acteur « backup » : c'est une règle du serveur qui l'a décidé, pas
+// l'opérateur. Le refus d'un plan n'arrête pas les suivants.
 func (s *Service) RunIfDue(ctx context.Context) {
-	plan, err := s.store.GetBackupPlan(ctx)
-	if errors.Is(err, ErrNotFound) {
-		return
-	}
+	plans, err := s.store.ListBackupPlans(ctx)
 	if err != nil {
-		s.logger.Error("read backup plan", "error", err)
+		s.logger.Error("list backup plans", "error", err)
 		return
 	}
-	if !due(s.now(), plan) {
-		return
-	}
-	if _, err := s.run(audit.WithActor(ctx, audit.Rule("backup"))); err != nil && ctx.Err() == nil {
-		s.logRun(err)
+	for _, plan := range plans {
+		if !s.isDue(ctx, plan.Subject) {
+			continue
+		}
+		if _, err := s.run(audit.WithActor(ctx, audit.Rule("backup")), plan.Subject); err != nil && ctx.Err() == nil {
+			s.logRun(plan.Subject, err)
+		}
 	}
 }
 
-func (s *Service) logRun(err error) {
+// isDue relit le plan avant de le lancer : un plan machine précédent dure des
+// heures, et un autre passage a pu faire celui-ci, ou le supprimer.
+func (s *Service) isDue(ctx context.Context, subject string) bool {
+	plan, err := s.store.GetBackupPlan(ctx, subject)
+	if err != nil {
+		return false
+	}
+	return due(s.now(), plan)
+}
+
+func (s *Service) logRun(subject string, err error) {
 	if _, isRefusal := refusal.KeyOf(err); isRefusal {
-		s.logger.Warn("nightly backup refused", "error", err)
+		s.logger.Warn("nightly backup refused", "subject", subject, "error", err)
 		return
 	}
-	s.logger.Error("nightly backup failed", "error", err)
+	s.logger.Error("nightly backup failed", "subject", subject, "error", err)
 }
 
 // due dit si la nuit doit lancer la sauvegarde : une tentative par nuit,

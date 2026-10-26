@@ -179,6 +179,10 @@ func Run(ctx context.Context, opts Options) error {
 		updated.Store(true)
 		stop()
 	}
+	// Une production coupée net a laissé de quoi remplir le disque dans produce/.
+	if err := clearProduceDir(opts.StateDir); err != nil {
+		opts.Logger.Warn("clear produce dir", "error", err)
+	}
 	go orders.worker.run(ctx)
 	// Les clés SSH autorisées : relevées en lecture seule, à part du flux.
 	collectSSHKeys := opts.readSSHKeys

@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 )
@@ -20,6 +21,7 @@ const (
 	plainChannelURL   = "https://discord.example/api/webhooks/123/token-zq81" // gitleaks:allow -- faux secret de test
 	plainChannelKey   = "hmac-key-77ab"                                       // gitleaks:allow -- faux secret de test
 	plainPingToken    = "hb_7f9k2m4n6p8r0s2t4v6x8z"                           // gitleaks:allow -- faux secret de test
+	plainProxmoxToken = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9"                // gitleaks:allow -- faux secret de test
 )
 
 // openSecretsDB ouvre une base dont le sealer n'est pas encore posé.
@@ -78,6 +80,14 @@ func insertSealedRows(t *testing.T, db *DB) {
 		}
 	}
 	if _, err := db.writeHeartbeatToken(ctx, db.sql, "job1", plainPingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.ExecContext(ctx, `INSERT INTO machines (id, name, created_at) VALUES ('pve-host', 'pve', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.ExecContext(ctx,
+		`INSERT INTO machine_proxmox (machine_id, api_url, token_id, token_secret, verified_at, created_at) VALUES ('pve-host', 'https://pve.lan:8006', 'opencloud@pve!lecture', ?, 1, 1)`,
+		mustSeal(t, db, plainProxmoxToken, proxmoxTokenScope("pve-host"))); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -172,7 +182,7 @@ func TestHasSealedSecrets(t *testing.T) {
 	if err != nil || has {
 		t.Fatalf("clear base: %v, %v", has, err)
 	}
-	if _, err := db.sql.ExecContext(ctx, `DELETE FROM settings; DELETE FROM alert_channels; DELETE FROM heartbeats`); err != nil {
+	if _, err := db.sql.ExecContext(ctx, `DELETE FROM settings; DELETE FROM alert_channels; DELETE FROM heartbeats; DELETE FROM machine_proxmox; DELETE FROM machines WHERE id = 'pve-host'`); err != nil {
 		t.Fatal(err)
 	}
 	db.SetSealer(seal.Generate())
@@ -198,6 +208,15 @@ func TestWritesSealWhatTheyStore(t *testing.T) {
 	if err := db.InsertHeartbeat(ctx, heartbeat.Heartbeat{ID: "job1", Token: plainPingToken, Name: "backup", Status: heartbeat.StatusNew, Interval: time.Hour, CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.sql.ExecContext(ctx, `INSERT INTO machines (id, name, created_at) VALUES ('pve-host', 'pve', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SaveProxmoxHost(ctx, proxmox.Credentials{
+		Host:        proxmox.Host{MachineID: "pve-host", APIURL: "https://pve.lan:8006", TokenID: "opencloud@pve!lecture", Version: "8.2.4", VerifiedAt: now, CreatedAt: now},
+		TokenSecret: plainProxmoxToken,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.UpdateSettings(ctx, func(current *settings.Settings) { current.MailPassword = plainMailPassword }); err != nil {
 		t.Fatal(err)
 	}
@@ -207,6 +226,7 @@ func TestWritesSealWhatTheyStore(t *testing.T) {
 		"channel url":    `SELECT url FROM alert_channels`,
 		"channel secret": `SELECT secret FROM alert_channels`,
 		"ping token":     `SELECT token_sealed FROM heartbeats`,
+		"proxmox token":  `SELECT token_secret FROM machine_proxmox`,
 	} {
 		if value := rawColumn(t, db, query); !seal.IsSealed(value) {
 			t.Errorf("%s is stored in the clear: %q", name, value)
@@ -214,6 +234,11 @@ func TestWritesSealWhatTheyStore(t *testing.T) {
 	}
 	if lookup := rawColumn(t, db, `SELECT token_lookup FROM heartbeats`); lookup != heartbeat.HashToken(plainPingToken) {
 		t.Errorf("token_lookup %q is not the hash of the token", lookup)
+	}
+
+	credentials, err := db.GetProxmoxCredentials(ctx, "pve-host")
+	if err != nil || credentials.TokenSecret != plainProxmoxToken {
+		t.Fatalf("proxmox credentials: %+v, %v", credentials, err)
 	}
 
 	channel, err := db.GetChannel(ctx, id)
@@ -267,12 +292,18 @@ func TestForgetSecrets_EmptiesWhatWasLostAndRenewsPingTokens(t *testing.T) {
 
 	// La clé est perdue : on en pose une autre, puis on oublie.
 	db.SetSealer(seal.Generate())
-	channels, tokens, err := db.ForgetSecrets(ctx, heartbeat.NewToken)
+	forgotten, err := db.ForgetSecrets(ctx, heartbeat.NewToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if channels != 1 || tokens != 1 {
-		t.Fatalf("forgot %d channels and %d tokens, want 1 and 1", channels, tokens)
+	if forgotten.Channels != 1 || forgotten.PingTokens != 1 || forgotten.ProxmoxHosts != 1 {
+		t.Fatalf("forgot %+v, want 1 channel, 1 ping token and 1 Proxmox host", forgotten)
+	}
+	if got := rawColumn(t, db, `SELECT token_secret FROM machine_proxmox`); got != "" {
+		t.Fatalf("the lost Proxmox token must be emptied, got %q", got)
+	}
+	if credentials, err := db.GetProxmoxCredentials(ctx, "pve-host"); err != nil || credentials.TokenSecret != "" || credentials.TokenID != "opencloud@pve!lecture" {
+		t.Fatalf("the host must stay declared with an empty token: %+v, %v", credentials, err)
 	}
 
 	current, err := db.LoadSettings(ctx)
@@ -301,9 +332,9 @@ func TestForgetSecrets_EmptiesWhatWasLostAndRenewsPingTokens(t *testing.T) {
 		t.Fatalf("the base must start after forgetting: %v", err)
 	}
 
-	again, tokensAgain, err := db.ForgetSecrets(ctx, heartbeat.NewToken)
-	if err != nil || again != 0 || tokensAgain != 1 {
-		t.Fatalf("replay: %d channels, %d tokens, %v", again, tokensAgain, err)
+	again, err := db.ForgetSecrets(ctx, heartbeat.NewToken)
+	if err != nil || again.Channels != 0 || again.PingTokens != 1 || again.ProxmoxHosts != 0 {
+		t.Fatalf("replay: %+v, %v", again, err)
 	}
 }
 
@@ -320,7 +351,7 @@ func TestResealSecrets_MovesEverySecretToTheNewKey(t *testing.T) {
 	rotating := old.WithNewKey()
 	db.SetSealer(rotating)
 	resealed, err := db.ResealSecrets(ctx)
-	if err != nil || resealed != 4 {
+	if err != nil || resealed != 5 {
 		t.Fatalf("resealed %d: %v", resealed, err)
 	}
 	db.SetSealer(rotating.Current())

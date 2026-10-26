@@ -3,9 +3,9 @@ import { useNavigate, useParams } from "react-router";
 import type { Machine } from "../api/machines";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
-import { machineTabs } from "../lib/machineTabs";
+import { visibleMachineTabs } from "../lib/machineTabs";
 import { machineSeen } from "../lib/machines";
-import { Select } from "./Field";
+import { MachineSelect } from "./MachineSelect";
 import { OnlinePill } from "./Pill";
 import { SupportLine } from "./SupportBlock";
 import { TabNav } from "./TabNav";
@@ -24,13 +24,7 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
   const pathOf = (id: string) => (tab === "" ? `/machines/${id}` : `/machines/${id}/${tab}`);
   return (
     <div className="machine-head">
-      <Select icon="server" aria-label={t("machine.select")} value={current.id} onChange={(event) => void navigate(pathOf(event.target.value))}>
-        {all.map((machine) => (
-          <option key={machine.id} value={machine.id}>
-            {machine.name}
-          </option>
-        ))}
-      </Select>
+      <MachineSelect icon="server" aria-label={t("machine.select")} machines={all} value={current.id} onChange={(id) => void navigate(pathOf(id))} />
       <span className="machine-state">
         <OnlinePill online={current.online} />
         <span className="meta">
@@ -54,7 +48,7 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
   );
 }
 
-export function Tabs({ machineID }: { machineID: string }) {
-  const tabs = machineTabs.map((tab) => ({ to: tab.slug === "" ? `/machines/${machineID}` : `/machines/${machineID}/${tab.slug}`, key: tab.key }));
+export function Tabs({ machineID, hostsProxmox }: { machineID: string; hostsProxmox: boolean }) {
+  const tabs = visibleMachineTabs(hostsProxmox).map((tab) => ({ to: tab.slug === "" ? `/machines/${machineID}` : `/machines/${machineID}/${tab.slug}`, key: tab.key }));
   return <TabNav tabs={tabs} />;
 }

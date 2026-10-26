@@ -78,7 +78,11 @@ export function unitDropIn(paths: string[]): string {
 }
 
 // La liste fermée du serveur (machine.CapabilityNames), dans son ordre.
-export const capabilityNames = ["observe", "probe.lan", "agent.update", "docker.deploy", "docker.update", "backup.receive", "files.write"] as const;
+export const capabilityNames = ["observe", "probe.lan", "agent.update", "docker.deploy", "docker.update", "backup.receive", "backup.produce", "files.write"] as const;
+
+// Le seul producteur de sauvegardes que le serveur connaisse (machine.Producers) :
+// la portée de backup.produce est fixée, la case suffit.
+export const backupProducer = "proxmox-vzdump";
 
 // observe est toujours accordé : la case se montre cochée et grisée.
 export const alwaysGranted = "observe";
@@ -107,6 +111,9 @@ function pathsOf(name: string, values: RightsValues): string[] {
   }
   if (name === "files.write") {
     return splitPaths(values.writePaths);
+  }
+  if (name === "backup.produce") {
+    return [backupProducer];
   }
   return [];
 }
