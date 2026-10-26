@@ -1,0 +1,73 @@
+// Au-dessus du lien étiré d'une carte ou d'une ligne ; ouvert, au-dessus des
+// lignes suivantes aussi.
+.more-menu {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  flex: none;
+
+  &.open {
+    z-index: 30;
+  }
+
+  > .btn {
+    color: var(--muted);
+  }
+
+  &.open > .btn,
+  > .btn:hover {
+    color: var(--ink);
+  }
+}
+
+// Un menu porte une ombre (DA, « Ombres ») ; la place vient du CSSOM.
+.more-list {
+  position: fixed;
+  top: 0;
+  left: 0;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  display: flex;
+  flex-direction: column;
+}
+
+.more-item {
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+
+  &:focus-visible {
+    outline-offset: -2px;
+  }
+
+  &.danger,
+  &.danger:hover {
+    color: var(--danger);
+  }
+}
+
+@media (max-width: 860px) {
+  .more-item {
+    height: 44px;
+  }
+}

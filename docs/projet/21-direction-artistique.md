@@ -118,8 +118,27 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   qui va bien reste du texte neutre. Même règle pour l'échéance d'un
   certificat (pastille dès le seuil d'attention, texte discret avant) et le
   code de sortie d'une exécution (danger si non nul, neutre à 0).
-- **Tableau** : en-têtes en étiquette de section, lignes de 44 px minimum,
-  valeurs en mono, menu « … » en fin de ligne.
+- **Tableau** : pour ce qui est nombreux (conteneurs, tâches, exécutions,
+  clés). En-têtes en étiquette de section, lignes de 44 px minimum, valeurs
+  en mono. La ligne entière mène à la fiche (`RowLink` sur le nom : un vrai
+  lien, Ctrl-clic compris ; survol en `--surface-2`) : plus de bouton
+  « Ouvrir » en fin de ligne. Les actions secondaires vont dans un menu
+  « … » juste après le nom, toujours visible, discret. Avec `fit`, chaque
+  colonne prend la largeur de son contenu et le nom prend le reste : le vide
+  ne s'étale plus entre les colonnes.
+- **Carte d'objet** (`EntityCard` dans une `CardGrid`) : pour ce qui est peu
+  nombreux et riche en état (machines, services déclarés, pages de statut).
+  Icône, nom (14 px / 600), menu « … » à droite ; dessous le type et la
+  pastille d'état ; puis deux à quatre faits (étiquette discrète, valeur en
+  mono) et, au besoin, des mini-jauges. Toute la carte mène à la fiche (le
+  lien du nom s'étire sur elle) ; survol par le trait appuyé, jamais
+  d'ombre ; padding 16. La grille met autant de cartes de 260 px au moins
+  que la largeur en tient, sans étirer deux cartes sur tout l'écran ; une
+  seule colonne sur un téléphone. Là où cartes et tableau ont tous deux du
+  sens, une bascule (`ViewToggle`, icônes grille et liste) les échange ; le
+  choix est mémorisé par le navigateur, liste par liste. Une liste vide dit
+  une phrase et son action principale sur une ligne (`EmptyLine`), pas une
+  grande carte presque vide.
 - **Liste d'événements** : point d'état, fait en gras léger, contexte en
   dessous, moment à droite.
 - **Verdict** : en tête de la page d'un objet, la pastille d'état et le fait
