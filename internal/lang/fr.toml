@@ -559,6 +559,27 @@ disabled = "Désactivé"
 title = "États"
 open_count = "2 ouvertes"
 
+[visual.wizard]
+title = "Assistant"
+mode_label = "Mode"
+mode_create = "Création"
+mode_edit = "Modification"
+step_name = "Nom"
+step_rhythm = "Rythme"
+step_alert = "Alerte"
+name_label = "Nom de la tâche"
+name_help = "Celui qu'on lit dans la liste."
+name_tip = "Jusqu'à 80 caractères. Il se change ensuite sans toucher au jeton."
+name_missing = "Donnez un nom pour continuer."
+interval_label = "Intervalle (minutes)"
+interval_help = "Le rythme attendu du ping."
+interval_invalid = "L'intervalle va de 1 à 10080 minutes."
+notify_label = "Prévenir"
+notify_check = "Alerter au premier retard"
+notify_yes = "Oui"
+notify_no = "Non"
+submit = "Déclarer la tâche"
+
 [visual.settings]
 title = "Réglages"
 
@@ -2027,6 +2048,21 @@ browser_prompt = "Ensuite, le navigateur demandera l'identifiant et le mot de pa
 enabled_since = "activée %s"
 disable = "Désactiver"
 disable_confirm = "Désactiver l'authentification ? L'interface reviendra à sa première configuration : qui atteindra ce port en premier créera le compte."
+
+# L'assistant pas à pas : une étape à l'écran, puis le récapitulatif.
+[wizard]
+steps_label = "Étapes"
+summary = "Récapitulatif"
+step_of = "Étape %d sur %d"
+previous = "Précédent"
+next = "Suivant"
+back_to_summary = "Revenir au récapitulatif"
+edit = "Modifier"
+edit_step = "Modifier « %s »"
+
+# Un champ de formulaire : son « ? », le détail qu'on ne veut pas à l'écran.
+[field]
+tip_label = "Plus de détail"
 
 # Les confirmations en ligne : le bouton se replie en question.
 [confirm]

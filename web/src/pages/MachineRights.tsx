@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import { reenrollMachine, useMachines, type Machine } from "../api/machines";
 import { Failure } from "../components/Failure";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
 import { RightsFields } from "../components/RightsFields";
 import { useAction } from "../hooks/useAction";
@@ -43,7 +44,7 @@ function RightsForm({ machine }: { machine: Machine }) {
     });
   };
   return (
-    <>
+    <FormPage>
       <PageHead title={t("machine.rights_title", machine.name)} subtitle={t("machine.rights_subtitle")} />
       <FormCard
         onSubmit={save}
@@ -61,6 +62,6 @@ function RightsForm({ machine }: { machine: Machine }) {
       >
         <RightsFields values={values} update={form.update} />
       </FormCard>
-    </>
+    </FormPage>
   );
 }

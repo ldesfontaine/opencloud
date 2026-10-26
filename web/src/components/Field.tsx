@@ -1,25 +1,36 @@
-import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
+import { useT } from "../i18n/context";
+import { FieldTip } from "./FieldTip";
+import { Icon, type IconName } from "./Icon";
 import "./Field.scss";
 
-// Un champ : étiquette, contrôle, aide.
+// Un champ : étiquette, contrôle, aide. L'aide tient sur une ligne ; le
+// détail, quand il sert vraiment, va dans tip, une info-bulle « ? » à côté
+// de l'étiquette.
 export function Field({
   label,
   htmlFor,
   help,
+  tip,
   children,
 }: {
   label: string;
   htmlFor?: string;
   help?: string;
+  tip?: string;
   children: ReactNode;
 }) {
+  const caption = htmlFor ? <label htmlFor={htmlFor}>{label}</label> : <span className="field-label">{label}</span>;
   return (
     <div className="field">
-      {htmlFor ? (
-        <label htmlFor={htmlFor}>{label}</label>
+      {tip === undefined ? (
+        caption
       ) : (
-        <span className="field-label">{label}</span>
+        <span className="field-caption">
+          {caption}
+          <FieldTip text={tip} />
+        </span>
       )}
       {children}
       {help !== undefined && <span className="field-help">{help}</span>}
@@ -36,6 +47,52 @@ export function Input({ mono = false, className, ...rest }: InputHTMLAttributes<
     classes.push(className);
   }
   return <input className={classes.join(" ")} {...rest} />;
+}
+
+export function Select({ icon, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement> & { icon?: IconName }) {
+  return (
+    <span className="select">
+      {icon && <Icon name={icon} />}
+      <select {...rest}>{children}</select>
+      <span className="chev">
+        <Icon name="chevron-down" />
+      </span>
+    </span>
+  );
+}
+
+// Un choix dans une liste fermée : chaque option se traduit par la clé
+// labelKey + valeur (channel.format_ + slack), et la valeur choisie se
+// retrouve dans values plutôt que d'être forcée au type.
+export function EnumSelect<Value extends string>({
+  value,
+  values,
+  labelKey,
+  onChange,
+  ...rest
+}: Omit<SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange" | "children"> & {
+  value: Value;
+  values: readonly Value[];
+  labelKey: string;
+  onChange: (value: Value) => void;
+  icon?: IconName;
+}) {
+  const t = useT();
+  const choose = (chosen: string) => {
+    const known = values.find((candidate) => candidate === chosen);
+    if (known !== undefined) {
+      onChange(known);
+    }
+  };
+  return (
+    <Select value={value} onChange={(event) => choose(event.target.value)} {...rest}>
+      {values.map((candidate) => (
+        <option key={candidate} value={candidate}>
+          {t(`${labelKey}${candidate}`)}
+        </option>
+      ))}
+    </Select>
+  );
 }
 
 export function Textarea({ mono = false, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement> & { mono?: boolean }) {

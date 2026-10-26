@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { createIncident } from "../api/status";
 import { Field, Input, Textarea } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { ObjectPicker } from "../components/ObjectPicker";
 import { PageHead } from "../components/PageHead";
 import { EnumSelect } from "../components/Select";
@@ -30,7 +31,7 @@ export function StatusIncidentNew() {
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead title={t("incident.new_title")} subtitle={t("incident.new_subtitle")} />
       <FormCard
         onSubmit={save}
@@ -86,6 +87,6 @@ export function StatusIncidentNew() {
           />
         </Field>
       </FormCard>
-    </>
+    </FormPage>
   );
 }

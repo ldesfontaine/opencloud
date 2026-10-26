@@ -1,0 +1,150 @@
+.wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+// La barre d'étapes : une pastille numérotée et le nom, reliées par un
+// trait. Courante en encre pleine, faite en coche, à venir en discret.
+.wizard-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  & + &::before {
+    content: "";
+    flex: none;
+    width: 16px;
+    height: 1px;
+    background: var(--line-strong);
+  }
+}
+
+.wizard-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 500;
+}
+
+button.wizard-jump {
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+}
+
+.wizard-mark {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+
+  .icon {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+.wizard-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wizard-step-current .wizard-jump {
+  color: var(--ink);
+}
+
+.wizard-step-current .wizard-mark {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-ink);
+}
+
+.wizard-step-done .wizard-jump {
+  color: var(--ink-2);
+}
+
+.wizard-step-done .wizard-mark {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+// La forme réduite n'existe que sous 860 px.
+.wizard-compact {
+  display: none;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+// Le titre reçoit le focus à chaque étape, pour être annoncé ; il n'a pas à
+// s'entourer comme un contrôle.
+.wizard-title:focus {
+  outline: none;
+}
+
+.wizard-summary {
+  display: flex;
+  flex-direction: column;
+}
+
+.wizard-summary-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+
+  &:first-child {
+    padding-top: 0;
+  }
+}
+
+.wizard-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (max-width: 860px) {
+  .wizard-steps {
+    display: none;
+  }
+
+  .wizard-compact {
+    display: block;
+  }
+}

@@ -559,6 +559,27 @@ disabled = "Disabled"
 title = "States"
 open_count = "2 open"
 
+[visual.wizard]
+title = "Wizard"
+mode_label = "Mode"
+mode_create = "Create"
+mode_edit = "Edit"
+step_name = "Name"
+step_rhythm = "Rhythm"
+step_alert = "Alert"
+name_label = "Job name"
+name_help = "The one shown in the list."
+name_tip = "Up to 80 characters. It can be changed later without touching the token."
+name_missing = "Give a name to continue."
+interval_label = "Interval (minutes)"
+interval_help = "How often the ping is expected."
+interval_invalid = "The interval goes from 1 to 10080 minutes."
+notify_label = "Notify"
+notify_check = "Alert on the first delay"
+notify_yes = "Yes"
+notify_no = "No"
+submit = "Declare the job"
+
 [visual.settings]
 title = "Settings"
 
@@ -2027,6 +2048,21 @@ browser_prompt = "Afterwards, the browser will ask for the username and password
 enabled_since = "enabled %s"
 disable = "Disable"
 disable_confirm = "Disable authentication? The interface will go back to its first setup: whoever reaches this port first will create the account."
+
+# The step-by-step wizard: one step on screen, then the summary.
+[wizard]
+steps_label = "Steps"
+summary = "Summary"
+step_of = "Step %d of %d"
+previous = "Previous"
+next = "Next"
+back_to_summary = "Back to summary"
+edit = "Edit"
+edit_step = "Edit “%s”"
+
+# A form field: its “?”, the detail kept off the screen.
+[field]
+tip_label = "More detail"
 
 # Inline confirmations: the button folds into a question.
 [confirm]

@@ -4,6 +4,7 @@ import { Navigate, useLocation, useNavigate } from "react-router";
 import { Button } from "../components/Button";
 import { Card, CardBody, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
 import { useT } from "../i18n/context";
 import { unitDropIn, unitWritePaths, type TokenPageState } from "../lib/machines";
@@ -31,7 +32,7 @@ export function MachineToken() {
   const writePaths = unitWritePaths(rights);
   const expiresIn = formatRemaining(t, Date.parse(token.expires_at) - Date.now());
   return (
-    <>
+    <FormPage>
       <PageHead title={t("machine.token_title")} subtitle={t("machine.token_subtitle", token.name)} />
       <Card className="form-card">
         <CardBody>
@@ -66,6 +67,6 @@ export function MachineToken() {
           </div>
         </CardBody>
       </Card>
-    </>
+    </FormPage>
   );
 }

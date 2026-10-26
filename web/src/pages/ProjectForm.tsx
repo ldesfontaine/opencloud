@@ -7,6 +7,7 @@ import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
 import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
@@ -42,7 +43,7 @@ export function ProjectForm() {
 
   const projectServices = members.data?.services ?? [];
   return (
-    <>
+    <FormPage>
       <PageHead
         title={isEditing ? t("project.edit_title") : t("project.new_title")}
         subtitle={isEditing ? t("project.edit_subtitle") : t("project.new_subtitle")}
@@ -110,7 +111,7 @@ export function ProjectForm() {
           )}
         </Card>
       )}
-    </>
+    </FormPage>
   );
 }
 

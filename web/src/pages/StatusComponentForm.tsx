@@ -7,6 +7,7 @@ import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
 import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { ObjectPicker } from "../components/ObjectPicker";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
@@ -56,7 +57,7 @@ export function ComponentForm({ existing, pageID, pages }: { existing: StatusCom
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead
         title={existing ? t("component.edit_title") : t("component.new_title")}
         subtitle={t("component.new_subtitle")}
@@ -133,7 +134,7 @@ export function ComponentForm({ existing, pageID, pages }: { existing: StatusCom
           />
         </Field>
       </FormCard>
-    </>
+    </FormPage>
   );
 }
 

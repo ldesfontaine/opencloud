@@ -8,7 +8,7 @@ import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyLine, KeyValue, Meter, Stat } from "../components/Card";
 import { ConfirmInline } from "../components/ConfirmInline";
 import { CardGrid, EntityCard } from "../components/EntityCard";
-import { Field, Input, Select } from "../components/Field";
+import { Checkbox, Checks, Field, Input } from "../components/Field";
 import { Icon } from "../components/Icon";
 import type { MenuAction } from "../components/MoreMenu";
 import { PageHead } from "../components/PageHead";
@@ -17,9 +17,12 @@ import { SectionHead } from "../components/SectionHead";
 import { Select } from "../components/Select";
 import { DangerZone, SettingFoot, SettingRow } from "../components/SettingRow";
 import { List, RowLink, RowText, RowWhen, Table } from "../components/Table";
-import { ViewToggle } from "../components/ViewToggle";
+import { Wizard, type WizardStep } from "../components/Wizard";
+import { useForm } from "../hooks/useForm";
 import { useViewMode } from "../hooks/useViewMode";
 import { useI18n, type Translate } from "../i18n/context";
+import type { WizardMode } from "../lib/wizard";
+import { ViewToggle } from "../components/ViewToggle";
 import "./VisualSystem.scss";
 
 const swatches = [
@@ -326,6 +329,11 @@ export function VisualSystem() {
           </section>
 
           <section>
+            <h2 className="side-label section-label">{t("visual.wizard.title")}</h2>
+            <WizardSample />
+          </section>
+
+          <section>
             <h2 className="side-label section-label">{t("visual.nav.title")}</h2>
             <div className="grid-nav-nodes">
               <nav className="nav">
@@ -463,6 +471,93 @@ export function VisualSystem() {
       </div>
     </>
   );
+}
+
+// Un assistant de démonstration : trois étapes, une validation qui bloque
+// (le nom vide, l'intervalle hors bornes), le récapitulatif. Le mode se
+// change pour voir la modification, qui part du récapitulatif ; la clé
+// remonte l'assistant à chaque changement.
+function WizardSample() {
+  const { t } = useI18n();
+  const [mode, setMode] = useState<WizardMode>("create");
+  const filled = { name: "sauvegarde-nocturne", interval: "1440", notify: true };
+  const empty = { name: "", interval: "60", notify: false };
+  return (
+    <div className="stack gap-14">
+      <div>
+        <span className="seg" role="radiogroup" aria-label={t("visual.wizard.mode_label")}>
+          <label>
+            <input type="radio" name="vs-wizard-mode" checked={mode === "create"} onChange={() => setMode("create")} />
+            <span>{t("visual.wizard.mode_create")}</span>
+          </label>
+          <label>
+            <input type="radio" name="vs-wizard-mode" checked={mode === "edit"} onChange={() => setMode("edit")} />
+            <span>{t("visual.wizard.mode_edit")}</span>
+          </label>
+        </span>
+      </div>
+      <SampleWizard key={mode} mode={mode} initial={mode === "edit" ? filled : empty} />
+    </div>
+  );
+}
+
+function SampleWizard({ mode, initial }: { mode: WizardMode; initial: { name: string; interval: string; notify: boolean } }) {
+  const { t } = useI18n();
+  const { values, change } = useForm(initial);
+  const steps: WizardStep[] = [
+    {
+      id: "name",
+      title: t("visual.wizard.step_name"),
+      render: () => (
+        <Field label={t("visual.wizard.name_label")} htmlFor="vs-wizard-name" help={t("visual.wizard.name_help")} tip={t("visual.wizard.name_tip")}>
+          <Input id="vs-wizard-name" type="text" value={values.name} onChange={(event) => change("name", event.target.value)} maxLength={80} autoComplete="off" />
+        </Field>
+      ),
+      validate: () => (values.name.trim() === "" ? "visual.wizard.name_missing" : null),
+      summary: () => [{ label: t("visual.wizard.name_label"), value: values.name, mono: true }],
+    },
+    {
+      id: "rhythm",
+      title: t("visual.wizard.step_rhythm"),
+      render: () => (
+        <Field label={t("visual.wizard.interval_label")} htmlFor="vs-wizard-interval" help={t("visual.wizard.interval_help")}>
+          <Input id="vs-wizard-interval" mono type="number" value={values.interval} onChange={(event) => change("interval", event.target.value)} />
+        </Field>
+      ),
+      validate: () => (isSampleInterval(values.interval) ? null : "visual.wizard.interval_invalid"),
+      summary: () => [{ label: t("visual.wizard.interval_label"), value: values.interval, mono: true }],
+    },
+    {
+      id: "alert",
+      title: t("visual.wizard.step_alert"),
+      render: () => (
+        <Field label={t("visual.wizard.notify_label")}>
+          <Checks>
+            <Checkbox label={t("visual.wizard.notify_check")} checked={values.notify} onChange={(checked) => change("notify", checked)} />
+          </Checks>
+        </Field>
+      ),
+      summary: () => [{ label: t("visual.wizard.notify_label"), value: values.notify ? t("visual.wizard.notify_yes") : t("visual.wizard.notify_no") }],
+    },
+  ];
+  return (
+    <Wizard
+      steps={steps}
+      mode={mode}
+      onSubmit={() => undefined}
+      submitLabel={t("visual.wizard.submit")}
+      submitIcon={mode === "edit" ? "check" : "plus"}
+      busy={false}
+      error={null}
+      cancelLabel={t("confirm.cancel")}
+      onCancel={() => undefined}
+    />
+  );
+}
+
+function isSampleInterval(interval: string): boolean {
+  const minutes = Number(interval);
+  return Number.isInteger(minutes) && minutes >= 1 && minutes <= 10080;
 }
 
 // Les liens de la vitrine restent sur la vitrine, ses actions ne font rien.

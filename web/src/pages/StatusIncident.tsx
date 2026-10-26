@@ -213,6 +213,7 @@ function EditForm({ incident, done, cancel }: { incident: Incident; done: () => 
       onSubmit={save}
       error={action.error}
       header={<CardHeader title={t("incident.edit_title")} />}
+      width="fill"
       actions={
         <FormActions
           submitLabel={t("incident.save")}
