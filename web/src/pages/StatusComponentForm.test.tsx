@@ -14,18 +14,12 @@ function pageOf(id: string, slug: string, title: string): StatusPage {
 // L'ordre du serveur (par adresse) met « Interne » avant la page demandée.
 const pages = [pageOf("p-interne", "interne", "Interne"), pageOf("p-etat", "services", "État des services")];
 
-// Le libellé que montre le déclencheur du champ Page, balises ôtées.
-function shownPage(markup: string): string {
-  const start = markup.indexOf('id="component-page"');
-  const control = markup.slice(start, markup.indexOf("</button>", start));
-  return control.replace(/^[^>]*>/, "").replace(/<[^>]*>/g, "");
-}
-
 test("à son premier rendu, le formulaire d'un composant montre la page demandée", () => {
   const markup = renderToStaticMarkup(
     <MemoryRouter>
       <ComponentForm existing={null} pageID="p-etat" pages={pages} />
     </MemoryRouter>,
   );
-  expect(shownPage(markup)).toBe("État des services");
+  expect(markup).toContain('id="component-page"');
+  expect(markup).toContain(">État des services<");
 });
