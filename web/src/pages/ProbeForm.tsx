@@ -7,11 +7,12 @@ import { useMachines } from "../api/machines";
 import { saveProbe, useProbe, type ProbeResponse } from "../api/probes";
 import { Note } from "../components/Card";
 import { Failure } from "../components/Failure";
-import { EnumSelect, Field, Input, Select } from "../components/Field";
+import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
 import { FormPage } from "../components/FormPage";
 import { MachineSelect } from "../components/MachineSelect";
 import { PageHead } from "../components/PageHead";
+import { EnumSelect, Select } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
@@ -128,14 +129,18 @@ export function ProbeForm() {
           </Field>
         </div>
         <Field label={t("probe.service_label")} htmlFor="probe-service" help={t("probe.service_help")}>
-          <Select id="probe-service" value={values.serviceID} onChange={(event) => change("serviceID", event.target.value)}>
-            <option value="">{t("probe.service_none")}</option>
-            {(declared.data?.services ?? []).map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {t("probe.service_option", candidate.title !== "" ? candidate.title : candidate.name, candidate.machine_name)}
-              </option>
-            ))}
-          </Select>
+          <Select
+            id="probe-service"
+            value={values.serviceID}
+            options={[
+              { value: "", label: t("probe.service_none") },
+              ...(declared.data?.services ?? []).map((candidate) => ({
+                value: candidate.id,
+                label: t("probe.service_option", candidate.title !== "" ? candidate.title : candidate.name, candidate.machine_name),
+              })),
+            ]}
+            onChange={(chosen) => change("serviceID", chosen)}
+          />
         </Field>
         <Field
           label={t("probe.target_label")}
@@ -174,11 +179,16 @@ export function ProbeForm() {
           <>
             <div className="grid-2">
               <Field label={t("probe.method_label")} htmlFor="probe-method">
-                <Select id="probe-method" value={values.method} onChange={(event) => change("method", event.target.value)}>
-                  <option value="GET">GET</option>
-                  <option value="HEAD">HEAD</option>
-                  <option value="POST">POST</option>
-                </Select>
+                <Select
+                  id="probe-method"
+                  value={values.method}
+                  options={[
+                    { value: "GET", label: "GET" },
+                    { value: "HEAD", label: "HEAD" },
+                    { value: "POST", label: "POST" },
+                  ]}
+                  onChange={(chosen) => change("method", chosen)}
+                />
               </Field>
               <Field label={t("probe.expected_status_label")} htmlFor="probe-status" help={t("probe.expected_status_help")}>
                 <Input id="probe-status" mono type="text" value={values.expectedStatus} onChange={(event) => change("expectedStatus", event.target.value)} maxLength={40} autoComplete="off" />
@@ -189,20 +199,30 @@ export function ProbeForm() {
                 <Input id="probe-body" type="text" value={values.expectedBody} onChange={(event) => change("expectedBody", event.target.value)} maxLength={200} autoComplete="off" />
               </Field>
               <Field label={t("probe.follow_redirects_label")} htmlFor="probe-redirects">
-                <Select id="probe-redirects" value={values.redirects} onChange={(event) => change("redirects", event.target.value as ProbeFormValues["redirects"])}>
-                  <option value="yes">{t("probe.on")}</option>
-                  <option value="no">{t("probe.off")}</option>
-                </Select>
+                <Select
+                  id="probe-redirects"
+                  value={values.redirects}
+                  options={[
+                    { value: "yes", label: t("probe.on") },
+                    { value: "no", label: t("probe.off") },
+                  ]}
+                  onChange={(chosen) => change("redirects", chosen as ProbeFormValues["redirects"])}
+                />
               </Field>
             </div>
           </>
         )}
         {values.kind === "tcp" && (
           <Field label={t("probe.tls_label")} htmlFor="probe-tls" help={t("probe.tls_help")}>
-            <Select id="probe-tls" value={values.useTLS} onChange={(event) => change("useTLS", event.target.value as ProbeFormValues["useTLS"])}>
-              <option value="no">{t("probe.off")}</option>
-              <option value="yes">{t("probe.on")}</option>
-            </Select>
+            <Select
+              id="probe-tls"
+              value={values.useTLS}
+              options={[
+                { value: "no", label: t("probe.off") },
+                { value: "yes", label: t("probe.on") },
+              ]}
+              onChange={(chosen) => change("useTLS", chosen as ProbeFormValues["useTLS"])}
+            />
           </Field>
         )}
         {isEditing && <Note tone="warn">{t("probe.edit_reset_note")}</Note>}

@@ -5,10 +5,11 @@ import { useProjects } from "../api/directory";
 import { deleteStatusPage, fetchStatusPageDeletePlan, saveStatusPage, useStatusPage } from "../api/status";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
-import { EnumSelect, Field, Input, Select, Textarea } from "../components/Field";
+import { Field, Input, Textarea } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
 import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
+import { EnumSelect, Select } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useI18n, useT } from "../i18n/context";
@@ -87,14 +88,15 @@ export function StatusPageForm() {
             <EnumSelect id="status-page-language" value={values.language} values={languages} labelKey="language." onChange={(chosen) => change("language", chosen)} />
           </Field>
           <Field label={t("statuspage.project_label")} htmlFor="status-page-project" help={t("statuspage.project_help")}>
-            <Select id="status-page-project" value={values.project_id} onChange={(event) => change("project_id", event.target.value)}>
-              <option value="">{t("statuspage.project_none")}</option>
-              {(projects.data?.projects ?? []).map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.title !== "" ? project.title : project.name}
-                </option>
-              ))}
-            </Select>
+            <Select
+              id="status-page-project"
+              value={values.project_id}
+              options={[
+                { value: "", label: t("statuspage.project_none") },
+                ...(projects.data?.projects ?? []).map((project) => ({ value: project.id, label: project.title !== "" ? project.title : project.name })),
+              ]}
+              onChange={(chosen) => change("project_id", chosen)}
+            />
           </Field>
         </div>
       </FormCard>

@@ -6,7 +6,8 @@ import { Note } from "../../components/Card";
 import { ConfirmInline } from "../../components/ConfirmInline";
 import { CopyButton } from "../../components/Copy";
 import { Failure } from "../../components/Failure";
-import { Input, Select } from "../../components/Field";
+import { Input } from "../../components/Field";
+import { Select } from "../../components/Select";
 import { SettingBlock, SettingFoot, SettingRow } from "../../components/SettingRow";
 import { Table } from "../../components/Table";
 import { useAction } from "../../hooks/useAction";
@@ -118,13 +119,12 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
             <Input id="api-token-name" type="text" value={values.name} onChange={(event) => change("name", event.target.value)} maxLength={80} autoComplete="off" required />
           </SettingRow>
           <SettingRow label={t("api_token.lifetime_label")} description={t("api_token.lifetime_help")} htmlFor="api-token-lifetime">
-            <Select id="api-token-lifetime" value={String(values.days)} onChange={(event) => change("days", Number(event.target.value))}>
-              {state.lifetimes.days.map((value) => (
-                <option key={value} value={value}>
-                  {lifetimeLabel(t, value)}
-                </option>
-              ))}
-            </Select>
+            <Select
+              id="api-token-lifetime"
+              value={String(values.days)}
+              options={state.lifetimes.days.map((value) => ({ value: String(value), label: lifetimeLabel(t, value) }))}
+              onChange={(chosen) => change("days", Number(chosen))}
+            />
           </SettingRow>
           {creating.error !== null && (
             <SettingBlock>

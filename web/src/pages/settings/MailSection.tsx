@@ -5,8 +5,9 @@ import { saveMailSettings, testMailSettings, type MailSettings } from "../../api
 import { Button } from "../../components/Button";
 import { Note } from "../../components/Card";
 import { Failure } from "../../components/Failure";
-import { Checkbox, EnumSelect, Input } from "../../components/Field";
+import { Checkbox, Input } from "../../components/Field";
 import { Pill } from "../../components/Pill";
+import { EnumSelect } from "../../components/Select";
 import { SettingBlock, SettingFoot, SettingRow } from "../../components/SettingRow";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";

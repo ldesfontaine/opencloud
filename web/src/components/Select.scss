@@ -1,0 +1,174 @@
+// Le menu déroulant : le déclencheur a la forme d'un contrôle (36 px,
+// rayon 8), la liste ouverte celle d'un menu (surface, trait, ombre portée).
+
+.select {
+  height: 36px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  text-align: left;
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+
+  &:focus-visible,
+  &.open {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-wash);
+  }
+
+  &:disabled {
+    cursor: default;
+    color: var(--muted);
+    background: var(--surface-2);
+    box-shadow: none;
+  }
+
+  > .icon {
+    flex: none;
+    color: var(--muted);
+  }
+
+  .select-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .select-placeholder {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .chev {
+    flex: none;
+    display: grid;
+    color: var(--muted);
+
+    .icon {
+      width: 14px;
+      height: 14px;
+    }
+  }
+}
+
+// Dans un champ, le déclencheur prend la largeur de la colonne : toute la
+// boîte ouvre la liste.
+.field > .select {
+  display: flex;
+  width: 100%;
+}
+
+// La liste ouverte vit dans <body> ; sa place est écrite par le composant.
+.select-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-2);
+  font: 400 13px/1.45 var(--sans);
+}
+
+.select-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin-bottom: 4px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+
+  input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+
+    &::placeholder {
+      color: var(--muted);
+    }
+
+    &:focus {
+      outline: none;
+    }
+  }
+}
+
+.select-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+
+  &.active {
+    background: var(--surface-2);
+  }
+
+  &[aria-selected="true"] {
+    font-weight: 500;
+
+    .icon {
+      color: var(--accent);
+    }
+  }
+
+  .select-option-label {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .icon {
+    flex: none;
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.select-empty {
+  padding: 8px;
+  color: var(--muted);
+}
+
+// Sur téléphone, un contrôle a 44 px sous le doigt ; les options aussi.
+@media (max-width: 860px) {
+  .select {
+    height: 44px;
+  }
+
+  .select-search {
+    height: 40px;
+  }
+
+  .select-option {
+    min-height: 44px;
+  }
+}

@@ -30,6 +30,11 @@ label = "Language"
 fr = "Français"
 en = "English"
 
+[select]
+choose = "Choose…"
+search = "Search"
+no_result = "No result"
+
 [overview]
 online = "%d online"
 see_all = "See all"
@@ -521,6 +526,25 @@ title = "Table"
 service = "Service"
 image = "Image"
 state = "State"
+logs = "Logs"
+restart = "Restart"
+
+[visual.cards]
+title = "Object cards"
+kind_machine = "Machine"
+kind_page = "Status page"
+address = "Address"
+os = "System"
+agent = "Agent"
+seen = "Last signal"
+seen_value = "12 s ago"
+seen_old = "3 h ago"
+cpu = "Processor"
+disk = "Disk"
+probes = "Probes"
+uptime = "Uptime, 30 d"
+empty = "No status page yet."
+empty_action = "Create a page"
 
 [visual.buttons]
 title = "Buttons"
@@ -572,6 +596,8 @@ enabled = "Enabled"
 disabled = "Disabled"
 tooltip = "Tooltip"
 tooltip_text = "Seen 12 s ago, probed every 5 min"
+many_machines = "Machine, among more than 8"
+many_machines_help = "Beyond 8 choices, the open list carries a search."
 
 [visual.nav]
 title = "Navigation and nodes"
@@ -611,6 +637,12 @@ verb_1 = "Declare a service"
 verb_2 = "Back up"
 verb_3 = "Restart"
 rules = "Numbers and identifiers in mono. States as pills, never as coloured text alone. An alert states the fact, then the cause, then what can be done."
+
+[entity]
+more = "More actions: %s"
+view = "View"
+view_cards = "Card view"
+view_table = "Table view"
 
 [machines]
 subtitle_one = "1 machine, %d online."

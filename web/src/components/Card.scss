@@ -211,6 +211,21 @@
   }
 }
 
+// Compact : la phrase à gauche, l'action à droite ; l'une sous l'autre
+// quand la place manque.
+.empty-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 14px 20px;
+
+  p {
+    color: var(--muted);
+  }
+}
+
 .empty-icon {
   width: 44px;
   height: 44px;

@@ -1,11 +1,12 @@
 import { useNavigate } from "react-router";
 
 import { createIncident } from "../api/status";
-import { EnumSelect, Field, Input, Textarea } from "../components/Field";
+import { Field, Input, Textarea } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
 import { FormPage } from "../components/FormPage";
 import { ObjectPicker } from "../components/ObjectPicker";
 import { PageHead } from "../components/PageHead";
+import { EnumSelect } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";

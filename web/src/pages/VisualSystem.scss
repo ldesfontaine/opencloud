@@ -109,3 +109,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+// L'étiquette des cartes et leur bascule sur une ligne.
+.vs-cards-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}

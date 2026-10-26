@@ -9,7 +9,7 @@ import { useT } from "../i18n/context";
 import { nameWithMachine } from "../lib/objects";
 import { memberKinds, type MemberChoice } from "../lib/status";
 import { Button } from "./Button";
-import { EnumSelect, Select } from "./Field";
+import { EnumSelect, Select } from "./Select";
 import "./ObjectPicker.scss";
 
 interface Candidate {
@@ -85,14 +85,12 @@ export function ObjectPicker({ value, onChange, labelKeyPrefix, label, addLabel,
       )}
       <div className="member-pick">
         <EnumSelect value={pickKind} values={memberKinds} labelKey={labelKeyPrefix} onChange={setPickKind} aria-label={label} />
-        <Select value={pickID} onChange={(event) => setPickID(event.target.value)} aria-label={t("component.pick_object")}>
-          <option value="">{t("component.pick_object")}</option>
-          {available.map((candidate) => (
-            <option key={candidate.id} value={candidate.id}>
-              {candidate.name}
-            </option>
-          ))}
-        </Select>
+        <Select
+          value={pickID}
+          options={[{ value: "", label: t("component.pick_object") }, ...available.map((candidate) => ({ value: candidate.id, label: candidate.name }))]}
+          onChange={setPickID}
+          aria-label={t("component.pick_object")}
+        />
         <Button icon="plus" onClick={add} disabled={pickID === ""}>
           {addLabel}
         </Button>
