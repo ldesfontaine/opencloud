@@ -30,6 +30,11 @@ label = "Langue"
 fr = "Français"
 en = "English"
 
+[select]
+choose = "Choisir…"
+search = "Rechercher"
+no_result = "Aucun résultat"
+
 [overview]
 online = "%d en ligne"
 see_all = "Tout voir"
@@ -570,6 +575,8 @@ enabled = "Activé"
 disabled = "Désactivé"
 tooltip = "Info-bulle"
 tooltip_text = "Vu il y a 12 s, sondé toutes les 5 min"
+many_machines = "Machine, parmi plus de 8"
+many_machines_help = "Au-delà de 8 choix, la liste ouverte porte une recherche."
 
 [visual.nav]
 title = "Navigation et nœuds"

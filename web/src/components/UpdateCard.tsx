@@ -17,8 +17,8 @@ import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
 import { CopyButton, TokenBox } from "./Copy";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
-import { Select } from "./Field";
 import { Pill } from "./Pill";
+import { EnumSelect } from "./Select";
 import { SupportBlock } from "./SupportBlock";
 import "./UpdateCard.scss";
 
@@ -158,18 +158,14 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
             </div>
           )}
           <div className="update-policy">
-            <Select
+            <EnumSelect
               aria-label={t("directory.update_policy_label")}
               value={container.update_policy}
+              values={policies}
+              labelKey="update.policy_"
               disabled={unitID === ""}
-              onChange={(event) => setPolicy(event.target.value as UpdatePolicy)}
-            >
-              {policies.map((policy) => (
-                <option key={policy} value={policy}>
-                  {t(`update.policy_${policy}`)}
-                </option>
-              ))}
-            </Select>
+              onChange={setPolicy}
+            />
             {directory !== null && directory.declared ? (
               <Link to={`/services/annuaire/${directory.service_id}`}>{t("update.policy_on_unit", directory.unit_name, directory.service_name)}</Link>
             ) : (
