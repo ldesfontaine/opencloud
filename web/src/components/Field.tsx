@@ -1,27 +1,36 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 import { useT } from "../i18n/context";
+import { FieldTip } from "./FieldTip";
 import { Icon, type IconName } from "./Icon";
 import "./Field.scss";
 
-// Un champ : étiquette, contrôle, aide.
+// Un champ : étiquette, contrôle, aide. L'aide tient sur une ligne ; le
+// détail, quand il sert vraiment, va dans tip, une info-bulle « ? » à côté
+// de l'étiquette.
 export function Field({
   label,
   htmlFor,
   help,
+  tip,
   children,
 }: {
   label: string;
   htmlFor?: string;
   help?: string;
+  tip?: string;
   children: ReactNode;
 }) {
+  const caption = htmlFor ? <label htmlFor={htmlFor}>{label}</label> : <span className="field-label">{label}</span>;
   return (
     <div className="field">
-      {htmlFor ? (
-        <label htmlFor={htmlFor}>{label}</label>
+      {tip === undefined ? (
+        caption
       ) : (
-        <span className="field-label">{label}</span>
+        <span className="field-caption">
+          {caption}
+          <FieldTip text={tip} />
+        </span>
       )}
       {children}
       {help !== undefined && <span className="field-help">{help}</span>}

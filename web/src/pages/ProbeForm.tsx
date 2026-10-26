@@ -9,6 +9,7 @@ import { Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { EnumSelect, Field, Input, Select } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { MachineSelect } from "../components/MachineSelect";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
@@ -79,7 +80,7 @@ export function ProbeForm() {
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead
         title={isEditing ? t("probe.edit_title") : t("probe.new_title")}
         subtitle={isEditing ? t("probe.edit_subtitle") : t("probe.new_subtitle")}
@@ -206,6 +207,6 @@ export function ProbeForm() {
         )}
         {isEditing && <Note tone="warn">{t("probe.edit_reset_note")}</Note>}
       </FormCard>
-    </>
+    </FormPage>
   );
 }

@@ -161,6 +161,38 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
     jeton) ; les autres pages passent encore par `window.confirm`
     (`useAction({ confirm })`). La boîte `DeletePlanDialog` reste pour un
     plan de suppression, qu'il faut lire avant de confirmer.
+- **Formulaire** (`FormPage`) : l'en-tête de page et la carte dans une
+  colonne de 560 px au plus, centrée comme Paramètres ; sur un téléphone,
+  pleine largeur dans les marges de page. Toute page de formulaire
+  (création, modification, jeton d'une machine) y passe. Un formulaire logé
+  dans une carte partagée ou une grille (Paramètres, Sauvegardes, la mise à
+  jour d'un incident) garde sa place ; ouvert sous la fiche d'un objet (la
+  correction d'un incident), il en prend la largeur.
+  - **Aide de champ** : une ligne, ce qu'il faut savoir pour remplir, pas
+    plus. Le détail, s'il sert vraiment, va dans le « ? » à côté de
+    l'étiquette (`tip` de `Field`) : une info-bulle qui passe à la ligne, au
+    clavier comme à la souris ; Échap la referme.
+- **Assistant** (`Wizard`) : la création d'un objet à plus de cinq champs
+  environ ou à plusieurs notions (service, sonde, tâche, page de statut).
+  Pas pour une page de réglages (Paramètres, Sauvegardes) ni pour un
+  formulaire de trois champs : il ajoute des clics là où tout tient à
+  l'écran. Colonne de 720 px (`FormPage width="wizard"`), la place de la
+  barre d'étapes.
+  - **Barre d'étapes** : une pastille numérotée et le nom ; la courante en
+    encre pleine, une étape faite cochée, à venir en discret. Sous 860 px,
+    une ligne, « Étape 2 sur 4 » : le nom suit, en tête de carte.
+  - **Une étape à l'écran**, son titre en tête de carte (le focus y passe,
+    il s'annonce). Précédent en secondaire, Suivant en principal, Annuler
+    discret : une seule action principale. Entrée dans un champ vaut
+    Suivant. Une étape en erreur retient : la note sous les champs dit
+    pourquoi, et s'annonce. Le brouillon reste chez la page : rien ne se perd d'une étape
+    à l'autre.
+  - **Récapitulatif** en dernière étape : ce qui a été saisi, étape par
+    étape, chacune avec « Modifier » ; puis l'action finale (« Déclarer »,
+    « Créer »), la seule qui écrit. L'erreur du serveur s'y dit. Revenu d'un
+    « Modifier », Suivant devient « Revenir au récapitulatif ».
+  - **En modification**, l'assistant s'ouvre sur le récapitulatif et chaque
+    étape de la barre y mène ; un saut en avant valide les étapes franchies.
 - **Graphe réseau** : fond pointé, nœuds de 184 px (icône, nom, sous-titre
   mono, point d'état), arêtes orthogonales arrondies, groupes en pointillé,
   nœud « Internet » en noir, sélection par anneau d'accent, inspecteur de

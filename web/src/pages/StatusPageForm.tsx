@@ -7,6 +7,7 @@ import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
 import { EnumSelect, Field, Input, Select, Textarea } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
@@ -42,7 +43,7 @@ export function StatusPageForm() {
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead title={isEditing ? t("statuspage.edit_title") : t("statuspage.new_title")} subtitle={t("statuspage.form_subtitle")} />
       {existing.error && <Failure error={existing.error} />}
       <FormCard
@@ -108,6 +109,6 @@ export function StatusPageForm() {
           onClose={() => setRemoving(false)}
         />
       )}
-    </>
+    </FormPage>
   );
 }

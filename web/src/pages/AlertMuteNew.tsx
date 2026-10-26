@@ -8,6 +8,7 @@ import { useMachines } from "../api/machines";
 import { useProbes } from "../api/probes";
 import { Checkbox, Checks, Field, Input, Select } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
@@ -58,7 +59,7 @@ export function AlertMuteNew() {
   };
 
   return (
-    <>
+    <FormPage>
       <PageHead title={t("silence.new_title")} subtitle={t("silence.new_subtitle")} />
       <FormCard
         onSubmit={save}
@@ -144,7 +145,7 @@ export function AlertMuteNew() {
           </>
         )}
       </FormCard>
-    </>
+    </FormPage>
   );
 }
 

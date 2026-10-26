@@ -5,6 +5,7 @@ import { useMachines, type Machine } from "../api/machines";
 import { Failure } from "../components/Failure";
 import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
@@ -56,7 +57,7 @@ function ProxmoxForm({ machine }: { machine: Machine }) {
     });
   };
   return (
-    <>
+    <FormPage>
       <PageHead title={t("machine.proxmox_form_title", machine.name)} subtitle={t("machine.proxmox_form_subtitle")} />
       <FormCard
         onSubmit={save}
@@ -85,6 +86,6 @@ function ProxmoxForm({ machine }: { machine: Machine }) {
           <Input id="proxmox-pin" mono value={values.pin} onChange={(event) => form.change("pin", event.target.value)} autoComplete="off" />
         </Field>
       </FormCard>
-    </>
+    </FormPage>
   );
 }
