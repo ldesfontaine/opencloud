@@ -526,6 +526,25 @@ title = "Tableau"
 service = "Service"
 image = "Image"
 state = "État"
+logs = "Journaux"
+restart = "Redémarrer"
+
+[visual.cards]
+title = "Cartes d'objet"
+kind_machine = "Machine"
+kind_page = "Page de statut"
+address = "Adresse"
+os = "Système"
+agent = "Agent"
+seen = "Dernier signal"
+seen_value = "il y a 12 s"
+seen_old = "il y a 3 h"
+cpu = "Processeur"
+disk = "Disque"
+probes = "Sondes"
+uptime = "Disponibilité, 30 j"
+empty = "Aucune page de statut pour l'instant."
+empty_action = "Créer une page"
 
 [visual.buttons]
 title = "Boutons"
@@ -597,6 +616,12 @@ verb_1 = "Déclarer un service"
 verb_2 = "Sauvegarder"
 verb_3 = "Redémarrer"
 rules = "Les nombres et identifiants en mono. Les états en pastille, jamais en texte coloré seul. Une alerte dit le fait, puis la cause, puis ce qu'on peut faire."
+
+[entity]
+more = "Plus d'actions : %s"
+view = "Affichage"
+view_cards = "Vue en cartes"
+view_table = "Vue en tableau"
 
 [machines]
 subtitle_one = "1 machine, %d en ligne."

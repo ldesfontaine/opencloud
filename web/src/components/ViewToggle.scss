@@ -1,0 +1,23 @@
+// Le segment en icônes seules : carré, sans le blanc d'un libellé.
+.view-toggle span {
+  padding: 0 7px;
+}
+
+// Au pouce : un carré de la hauteur du segment (36 px, 42 avec son cadre).
+@media (max-width: 860px) {
+  .view-toggle span {
+    width: 36px;
+    justify-content: center;
+  }
+}
+
+// L'info-bulle s'ancre à droite : la bascule vit au bord droit d'un en-tête.
+.view-toggle [data-tip]:hover::after {
+  left: auto;
+  right: 0;
+}
+
+.view-toggle [data-tip]:hover::before {
+  left: auto;
+  right: 10px;
+}

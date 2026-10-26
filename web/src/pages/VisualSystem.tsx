@@ -5,17 +5,21 @@
 import { useState } from "react";
 
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty, KeyValue, Meter, Stat } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, EmptyLine, KeyValue, Meter, Stat } from "../components/Card";
 import { ConfirmInline } from "../components/ConfirmInline";
-import { Field, Input } from "../components/Field";
+import { CardGrid, EntityCard } from "../components/EntityCard";
+import { Field, Input, Select } from "../components/Field";
 import { Icon } from "../components/Icon";
+import type { MenuAction } from "../components/MoreMenu";
 import { PageHead } from "../components/PageHead";
 import { Dot, Pill } from "../components/Pill";
 import { SectionHead } from "../components/SectionHead";
 import { Select } from "../components/Select";
 import { DangerZone, SettingFoot, SettingRow } from "../components/SettingRow";
-import { List, RowText, RowWhen, Subject, Table } from "../components/Table";
-import { useI18n } from "../i18n/context";
+import { List, RowLink, RowText, RowWhen, Table } from "../components/Table";
+import { ViewToggle } from "../components/ViewToggle";
+import { useViewMode } from "../hooks/useViewMode";
+import { useI18n, type Translate } from "../i18n/context";
 import "./VisualSystem.scss";
 
 const swatches = [
@@ -190,13 +194,12 @@ export function VisualSystem() {
           <section>
             <h2 className="side-label section-label">{t("visual.table.title")}</h2>
             <Card>
-              <Table>
+              <Table fit>
                 <thead>
                   <tr>
                     <th>{t("visual.table.service")}</th>
                     <th>{t("visual.table.image")}</th>
                     <th>{t("visual.table.state")}</th>
-                    <th className="th-end" />
                   </tr>
                 </thead>
                 <tbody>
@@ -207,6 +210,8 @@ export function VisualSystem() {
               </Table>
             </Card>
           </section>
+
+          <CardsSample />
         </div>
 
         <div className="stack gap-24">
@@ -460,20 +465,141 @@ export function VisualSystem() {
   );
 }
 
+// Les liens de la vitrine restent sur la vitrine, ses actions ne font rien.
+const samplePath = "/systeme-visuel";
+
+function sampleActions(t: Translate): MenuAction[] {
+  const nothing = () => undefined;
+  return [
+    { label: t("visual.table.logs"), to: samplePath },
+    { label: t("visual.table.restart"), onSelect: nothing },
+    { label: t("action.delete"), danger: true, onSelect: nothing },
+  ];
+}
+
 function SampleRow({ name, image, tone, state }: { name: string; image: string; tone: "ok" | "warn" | "neutral"; state: string }) {
   const { t } = useI18n();
   return (
     <tr>
       <td>
-        <Subject icon="box">{name}</Subject>
+        <RowLink to={samplePath} icon="box" actions={sampleActions(t)}>
+          {name}
+        </RowLink>
       </td>
       <td className="num">{image}</td>
       <td>
         <Pill tone={tone}>{state}</Pill>
       </td>
-      <td className="td-end">
-        <Button variant="ghost" small icon="more" aria-label={t("action.more")} />
-      </td>
     </tr>
+  );
+}
+
+// Les cartes d'objet, leur bascule vers le tableau, et l'état vide compact.
+function CardsSample() {
+  const { t } = useI18n();
+  const [mode, setMode] = useViewMode("visual", "cards");
+  const actions = sampleActions(t);
+  return (
+    <section>
+      <div className="vs-cards-head">
+        <h2 className="side-label section-label">{t("visual.cards.title")}</h2>
+        <ViewToggle mode={mode} onChange={setMode} />
+      </div>
+      <div className="stack gap-16">
+        {mode === "cards" ? (
+          <CardGrid>
+            <EntityCard
+              to={samplePath}
+              icon="server"
+              name="vps-paris-1"
+              kind={t("visual.cards.kind_machine")}
+              state={<Pill tone="ok">{t("state.online")}</Pill>}
+              facts={[
+                { label: t("visual.cards.address"), value: "51.15.20.4" },
+                { label: t("visual.cards.os"), value: "Debian 12" },
+                { label: t("visual.cards.agent"), value: "v0.0.1" },
+                { label: t("visual.cards.seen"), value: t("visual.cards.seen_value"), mono: false },
+              ]}
+              meters={[
+                { label: t("visual.cards.cpu"), value: "23 %", percent: 23 },
+                { label: t("visual.cards.disk"), value: "71 %", percent: 71, tone: "warn" },
+              ]}
+              actions={actions}
+            />
+            <EntityCard
+              to={samplePath}
+              icon="server"
+              name="vps-lyon-2"
+              kind={t("visual.cards.kind_machine")}
+              state={<Pill tone="danger">{t("state.offline")}</Pill>}
+              facts={[
+                { label: t("visual.cards.address"), value: "62.210.8.17" },
+                { label: t("visual.cards.os"), value: "Ubuntu 24.04" },
+                { label: t("visual.cards.agent"), value: "v0.0.1" },
+                { label: t("visual.cards.seen"), value: t("visual.cards.seen_old"), mono: false },
+              ]}
+              actions={actions}
+            />
+            <EntityCard
+              to={samplePath}
+              icon="globe"
+              name="statut.exemple.fr"
+              kind={t("visual.cards.kind_page")}
+              state={<Pill tone="ok">{t("state.online")}</Pill>}
+              facts={[
+                { label: t("visual.cards.probes"), value: "4" },
+                { label: t("visual.cards.uptime"), value: "99,98 %" },
+              ]}
+            />
+          </CardGrid>
+        ) : (
+          <Card>
+            <Table fit>
+              <thead>
+                <tr>
+                  <th>{t("visual.cards.kind_machine")}</th>
+                  <th>{t("visual.cards.address")}</th>
+                  <th>{t("visual.table.state")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <RowLink to={samplePath} icon="server" actions={actions}>
+                      vps-paris-1
+                    </RowLink>
+                  </td>
+                  <td className="num">51.15.20.4</td>
+                  <td>
+                    <Pill tone="ok">{t("state.online")}</Pill>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <RowLink to={samplePath} icon="server" actions={actions}>
+                      vps-lyon-2
+                    </RowLink>
+                  </td>
+                  <td className="num">62.210.8.17</td>
+                  <td>
+                    <Pill tone="danger">{t("state.offline")}</Pill>
+                  </td>
+                </tr>
+              </tbody>
+            </Table>
+          </Card>
+        )}
+        <Card>
+          <EmptyLine
+            text={t("visual.cards.empty")}
+            action={
+              <Button variant="primary" small icon="plus">
+                {t("visual.cards.empty_action")}
+              </Button>
+            }
+          />
+        </Card>
+      </div>
+    </section>
   );
 }
