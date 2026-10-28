@@ -153,6 +153,8 @@ const (
 
 	APITokenCreate Action = "api_token.create" // #nosec G101 -- un nom, pas un secret.
 	APITokenRevoke Action = "api_token.revoke" // #nosec G101 -- un nom, pas un secret.
+	// Un jeton qui a tenté un verbe qu'il ne porte pas.
+	APITokenDeny Action = "api_token.deny" // #nosec G101 -- un nom, pas un secret.
 
 	SecretsForget Action = "secrets.forget" // #nosec G101 -- un nom, pas un secret.
 	// La clé de chiffrement changée, chaque secret rescellé ; la clé qui
@@ -203,7 +205,7 @@ func Actions() []Action {
 		AlertAcknowledge,
 		SettingsUpdate,
 		AuthEnable, AuthDisable, AuthChangePassword,
-		APITokenCreate, APITokenRevoke,
+		APITokenCreate, APITokenRevoke, APITokenDeny,
 		SecretsForget, SecretsRotate, SecretsRotateServerKey, SecretsFinishServerKey,
 		ActionOrder, ActionRefused,
 		BackupKeyringCreate, BackupKeyringReplace, BackupDestinationCreate, BackupDestinationDelete,

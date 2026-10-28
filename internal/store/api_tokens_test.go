@@ -169,3 +169,43 @@ func TestAPITokens_PurgeRemovesOnlyTheExpired(t *testing.T) {
 		}
 	}
 }
+
+// Les verbes d'un jeton vivent et meurent avec lui : le revoquer les emporte,
+// et ils reviennent triés à la lecture.
+func TestAPITokenVerbs_RoundTripAndCascade(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	token := apitoken.Token{
+		ID: "tok_w", Hash: "hash_w", Prefix: "ock_w", Scope: apitoken.ScopeWrite, Name: "agent",
+		CreatedAt: time.Unix(1000, 0), Verbs: []string{"probe.pause", "agent.ping"},
+	}
+	if err := db.InsertAPIToken(ctx, token); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetAPIToken(ctx, "hash_w")
+	if err != nil || len(got.Verbs) != 2 || got.Verbs[0] != "agent.ping" || got.Verbs[1] != "probe.pause" {
+		t.Fatalf("get: %+v %v", got, err)
+	}
+	if err := db.DeleteAPIToken(ctx, "tok_w"); err != nil {
+		t.Fatal(err)
+	}
+	if rows := count(t, db, `SELECT COUNT(*) FROM api_token_verbs`); rows != 0 {
+		t.Fatalf("%d verbes restent après la révocation", rows)
+	}
+}
+
+// Un jeton refusé à l'insertion n'en laisse pas la moitié.
+func TestAPITokenVerbs_InsertIsAllOrNothing(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	token := apitoken.Token{
+		ID: "tok_w", Hash: "hash_w", Prefix: "ock_w", Scope: apitoken.ScopeWrite, Name: "agent",
+		CreatedAt: time.Unix(1000, 0), Verbs: []string{"agent.ping", "agent.ping"},
+	}
+	if err := db.InsertAPIToken(ctx, token); err == nil {
+		t.Fatal("a duplicated verb was accepted")
+	}
+	if rows := count(t, db, `SELECT COUNT(*) FROM api_tokens`); rows != 0 {
+		t.Fatalf("%d jeton(s) à moitié écrit(s)", rows)
+	}
+}

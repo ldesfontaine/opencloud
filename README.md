@@ -39,7 +39,7 @@ l'interface web embarqués.
 | Met à jour ses agents depuis une version signée que vous importez (`opencloud release import`) | Aucune version signée n'est encore publiée, et la `v0.0.1` n'embarque pas la clé qui les vérifie : la première version signée s'installe à la main, serveur et agents ; les suivantes passent par ce geste |
 | Envoie les alertes en webhook signé (Discord, Slack, Mattermost, ntfy, JSON), par e-mail via votre relais SMTP, ou dans un salon Matrix | Pas de SMS |
 | Publie des pages de statut publiques sous `/statut/<adresse>` | Pas de comptes multiples ni de second facteur en propre : derrière un SSO (Authelia), le mode `forward` les lui délègue |
-| Donne à un agent IA un jeton d'API en lecture, pour mcp-maison | Aucune écriture ni action sur une machine par ce jeton, aucun secret rendu |
+| Donne à un agent IA un jeton d'API, pour mcp-maison | En lecture, aucune écriture. En écriture, seulement les verbes cochés (pause d'une sonde, ping d'un agent…), jamais une suppression ; aucun secret rendu |
 
 openCloud observe, et n'agit que par des gestes nommés, signés et journalisés,
 que chaque machine autorise à son installation. L'interface existe en français

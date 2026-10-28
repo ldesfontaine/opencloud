@@ -528,7 +528,7 @@ func TestAPIToken_OnBehalfOfReadsTheHeaderMCPMaisonSends(t *testing.T) {
 	handler := server.requireOperator(server.withOperatorActor(func(w http.ResponseWriter, r *http.Request) {
 		seen = audit.ActorFrom(r.Context())
 		w.WriteHeader(http.StatusNoContent)
-	}), false, true)
+	}), false, tokenAccess{read: true})
 	sub := strings.Repeat("a1? -", 40) // 200 caractères, ce que toHeaderValue peut rendre
 	request := httptest.NewRequest(http.MethodGet, "/api/counts", nil)
 	request.Header.Set("X-MCP-Maison-User", sub)

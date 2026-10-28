@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -75,7 +76,8 @@ func TestCreate_RefusesWhatTheListDoesNotOffer(t *testing.T) {
 	}{
 		"empty name":        {apitoken.Request{Name: "   "}, apitoken.ErrNameInvalid},
 		"long name":         {apitoken.Request{Name: strings.Repeat("é", apitoken.MaxNameLength+1)}, apitoken.ErrNameInvalid},
-		"write scope":       {apitoken.Request{Name: "x", Scope: apitoken.ScopeWrite}, apitoken.ErrScopeInvalid},
+		"verbs on read":     {apitoken.Request{Name: "x", Verbs: []string{"probe.pause"}}, apitoken.ErrVerbsNeedWrite},
+		"unknown verb":      {apitoken.Request{Name: "x", Scope: apitoken.ScopeWrite, Verbs: []string{"machine.delete"}}, apitoken.ErrVerbUnknown},
 		"unknown scope":     {apitoken.Request{Name: "x", Scope: "admin"}, apitoken.ErrScopeInvalid},
 		"unlisted lifetime": {apitoken.Request{Name: "x", Days: ptr(7)}, apitoken.ErrLifetimeInvalid},
 		"negative":          {apitoken.Request{Name: "x", Days: ptr(-1)}, apitoken.ErrLifetimeInvalid},
@@ -352,5 +354,46 @@ func TestAudit_NamesTheTokenNeverItsSecret(t *testing.T) {
 				t.Fatalf("event %+v carries the secret", event)
 			}
 		}
+	}
+}
+
+func TestCreate_WriteTokenCarriesItsVerbs(t *testing.T) {
+	service, _, _, _ := newService(t)
+	ctx := context.Background()
+	cleartext, token, err := service.Create(ctx, apitoken.Request{
+		Name: "agent", Scope: apitoken.ScopeWrite, Verbs: []string{"probe.pause", "agent.ping", "probe.pause"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"agent.ping", "probe.pause"}
+	if !slices.Equal(token.Verbs, want) {
+		t.Fatalf("created verbs %v, want %v", token.Verbs, want)
+	}
+	verified, err := service.Verify(ctx, cleartext)
+	if err != nil || !slices.Equal(verified.Verbs, want) {
+		t.Fatalf("verified %+v %v", verified, err)
+	}
+	if !verified.CanDo("probe.pause") || verified.CanDo("probe.resume") {
+		t.Fatal("CanDo does not follow the verbs")
+	}
+	listed, _ := service.List(ctx)
+	if len(listed) != 1 || !slices.Equal(listed[0].Verbs, want) {
+		t.Fatalf("listed %+v", listed)
+	}
+}
+
+func TestCreate_WriteTokenWithoutVerbCanDoNothing(t *testing.T) {
+	service, _, _, _ := newService(t)
+	_, token, err := service.Create(context.Background(), apitoken.Request{Name: "muet", Scope: apitoken.ScopeWrite})
+	if err != nil || len(token.Verbs) != 0 || token.CanDo("agent.ping") {
+		t.Fatalf("%+v %v", token, err)
+	}
+}
+
+func TestCreate_ReadTokenNeverCanDo(t *testing.T) {
+	token := apitoken.Token{Scope: apitoken.ScopeRead, Verbs: []string{"agent.ping"}}
+	if token.CanDo("agent.ping") {
+		t.Fatal("a read token carries no verb")
 	}
 }

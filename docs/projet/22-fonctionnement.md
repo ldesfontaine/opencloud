@@ -28,7 +28,7 @@
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
 | mcp-maison | Un serveur MCP à part, sur la machine openCloud, dans Docker (`network_mode: host`) | Il identifie chaque personne par l'IdP OIDC de l'opérateur, sert ses outils, et lit l'API d'openCloud en direct sur l'adresse de `listen` avec un **jeton d'API en lecture** (`Authorization: Bearer ock_…`), en posant `X-MCP-Maison-User` ; openCloud lit son `/health` à la demande (Paramètres) et marche sans lui |
-| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 25 lectures, secrets masqués ; jamais une écriture ni une action sur une machine ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
+| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 25 lectures, secrets masqués. Avec un jeton en lecture, jamais une écriture ; avec un jeton en écriture, seulement les verbes cochés (« Les verbes d'un jeton en écriture ») ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud fait tourner
 les deux : le serveur, et son agent, qui en fait une machine comme les autres
@@ -81,7 +81,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 
 | Flux | D'où à où | Chiffrement | Qui prouve quoi |
 | --- | --- | --- | --- |
-| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, avec le compte créé à la première configuration (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le SSO qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut), présent une seule fois, que d'un pair de `trusted_proxies` qui porte aussi le secret partagé quand il est configuré (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire (Traefik) d'écraser l'en-tête envoyé par le client. Une identité ainsi prouvée mais absente d'une liste `forward_users` non vide reçoit `403 auth.forward_forbidden`. Un jeton d'API (`Authorization: Bearer`) remplace l'un et l'autre mode, sur sa liste fermée de lectures (« Comment un agent IA lit openCloud »). Mode `none` (installation neuve, ou après `opencloud auth disable`) : aucun compte, le serveur ne sert que la première configuration et répond `401 auth.setup_required` au reste ; le premier qui atteint le port crée le compte (« Comment l'opérateur entre dans l'interface »). Le front charge la page, puis parle à `/api/…` en JSON |
+| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, avec le compte créé à la première configuration (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le SSO qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut), présent une seule fois, que d'un pair de `trusted_proxies` qui porte aussi le secret partagé quand il est configuré (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire (Traefik) d'écraser l'en-tête envoyé par le client. Une identité ainsi prouvée mais absente d'une liste `forward_users` non vide reçoit `403 auth.forward_forbidden`. Un jeton d'API (`Authorization: Bearer`) remplace l'un et l'autre mode, sur sa liste fermée de lectures, plus les verbes qu'il porte en écriture (« Comment un agent IA lit openCloud »). Mode `none` (installation neuve, ou après `opencloud auth disable`) : aucun compte, le serveur ne sert que la première configuration et répond `401 auth.setup_required` au reste ; le premier qui atteint le port crée le compte (« Comment l'opérateur entre dans l'interface »). Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie, mais le navigateur joint aussi les identifiants Basic à une requête partie d'une page tierce : c'est cette garde qui l'arrête |
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le SSO, comme l'interface ; refusé en mode `none` (`401 auth.setup_required`). Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un aléa qu'il tire, l'identifiant de sa machine et l'heure (protocole 2), openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré, dans un débit borné par machine ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
@@ -99,7 +99,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Statut | visiteur → Traefik → `/statut/<slug>`, `/statut/<slug>/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom de ses composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port, ni rien d'une autre page. Des tests le prouvent sur la réponse réelle |
 | Registre | agent → le registre de l'image | TLS, sauf vers la boucle locale (un registre sur `localhost:5000`, comme Docker le fait) | L'agent s'authentifie par un jeton anonyme, ou signé des identifiants en clair du `config.json` de Docker de la machine ; le registre ne prouve rien de plus que son certificat. Rien ne sort qu'un nom de dépôt et un tag ; l'agent ne tire jamais une image. Aucune redirection suivie |
 | Agent IA | client MCP → Traefik → mcp-maison | TLS de Traefik | OAuth de mcp-maison, délégué à l'IdP OIDC de l'opérateur (Authelia, Authentik, Keycloak, GitLab) : openCloud n'y voit rien et n'y prouve rien |
-| Agent IA | mcp-maison → openCloud, `/api/…` | En clair, sur l'adresse de `listen`, sans sortir de la machine | Un Bearer, jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Il est jugé **avant le mode** d'authentification de l'interface (ni Basic ni l'en-tête du mandataire), sauf en mode `none` où il est ignoré, et n'ouvre que 25 lectures (« Comment un agent IA lit openCloud »). Le jeton est haché avant d'être cherché, et son dernier usage noté au plus une fois par minute. Activer l'authentification de l'interface les révoque tous |
+| Agent IA | mcp-maison → openCloud, `/api/…` | En clair, sur l'adresse de `listen`, sans sortir de la machine | Un Bearer, jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Il est jugé **avant le mode** d'authentification de l'interface (ni Basic ni l'en-tête du mandataire), sauf en mode `none` où il est ignoré, et n'ouvre que 25 lectures, plus, pour un jeton en écriture, les routes des seuls verbes cochés, à débit borné par jeton (« Comment un agent IA lit openCloud »). Le jeton est haché avant d'être cherché, et son dernier usage noté au plus une fois par minute. Activer l'authentification de l'interface les révoque tous |
 | Vérification de mcp-maison | openCloud → `mcp_url`, `GET /health` | Celui de l'adresse réglée : en clair vers la machine ou un réseau privé, le lien-local est refusé | Personne : on lit un état, rien ne s'écrit. Trois secondes, une redirection n'est pas suivie, 64 Kio au plus ; déclenchée par la carte de Paramètres, jamais en fond |
 | Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
@@ -146,7 +146,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pages de statut dans `status_pages` (adresse `slug` unique, titre, annonce en texte brut, langue, projet facultatif, une page par projet au plus, en `restrict` vers lui) ; les composants dans `status_components` (leur page, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), les objets qu'ils visent dans `incident_targets` (quatre clés étrangères, exactement une remplie, en `cascade` : un lien seul, l'incident reste), leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens ; la page supprimée emporte ses composants de même. Un incident ne vise pas un composant : il vise des objets, et l'objet supprimé détache l'incident (compté dans le plan), qui garde son texte et son fil. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ; `write` est dans le schéma, refusé par le code ; nom ; échéance de 30, 90 ou 365 jours ou aucune ; dernier usage) | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`) | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne et ses verbes ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le SSO n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
@@ -3494,17 +3494,19 @@ telle que la commande la lit, que `serve` ait été redémarré ou non).
 openCloud ne parle pas MCP. **mcp-maison**, un serveur MCP à part
 (`installation.md`, « Brancher un agent IA »), sert les outils à l'agent IA
 et lit l'API d'openCloud avec un **jeton d'API**. Ce qu'openCloud fournit :
-le jeton, l'admission de ce jeton sur une liste fermée de lectures, le
-masquage des secrets, l'acteur du journal, et un moyen de voir si mcp-maison
-répond.
+le jeton, l'admission de ce jeton sur une liste fermée de lectures et, pour un
+jeton en écriture, sur les seuls verbes qu'il porte, le masquage des secrets,
+l'acteur du journal, et un moyen de voir si mcp-maison répond.
 
 ### Le jeton
 
 1. L'opérateur en crée un sous Paramètres → Agent IA → **Jetons d'API** : un nom (80
    caractères au plus), une **échéance** de 30, 90 (défaut) ou 365 jours, ou
-   sans échéance si l'opérateur le choisit explicitement (`POST
-   /api/settings/api-tokens` `{name, expires_in_days}`, 0 pour sans échéance ;
-   une autre valeur : `api_token.lifetime_invalid`). La création est sous
+   sans échéance si l'opérateur le choisit explicitement, une **portée**
+   (lecture par défaut, ou écriture) et, pour l'écriture, les **verbes** cochés
+   (`POST /api/settings/api-tokens` `{name, expires_in_days, scope, verbs}`,
+   0 pour sans échéance ; une autre valeur : `api_token.lifetime_invalid`).
+   La création est sous
    `grantsAuthority`, comme tout geste qui accorde un accès durable.
 2. Le jeton s'écrit `ock_` suivi de 52 caractères tirés au hasard (256 bits).
    Il est montré **une seule fois**, avec les trois lignes du `.env` de
@@ -3512,9 +3514,12 @@ répond.
    l'adresse d'écoute. La base ne garde que son empreinte SHA-256 (sans sel :
    l'entrée est un aléa de 256 bits) et un préfixe pour le reconnaître dans la
    liste.
-3. 16 jetons au plus (`api_token.too_many`). La portée est `read` : `write` est
-   dans le schéma, mais la création le refuse (`api_token.scope_invalid`) tant
-   que l'API n'a pas d'actions (#153, étape 5).
+3. 16 jetons au plus (`api_token.too_many`). La portée est `read` ou `write`
+   (une autre : `api_token.scope_invalid`). Un jeton `write` lit comme un
+   `read` et ne déclenche que ses verbes ; **sans verbe, il n'agit sur rien**.
+   Un verbe inconnu est refusé (`api_token.verb_unknown`), des verbes sur un
+   jeton `read` aussi (`api_token.verbs_need_write`). Les verbes ne se
+   changent pas après coup : on révoque et on recrée.
 4. **Révoquer efface la ligne** : présenté ensuite, le jeton est inconnu, comme
    un faux. Un jeton échu est refusé, sort de la liste, et la purge (toutes les
    15 minutes) l'efface.
@@ -3534,9 +3539,13 @@ configuration seule est servie.
 
 | Cas | Réponse |
 | --- | --- |
-| La route n'est pas dans la liste ci-dessous | `403 api_token.route_forbidden`, sans même regarder le jeton |
+| La route n'est ni dans la liste ci-dessous ni un verbe du registre | `403 api_token.route_forbidden`, sans même regarder le jeton |
 | Jeton inconnu, révoqué ou échu | `401 api_token.invalid`, `WWW-Authenticate: Bearer`. Les échecs comptent dans le limiteur des échecs Basic (rafale de 10, puis un essai toutes les 6 s par adresse ; `429` au-delà) ; le journal du processus dit la source et le chemin, jamais le jeton |
 | Jeton valide, route de la liste | La requête passe, avec le jeton dans son contexte ; l'acteur d'audit est `api:<identifiant du jeton>` |
+| Jeton `read`, route d'un verbe (un `POST`) | `403 api_token.route_forbidden` |
+| Jeton `write` qui ne porte pas le verbe de la route | `403 api_token.verb_forbidden`, journalisé (`api_token.deny`) |
+| Jeton `write` qui porte le verbe, trop vite | `429` avec `Retry-After` (« Le débit d'un jeton ») |
+| Jeton `write` qui porte le verbe | La route de l'opérateur s'exécute, telle quelle ; la réponse prend la forme du contrat des verbes |
 
 Le dernier usage du jeton est noté **au plus une fois par minute** : mcp-maison
 peut enchaîner les lectures. Le `Host` de la requête est jugé comme celui de
@@ -3544,10 +3553,11 @@ toute requête `/api/…` : mcp-maison joint openCloud par l'IP de `listen`
 (`OPENCLOUD_URL`), un hôte reconnu ; un nom que `public_url` ignore est refusé
 en `403 bad_host`.
 
-**La liste fermée** (`apiTokenRoutes`, `internal/server/routes.go`) : 26
-lectures, toutes en `GET`, figées par un test qui vérifie que chaque entrée
+**La liste fermée des lectures** (`apiTokenRoutes`, `internal/server/routes.go`) :
+26 lectures, toutes en `GET`, figées par un test qui vérifie que chaque entrée
 est une vraie route et que **toute autre route de l'API, y compris
-`POST /api/settings/api-tokens`, répond 403 à un jeton**.
+`POST /api/settings/api-tokens`, répond 403 à un jeton `read`**. C'est une
+liste blanche : une route ajoutée plus tard est fermée aux jetons par défaut.
 
 | Domaine | Routes |
 | --- | --- |
@@ -3562,7 +3572,77 @@ est une vraie route et que **toute autre route de l'API, y compris
 
 Exclus volontairement : les flux (`/api/events`, `…/logs/stream`), tout
 `/api/settings/*` et `/api/auth`, la clé du serveur, les plans de suppression,
-toute écriture.
+toute écriture qui n'est pas un verbe (section suivante).
+
+### Les verbes d'un jeton en écriture
+
+Un **verbe** est un geste que l'opérateur coche sur un jeton `write`
+(décision 19, `23-direction.md`). Le registre (`internal/verb`) est une liste
+fermée : chaque verbe a un identifiant stable, la **route d'opérateur** qu'il
+ouvre, un libellé et une phrase de catalogue (`fr` et `en`) et **son verbe
+inverse**. Un verbe sans inverse ne peut pas être enregistré (`verb.Register`
+le refuse, `Check` vérifie que chaque inverse existe, un test le tient) : pour
+l'instant, un jeton ne reçoit que des gestes qu'on peut défaire.
+
+| Verbe | Route d'opérateur | Inverse |
+| --- | --- | --- |
+| `agent.ping` | `POST /api/machines/{id}/actions/ping` | lui-même (idempotent) |
+| `probe.pause` | `POST /api/probes/{id}/actions/pause` | `probe.resume` |
+| `probe.resume` | `POST /api/probes/{id}/actions/resume` | `probe.pause` |
+| `job.pause` | `POST /api/jobs/{id}/actions/pause` | `job.resume` |
+| `job.resume` | `POST /api/jobs/{id}/actions/resume` | `job.pause` |
+
+`alert.acknowledge` n'est **pas** offert : rien ne désacquitte une alerte, il
+reste réservé à l'opérateur. Contrepartie du choix : une reprise peut échouer
+là où la pause a réussi (`probe.resume` sur une sonde dont la cible porte un
+mot de passe : 409, comme pour l'opérateur), l'inverse est une intention, pas
+une garantie.
+
+**Une route, un seul code.** L'admission ne copie rien : elle ne fait que
+laisser passer la requête vers la route de l'opérateur (même handler, même
+composant, même `action_runs` et même audit pour `agent.ping`), puis lit sa
+réponse pour la mettre en forme. Un échec de cette route (404, 409, 422)
+passe tel quel. Ajouter un verbe, c'est appeler `verb.Default.MustRegister`
+pour une route existante : l'admission ne change pas. Toute route d'écriture
+qui n'est pas dans le registre reste fermée à un jeton, même `write` avec tous
+les verbes : un test de table parcourt chaque route non-`GET` de l'API et le
+vérifie (déploiement, mise à jour ou révocation d'un agent, ré-enrôlement,
+suppressions, réglages, authentification, gestion des jetons, pare-feu,
+déclaration Proxmox, acquittement).
+
+Comme toute écriture sous `/api`, un verbe exige `Content-Type:
+application/json`, corps vide compris (`requireSameOrigin`).
+
+**Le contrat de la réponse** (`200`, JSON ; mcp-maison s'en sert) :
+
+```json
+{"verb": "probe.pause", "run_id": null, "state": "done", "reverse_with": "probe.resume"}
+```
+
+| Champ | Sens |
+| --- | --- |
+| `verb` | Le verbe exécuté |
+| `run_id` | L'identifiant de l'ordre écrit (`action_runs`) quand le verbe en envoie un à un agent (`agent.ping`) ; `null` quand le geste se fait sur place (pause, reprise) : aucune exécution à suivre |
+| `state` | L'état du run (`agent.ping` : `sent`, puis l'agent le fait avancer, à relire par `GET /api/actions`) ; `done` quand il n'y a pas de run |
+| `reverse_with` | L'identifiant du verbe qui défait celui-ci |
+
+Rien d'autre : ni les paramètres ni la sortie du run, qui se lisent par
+`/api/actions`. Un échec garde la forme habituelle `{"error": "<clé>"}`.
+
+**Le débit d'un jeton.** Un seau à jetons **par jeton**, distinct du limiteur
+des échecs d'authentification (par adresse) : `apiVerbBurst` = 10 gestes d'un
+coup, puis un toutes les deux secondes (`apiVerbRate` = 0,5/s) ; au-delà,
+`429` et `Retry-After`. Un geste admis compte, qu'il réussisse ou non. Les
+lectures ne le consomment pas. Coût : un agent légitime qui traite beaucoup de
+sondes à la suite attendra ; les valeurs sont deux constantes de
+`internal/server/api_tokens.go`.
+
+**Le refus est un signal.** Un jeton `write` qui tente un verbe qu'il ne porte
+pas reçoit `403 api_token.verb_forbidden`, et l'événement `api_token.deny` est
+écrit (acteur `api:<id>`, `on_behalf_of`, `details.verb`). Cette trace a sa
+propre limite par jeton (`apiVerbDenyBurst` = 5, puis une par minute) pour
+qu'une boucle ne remplisse pas le journal ; le refus lui-même n'est jamais
+limité.
 
 ### Ce qu'un jeton ne voit pas
 
@@ -3588,8 +3668,11 @@ section Paramètres → Agent IA le dit.
 de journal, extraits d'un arrêt anormal, charges de ping, sujet d'un
 certificat, noms de conteneurs, de services et de sondes) peut viser le modèle
 qui le lit. C'est à mcp-maison et au client de le traiter comme de la donnée.
-Côté openCloud, la défense est qu'**un jeton n'écrit rien** : rien de ce qu'un
-modèle pourrait être poussé à faire ne passe par ce jeton.
+Côté openCloud, la défense est qu'**un jeton `read` n'écrit rien**, et qu'un
+jeton `write` ne fait que ce que l'opérateur a coché : des verbes réversibles,
+à débit borné, sans suppression ni déploiement ni réglage. Un modèle poussé
+par un texte de tiers peut au pire mettre en pause une sonde, ce qui se défait
+(et se lit à l'audit).
 
 ### L'acteur d'audit et `on_behalf_of`
 
@@ -3604,9 +3687,10 @@ pose après le nettoyage des détails, et jamais ailleurs : un geste ne peut pas
 l'usurper. La page du journal l'affiche à côté de l'acteur (« Jeton d'API · id ·
 pour alice »).
 
-Aucune écriture n'est admise par jeton : rien ne s'écrit encore sous cet
-acteur ; `on_behalf_of` servira dès que des écritures s'ouvriront (#153,
-étape 5).
+Les écritures par jeton sont les verbes : chacune s'écrit sous cet acteur, avec
+son `on_behalf_of`, par le même composant et le même événement d'audit que
+l'opérateur (`probe.pause`, `heartbeat.pause`, `action.order`…). Le champ n'est
+jamais lu du corps de la requête : un test y met un `on_behalf_of` forgé.
 
 ### Vérifier mcp-maison
 
@@ -4002,7 +4086,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Acquitter une alerte, une sélection | `alert.acknowledge` | L'alerte ; une sélection n'a pas d'objet | `kind`, `object_kind`, `object_id` ; pour une sélection `alert_ids` et `acknowledged` |
 | Réglage | `settings.update` | `language`, `mail_relay`, `disk` ou `lifecycle` | La valeur ; le relais sans son mot de passe, avec `password_changed` |
 | Accès à l'interface | `auth.enable`, `.disable`, `.change_password` | `interface` | `mode`, `username`, `header` ; jamais le mot de passe ni son empreinte |
-| Jeton d'API, tous les jetons | `api_token.create`, `.revoke` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `expires_at` ; pour tous `all`, `api_tokens` ; jamais le jeton ni son préfixe |
+| Jeton d'API, tous les jetons | `api_token.create`, `.revoke`, `.deny` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `verbs`, `expires_at` ; pour `.deny`, `verb` (l'identifiant du registre que le jeton a tenté sans le porter, jamais ce que le client a écrit) ; pour tous `all`, `api_tokens` ; jamais le jeton ni son préfixe |
 | Anciennes lignes du MCP, lues seulement | `mcp.*`, `mcp_token.*`, `mcp_session.*` | Le client OAuth, le jeton, la famille coupée | Ce qu'elles portaient ; plus aucune ne s'écrit |
 | Clé perdue, secrets oubliés | `secrets.forget` | — | `channels_disabled`, `ping_tokens_renewed` |
 | Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` |

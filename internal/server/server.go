@@ -348,6 +348,10 @@ type Server struct {
 	// Le limiteur de la racine, par source : les essais d'identifiants Basic
 	// et de jetons d'API.
 	authLimit *ratelimit.BySource
+	// Le débit des gestes d'un jeton d'API, et celui de la trace de ses
+	// refus, par jeton (api_tokens.go).
+	verbLimit     *ratelimit.Limiter
+	verbDenyLimit *ratelimit.Limiter
 	// Les routes de l'agent, des pings et de la page publique, chacune dans
 	// son paquet avec ses seules dépendances et ses limiteurs ; montées par
 	// routes.go.
@@ -478,6 +482,8 @@ func New(opts Options) (*Server, error) {
 		deploy:         opts.Deploy,
 		live:           opts.Live,
 		authLimit:      ratelimit.NewBySource(authAttemptRate, authAttemptBurst, authIdle),
+		verbLimit:      ratelimit.New(apiVerbRate, apiVerbBurst, apiVerbIdle),
+		verbDenyLimit:  ratelimit.New(apiVerbDenyRate, apiVerbDenyBurst, apiVerbIdle),
 		eventTabs:      ratelimit.NewSlots(maxEventSubscribers),
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
@@ -489,6 +495,8 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Clock != nil {
 		server.authLimit.SetClock(opts.Clock)
+		server.verbLimit.SetClock(opts.Clock)
+		server.verbDenyLimit.SetClock(opts.Clock)
 	}
 	server.agent = agentapi.New(agentapi.Options{
 		Logger:        opts.Logger,
