@@ -138,6 +138,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les rôles que l'agent reconnaît sur sa machine (migration `014_machine_roles.sql`) : `machine_roles` (machine, rôle de la liste fermée `proxmox_ve`, version trouvée ; aujourd'hui le seul rôle). **Aucun secret, aucun droit** : un rôle se montre, il n'ouvre rien | Un reflet du dernier rapport, remplacé en entier à chaque rapport retenu : un rôle que l'agent ne voit plus disparaît. Pas d'historique, pas de purge d'âge. La machine retirée l'emporte (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
@@ -606,6 +607,48 @@ fiche (`404` sans hôte). Chaque machine de `GET /api/machines` et
 `machine.proxmox_set` (hôte, identifiant du jeton, épinglé ou non ; **ni
 l'adresse complète ni le secret**) et `machine.proxmox_unset`.
 
+**Un hôte reconnu par l'agent.** L'opérateur n'a pas à savoir qu'une machine est un
+hôte Proxmox : son agent le voit. Toutes les dix minutes (et au démarrage), il
+lit deux fichiers du système, **sans droit particulier et sans lancer de
+commande** (`internal/role/detect.go`), et le serveur garde le résultat comme
+un **rôle détecté** de la machine (`roles` dans `GET /api/machines` et
+`GET /api/machines/{id}` : une liste, `proxmox_ve` et sa version aujourd'hui,
+d'autres rôles viendront).
+
+| Signe | Où | Ce qu'il prouve |
+| --- | --- | --- |
+| `pve-manager` installé | la base de dpkg, `/var/lib/dpkg/status` : un paquet à l'état « installed » | C'est le paquet qui fait un Proxmox VE ; il donne la version |
+| `/etc/pve` monté en `fuse` | la table des montages, `/proc/self/mountinfo` | Le système de fichiers du cluster (pmxcfs) tourne |
+
+**Les deux sont exigés.** Un faux positif demande d'écrire dans la base de dpkg
+et de monter un système de fichiers : **root**, que le compte de l'agent n'est
+pas. Le coût : tant que `pve-cluster` est arrêté (démarrage, arrêt à la main), le
+rôle n'est pas vu, et le relevé suivant le retrouve ; une VM ou un conteneur d'un
+hôte n'a ni l'un ni l'autre et n'est jamais pris pour un hôte. Une version qui
+n'a pas la forme d'une version de paquet n'est pas rapportée (le rôle l'est,
+sans version).
+
+Le rapport part dans le signal, section `roles`, **seulement s'il a changé** et
+une fois à chaque ouverture du flux, comme les clés SSH ; un rapport **vide**
+part aussi, c'est lui qui efface un rôle perdu. Le serveur borne tout (liste
+fermée des rôles, pas de doublon, huit au plus, version en caractères de
+paquet) et **refuse le rapport entier** s'il en sort (`bad_roles` dans l'en-tête
+des sections refusées ; le reste du signal passe, l'ancien reflet reste). Un
+changement prévient le direct (sujet `machines`), un rapport identique non.
+**La détection ne donne aucun droit, n'active aucun ordre et ne déclare rien** :
+elle ne demande pas de droit à l'agent, et l'hôte reste « non déclaré » tant que
+l'opérateur n'a pas fourni le jeton.
+
+Sur la fiche d'une machine où Proxmox est reconnu mais non déclaré, un encadré
+dit « {product} a reconnu un hôte Proxmox VE sur cette machine (version …) »,
+explique en une phrase le jeton à créer (rôle `PVEAuditor`, lecture seule) et
+propose « Déclarer un hôte Proxmox ». Le formulaire s'ouvre avec l'adresse de la
+machine sur le port 8006 déjà remplie ; l'identifiant du jeton, son secret et
+l'empreinte restent à l'opérateur. La déclaration est le formulaire de quatre
+champs décrit plus bas, pas l'assistant pas à pas : la direction artistique le
+réserve aux créations de plus de cinq champs. Une fois l'hôte déclaré, le
+relevé est celui d'avant.
+
 **Qui est quelle machine.** Une VM est rapprochée de la machine enrôlée dont le
 **nom d'hôte** (`hostname`, relevé par l'agent) est égal à son nom : l'égalité
 exacte d'abord, puis, à défaut, une casse différente **si une seule machine
@@ -615,9 +658,11 @@ recalculé à chaque relevé ; la machine openCloud elle-même (`local`) peut po
 un hôte comme toute autre. Si deux hôtes montrent une VM de même nom, la
 première (par nom de machine) décrit la machine.
 
-**Le jeton d'API.** `GET /api/machines/{id}/proxmox` est dans la liste fermée de
-« Comment un agent IA lit openCloud » : elle ne rend aucun secret. La
-déclaration et le retrait n'y sont pas.
+**Le jeton d'API.** `GET /api/machines/{id}/proxmox` (l'hôte, ses VM et ses
+stockages) est dans la liste fermée de « Comment un agent IA lit openCloud » :
+elle ne rend aucun secret, et un test le parcourt clé par clé. Les rôles
+détectés passent par `GET /api/machines` et `GET /api/machines/{id}`, déjà dans
+la liste. La déclaration et le retrait n'y sont pas : `403` à un Bearer.
 
 **La clé perdue.** `opencloud secrets forget` vide le secret de chaque hôte
 Proxmox (il ne se relit plus) et dit combien : les hôtes restent déclarés, leur

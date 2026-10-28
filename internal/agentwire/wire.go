@@ -4,6 +4,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -124,6 +125,9 @@ type SignalRequest struct {
 	// Les clés SSH autorisées de la machine, relevées en lecture seule : le
 	// dernier relevé, envoyé quand il change et à chaque ouverture du flux.
 	SSHKeys *sshkeys.Report `json:"ssh_keys,omitempty"`
+	// Ce que l'agent reconnaît sur sa machine (un hôte Proxmox VE) : le
+	// dernier rapport, envoyé quand il change et à chaque ouverture du flux.
+	Roles *role.Report `json:"roles,omitempty"`
 }
 
 // Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
@@ -136,11 +140,12 @@ const (
 	SectionImages   = "images"
 	SectionActions  = "actions"
 	SectionSSHKeys  = "ssh_keys"
+	SectionRoles    = "roles"
 )
 
 // SignalSections rend les sections dans l'ordre où le serveur les écrit.
 func SignalSections() []string {
-	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys}
+	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles}
 }
 
 // SectionRefusal rend la clé d'erreur d'une section refusée.

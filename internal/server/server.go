@@ -395,6 +395,8 @@ type Options struct {
 	Actions ActionService
 	// SSHKeys garde le relevé des clés SSH autorisées ; voir api_sshkeys.go.
 	SSHKeys SSHKeysService
+	// Roles garde ce que l'agent reconnaît sur sa machine ; le signal l'écrit.
+	Roles agentapi.RolesService
 	// Proxmox déclare l'hôte Proxmox d'une machine ; voir api_proxmox.go.
 	Proxmox ProxmoxService
 	// Backups pilote la page Sauvegardes ; voir api_backups.go.
@@ -484,6 +486,7 @@ func New(opts Options) (*Server, error) {
 		Updates:       opts.Updates,
 		Actions:       opts.Actions,
 		SSHKeys:       opts.SSHKeys,
+		Roles:         opts.Roles,
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})

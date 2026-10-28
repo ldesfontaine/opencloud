@@ -1,5 +1,5 @@
 import type { ProxmoxGuest, ProxmoxStorage } from "../api/proxmox";
-import type { Machine } from "../api/machines";
+import type { Machine, MachineRole } from "../api/machines";
 import type { Translate } from "../i18n/context";
 import type { Tone } from "./tone";
 import { formatWhen } from "./time";
@@ -75,4 +75,24 @@ export function backupLabel(t: Translate, language: string, at: string | null, b
 // Une machine porte un hôte déclaré : l'onglet « Hyperviseur » s'affiche.
 export function hostsProxmox(machine: Pick<Machine, "proxmox">): boolean {
   return machine.proxmox.declared;
+}
+
+// Le port de l'API d'un hôte Proxmox VE.
+const proxmoxAPIPort = 8006;
+
+// Le rôle « hôte Proxmox VE » que l'agent a reconnu sur la machine, null s'il
+// ne l'a pas vu.
+export function detectedProxmox(machine: Pick<Machine, "roles">): MachineRole | null {
+  return machine.roles.find((role) => role.name === "proxmox_ve") ?? null;
+}
+
+// L'adresse que le formulaire propose pour l'hôte : celle de la machine, sur le
+// port de l'API. Vide quand la machine n'a pas d'adresse. Une adresse IPv6 se
+// met entre crochets.
+export function suggestedProxmoxURL(machine: Pick<Machine, "address">): string {
+  if (machine.address === "") {
+    return "";
+  }
+  const host = machine.address.includes(":") ? `[${machine.address}]` : machine.address;
+  return `https://${host}:${proxmoxAPIPort}`;
 }

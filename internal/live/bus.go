@@ -169,6 +169,11 @@ func (b *Bus) ProxmoxChanged(string) {
 	b.Publish(TopicMachines)
 }
 
+// Un rôle reconnu ou perdu se lit avec les machines : même sujet.
+func (b *Bus) RolesChanged(string) {
+	b.Publish(TopicMachines)
+}
+
 func (b *Bus) BackupsChanged() {
 	b.Publish(TopicBackups)
 }

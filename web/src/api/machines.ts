@@ -26,6 +26,16 @@ export interface Machine {
   lifecycle?: Lifecycle;
   // L'hôte Proxmox que la machine porte, ou la VM qu'elle est sur un hôte.
   proxmox: ProxmoxSummary;
+  // Ce que l'agent reconnaît sur la machine par ses signes locaux ; vide sans
+  // agent ou quand rien n'est reconnu. Un rôle ne donne aucun droit.
+  roles: MachineRole[];
+}
+
+// Un rôle de la liste fermée du serveur (« proxmox_ve »), avec la version
+// trouvée, vide si elle n'est pas lisible.
+export interface MachineRole {
+  name: string;
+  version: string;
 }
 
 // Un droit de l'agent et, pour un droit borné, ses chemins.
