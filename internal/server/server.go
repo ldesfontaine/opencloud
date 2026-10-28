@@ -21,6 +21,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
@@ -287,6 +288,14 @@ type ProxmoxService interface {
 	Remove(ctx context.Context, machineID string) error
 }
 
+// Ce que le serveur attend du composant firewall : déclarer, redéclarer et
+// retirer un pare-feu. Ce que la page lit passe par le Reader.
+type FirewallService interface {
+	Declare(ctx context.Context, definition firewall.Definition) (string, error)
+	Redeclare(ctx context.Context, id string, definition firewall.Definition) error
+	Remove(ctx context.Context, id string) error
+}
+
 // Ce que le serveur attend du composant backup : les gestes de la page
 // Sauvegardes. Le dernier ordre du plan se lit par le Reader.
 type Backups interface {
@@ -331,6 +340,7 @@ type Server struct {
 	actions    ActionService
 	sshKeys    SSHKeysService
 	proxmox    ProxmoxService
+	firewalls  FirewallService
 	backups    Backups
 	deploy     Deployer
 	live       Live
@@ -399,6 +409,8 @@ type Options struct {
 	Roles agentapi.RolesService
 	// Proxmox déclare l'hôte Proxmox d'une machine ; voir api_proxmox.go.
 	Proxmox ProxmoxService
+	// Firewalls déclare les pare-feu lus en lecture seule ; voir api_firewalls.go.
+	Firewalls FirewallService
 	// Backups pilote la page Sauvegardes ; voir api_backups.go.
 	Backups Backups
 	// Deploy déploie les services déclarés ; voir api_deploy.go.
@@ -461,6 +473,7 @@ func New(opts Options) (*Server, error) {
 		actions:        opts.Actions,
 		sshKeys:        opts.SSHKeys,
 		proxmox:        opts.Proxmox,
+		firewalls:      opts.Firewalls,
 		backups:        opts.Backups,
 		deploy:         opts.Deploy,
 		live:           opts.Live,

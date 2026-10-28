@@ -9,6 +9,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
@@ -98,6 +99,12 @@ type Reader interface {
 	// GetProxmoxView rend l'hôte Proxmox d'une machine avec ses VM et ses
 	// stockages, jamais son secret ; proxmox.ErrNotFound sans hôte.
 	GetProxmoxView(ctx context.Context, machineID string) (proxmox.View, error)
+	// ListFirewalls rend chaque pare-feu déclaré avec le compte de son
+	// relevé, jamais son secret.
+	ListFirewalls(ctx context.Context) ([]firewall.Summary, error)
+	// GetFirewallView rend un pare-feu avec son dernier relevé, jamais son
+	// secret ; firewall.ErrNotFound s'il n'existe pas.
+	GetFirewallView(ctx context.Context, id string) (firewall.View, error)
 	// ProxmoxSummaries rend, par machine, ce qu'elle porte ou ce qu'elle est
 	// pour Proxmox ; une machine que rien ne lie n'y figure pas.
 	ProxmoxSummaries(ctx context.Context) (map[string]proxmox.Summary, error)

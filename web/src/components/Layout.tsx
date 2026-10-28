@@ -156,6 +156,7 @@ const viewEntries: NavEntry[] = [
 ];
 
 const settingsEntries: NavEntry[] = [
+  { key: "firewall", label: "nav.firewall", href: "/pare-feu", icon: "firewall" },
   { key: "backups", label: "nav.backups", href: "/sauvegardes", icon: "archive" },
   { key: "ssh_keys", label: "nav.ssh_keys", href: "/cles-ssh", icon: "shield" },
   { key: "settings", label: "nav.settings", href: "/parametres", icon: "settings" },

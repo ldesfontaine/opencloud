@@ -15,6 +15,9 @@ import { Backups } from "./pages/Backups";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
 import { DeclaredServiceForm } from "./pages/DeclaredServiceForm";
+import { FirewallPage } from "./pages/Firewall";
+import { FirewallForm } from "./pages/FirewallForm";
+import { Firewalls } from "./pages/Firewalls";
 import { JobPage } from "./pages/Job";
 import { JobForm } from "./pages/JobForm";
 import { Jobs } from "./pages/Jobs";
@@ -97,6 +100,10 @@ export function App() {
         {/* L'ancien nom de la page : les liens enregistrés suivent, chemin, query et ancre gardés. */}
         <Route path="domaines/*" element={<ProbesRedirect />} />
         <Route path="sauvegardes" element={<Backups />} />
+        <Route path="pare-feu" element={<Firewalls />} />
+        <Route path="pare-feu/nouveau" element={<FirewallForm />} />
+        <Route path="pare-feu/:id" element={<FirewallPage />} />
+        <Route path="pare-feu/:id/modifier" element={<FirewallForm />} />
         <Route path="taches" element={<Jobs />} />
         <Route path="taches/nouvelle" element={<JobForm />} />
         <Route path="taches/:id/modifier" element={<JobForm />} />

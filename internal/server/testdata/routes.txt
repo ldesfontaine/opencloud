@@ -26,6 +26,14 @@ GET /api/machines/{id}/ssh-keys
 GET /api/machines/{id}/proxmox
 PUT /api/machines/{id}/proxmox
 POST /api/machines/{id}/actions/remove-proxmox
+GET /api/firewalls
+POST /api/firewalls
+GET /api/firewalls/{id}
+PUT /api/firewalls/{id}
+DELETE /api/firewalls/{id}
+GET /api/firewalls/{id}/rules
+GET /api/firewalls/{id}/interfaces
+GET /api/firewalls/{id}/leases
 GET /api/ssh-keys
 GET /api/network
 GET /api/containers

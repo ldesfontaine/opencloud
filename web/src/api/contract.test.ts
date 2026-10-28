@@ -8,6 +8,7 @@ import type { BackupDestination, BackupKeyring, BackupPlan, Backups } from "./ba
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
+import type { Firewall, FirewallCounts, FirewallDetail, FirewallInterfacesResponse, FirewallLeasesResponse, FirewallRulesResponse, FirewallsResponse } from "./firewalls";
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
@@ -841,6 +842,58 @@ const backups = shape<Backups>("Backups", {
   }),
 });
 
+const firewallFields = {
+  id: value,
+  name: value,
+  kind: value,
+  api_url: value,
+  api_key: value,
+  pin: value,
+  is_pinned: value,
+  version: value,
+  verified_at: value,
+  last_read_at: value,
+  last_error: value,
+  counts: shape<FirewallCounts>("FirewallCounts", { interfaces: value, rules: value, leases: value, gateways: value }),
+} as const;
+
+const firewall = shape<Firewall>("Firewall", firewallFields);
+
+const firewallDetail = shape<FirewallDetail>("FirewallDetail", {
+  ...firewallFields,
+  gateways: shape("FirewallGateway", { name: value, address: value, status: value, delay_ms: value, loss_percent: value }),
+});
+
+const firewallReading = { id: value, name: value, last_read_at: value, last_error: value } as const;
+
+const firewallInterfaces = shape<FirewallInterfacesResponse>("FirewallInterfacesResponse", {
+  ...firewallReading,
+  interfaces: shape("FirewallInterface", { name: value, device: value, role: value, address: value, status: value }),
+});
+
+const firewallRules = shape<FirewallRulesResponse>("FirewallRulesResponse", {
+  ...firewallReading,
+  rules: shape("FirewallRule", {
+    interface: value,
+    action: value,
+    direction: value,
+    protocol: value,
+    source: value,
+    source_port: value,
+    destination: value,
+    destination_port: value,
+    description: value,
+    is_enabled: value,
+  }),
+});
+
+const firewallLeases = shape<FirewallLeasesResponse>("FirewallLeasesResponse", {
+  ...firewallReading,
+  leases: shape("FirewallLease", { address: value, mac: value, hostname: value, interface: value, server: value, is_static: value, expires_at: value }),
+});
+
+const firewalls = shape<FirewallsResponse>("FirewallsResponse", { firewalls: firewall, limit: value });
+
 const deletionCount = shape<DeletionCount>("DeletionCount", { kind: value, count: value });
 
 const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
@@ -877,6 +930,12 @@ const contract: Record<string, Shape<unknown>> = {
   "deploy_upgrade.golden.json": actionRun,
   "directory_gaps.golden.json": gaps,
   "directory_proposal.golden.json": proposal,
+  "firewall.golden.json": firewallDetail,
+  "firewall_interfaces.golden.json": firewallInterfaces,
+  "firewall_leases.golden.json": firewallLeases,
+  "firewall_rules.golden.json": firewallRules,
+  "firewalls.golden.json": firewalls,
+  "firewalls_empty.golden.json": firewalls,
   "history.golden.json": history,
   "history_hourly.golden.json": history,
   "job.golden.json": jobResponse,
