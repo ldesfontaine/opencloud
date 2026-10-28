@@ -202,22 +202,23 @@ type proxmoxGuestActionRequest struct {
 // d'abord (invité connu, pas un modèle, état cohérent, jamais l'arrêt de la
 // machine qui l'héberge), écrit le run et l'audit, puis l'ordre part. La
 // réponse est le run ; l'issue réelle vient de l'agent, par le signal.
-func (s *Server) actOnProxmoxGuest(w http.ResponseWriter, r *http.Request) {
-	verb, isVerb := proxmox.ParseVerb(r.PathValue("verb"))
-	vmid, err := strconv.Atoi(r.PathValue("vmid"))
-	if !isVerb || err != nil {
-		s.apiNotFound(w)
-		return
+func (s *Server) actOnProxmoxGuest(verb proxmox.Verb) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vmid, err := strconv.Atoi(r.PathValue("vmid"))
+		if err != nil {
+			s.apiNotFound(w)
+			return
+		}
+		var request proxmoxGuestActionRequest
+		if !s.readAPI(w, r, &request) {
+			return
+		}
+		run, err := s.proxmox.Act(r.Context(), r.PathValue("id"), vmid, verb, request.Snapshot)
+		if s.proxmoxFailed(w, r, err) {
+			return
+		}
+		s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 	}
-	var request proxmoxGuestActionRequest
-	if !s.readAPI(w, r, &request) {
-		return
-	}
-	run, err := s.proxmox.Act(r.Context(), r.PathValue("id"), vmid, verb, request.Snapshot)
-	if s.proxmoxFailed(w, r, err) {
-		return
-	}
-	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 }
 
 func (s *Server) removeMachineProxmox(w http.ResponseWriter, r *http.Request) {

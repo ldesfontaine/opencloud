@@ -2,11 +2,12 @@ package verb
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
 func valid() Verb {
-	return Verb{ID: "thing.start", Route: "POST /api/things/{id}/actions/start", Label: "l", Summary: "s", Reverse: "thing.stop"}
+	return Verb{ID: "thing.start", Route: "POST /api/things/{id}/actions/start", Params: []string{"id"}, Label: "l", Summary: "s", Reverse: "thing.stop"}
 }
 
 func TestRegister_RefusesAVerbWithoutReverse(t *testing.T) {
@@ -25,6 +26,8 @@ func TestRegister_RefusesMalformedVerbs(t *testing.T) {
 		"outside api":    func(v *Verb) { v.Route = "POST /agent/things" },
 		"no label":       func(v *Verb) { v.Label = "" },
 		"no summary":     func(v *Verb) { v.Summary = "" },
+		"missing param":  func(v *Verb) { v.Params = nil },
+		"invented param": func(v *Verb) { v.Params = []string{"id", "vmid"} },
 	}
 	for name, mutate := range cases {
 		v := valid()
@@ -83,5 +86,15 @@ func TestByRoute_FindsTheVerbOfARoute(t *testing.T) {
 	}
 	if _, ok := Default.ByRoute("DELETE /api/probes/{id}"); ok {
 		t.Fatal("a deletion is a verb")
+	}
+}
+
+// Params et Body sont déclarés dans le registre : chaque verbe offert dit
+// les segments de son chemin sans qu'on parse de texte.
+func TestDefault_ParamsMatchTheRoutePath(t *testing.T) {
+	for _, v := range Default.All() {
+		if got := PathParams(v.Route); !slices.Equal(got, v.Params) {
+			t.Errorf("%s: params %v, route says %v", v.ID, v.Params, got)
+		}
 	}
 }

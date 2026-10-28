@@ -26,7 +26,10 @@ GET /api/machines/{id}/ssh-keys
 GET /api/machines/{id}/proxmox
 PUT /api/machines/{id}/proxmox
 POST /api/machines/{id}/actions/remove-proxmox
-POST /api/machines/{id}/proxmox/guests/{vmid}/actions/{verb}
+POST /api/machines/{id}/proxmox/guests/{vmid}/actions/start
+POST /api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown
+POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot
+POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete
 GET /api/firewalls
 POST /api/firewalls
 GET /api/firewalls/{id}
@@ -116,6 +119,7 @@ DELETE /api/alerts/mutes/{id}
 POST /api/alerts/actions/acknowledge
 GET /api/alerts/{id}
 POST /api/alerts/{id}/actions/acknowledge
+GET /api/token/verbs
 GET /api/settings/api-tokens
 POST /api/settings/api-tokens
 DELETE /api/settings/api-tokens/{id}
