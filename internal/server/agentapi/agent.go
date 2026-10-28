@@ -22,6 +22,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -399,7 +400,19 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	if request.SSHKeys != nil {
 		keep(agentwire.SectionSSHKeys, h.recordSSHKeys(ctx, machineID, *request.SSHKeys), sshkeys.ErrReportInvalid)
 	}
+	if request.Roles != nil {
+		keep(agentwire.SectionRoles, h.recordRoles(ctx, machineID, *request.Roles), role.ErrReportInvalid)
+	}
 	return rejected, failed
+}
+
+// recordRoles écrit ce que l'agent reconnaît sur sa machine ; sans composant,
+// la section est refusée.
+func (h *Handler) recordRoles(ctx context.Context, machineID string, report role.Report) error {
+	if h.roles == nil {
+		return role.ErrReportInvalid
+	}
+	return h.roles.Record(ctx, machineID, report)
 }
 
 // recordSSHKeys écrit le relevé des clés SSH ; sans composant, la section est

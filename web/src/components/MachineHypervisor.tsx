@@ -5,7 +5,7 @@ import type { Machine } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useI18n, useT } from "../i18n/context";
-import { backupLabel, guestStatusLabel, guestTone, kindLabel, readErrorLabel, resourcesLabel, sortedGuests, sortedStorages, storagePercent } from "../lib/proxmox";
+import { backupLabel, detectedProxmox, guestStatusLabel, guestTone, kindLabel, readErrorLabel, resourcesLabel, sortedGuests, sortedStorages, storagePercent } from "../lib/proxmox";
 import { formatWhen } from "../lib/time";
 import { formatBytes, formatDecimal, meterTone } from "../lib/units";
 import { Button } from "./Button";
@@ -222,6 +222,23 @@ export function ProxmoxCard({ machine }: { machine: Machine }) {
   // encadré « Sur l'hôte Proxmox » suffit (l'adresse du formulaire reste servie).
   if (!summary.declared && summary.hosted !== null) {
     return null;
+  }
+  const detected = detectedProxmox(machine);
+  if (!summary.declared && detected !== null) {
+    return (
+      <Card>
+        <CardHeader title={t("machine.proxmox_title")} />
+        <CardBody gap={10}>
+          <p>{detected.version === "" ? t("machine.proxmox_detected_unversioned") : t("machine.proxmox_detected", detected.version)}</p>
+          <p className="secondary">{t("machine.proxmox_detected_token")}</p>
+          <div>
+            <Button small icon="plus" to={`/machines/${machine.id}/proxmox`}>
+              {t("machine.proxmox_declare")}
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
+    );
   }
   if (!summary.declared) {
     return (

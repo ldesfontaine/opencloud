@@ -25,6 +25,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
@@ -42,6 +43,7 @@ type components struct {
 	db          *store.DB
 	actions     *action.Service
 	sshKeys     *sshkeys.Service
+	roles       *role.Service
 	proxmox     *proxmox.Service
 	backups     *backup.Service
 	deployer    *deploy.Service
@@ -138,6 +140,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	}
 	// Les clés SSH autorisées que les agents relèvent, en lecture seule.
 	sshKeys := sshkeys.New(db, logger)
+	roles := role.New(db, logger)
 	// Les hôtes Proxmox que des machines déclarent, lus en lecture seule ; la
 	// boucle de relevé est à serve seul.
 	hypervisors := proxmox.New(db, machines, logger)
@@ -168,7 +171,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator,
-		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, proxmox: hypervisors, backups: backups, deployer: deployer,
+		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, roles: roles, proxmox: hypervisors, backups: backups, deployer: deployer,
 	}, nil
 }
 
@@ -196,6 +199,7 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		Auth:           c.operator,
 		Actions:        c.actions,
 		SSHKeys:        c.sshKeys,
+		Roles:          c.roles,
 		Proxmox:        c.proxmox,
 		Backups:        c.backups,
 		Deploy:         c.deployer,

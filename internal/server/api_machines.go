@@ -11,6 +11,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
@@ -30,9 +31,17 @@ type machineJSON struct {
 	Agent *agentJSON `json:"agent"`
 	// Ce que la machine porte, ou est, pour Proxmox : voir api_proxmox.go.
 	Proxmox proxmoxSummaryJSON `json:"proxmox"`
+	// Ce que l'agent reconnaît sur la machine, par ses signes locaux ; vide
+	// sans agent, ou quand rien n'est reconnu. Un rôle ne donne aucun droit.
+	Roles []roleJSON `json:"roles"`
 	// Le support du système, seulement quand l'opérateur a activé la fin
 	// de support.
 	Lifecycle *lifecycleJSON `json:"lifecycle,omitempty"`
+}
+
+type roleJSON struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 // L'agent d'une machine : ce qu'il rapporte de son fichier, ce que son
@@ -170,11 +179,17 @@ func capabilityFromJSON(capability capabilityJSON) machine.Capability {
 	return machine.Capability{Name: capability.Name, Paths: capability.Paths}
 }
 
-// machineJSONOf ajoute aux faits de la machine ce qu'elle est pour Proxmox et
-// le support de son système, quand la fin de support est activée.
-func (s *Server) machineJSONOf(machineStatus machine.Status, summary proxmox.Summary, withLifecycle bool) machineJSON {
+func roleToJSON(detected role.Role) roleJSON {
+	return roleJSON{Name: string(detected.Name), Version: detected.Version}
+}
+
+// machineJSONOf ajoute aux faits de la machine ce qu'elle est pour Proxmox, ses
+// rôles reconnus et le support de son système, quand la fin de support est
+// activée.
+func (s *Server) machineJSONOf(machineStatus machine.Status, summary proxmox.Summary, roles []role.Role, withLifecycle bool) machineJSON {
 	converted := machineToJSON(machineStatus)
 	converted.Proxmox = proxmoxSummaryToJSON(summary)
+	converted.Roles = httpx.ConvertAll(roles, roleToJSON)
 	if withLifecycle {
 		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(machineStatus.OS))
 	}
@@ -203,9 +218,13 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
+	roles, err := s.reader.MachineRoles(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
 	response := machinesResponse{
 		Machines: httpx.ConvertAll(statuses, func(machineStatus machine.Status) machineJSON {
-			return s.machineJSONOf(machineStatus, summaries[machineStatus.ID], withLifecycle)
+			return s.machineJSONOf(machineStatus, summaries[machineStatus.ID], roles[machineStatus.ID], withLifecycle)
 		}),
 		Pending: make([]pendingTokenJSON, 0, len(pending)),
 	}
@@ -234,7 +253,11 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, summaries[found.ID], withLifecycle))
+	roles, err := s.reader.MachineRoles(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, summaries[found.ID], roles[found.ID], withLifecycle))
 }
 
 // L'opérateur nomme la machine ; le jeton naît et se montre une seule fois.

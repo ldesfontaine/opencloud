@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -39,12 +40,13 @@ func answeringServer(t *testing.T, status int, body string) *Client {
 
 // Un tampon avec de quoi remplir chaque section.
 func filledPending() *pending {
-	filled := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: newActionResults(), sshKeys: &sshReports{}}
+	filled := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: newActionResults(), sshKeys: &sshReports{}, roles: &roleReports{}}
 	filled.readings.push(sampler.Reading{SampledAt: time.Now(), CPUPercent: 1})
 	filled.reports.Deliver(container.Report{Events: []container.Event{{Action: "start"}}})
 	filled.results.Deliver(probe.Report{Results: []probe.Result{{ProbeID: "p"}}})
 	filled.images.Deliver(update.Report{Results: []update.Result{{Image: "nginx:1.27"}}})
 	filled.sshKeys.update(sshkeys.Report{Accounts: []sshkeys.Account{{Name: "root", State: sshkeys.StateNone, Keys: []sshkeys.Key{}}}})
+	filled.roles.update(role.Report{Roles: []role.Role{{Name: role.ProxmoxVE, Version: "8.2.4"}}})
 	return filled
 }
 
@@ -56,6 +58,7 @@ func leftover(left *pending) map[string]bool {
 		agentwire.SectionProbes:   left.results.take() != nil,
 		agentwire.SectionImages:   left.images.take() != nil,
 		agentwire.SectionSSHKeys:  left.sshKeys.take() != nil,
+		agentwire.SectionRoles:    left.roles.take() != nil,
 	}
 }
 
@@ -78,7 +81,7 @@ func TestSignal_OlderServerRefusesASection_OnlyWhatFollowsIsReplayed(t *testing.
 	if err := signal(context.Background(), client, "session", left, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{agentwire.SectionReadings: false, agentwire.SectionServices: false, agentwire.SectionProbes: true, agentwire.SectionImages: true, agentwire.SectionSSHKeys: true}
+	want := map[string]bool{agentwire.SectionReadings: false, agentwire.SectionServices: false, agentwire.SectionProbes: true, agentwire.SectionImages: true, agentwire.SectionSSHKeys: true, agentwire.SectionRoles: true}
 	if got := leftover(left); !maps.Equal(got, want) {
 		t.Fatalf("tampon = %v, attendu %v", got, want)
 	}

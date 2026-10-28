@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { ProxmoxGuest, ProxmoxStorage } from "../api/proxmox";
 import type { Translate } from "../i18n/context";
-import { backupLabel, guestStatusLabel, guestTone, readErrorLabel, resourcesLabel, sortedGuests, sortedStorages, storagePercent } from "./proxmox";
+import { backupLabel, detectedProxmox, guestStatusLabel, guestTone, readErrorLabel, resourcesLabel, sortedGuests, sortedStorages, storagePercent, suggestedProxmoxURL } from "./proxmox";
 
 // Un traducteur qui rend la clé et ses arguments : le test lit ce que la page demande.
 const t: Translate = (key, ...args) => (args.length === 0 ? key : `${key}(${args.join("|")})`);
@@ -55,4 +55,16 @@ test("une sauvegarde dit sa date et sa taille, ou qu'il n'y en a aucune", () => 
 test("les ressources allouées entiers sans décimale, fractionnaires avec une", () => {
   expect(resourcesLabel(t, "fr", 2, 2 * 1024 ** 3)).toContain("machine.proxmox_resources(2|");
   expect(resourcesLabel(t, "fr", 0.5, 1024 ** 3)).toContain("0,5");
+});
+
+test("l'hôte Proxmox se lit dans les rôles de la machine, et seulement là", () => {
+  expect(detectedProxmox({ roles: [] })).toBeNull();
+  expect(detectedProxmox({ roles: [{ name: "autre", version: "1" }] })).toBeNull();
+  expect(detectedProxmox({ roles: [{ name: "proxmox_ve", version: "8.2.4" }] })).toEqual({ name: "proxmox_ve", version: "8.2.4" });
+});
+
+test("l'adresse proposée est celle de la machine sur le port 8006, IPv6 entre crochets", () => {
+  expect(suggestedProxmoxURL({ address: "192.0.2.10" })).toBe("https://192.0.2.10:8006");
+  expect(suggestedProxmoxURL({ address: "2001:db8::10" })).toBe("https://[2001:db8::10]:8006");
+  expect(suggestedProxmoxURL({ address: "" })).toBe("");
 });

@@ -11,7 +11,7 @@ import type { Counts } from "./counts";
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
-import type { Account, Agent, Capability, Machine, MachinesResponse, ReportedCapability } from "./machines";
+import type { Account, Agent, Capability, Machine, MachineRole, MachinesResponse, ReportedCapability } from "./machines";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
@@ -124,6 +124,7 @@ const machine = shape<Machine>("Machine", {
     run_as: shape<Account>("Account", { uid: value, name: value }),
   }),
   lifecycle: optional(lifecycle),
+  roles: shape<MachineRole>("MachineRole", { name: value, version: value }),
   proxmox: shape<ProxmoxSummary>("ProxmoxSummary", {
     declared: value,
     guests: value,
@@ -892,6 +893,7 @@ const contract: Record<string, Shape<unknown>> = {
   "machine_probes.golden.json": probes,
   "machine_hosted.golden.json": machine,
   "machine_hosting_proxmox.golden.json": machine,
+  "machine_role.golden.json": machine,
   "machine_proxmox.golden.json": proxmoxHost,
   "machines.golden.json": machines,
   "manifest_applies.golden.json": shape<AppliesResponse>("AppliesResponse", { applies: apply }),

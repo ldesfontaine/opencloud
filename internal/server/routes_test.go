@@ -31,6 +31,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
@@ -214,6 +215,8 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	deployer := deploy.New(db, declared, machines, db, actions, logger)
 	sshKeys := sshkeys.New(db, logger)
 	sshKeys.SetClock(func() time.Time { return testNow })
+	roles := role.New(db, logger)
+	roles.SetWatcher(bus)
 	hypervisors := proxmox.New(db, machines, logger)
 	hypervisors.SetClock(func() time.Time { return testNow })
 	hypervisors.SetWatcher(bus)
@@ -239,6 +242,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		Auth:       operator,
 		Actions:    actions,
 		SSHKeys:    sshKeys,
+		Roles:      roles,
 		Proxmox:    hypervisors,
 		Backups:    backups,
 		Deploy:     deployer,

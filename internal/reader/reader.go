@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
@@ -100,4 +101,8 @@ type Reader interface {
 	// ProxmoxSummaries rend, par machine, ce qu'elle porte ou ce qu'elle est
 	// pour Proxmox ; une machine que rien ne lie n'y figure pas.
 	ProxmoxSummaries(ctx context.Context) (map[string]proxmox.Summary, error)
+
+	// MachineRoles rend, par machine, les rôles que son agent y a reconnus ;
+	// une machine sans rôle n'y figure pas.
+	MachineRoles(ctx context.Context) (map[string][]role.Role, error)
 }
