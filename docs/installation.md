@@ -908,11 +908,16 @@ puis `/mcp` pour se connecter.
 **Ce que l'agent lit.** Machines, services, tâches, sondes, alertes, pages de
 statut, journal d'audit, et les **journaux bruts des conteneurs**, qui partent
 chez le fournisseur du modèle et peuvent contenir des secrets. Un jeton d'API
-ne fait que lire : 25 lectures de l'API, rien d'autre (`403
+**en lecture** ne fait que lire : 25 lectures de l'API, rien d'autre (`403
 api_token.route_forbidden`), les secrets d'openCloud masqués (URL de ping,
 jetons d'enrôlement, chemin d'un webhook, mot de passe d'une cible de sonde).
-Il n'écrit rien et n'agit sur aucune machine. Le détail, les refus et le
-journal d'audit :
+Un jeton **en écriture** lit de même et ne déclenche que les **verbes** que
+vous cochez à sa création (pause ou reprise d'une sonde ou d'une tâche, ping
+d'un agent) ; sans verbe coché, il n'agit sur rien (`403
+api_token.verb_forbidden`). Aucune validation humaine avant chaque geste, mais
+un débit borné et chaque geste est journalisé avec le jeton et la personne
+pour qui l'agent appelle. Ni suppression, ni déploiement, ni réglage. Le
+détail, les refus et le journal d'audit :
 [22-fonctionnement.md](projet/22-fonctionnement.md#comment-un-agent-ia-lit-opencloud).
 
 ## Ajouter une machine

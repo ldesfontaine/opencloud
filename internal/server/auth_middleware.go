@@ -108,8 +108,8 @@ func isOperatorRoute(pattern string) bool {
 // `opencloud auth disable` écrit dans la base, et serve la suit sans
 // redémarrer ; l'installation revient alors à sa première configuration.
 // firstSetup dit si la route reste servie tant qu'aucun compte n'existe,
-// tokenRoute si un jeton d'API l'ouvre.
-func (s *Server) requireOperator(next http.HandlerFunc, firstSetup, tokenRoute bool) http.HandlerFunc {
+// access ce qu'un jeton d'API en obtient.
+func (s *Server) requireOperator(next http.HandlerFunc, firstSetup bool, access tokenAccess) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.isCompiledAsset(r) {
 			next(w, r)
@@ -124,7 +124,7 @@ func (s *Server) requireOperator(next http.HandlerFunc, firstSetup, tokenRoute b
 		// passe par le jeton, ni par Basic ni par l'en-tête du mandataire.
 		// En none, il est ignoré : la première configuration seule est servie.
 		if bearer, presented := bearerOf(r); presented && state.Mode != auth.ModeNone {
-			s.admitAPIToken(w, r, bearer, tokenRoute, next)
+			s.admitAPIToken(w, r, bearer, access, next)
 			return
 		}
 		switch state.Mode {

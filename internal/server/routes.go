@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/verb"
 )
 
 // La méthode « * » : toutes, pour un fourre-tout.
@@ -185,8 +187,9 @@ func (s *Server) routes() []route {
 }
 
 // Les lectures qu'un jeton d'API ouvre : ce que mcp-maison sert à un agent
-// IA. Toute autre route, écriture ou réglage, lui répond 403 ; les secrets
-// des réponses sont masqués pour lui (apiTokenFrom).
+// IA. Toute autre route lui répond 403, sauf l'action d'un verbe du
+// registre (internal/verb) que le jeton porte ; les secrets des réponses
+// sont masqués pour lui (apiTokenFrom).
 var apiTokenRoutes = []string{
 	"GET /api/session", "GET /api/counts",
 	"GET /api/machines", "GET /api/machines/{id}", "GET /api/machines/{id}/network", "GET /api/machines/{id}/resources",
@@ -207,6 +210,24 @@ func isAPITokenRoute(method, pattern string) bool {
 	return slices.Contains(apiTokenRoutes, method+" "+pattern)
 }
 
+// tokenAccess dit ce qu'un jeton d'API peut faire d'une route : la lire
+// (liste fermée apiTokenRoutes), ou la déclencher par un verbe du registre.
+// Une route qui n'est ni l'un ni l'autre lui est fermée, quelle que soit sa
+// portée : c'est la liste blanche, une route ajoutée plus tard l'est par
+// défaut.
+type tokenAccess struct {
+	read bool
+	verb string
+}
+
+func tokenAccessOf(method, pattern string) tokenAccess {
+	access := tokenAccess{read: isAPITokenRoute(method, pattern)}
+	if found, ok := verb.Default.ByRoute(method + " " + pattern); ok {
+		access.verb = found.ID
+	}
+	return access
+}
+
 // Toute écriture sous /api passe par la garde même-origine ; les lectures
 // et les routes de l'agent, des pings et de la page publique n'en ont pas
 // besoin. L'accès de l'opérateur enveloppe le tout, avant la garde. Ce qu'un
@@ -217,11 +238,15 @@ func (s *Server) mux() *http.ServeMux {
 	for _, route := range s.routes() {
 		handler := route.handler
 		isAPI := strings.HasPrefix(route.pattern, "/api/")
+		access := tokenAccessOf(route.method, route.pattern)
+		if access.verb != "" {
+			handler = s.shapeVerbReply(access.verb, handler)
+		}
 		if isAPI && route.method != http.MethodGet {
 			handler = s.requireSameOrigin(handler)
 		}
 		if isOperatorRoute(route.pattern) {
-			handler = s.requireOperator(s.withOperatorActor(handler), isFirstSetupRoute(route.method, route.pattern), isAPITokenRoute(route.method, route.pattern))
+			handler = s.requireOperator(s.withOperatorActor(handler), isFirstSetupRoute(route.method, route.pattern), access)
 		}
 		if isAPI {
 			handler = s.requireKnownHost(handler)

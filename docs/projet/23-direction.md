@@ -16,7 +16,8 @@
 commandes autorisés : on utilise pleinement ce qu'on a créé, on ne recrée pas
 un outil à côté. Objectif final : qu'un MCP (mcp-maison, dans le harness de son
 choix) puisse lui aussi utiliser ces agents bridés, chaque action
-journalisée. » Aujourd'hui le MCP ne fait que lire (jeton d'API en lecture) ;
+journalisée. » Le MCP lit (jeton d'API en lecture) et, depuis le 28 octobre 2026,
+peut déclencher des verbes réversibles choisis jeton par jeton (décision 19) ;
 les agents restent à openCloud. Tout ce qui suit s'y conforme : l'agent produit
 ou reçoit, `serve` ordonne et journalise.
 
@@ -27,7 +28,7 @@ ou reçoit, `serve` ordonne et journalise.
 | Rôle | openCloud **observe**, n'agit jamais sur une machine (README, « Fait / Ne fait pas ») | openCloud **déclare** ce qui doit exister, **compare** au réel, puis **agit** par gestes simples, un par un, chacun décidé à part |
 | But | — | L'opérateur crée une VM ou un LXC, installe l'agent par une ligne générée par openCloud, et gère tout ou presque depuis openCloud |
 | Ce qu'il n'est pas | — | Ni Coolify ni Portainer ; il ne remplace pas le SSH ; pas d'ordonnanceur ; pas de haute disponibilité. Raisonné comme un outil générique, jamais pour une infra particulière |
-| Ce qui reste | Un binaire, SQLite, front embarqué ; agent sortant, clé Ed25519 ; Docker lu, jamais écrit par la lecture ; mode `forward` derrière un SSO ; un jeton d'API pour un agent IA | Tout cela reste ; le MCP sort d'openCloud (mcp-maison, à part) et le jeton d'API ne lit que. L'écriture arrive **à côté** de la lecture, dans des actions typées, jamais en ouvrant la lecture |
+| Ce qui reste | Un binaire, SQLite, front embarqué ; agent sortant, clé Ed25519 ; Docker lu, jamais écrit par la lecture ; mode `forward` derrière un SSO ; un jeton d'API pour un agent IA | Tout cela reste ; le MCP sort d'openCloud (mcp-maison, à part) et le jeton d'API lit, ou déclenche les seuls verbes cochés. L'écriture arrive **à côté** de la lecture, dans des actions typées, jamais en ouvrant la lecture |
 | Ce qui se revoit | — | Les fonctionnalités existantes ne sont pas sacrées : le [tri](#décisions-du-tri-des-fonctionnalités) dit ce qui change |
 | Principe nouveau | — | **openCloud tombé = on ne voit plus, on n'agit plus, rien ne s'arrête.** Ce sont Docker et systemd qui gardent les services vivants, jamais openCloud |
 
@@ -324,6 +325,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 | 7 | à ouvrir | déployer un compose dans `/srv/workspace/<service>/`. **Fait** (première version, 21/10) : déployer et redéployer un service Compose déclaré ; pas de retrait, pas de modules | oui |
 | 8 | #152 | clés SSH distribuées. **Étape 1 faite** (22/10) : relevé en lecture seule des `authorized_keys` de chaque compte, affiché par machine et en matrice ; l'écriture (`ssh.keys`) reste à décider | non pour l'étape 1, oui ensuite |
 | 9 | à ouvrir | modules et dépendances ; catalogue | — |
+| 10 | à ouvrir | **jetons d'API en écriture** (décision 19). **Fait** (28/10) : registre de verbes (`internal/verb`), jeton `write` avec sa liste de verbes (migration `016`), admission par verbe, débit par jeton, audit `api_token.deny`, contrat de réponse (`run_id`, `state`, `reverse_with`) ; départ : `agent.ping`, `probe.pause`/`resume`, `job.pause`/`resume`. À suivre : les verbes Proxmox (décision 18), puis OPNsense en écriture (décision 20, phase 2c) | oui : les gestes cochés, par jeton |
 
 Rien ne passe à l'étape 5 tant que 2 et 3 ne sont pas fermées. Les contrôles
 NRPE et les webhooks entrants viennent après l'étape 2, sans étape fixée.
@@ -353,6 +355,9 @@ donné avant la décision.
 | 15 | Agents entre eux | jamais ; plus tard | jamais | Jamais ; chaque agent garde sa part de l'annuaire, rien de plus. Agent relais pour un site distant : possible plus tard, pas construit |
 | 16 | Serveur de secours | non ; plus tard ; maintenant | non, l'architecture ne l'interdit pas | Non ; l'architecture ne l'interdit pas |
 | 17 | Icônes | OCI + générique + dépôt ; bibliothèque embarquée ; logos récupérés | OCI + générique + dépôt, en dernier | OCI + générique + dépôt, en dernier |
+| 18 | Droit d'écrire sur Proxmox | sudo sur `qm`/`pct` ; jeton local à l'hôte aux droits étroits ; jeton d'écriture sur le serveur | jeton local à l'hôte | **Prise par Lucas le 28 octobre 2026** : l'agent de l'hôte appelle l'API locale de Proxmox avec un jeton local aux droits étroits (`VM.PowerMgmt`, `VM.Snapshot`), jamais une règle `sudo` sur `qm`/`pct`, jamais un jeton d'écriture sur le serveur. Pourquoi : même schéma que le reste (ordre typé, droit coché à l'installation, agent bridé), et plus étroit que root |
+| 19 | Garde-fou des agents IA par jeton d'API | validation humaine avant chaque action ; liste de verbes par jeton + débit + audit | liste de verbes par jeton | **Prise par Lucas le 28 octobre 2026** : une liste de verbes autorisés choisie jeton par jeton, une limite de débit, et l'audit « pour qui » ; **aucune validation humaine avant chaque action** (l'opérateur fait confiance à l'agent qu'il a chargé de la tâche). Pour l'instant (première phase de l'écriture par jeton), seuls des verbes **réversibles** (qui déclarent leur inverse) peuvent être offerts à un jeton. **Faite** : registre `internal/verb`, jeton `write`, migration `016`, « Comment un agent IA lit openCloud ». Contrepartie : un agent trompé par un texte de tiers peut faire, très vite, tout ce que l'opérateur a coché ; le débit borne la vitesse, pas l'intention, et l'inverse d'un verbe peut échouer |
+| 20 | OPNsense en écriture | maintenant ; après validation réelle des deux premiers chantiers | après validation | **Prise par Lucas le 28 octobre 2026** : pas dans cette phase (phase 2c), après validation réelle des deux premiers chantiers |
 
 ### Autres décisions actées
 

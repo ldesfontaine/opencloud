@@ -656,9 +656,10 @@ const apply = shape<Apply>("Apply", {
 });
 
 const apiTokens = shape<APITokensState>("APITokensState", {
-  tokens: shape("APIToken", { id: value, name: value, masked: value, scope: value, created_at: value, expires_at: value, last_used_at: value }),
+  tokens: shape("APIToken", { id: value, name: value, masked: value, scope: value, verbs: value, created_at: value, expires_at: value, last_used_at: value }),
   limit: value,
   lifetimes: shape("APITokensState.lifetimes", { days: value, default_days: value }),
+  verbs: shape("VerbOffer", { id: value, label: value, summary: value, reverse: value }),
   env: shape("APITokensState.env", { mcp_host: value, opencloud_url: value }),
 });
 

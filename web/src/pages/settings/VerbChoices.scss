@@ -1,0 +1,34 @@
+// Les verbes d'un jeton en écriture : une case par ligne, le libellé et ce
+// que le verbe fait l'un sous l'autre.
+.verb-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.verb-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+
+  input {
+    margin-top: 3px;
+    accent-color: var(--accent);
+  }
+}
+
+.verb-choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.verb-choice-label {
+  font-weight: 500;
+}
