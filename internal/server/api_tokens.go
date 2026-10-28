@@ -117,7 +117,7 @@ func (s *Server) admitAPIToken(w http.ResponseWriter, r *http.Request, bearer st
 		return
 	}
 	ctx := context.WithValue(r.Context(), apiTokenKey{}, token)
-	ctx = audit.WithActor(ctx, audit.API(token.ID, onBehalfOf(r)))
+	ctx = audit.WithActor(ctx, audit.API(token.ID, token.Name, onBehalfOf(r)))
 	next(w, r.WithContext(ctx))
 }
 
@@ -133,7 +133,7 @@ func (s *Server) admitVerb(w http.ResponseWriter, r *http.Request, token apitoke
 	}
 	if !token.CanDo(verbID) {
 		// Le contexte de l'audit n'a pas encore son acteur : on le pose ici.
-		ctx := audit.WithActor(r.Context(), audit.API(token.ID, onBehalfOf(r)))
+		ctx := audit.WithActor(r.Context(), audit.API(token.ID, token.Name, onBehalfOf(r)))
 		if s.verbDenyLimit.Allow(token.ID) {
 			s.apiTokens.RecordDenied(ctx, token, verbID)
 		}

@@ -89,6 +89,7 @@ var (
 	ErrInvalid         = errors.New("api token: invalid")
 	ErrNameInvalid     = refusal.Invalid("api_token.name_invalid", "api token: name invalid")
 	ErrTooMany         = refusal.Invalid("api_token.too_many", "api token: too many tokens")
+	ErrNameTaken       = refusal.Conflict("api_token.name_taken", "api token: name already used by a live token")
 	ErrScopeInvalid    = refusal.Invalid("api_token.scope_invalid", "api token: scope invalid")
 	ErrLifetimeInvalid = refusal.Invalid("api_token.lifetime_invalid", "api token: lifetime invalid")
 	ErrVerbUnknown     = refusal.Invalid("api_token.verb_unknown", "api token: verb unknown")

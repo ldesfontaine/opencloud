@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/apitoken"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
@@ -98,7 +100,7 @@ func TestCreate_EveryOfferedLifetimeWorks(t *testing.T) {
 	service, _, _, _ := newService(t)
 	ctx := context.Background()
 	for _, days := range apitoken.Lifetimes() {
-		_, token, err := service.Create(ctx, apitoken.Request{Name: "durée", Days: ptr(days)})
+		_, token, err := service.Create(ctx, apitoken.Request{Name: fmt.Sprintf("durée %d", days), Days: ptr(days)})
 		if err != nil {
 			t.Fatalf("%d days: %v", days, err)
 		}
@@ -116,7 +118,7 @@ func TestCreate_StopsAtTheCeilingAndARevocationFreesASlot(t *testing.T) {
 	ctx := context.Background()
 	var first apitoken.Token
 	for i := range apitoken.MaxTokens {
-		_, token, err := service.Create(ctx, apitoken.Request{Name: "jeton"})
+		_, token, err := service.Create(ctx, apitoken.Request{Name: fmt.Sprintf("jeton %d", i)})
 		if err != nil {
 			t.Fatalf("token %d: %v", i, err)
 		}
@@ -142,11 +144,11 @@ func TestCreate_TheCeilingHoldsUnderConcurrency(t *testing.T) {
 	const attempts = 24
 	results := make(chan error, attempts)
 	var wait sync.WaitGroup
-	for range attempts {
+	for attempt := range attempts {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_, _, err := service.Create(ctx, apitoken.Request{Name: "course"})
+			_, _, err := service.Create(ctx, apitoken.Request{Name: fmt.Sprintf("course %d", attempt)})
 			results <- err
 		}()
 	}
@@ -395,5 +397,31 @@ func TestCreate_ReadTokenNeverCanDo(t *testing.T) {
 	token := apitoken.Token{Scope: apitoken.ScopeRead, Verbs: []string{"agent.ping"}}
 	if token.CanDo("agent.ping") {
 		t.Fatal("a read token carries no verb")
+	}
+}
+
+// Deux jetons vivants au même nom ne se distinguent plus à l'audit : le
+// second est refusé, sans égard à la casse ; un nom libéré par une
+// révocation redevient disponible.
+func TestCreate_RefusesANameALiveTokenAlreadyBears(t *testing.T) {
+	service, _, _, _ := newService(t)
+	ctx := context.Background()
+	_, first, err := service.Create(ctx, apitoken.Request{Name: "agent-veille"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"agent-veille", "  agent-veille ", "Agent-Veille"} {
+		if _, _, err := service.Create(ctx, apitoken.Request{Name: name}); !errors.Is(err, apitoken.ErrNameTaken) {
+			t.Fatalf("%q: %v", name, err)
+		}
+	}
+	if key, _ := refusal.KeyOf(apitoken.ErrNameTaken); key != "api_token.name_taken" || !refusal.IsConflict(apitoken.ErrNameTaken) {
+		t.Fatalf("refusal %q", key)
+	}
+	if err := service.Revoke(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.Create(ctx, apitoken.Request{Name: "agent-veille"}); err != nil {
+		t.Fatalf("after a revocation: %v", err)
 	}
 }

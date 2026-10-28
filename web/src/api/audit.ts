@@ -5,13 +5,17 @@ import { useResource, type Resource } from "../hooks/useResource";
 // verbe et la sorte d'objet se traduisent sous audit.*.
 
 // « mcp » : les lignes d'avant le 21 octobre 2026, lues et jamais écrites.
-type AuditActorKind = "operator" | "api" | "cli" | "rule" | "agent" | "unknown" | "mcp";
+export type AuditActorKind = "operator" | "api" | "cli" | "rule" | "agent" | "unknown" | "mcp";
 
 export interface AuditEvent {
   id: number;
   at: string;
   actor_kind: AuditActorKind;
+  // L'identifiant stable : celui du jeton, de la machine, le compte.
   actor_name: string;
+  // Le nom du jeton d'API à l'instant du geste (il a pu être révoqué depuis) ;
+  // null pour les autres acteurs et pour les lignes d'avant la migration 017.
+  actor_label: string | null;
   // « sorte d'objet.verbe », par exemple probe.pause.
   action: string;
   object_kind: string;
@@ -36,8 +40,26 @@ export interface AuditObject {
   name: string;
 }
 
-export function auditPath(before: number | null, object: AuditObject | null): string {
+// Les filtres sur l'acteur : son genre (vide : tous) et un texte cherché dans
+// le nom du jeton, son identifiant ou « pour qui ».
+export interface AuditActorFilter {
+  kind: AuditActorKind | "";
+  search: string;
+}
+
+export const noActorFilter: AuditActorFilter = { kind: "", search: "" };
+
+// Les genres qu'un filtre propose : « mcp » ne s'écrit plus, il n'est pas offert.
+export const filterableActorKinds: readonly AuditActorKind[] = ["operator", "api", "agent", "rule", "cli", "unknown"];
+
+export function auditPath(before: number | null, object: AuditObject | null, actor: AuditActorFilter = noActorFilter): string {
   const params = new URLSearchParams();
+  if (actor.kind !== "") {
+    params.set("actor_kind", actor.kind);
+  }
+  if (actor.search !== "") {
+    params.set("actor", actor.search);
+  }
   if (before !== null) {
     params.set("before", String(before));
   }
@@ -61,6 +83,6 @@ export function useAuditForwarding(): Resource<AuditForwarding> {
   return useResource<AuditForwarding>("/api/audit/forwarding");
 }
 
-export function useAudit(before: number | null, object: AuditObject | null): Resource<AuditResponse> {
-  return useResource<AuditResponse>(auditPath(before, object));
+export function useAudit(before: number | null, object: AuditObject | null, actor: AuditActorFilter = noActorFilter): Resource<AuditResponse> {
+  return useResource<AuditResponse>(auditPath(before, object, actor));
 }

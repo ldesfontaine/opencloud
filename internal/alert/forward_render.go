@@ -31,10 +31,12 @@ type auditPayload struct {
 }
 
 type auditEntry struct {
-	ID         int64             `json:"id"`
-	At         time.Time         `json:"at"`
-	ActorKind  string            `json:"actor_kind"`
-	ActorName  string            `json:"actor_name"`
+	ID        int64     `json:"id"`
+	At        time.Time `json:"at"`
+	ActorKind string    `json:"actor_kind"`
+	ActorName string    `json:"actor_name"`
+	// ActorLabel : le nom du jeton d'API à l'instant du geste ; omis sinon.
+	ActorLabel string            `json:"actor_label,omitempty"`
 	Action     string            `json:"action"`
 	ObjectKind string            `json:"object_kind"`
 	ObjectID   string            `json:"object_id"`
@@ -57,8 +59,13 @@ func RenderAudit(catalog lang.Catalog, format Format, event audit.Event, now tim
 	actor := catalog.Get("audit.actor_" + string(event.Actor.Kind))
 	instant := event.At.UTC().Format(time.RFC3339)
 	cause := catalog.Format("audit.notify_by_kind", actor, instant)
-	if event.Actor.Name != "" {
-		cause = catalog.Format("audit.notify_by", actor, escape(event.Actor.Name), instant)
+	// Le nom du jeton parle mieux que son identifiant.
+	who := event.Actor.Name
+	if event.Actor.Label != "" {
+		who = event.Actor.Label
+	}
+	if who != "" {
+		cause = catalog.Format("audit.notify_by", actor, escape(who), instant)
 	}
 	title := catalog.Get("alert.notify_audit") + " · " + fact
 	text := Text{Fact: fact, Cause: cause}
@@ -85,7 +92,7 @@ func RenderAudit(catalog lang.Catalog, format Format, event audit.Event, now tim
 	return jsonBody(title, link, auditPayload{
 		Event: string(EventAudit), SentAt: now.UTC(), Language: string(catalog.Code()), Title: title, URL: link,
 		Audit: auditEntry{
-			ID: event.ID, At: event.At.UTC(), ActorKind: string(event.Actor.Kind), ActorName: event.Actor.Name,
+			ID: event.ID, At: event.At.UTC(), ActorKind: string(event.Actor.Kind), ActorName: event.Actor.Name, ActorLabel: event.Actor.Label,
 			Action: string(event.Action), ObjectKind: string(event.ObjectKind), ObjectID: event.ObjectID,
 			ObjectName: event.ObjectName, Details: details,
 		},

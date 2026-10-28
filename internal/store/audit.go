@@ -23,9 +23,9 @@ func (db *DB) InsertAuditEvent(ctx context.Context, event audit.Event) (int64, e
 	var id int64
 	err = db.inTx(ctx, "insert audit event", func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `
-			INSERT INTO audit_events (at, actor_kind, actor_name, action, object_kind, object_id, object_name, details, apply_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			event.At.Unix(), string(event.Actor.Kind), event.Actor.Name, string(event.Action),
+			INSERT INTO audit_events (at, actor_kind, actor_name, actor_label, action, object_kind, object_id, object_name, details, apply_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			event.At.Unix(), string(event.Actor.Kind), event.Actor.Name, nullableString(event.Actor.Label), string(event.Action),
 			string(event.ObjectKind), event.ObjectID, event.ObjectName, details, nullableString(event.ApplyID))
 		if err != nil {
 			return fmt.Errorf("insert audit event: %w", err)
@@ -49,7 +49,7 @@ func (db *DB) InsertAuditEvent(ctx context.Context, event audit.Event) (int64, e
 	return id, nil
 }
 
-const auditEventColumns = `id, at, actor_kind, actor_name, action, object_kind, object_id, object_name, details, apply_id`
+const auditEventColumns = `id, at, actor_kind, actor_name, actor_label, action, object_kind, object_id, object_name, details, apply_id`
 
 // ListAuditEvents rend une page du journal, du plus récent au plus ancien.
 func (db *DB) ListAuditEvents(ctx context.Context, query audit.Query) ([]audit.Event, error) {
@@ -59,11 +59,17 @@ func (db *DB) ListAuditEvents(ctx context.Context, query audit.Query) ([]audit.E
 		WHERE (? = 0 OR id < ?)
 		  AND (? = '' OR object_kind = ?)
 		  AND (? = '' OR object_id = ?)
+		  AND (? = '' OR actor_kind = ?)
+		  AND (? = '' OR instr(lower(COALESCE(actor_label, '')), lower(?)) > 0
+		       OR instr(lower(actor_name), lower(?)) > 0
+		       OR instr(lower(COALESCE(json_extract(details, '$.on_behalf_of'), '')), lower(?)) > 0)
 		ORDER BY id DESC
 		LIMIT ?`,
 		query.Before, query.Before,
 		string(query.ObjectKind), string(query.ObjectKind),
 		query.ObjectID, query.ObjectID,
+		string(query.ActorKind), string(query.ActorKind),
+		query.Actor, query.Actor, query.Actor, query.Actor,
 		query.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("list audit events: %w", err)
@@ -85,14 +91,15 @@ func scanAuditEvent(row scanner) (audit.Event, error) {
 	var event audit.Event
 	var at int64
 	var actorKind, action, objectKind, details string
-	var applyID sql.NullString
-	err := row.Scan(&event.ID, &at, &actorKind, &event.Actor.Name, &action, &objectKind,
+	var applyID, actorLabel sql.NullString
+	err := row.Scan(&event.ID, &at, &actorKind, &event.Actor.Name, &actorLabel, &action, &objectKind,
 		&event.ObjectID, &event.ObjectName, &details, &applyID)
 	if err != nil {
 		return audit.Event{}, fmt.Errorf("scan audit event: %w", err)
 	}
 	event.At = time.Unix(at, 0).UTC()
 	event.Actor.Kind = audit.ActorKind(actorKind)
+	event.Actor.Label = actorLabel.String
 	event.Action = audit.Action(action)
 	event.ObjectKind = audit.ObjectKind(objectKind)
 	event.ApplyID = applyID.String

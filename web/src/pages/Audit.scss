@@ -30,9 +30,30 @@
   }
 }
 
-// Un geste sans acteur est un oubli de câblage : il ne passe pas inaperçu.
-.audit-unknown {
-  color: var(--danger);
+// Le filtre sur l'acteur : un genre, un texte, sur une ligne compacte.
+.audit-actor-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+
+  > input {
+    flex: 1 1 220px;
+    max-width: 320px;
+  }
+}
+
+// L'acteur : la pastille du genre, son nom, puis « pour : … » qui ressort.
+.audit-actor {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.audit-for-whom {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .audit-details {
