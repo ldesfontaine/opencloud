@@ -58,6 +58,14 @@ func (s *Server) routes() []route {
 		// motif recoupe DELETE /api/machines/tokens/{id} (tokens/proxmox), et le
 		// multiplexeur de Go refuse deux motifs dont aucun n'est plus précis.
 		{"POST", "/api/machines/{id}/actions/remove-proxmox", s.removeMachineProxmox},
+		{"GET", "/api/firewalls", s.listFirewalls},
+		{"POST", "/api/firewalls", s.createFirewall},
+		{"GET", "/api/firewalls/{id}", s.getFirewall},
+		{"PUT", "/api/firewalls/{id}", s.updateFirewall},
+		{"DELETE", "/api/firewalls/{id}", s.deleteFirewall},
+		{"GET", "/api/firewalls/{id}/rules", s.listFirewallRules},
+		{"GET", "/api/firewalls/{id}/interfaces", s.listFirewallInterfaces},
+		{"GET", "/api/firewalls/{id}/leases", s.listFirewallLeases},
 		{"GET", "/api/ssh-keys", s.getSSHKeyMatrix},
 		{"GET", "/api/network", s.listNetworks},
 		{"GET", "/api/containers", s.listContainers},
@@ -183,6 +191,8 @@ var apiTokenRoutes = []string{
 	"GET /api/session", "GET /api/counts",
 	"GET /api/machines", "GET /api/machines/{id}", "GET /api/machines/{id}/network", "GET /api/machines/{id}/resources",
 	"GET /api/machines/{id}/proxmox",
+	"GET /api/firewalls", "GET /api/firewalls/{id}", "GET /api/firewalls/{id}/rules",
+	"GET /api/firewalls/{id}/interfaces", "GET /api/firewalls/{id}/leases",
 	"GET /api/containers", "GET /api/containers/{id}", "GET /api/containers/{id}/logs",
 	"GET /api/directory/services", "GET /api/directory/gaps", "GET /api/manifest/export",
 	"GET /api/jobs", "GET /api/jobs/{id}",

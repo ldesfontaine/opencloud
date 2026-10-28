@@ -1,0 +1,1 @@
+{"id":"ID","name":"Bordure","last_read_at":"2026-09-12T12:00:00Z","last_error":"","interfaces":[{"name":"lan","device":"igb1","role":"LAN","address":"192.168.1.1/24","status":"up"},{"name":"wan","device":"igb0","role":"WAN","address":"203.0.113.2/24","status":"up"}]}

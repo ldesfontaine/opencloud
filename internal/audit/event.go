@@ -54,6 +54,8 @@ const (
 	ObjectBackupKeyring     ObjectKind = "backup_keyring"
 	ObjectBackupDestination ObjectKind = "backup_destination"
 	ObjectBackupPlan        ObjectKind = "backup_plan"
+	// Un pare-feu déclaré, lu en lecture seule.
+	ObjectFirewall ObjectKind = "firewall"
 )
 
 func ObjectKinds() []ObjectKind {
@@ -63,6 +65,7 @@ func ObjectKinds() []ObjectKind {
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectAPIToken, ObjectSecrets, ObjectAction,
 		ObjectBackupKeyring, ObjectBackupDestination, ObjectBackupPlan,
+		ObjectFirewall,
 	}
 }
 
@@ -173,6 +176,12 @@ const (
 	BackupPlanDelete        Action = "backup_plan.delete"
 	// Une sauvegarde lancée, par l'opérateur ou par la règle de la nuit.
 	BackupPlanRun Action = "backup_plan.run"
+
+	// Un pare-feu déclaré, redéclaré ou retiré. Ni la clé ni le secret n'y
+	// figurent : seulement l'hôte de l'API et si l'empreinte est épinglée.
+	FirewallCreate Action = "firewall.create"
+	FirewallUpdate Action = "firewall.update"
+	FirewallDelete Action = "firewall.delete"
 )
 
 func Actions() []Action {
@@ -199,6 +208,7 @@ func Actions() []Action {
 		ActionOrder, ActionRefused,
 		BackupKeyringCreate, BackupKeyringReplace, BackupDestinationCreate, BackupDestinationDelete,
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
+		FirewallCreate, FirewallUpdate, FirewallDelete,
 	}
 }
 

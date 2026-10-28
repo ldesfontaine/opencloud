@@ -57,6 +57,7 @@ var secretColumns = []secretColumn{
 	{table: "alert_channels", column: "secret"},
 	{table: "heartbeats", column: "token_sealed"},
 	{table: "machine_proxmox", column: "token_secret", keyColumn: "machine_id"},
+	{table: "firewalls", column: "api_secret"},
 }
 
 func settingsPasswordScope() seal.Scope {
@@ -70,6 +71,10 @@ func channelScope(column string, id int64) seal.Scope {
 
 func heartbeatTokenScope(id string) seal.Scope {
 	return seal.Scope{Table: "heartbeats", Column: "token_sealed", Row: id}
+}
+
+func firewallSecretScope(id string) seal.Scope {
+	return seal.Scope{Table: "firewalls", Column: "api_secret", Row: id}
 }
 
 func proxmoxTokenScope(machineID string) seal.Scope {
@@ -243,14 +248,16 @@ type Forgotten struct {
 	PingTokens int
 	// ProxmoxHosts : les hôtes Proxmox dont le jeton est à ressaisir.
 	ProxmoxHosts int
+	// Firewalls : les pare-feu dont le secret d'API est à ressaisir.
+	Firewalls int
 }
 
 // ForgetSecrets est la sortie de secours d'une clé perdue : ce qui était
 // chiffré avec elle est irrécupérable, la base est remise dans un état qui
 // démarre. Le mot de passe du relais est vidé ; chaque canal qui portait une
 // URL ou un secret est vidé et désactivé ; chaque tâche reçoit un nouveau
-// jeton ; chaque hôte Proxmox perd son secret et reste déclaré, son prochain
-// relevé dira « jeton refusé » jusqu'à ce qu'on le redéclare. Le Sealer doit
+// jeton ; chaque hôte Proxmox et chaque pare-feu perd son secret et reste déclaré, son
+// prochain relevé dira « refusé » jusqu'à ce qu'on le redéclare. Le Sealer doit
 // déjà être celui de la nouvelle clé.
 func (db *DB) ForgetSecrets(ctx context.Context, newToken func() (string, error)) (Forgotten, error) {
 	if db.sealer == nil {
@@ -282,6 +289,14 @@ func (db *DB) ForgetSecrets(ctx context.Context, newToken func() (string, error)
 		forgotten.ProxmoxHosts, err = countAffected(result)
 		if err != nil {
 			return fmt.Errorf("count forgotten proxmox hosts: %w", err)
+		}
+		result, err = tx.ExecContext(ctx, `UPDATE firewalls SET api_secret = '' WHERE api_secret <> ''`)
+		if err != nil {
+			return fmt.Errorf("forget firewall secrets: %w", err)
+		}
+		forgotten.Firewalls, err = countAffected(result)
+		if err != nil {
+			return fmt.Errorf("count forgotten firewalls: %w", err)
 		}
 		return nil
 	})

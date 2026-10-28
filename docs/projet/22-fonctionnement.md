@@ -139,6 +139,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les rôles que l'agent reconnaît sur sa machine (migration `014_machine_roles.sql`) : `machine_roles` (machine, rôle de la liste fermée `proxmox_ve`, version trouvée ; aujourd'hui le seul rôle). **Aucun secret, aucun droit** : un rôle se montre, il n'ouvre rien | Un reflet du dernier rapport, remplacé en entier à chaque rapport retenu : un rôle que l'agent ne voit plus disparaît. Pas d'historique, pas de purge d'âge. La machine retirée l'emporte (`ON DELETE CASCADE`) |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les pare-feu que l'opérateur déclare et ce que leur API en a dit (migration `015_firewalls.sql`) : `firewalls` (nom unique sans casse, connecteur `opnsense`, adresse de l'API, clé d'API, **secret d'API chiffré**, empreinte épinglée, version, instants de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `firewall_interfaces`, `firewall_rules` (dans l'ordre où le pare-feu les rend), `firewall_leases` et `firewall_gateways`. **Jamais le trafic, jamais un journal de filtrage** | Le secret est chiffré comme les autres (« Ce que le chiffrement couvre »), lié à sa ligne ; il ne sort jamais de l'API ni des journaux. Les quatre tables de relevé sont remplacées en entier à chaque relevé réussi, dans une transaction ; un relevé qui échoue garde le précédent. Une autre adresse d'API ou un autre connecteur à la redéclaration efface le relevé (il décrivait un autre appareil). Pas d'historique, pas de purge d'âge. Le pare-feu retiré emporte son relevé (`ON DELETE CASCADE`). Un pare-feu n'appartient à aucune machine : le plan de suppression d'une machine n'en compte aucun. Au plus 20 pare-feu |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
@@ -157,9 +158,9 @@ dit comment. Une migration de plus part de `002`.
 | Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` (au compte de l'agent, `opencloud-agent`, ou root s'il tourne en root ; `0700`, hors du dossier du serveur) | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main (la clé change seule pendant une rotation, par l'ordre `agent.server_key`) : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart. Le dossier est à root et **hors de `/var/lib/opencloud`**, que le compte du serveur possède sur la machine openCloud : ce compte ne peut ni remplacer le fichier ni renommer le dossier. L'agent juge sa chaîne de dossiers au démarrage (« Les droits d'un agent », état mal gardé) |
 | Un hôte Proxmox dont l'agent a `backup.produce`, `/var/lib/opencloud-agent/produce/` | `<préfixe>-AAAAMMJJ-HHMMSS.tar.age.raw`, puis `….tar.age` | Les archives en cours de production : le flux brut de `vzdump` (compressé `zstd`, **en clair**), puis le même emballé dans un `tar` et chiffré pour la clé publique du trousseau ; les deux coexistent avant l'envoi, d'où **deux fois** la plus grosse VM compressée. L'agent refuse de commencer sous 1 Gio libre (`disk_full`) | `0700` et `0600`, au compte de l'agent. Vidé à la fin de **chaque** ordre, réussi ou non, et au démarrage de l'agent (un arrêt en pleine production ne laisse rien). Posé par la préparation du droit, créé par l'agent s'il manque. Le clair de la VM ne quitte jamais cet hôte |
 
-**Ce que le chiffrement couvre.** Cinq colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
+**Ce que le chiffrement couvre.** Six colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
 `settings.mail_password`, `alert_channels.url`, `alert_channels.secret`,
-`heartbeats.token_sealed` et `machine_proxmox.token_secret`. Un secret vide reste vide. Un chiffré a la forme `v1:<8 hexadécimaux>:<base64>` ; une valeur non vide d'une autre forme n'est jamais rendue comme un secret, la lecture la refuse. Les jetons d'enrôlement, les jetons
+`heartbeats.token_sealed`, `machine_proxmox.token_secret` et `firewalls.api_secret`. Un secret vide reste vide. Un chiffré a la forme `v1:<8 hexadécimaux>:<base64>` ; une valeur non vide d'une autre forme n'est jamais rendue comme un secret, la lecture la refuse. Les jetons d'enrôlement, les jetons
 d'API et le mot de passe de l'interface sont hachés.
 
 **Ce qu'il ne couvre pas.** Les identifiants qu'une cible de sonde portait
@@ -674,6 +675,91 @@ stockages ; pas de consommation (CPU, mémoire, disque réellement utilisés) ; 
 d'historique des relevés ; pas de découverte d'une grappe par ses nœuds (un hôte
 est déclaré par l'adresse d'un seul nœud, l'API de la grappe est la même) ; pas
 de Proxmox Backup Server.
+
+## Comment un pare-feu se lit
+
+Un module **générique** : l'interface et l'API ne parlent d'aucune marque, seul
+le **connecteur** (`internal/firewall/opnsense`) connaît l'API d'OPNsense. Un
+autre pare-feu ajoute son genre (`firewall.Kind…`) et son connecteur, sans
+toucher à la page. L'opérateur déclare un pare-feu (page « Pare-feu » du menu) ;
+openCloud lit sa version, ses interfaces, ses règles, ses baux DHCP et ses
+passerelles, pour l'opérateur et pour les agents IA (jeton d'API, donc
+mcp-maison). **Lecture seule** : aucun ordre n'est donné au pare-feu, aucune
+alerte ne naît d'un relevé. Un pare-feu n'est lié à aucune machine.
+
+| Acteur | Ce qu'il fait |
+| --- | --- |
+| L'opérateur | Déclare, redéclare, retire (assistant en trois étapes ; retrait par confirmation en ligne). Seul à écrire : les routes d'écriture ne sont pas dans la liste fermée d'un jeton |
+| `firewall.Service` | Vérifie la paire de clés auprès du pare-feu **avant** d'écrire, journalise, relit toutes les cinq minutes (boucle de `serve`) |
+| Le connecteur | Parle à l'API, en `GET` seulement, et rend un `firewall.Snapshot` indépendant du constructeur |
+| Un agent IA | Lit les cinq `GET` par son jeton, sans clé ni empreinte |
+
+**Ce qui est lu (OPNsense).** Points d'accès retenus, tirés de la documentation
+(`docs.opnsense.org/development/api`) et des contrôleurs de `opnsense/core`, tous
+en `GET`, authentifiés par HTTP Basic (clé et secret de l'utilisateur d'API) :
+
+| Appel | Ce qu'on en garde | Privilège demandé (nom OPNsense, en anglais) |
+| --- | --- | --- |
+| `/api/diagnostics/system/system_information` | La version : `versions[0]` (« OPNsense 25.1.6-amd64 »). La plus petite lecture qui exige une paire valide : la déclaration s'en sert | `Lobby: Dashboard` |
+| `/api/interfaces/overview/interfacesInfo` | Par interface assignée : identifiant, carte, description (le **rôle** : WAN, LAN…), adresse IPv4 sinon IPv6, état | `Status: Interfaces` |
+| `/api/firewall/filter/searchRule` | Les règles écrites par l'opérateur : interface, action, sens, protocole, source, destination, ports, description, activée | `Firewall: Rules [new]` |
+| `/api/routes/gateway/status` | Par passerelle : nom, adresse, état (`none` = en ligne, `down` = hors ligne, `delay`/`loss` = dégradée), délai, perte ; `~` = non sondée | `System: Gateways` |
+| `/api/dnsmasq/leases/search`, `/api/kea/leases4/search`, `/api/dhcpv4/leases/searchLease` | Les baux DHCP du serveur que le pare-feu fait tourner (dnsmasq, Kea, ou le greffon ISC) : adresse, MAC, nom d'hôte, interface, réservé ou non, échéance | `Services: Dnsmasq DNS/DHCP: Settings`, `Services: DHCP: Kea(v4)` ou `Services: ISC DHCPv4: Leases` |
+
+Un serveur DHCP absent (`404`) ou non couvert par le privilège (`403`) n'a rien à
+dire ; si aucun ne répond et qu'un a refusé, le relevé est refusé
+(`firewall.unauthorized`). Aucun appel d'écriture n'existe : pas de `POST`, pas
+d'`add`, `del`, `set`, `toggle`, `apply`, `revert`, `reconfigure`. Un test le garantit
+(`TestSource_HasNoWritingCallToOPNsense`, `TestRead_OnlyEverSendsGETsToTheReadingEndpoints`),
+et l'interface `firewall.Connector` n'a aucune méthode d'écriture.
+
+**Le coût, dit franchement.** OPNsense n'a **pas de privilège en lecture seule**
+pour ces pages : celui qui ouvre `searchRule` ouvre aussi l'ajout et la
+suppression de règles. L'utilisateur d'API créé pour openCloud **pourrait donc
+écrire** si quelqu'un détenait sa clé. openCloud ne fait que lire, mais la clé
+se garde comme un secret (chiffrée dans la base, jamais rendue). Les noms de
+privilèges sont ceux d'OPNsense, **affichés en anglais même en interface
+française** (ils ne sont pas dans son catalogue de traduction). **Non vérifié sur
+un OPNsense réel** : les formes de réponse viennent de la documentation et des
+sources ; les tests jouent un faux serveur.
+
+**Le transport.** HTTPS seulement. Sans empreinte, le magasin du système juge le
+certificat ; avec une empreinte SHA-256 (la ligne d'openssl se colle telle
+quelle), **elle seule** juge (un OPNsense livre un certificat auto-signé). Aucune
+redirection n'est suivie (elle enverrait la paire ailleurs) ; pas de mandataire
+d'environnement ; le réseau local est admis, le lien-local non (garde `egress`).
+Chaque appel est borné à 20 s et 8 Mio, un relevé entier à 2 minutes, la
+déclaration à 30 s. Chaque texte est coupé à 256 octets ; plus de 500 interfaces,
+10 000 règles, 20 000 baux ou 200 passerelles est une réponse refusée.
+
+**Déclarer.** `POST /api/firewalls` crée, `PUT /api/firewalls/{id}` redéclare (le
+secret se ressaisit), `DELETE /api/firewalls/{id}` retire. Le serveur normalise
+(adresse `https://hôte[:port]`, empreinte en minuscules), puis interroge la
+version avec la paire : une paire fausse ou une adresse muette n'écrit rien. Un
+premier relevé part tout de suite ; s'il échoue, le pare-feu reste déclaré et sa
+fiche dit pourquoi. Refus à clé : `firewall.name_invalid`, `name_taken` (409),
+`kind_invalid`, `url_invalid`, `key_invalid`, `secret_invalid`, `pin_invalid`,
+`too_many` (409), et les quatre de l'API : `unreachable`, `certificate`,
+`unauthorized` (`401`/`403`), `bad_response` (statut inattendu, réponse qui n'est
+pas celle de l'API, plus de 8 Mio).
+
+**Lire.** `GET /api/firewalls` (liste et compteurs), `/{id}` (la fiche et ses
+passerelles), `/{id}/rules`, `/{id}/interfaces`, `/{id}/leases`. Chaque relevé
+rappelle `last_read_at` et `last_error`. Un relevé qui échoue **ne remplace
+rien** : la fiche garde le dernier relevé réussi et dit la raison (`last_error`) ;
+le suivant, réussi, l'efface. Un secret vidé par la perte de `secret.key`
+(`opencloud secrets forget`) est lu comme une paire refusée : le pare-feu reste
+déclaré, l'opérateur ressaisit le secret. Le direct publie le sujet `firewalls`.
+
+**Audit.** `firewall.create`, `firewall.update`, `firewall.delete` passent au
+journal, avec l'hôte de l'API, le connecteur et « empreinte épinglée oui/non » ;
+**ni la clé ni le secret**. Les relevés, réussis ou non, n'y sont pas (ils vont
+au journal du serveur, sans secret).
+
+**Ce qui n'est pas fait.** Aucun ordre au pare-feu ; aucune alerte ; pas de
+journal de filtrage ni de trafic ; pas d'historique des relevés ; pas de règles
+générées automatiquement par OPNsense ; pas de second connecteur ; le plan de
+suppression d'une machine ne compte pas les pare-feu (aucun lien).
 
 ## Comment un ordre part et revient
 
@@ -3481,7 +3567,7 @@ toute écriture.
 ### Ce qu'un jeton ne voit pas
 
 Les lectures de la liste rendent à un jeton ce qu'elles rendent à l'opérateur,
-**sauf** cinq secrets masqués (le masque ne touche que les requêtes par jeton ;
+**sauf** six secrets masqués (le masque ne touche que les requêtes par jeton ;
 les réponses de l'opérateur ne changent pas) :
 
 | Lecture | Pour un jeton |
@@ -3490,6 +3576,7 @@ les réponses de l'opérateur ne changent pas) :
 | `GET /api/jobs/{id}` | Ni l'URL de ping, qui est le secret de la tâche, ni les extraits de code qui la contiennent |
 | `GET /api/probes`, `GET /api/probes/{id}` | La cible sans son mot de passe (`https://user:…@hôte`), comme dans le plan d'apply et le journal |
 | `GET /api/alerts/channels` | L'adresse réduite à son schéma et son hôte (un webhook Discord porte son jeton dans son chemin), sans destinataire ni salon |
+| `GET /api/firewalls`, `GET /api/firewalls/{id}` | Ni la clé d'API ni l'empreinte du certificat (`api_key` et `pin` vides) ; le secret n'est jamais rendu à personne. `/rules`, `/interfaces` et `/leases` ne portent ni l'un ni l'autre |
 | `GET /api/manifest/export` | Le fichier de l'annuaire, le mot de passe d'une cible masqué ; il se lit, il ne se réapplique pas |
 
 Ce qu'un jeton lit n'est pas pour autant sans risque : les **journaux bruts
