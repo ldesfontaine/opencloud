@@ -29,12 +29,6 @@ const (
 	VerbSnapshotDelete Verb = "snapshot-delete"
 )
 
-// ParseVerb reconnaît un geste ; faux pour tout autre mot.
-func ParseVerb(word string) (Verb, bool) {
-	verb := Verb(word)
-	return verb, slices.Contains([]Verb{VerbStart, VerbShutdown, VerbSnapshot, VerbSnapshotDelete}, verb)
-}
-
 func (v Verb) kind() agentwire.Kind {
 	switch v {
 	case VerbStart:

@@ -35,6 +35,7 @@ const (
 	codeAPITokenInvalid        = "api_token.invalid"         // #nosec G101 -- une clé de catalogue, pas un secret.
 	codeAPITokenRouteForbidden = "api_token.route_forbidden" // #nosec G101 -- une clé de catalogue, pas un secret.
 	codeAPITokenVerbForbidden  = "api_token.verb_forbidden"  // #nosec G101 -- une clé de catalogue, pas un secret.
+	codeAPITokenOnly           = "api_token.token_only"      // #nosec G101 -- une clé de catalogue, pas un secret.
 	// L'en-tête où mcp-maison dit pour qui il appelle (le sub OIDC). Posé
 	// par lui, indicatif : il n'ouvre aucun droit.
 	onBehalfOfHeader = "X-MCP-Maison-User"
@@ -227,6 +228,58 @@ func (c *capturedReply) replayTo(w http.ResponseWriter) {
 	maps.Copy(w.Header(), c.header)
 	w.WriteHeader(c.status)
 	_, _ = w.Write(c.body.Bytes())
+}
+
+// --- Les verbes du jeton appelant ---
+
+// tokenVerbJSON est un verbe tel que le client d'un jeton le lit : la
+// requête à faire (méthode, chemin, paramètres de chemin, champs du corps),
+// son inverse et ses textes. mcp-maison n'a ainsi aucune table de verbes
+// écrite en dur.
+type tokenVerbJSON struct {
+	ID      string   `json:"id"`
+	Method  string   `json:"method"`
+	Path    string   `json:"path"`
+	Params  []string `json:"params"`
+	Body    []string `json:"body"`
+	Reverse string   `json:"reverse"`
+	Label   string   `json:"label"`
+	Summary string   `json:"summary"`
+}
+
+type tokenVerbsResponse struct {
+	Scope string          `json:"scope"`
+	Verbs []tokenVerbJSON `json:"verbs"`
+}
+
+// listTokenVerbs rend les seuls verbes du jeton appelant, dans la langue du
+// serveur. La route est ouverte à tout jeton valide, en lecture ; pour
+// l'opérateur elle répond 403 : elle parle du jeton, qu'il n'a pas. Elle est
+// enregistrée pour tous plutôt que cachée, un refus clair vaut mieux qu'un
+// 404 qui laisse croire à une panne.
+func (s *Server) listTokenVerbs(w http.ResponseWriter, r *http.Request) {
+	token, byToken := apiTokenFrom(r.Context())
+	if !byToken {
+		s.apiRefuse(w, http.StatusForbidden, codeAPITokenOnly)
+		return
+	}
+	code, err := s.language(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	catalog := s.catalogs.For(code)
+	verbs := []tokenVerbJSON{}
+	for _, offered := range verb.Default.All() {
+		if !token.CanDo(offered.ID) {
+			continue
+		}
+		method, path, _ := strings.Cut(offered.Route, " ")
+		verbs = append(verbs, tokenVerbJSON{
+			ID: offered.ID, Method: method, Path: path, Params: orEmpty(offered.Params), Body: orEmpty(offered.Body),
+			Reverse: offered.Reverse, Label: catalog.Get(offered.Label), Summary: catalog.Get(offered.Summary),
+		})
+	}
+	s.writeAPI(w, http.StatusOK, tokenVerbsResponse{Scope: string(token.Scope), Verbs: verbs})
 }
 
 // --- Masquage ---

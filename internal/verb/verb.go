@@ -12,10 +12,14 @@ import (
 // motif enregistré de la route d'opérateur qu'il ouvre, « POST /api/... » ;
 // Label et Summary sont des clés de catalogue (fr et en). Reverse est le
 // verbe qui défait celui-ci : obligatoire, un verbe sans inverse reste
-// réservé à l'opérateur.
+// réservé à l'opérateur. Params sont les segments {…} du chemin, dans
+// l'ordre ; Body les champs JSON que la route attend. Ils sont déclarés et
+// non déduits : le client d'un jeton les lit tels quels, sans parser de texte.
 type Verb struct {
 	ID      string
 	Route   string
+	Params  []string
+	Body    []string
 	Label   string
 	Summary string
 	Reverse string
@@ -23,11 +27,23 @@ type Verb struct {
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 
+var pathParamPattern = regexp.MustCompile(`\{([a-z]+)\}`)
+
+// PathParams rend les segments {…} du chemin d'une route, dans l'ordre.
+func PathParams(route string) []string {
+	params := []string{}
+	for _, match := range pathParamPattern.FindAllStringSubmatch(route, -1) {
+		params = append(params, match[1])
+	}
+	return params
+}
+
 var (
 	ErrIDInvalid      = errors.New("verb: id invalid")
 	ErrRouteInvalid   = errors.New("verb: route must be a POST on /api/")
 	ErrCatalogMissing = errors.New("verb: label and summary keys are required")
 	ErrNoReverse      = errors.New("verb: a verb without a reverse cannot be registered")
+	ErrParamsMismatch = errors.New("verb: params do not match the route path")
 	ErrDuplicate      = errors.New("verb: already registered")
 	ErrUnknownReverse = errors.New("verb: reverse is not registered")
 )
@@ -53,6 +69,9 @@ func (r *Registry) Register(v Verb) error {
 	}
 	if v.Reverse == "" {
 		return fmt.Errorf("%w: %s", ErrNoReverse, v.ID)
+	}
+	if !slices.Equal(v.Params, PathParams(v.Route)) {
+		return fmt.Errorf("%w: %s", ErrParamsMismatch, v.ID)
 	}
 	if _, found := r.Lookup(v.ID); found {
 		return fmt.Errorf("%w: %s", ErrDuplicate, v.ID)

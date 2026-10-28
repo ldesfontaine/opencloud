@@ -191,10 +191,15 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   - **`ConfirmInline`** : la confirmation d'une action d'une ligne. Le bouton se
     replie en « question [Confirmer] [Annuler] » à sa place, le focus sur
     « Annuler », Échap annule et rend le focus au bouton. Employée sous
-    Paramètres seulement pour l'instant (désactiver l'accès, révoquer un
-    jeton) ; les autres pages passent encore par `window.confirm`
+    Paramètres (désactiver l'accès, révoquer un jeton), sur la fiche
+    d'un pare-feu et dans le bloc Proxmox d'une machine (gestes sur une VM) ;
+    les autres pages passent encore par `window.confirm`
     (`useAction({ confirm })`). La boîte `DeletePlanDialog` reste pour un
     plan de suppression, qu'il faut lire avant de confirmer.
+- **Menu « … »** (`MoreMenu`) : les actions secondaires d'un objet, hors de la
+  ligne. Une action impossible **reste au menu, grisée, avec sa raison**
+  (`hint`, en dessous) : elle ne se cache jamais, et choisir une entrée grisée
+  ne fait rien.
 - **Formulaire** (`FormPage`) : l'en-tête de page et la carte dans une
   colonne de 560 px au plus, centrée comme Paramètres ; sur un téléphone,
   pleine largeur dans les marges de page. Toute page de formulaire

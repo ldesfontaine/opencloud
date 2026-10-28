@@ -28,7 +28,7 @@
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
 | mcp-maison | Un serveur MCP à part, sur la machine openCloud, dans Docker (`network_mode: host`) | Il identifie chaque personne par l'IdP OIDC de l'opérateur, sert ses outils, et lit l'API d'openCloud en direct sur l'adresse de `listen` avec un **jeton d'API en lecture** (`Authorization: Bearer ock_…`), en posant `X-MCP-Maison-User` ; openCloud lit son `/health` à la demande (Paramètres) et marche sans lui |
-| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 25 lectures, secrets masqués. Avec un jeton en lecture, jamais une écriture ; avec un jeton en écriture, seulement les verbes cochés (« Les verbes d'un jeton en écriture ») ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
+| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 32 lectures, secrets masqués. Avec un jeton en lecture, jamais une écriture ; avec un jeton en écriture, seulement les verbes cochés (« Les verbes d'un jeton en écriture ») ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud fait tourner
 les deux : le serveur, et son agent, qui en fait une machine comme les autres
@@ -99,7 +99,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Statut | visiteur → Traefik → `/statut/<slug>`, `/statut/<slug>/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom de ses composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port, ni rien d'une autre page. Des tests le prouvent sur la réponse réelle |
 | Registre | agent → le registre de l'image | TLS, sauf vers la boucle locale (un registre sur `localhost:5000`, comme Docker le fait) | L'agent s'authentifie par un jeton anonyme, ou signé des identifiants en clair du `config.json` de Docker de la machine ; le registre ne prouve rien de plus que son certificat. Rien ne sort qu'un nom de dépôt et un tag ; l'agent ne tire jamais une image. Aucune redirection suivie |
 | Agent IA | client MCP → Traefik → mcp-maison | TLS de Traefik | OAuth de mcp-maison, délégué à l'IdP OIDC de l'opérateur (Authelia, Authentik, Keycloak, GitLab) : openCloud n'y voit rien et n'y prouve rien |
-| Agent IA | mcp-maison → openCloud, `/api/…` | En clair, sur l'adresse de `listen`, sans sortir de la machine | Un Bearer, jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Il est jugé **avant le mode** d'authentification de l'interface (ni Basic ni l'en-tête du mandataire), sauf en mode `none` où il est ignoré, et n'ouvre que 25 lectures, plus, pour un jeton en écriture, les routes des seuls verbes cochés, à débit borné par jeton (« Comment un agent IA lit openCloud »). Le jeton est haché avant d'être cherché, et son dernier usage noté au plus une fois par minute. Activer l'authentification de l'interface les révoque tous |
+| Agent IA | mcp-maison → openCloud, `/api/…` | En clair, sur l'adresse de `listen`, sans sortir de la machine | Un Bearer, jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Il est jugé **avant le mode** d'authentification de l'interface (ni Basic ni l'en-tête du mandataire), sauf en mode `none` où il est ignoré, et n'ouvre que 32 lectures, plus, pour un jeton en écriture, les routes des seuls verbes cochés, à débit borné par jeton (« Comment un agent IA lit openCloud »). Le jeton est haché avant d'être cherché, et son dernier usage noté au plus une fois par minute. Activer l'authentification de l'interface les révoque tous |
 | Vérification de mcp-maison | openCloud → `mcp_url`, `GET /health` | Celui de l'adresse réglée : en clair vers la machine ou un réseau privé, le lien-local est refusé | Personne : on lit un état, rien ne s'écrit. Trois secondes, une redirection n'est pas suivie, 64 Kio au plus ; déclenchée par la carte de Paramètres, jamais en fond |
 | Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
@@ -747,12 +747,16 @@ est `proxmox_unreachable`, `proxmox_certificate` ou `proxmox_unauthorized` (401,
 
 **Ce que le serveur fait.** `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/{start|shutdown|snapshot|snapshot-delete}`
 (`{id}` : la machine qui porte l'hôte ; corps `{}`, ou `{"snapshot":"oc-…"}` pour
-la suppression), réservée à l'opérateur : `403` à un jeton d'API. Il refuse
+la suppression). Ce sont **quatre routes explicites**, pas un joker : chacune
+est la route d'un verbe d'un jeton d'API (`proxmox.vm.start`, `.shutdown`,
+`.snapshot`, `.snapshot_delete`, « Les verbes d'un jeton en écriture »), et
+tout autre mot reste un `404`. Un jeton `write` qui porte le verbe passe par
+le même handler, les mêmes refus et le même audit ; sinon `403`. Il refuse
 **avant d'envoyer**, sans rien écrire :
 
 | Refus | Cause |
 | --- | --- |
-| `404` | hôte non déclaré, geste inconnu (`stop`, `reboot`…), numéro illisible |
+| `404` | hôte non déclaré, geste inconnu (`stop`, `reboot`… : aucune route), numéro illisible |
 | `409 machine.no_agent`, `action.machine_offline`, `action.right_missing` | comme tout ordre : pas d'agent actif, hors ligne, droit rapporté absent |
 | `409 proxmox.guest_unknown` | l'invité n'est pas dans le dernier relevé |
 | `409 proxmox.guest_template` | un modèle |
@@ -763,8 +767,9 @@ la suppression), réservée à l'opérateur : `403` à un jeton d'API. Il refuse
 
 Sinon le run est écrit dans `action_runs` et l'événement `action.order` au
 journal d'audit **avant l'envoi** (« Comment un ordre part et revient »), puis
-`machine.proxmox_guest` (geste, numéro, sorte, run ; acteur : l'opérateur) ;
-la réponse est le run (`201`). Quand le run réussit, le serveur relit l'hôte
+`machine.proxmox_guest` (geste, numéro, sorte, run ; acteur : l'opérateur, ou
+`api:<id>` avec `on_behalf_of` pour un jeton) ;
+la réponse est le run (`201` ; un jeton reçoit le contrat des verbes, `200`). Quand le run réussit, le serveur relit l'hôte
 (le suivi vit avec `serve`). L'interface suit le run par le direct. Le serveur
 ne sait **pas** qu'une VM est la sienne si le nom d'hôte de l'invité n'est pas
 celui de la machine `local` (rapprochement, « Comment un hôte Proxmox se
@@ -3672,7 +3677,7 @@ toute requête `/api/…` : mcp-maison joint openCloud par l'IP de `listen`
 en `403 bad_host`.
 
 **La liste fermée des lectures** (`apiTokenRoutes`, `internal/server/routes.go`) :
-26 lectures, toutes en `GET`, figées par un test qui vérifie que chaque entrée
+32 lectures, toutes en `GET`, figées par un test qui vérifie que chaque entrée
 est une vraie route et que **toute autre route de l'API, y compris
 `POST /api/settings/api-tokens`, répond 403 à un jeton `read`**. C'est une
 liste blanche : une route ajoutée plus tard est fermée aux jetons par défaut.
@@ -3687,6 +3692,7 @@ liste blanche : une route ajoutée plus tard est fermée aux jetons par défaut.
 | Pages de statut | `/api/status/pages`, `/api/status/pages/{id}`, `/api/status/components`, `/api/status/incidents` |
 | Alertes | `/api/alerts`, `/api/alerts/{id}`, `/api/alerts/channels` |
 | Journal, ordres | `/api/audit`, `/api/actions` |
+| Le jeton lui-même | `/api/token/verbs` (« Les verbes d'un jeton en écriture ») |
 
 Exclus volontairement : les flux (`/api/events`, `…/logs/stream`), tout
 `/api/settings/*` et `/api/auth`, la clé du serveur, les plans de suppression,
@@ -3709,6 +3715,19 @@ l'instant, un jeton ne reçoit que des gestes qu'on peut défaire.
 | `probe.resume` | `POST /api/probes/{id}/actions/resume` | `probe.pause` |
 | `job.pause` | `POST /api/jobs/{id}/actions/pause` | `job.resume` |
 | `job.resume` | `POST /api/jobs/{id}/actions/resume` | `job.pause` |
+| `proxmox.vm.start` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/start` | `proxmox.vm.shutdown` |
+| `proxmox.vm.shutdown` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown` | `proxmox.vm.start` |
+| `proxmox.vm.snapshot` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot` | `proxmox.vm.snapshot_delete` |
+| `proxmox.vm.snapshot_delete` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete` (corps `{"snapshot":"oc-…"}`) | `proxmox.vm.snapshot` |
+
+Les quatre verbes Proxmox agissent **sur des machines** : l'ordre part à
+l'agent de l'hôte, qui appelle l'API locale de Proxmox avec son jeton étroit
+(décision 18). L'arrêt est toujours propre, jamais forcé ; le serveur refuse
+d'arrêter la machine qui l'héberge (`proxmox.self_target`) ; la suppression ne
+touche qu'un instantané `oc-…` créé par ce produit. Coût : un agent qui éteint
+une VM la coupe pour ses utilisateurs jusqu'au `start` qui la rallume, et
+`snapshot_delete` retire pour de bon un point de retour que `snapshot` ne
+recrée pas à l'identique. Le débit du jeton borne la vitesse, pas ces effets.
 
 `alert.acknowledge` n'est **pas** offert : rien ne désacquitte une alerte, il
 reste réservé à l'opérateur. Contrepartie du choix : une reprise peut échouer
@@ -3745,7 +3764,39 @@ application/json`, corps vide compris (`requireSameOrigin`).
 | `reverse_with` | L'identifiant du verbe qui défait celui-ci |
 
 Rien d'autre : ni les paramètres ni la sortie du run, qui se lisent par
-`/api/actions`. Un échec garde la forme habituelle `{"error": "<clé>"}`.
+`/api/actions`. Un échec garde la forme habituelle `{"error": "<clé>"}`. Les
+verbes Proxmox répondent ce contrat aussi : le run de l'ordre est lu dans la
+réponse `201` de la route (`run_id`, `state` : `sent`), la réponse du jeton est
+`200`.
+
+**Lire ses verbes.** `GET /api/token/verbs` (ouverte à tout jeton valide, en
+lecture) rend les verbes du jeton qui l'appelle, et eux seuls, dans l'ordre du
+registre, textes dans la langue du serveur. mcp-maison n'a ainsi aucune table
+de verbes écrite en dur :
+
+```json
+{"scope": "write", "verbs": [
+  {"id": "proxmox.vm.start", "method": "POST",
+   "path": "/api/machines/{id}/proxmox/guests/{vmid}/actions/start",
+   "params": ["id", "vmid"], "body": [], "reverse": "proxmox.vm.shutdown",
+   "label": "…", "summary": "…"}]}
+```
+
+| Champ | Sens |
+| --- | --- |
+| `scope` | `read` ou `write` |
+| `verbs` | `[]` pour un jeton `read`, ou `write` sans verbe |
+| `path`, `params` | Le motif de la route et ses segments `{…}`, dans l'ordre |
+| `body` | Les champs JSON attendus (`["snapshot"]` pour `proxmox.vm.snapshot_delete`, `[]` sinon) |
+| `reverse` | Le verbe qui défait celui-ci |
+| `label`, `summary` | Les textes du catalogue ; la phrase dit ce que le verbe fait et ce qu'il ne fait jamais |
+
+`params` et `body` sont des champs du verbe dans le registre, pas du texte
+parsé ; l'enregistrement refuse des `params` qui ne sont pas ceux du chemin
+(`verb.ErrParamsMismatch`). Pour l'opérateur (hors jeton) la route répond
+`403 api_token.token_only` : elle est enregistrée pour tous, plutôt que
+cachée, parce qu'un refus clair vaut mieux qu'un `404` qui laisse croire à une
+panne.
 
 **Le débit d'un jeton.** Un seau à jetons **par jeton**, distinct du limiteur
 des échecs d'authentification (par adresse) : `apiVerbBurst` = 10 gestes d'un
@@ -3788,9 +3839,10 @@ certificat, noms de conteneurs, de services et de sondes) peut viser le modèle
 qui le lit. C'est à mcp-maison et au client de le traiter comme de la donnée.
 Côté openCloud, la défense est qu'**un jeton `read` n'écrit rien**, et qu'un
 jeton `write` ne fait que ce que l'opérateur a coché : des verbes réversibles,
-à débit borné, sans suppression ni déploiement ni réglage. Un modèle poussé
-par un texte de tiers peut au pire mettre en pause une sonde, ce qui se défait
-(et se lit à l'audit).
+à débit borné, sans suppression de machine ni déploiement ni réglage. Un
+modèle poussé par un texte de tiers peut au pire mettre en pause une sonde ou,
+si l'opérateur a coché les verbes Proxmox, éteindre proprement une VM : cela se
+défait (et se lit à l'audit), mais l'arrêt coupe le service entre-temps.
 
 ### L'acteur d'audit et `on_behalf_of`
 
@@ -4495,7 +4547,7 @@ sort pas de la machine et ne passe pas par Traefik.
 
 Un seul port derrière Traefik : les agents appellent `/agent/…`, les tâches
 `/ping/…`, les visiteurs `/statut`, l'opérateur le reste, et un jeton d'API les
-25 lectures de sa liste, sur le même port. mcp-maison, lui, écoute à part, sur
+32 lectures de sa liste, sur le même port. mcp-maison, lui, écoute à part, sur
 le port 3000 de l'hôte de `listen` : c'est son propre routeur Traefik qui le
 sert aux clients des agents IA, et openCloud ne le met pas derrière le sien.
 

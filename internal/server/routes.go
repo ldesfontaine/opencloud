@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/verb"
 )
 
@@ -60,7 +61,12 @@ func (s *Server) routes() []route {
 		// motif recoupe DELETE /api/machines/tokens/{id} (tokens/proxmox), et le
 		// multiplexeur de Go refuse deux motifs dont aucun n'est plus précis.
 		{"POST", "/api/machines/{id}/actions/remove-proxmox", s.removeMachineProxmox},
-		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/{verb}", s.actOnProxmoxGuest},
+		// Une route par geste et non un joker : le registre des verbes associe un
+		// verbe à une route, un joker rendrait la liste blanche d'un jeton floue.
+		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/start", s.actOnProxmoxGuest(proxmox.VerbStart)},
+		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown", s.actOnProxmoxGuest(proxmox.VerbShutdown)},
+		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot", s.actOnProxmoxGuest(proxmox.VerbSnapshot)},
+		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete", s.actOnProxmoxGuest(proxmox.VerbSnapshotDelete)},
 		{"GET", "/api/firewalls", s.listFirewalls},
 		{"POST", "/api/firewalls", s.createFirewall},
 		{"GET", "/api/firewalls/{id}", s.getFirewall},
@@ -150,6 +156,7 @@ func (s *Server) routes() []route {
 		{"POST", "/api/alerts/actions/acknowledge", s.acknowledgeAlerts},
 		{"GET", "/api/alerts/{id}", s.getAlert},
 		{"POST", "/api/alerts/{id}/actions/acknowledge", s.acknowledgeAlert},
+		{"GET", "/api/token/verbs", s.listTokenVerbs},
 		{"GET", "/api/settings/api-tokens", s.listAPITokens},
 		{"POST", "/api/settings/api-tokens", s.grantsAuthority(s.createAPIToken)},
 		{"DELETE", "/api/settings/api-tokens/{id}", s.revokeAPIToken},
@@ -204,6 +211,7 @@ var apiTokenRoutes = []string{
 	"GET /api/status/pages", "GET /api/status/pages/{id}", "GET /api/status/components", "GET /api/status/incidents",
 	"GET /api/alerts", "GET /api/alerts/{id}", "GET /api/alerts/channels",
 	"GET /api/audit", "GET /api/actions",
+	"GET /api/token/verbs",
 }
 
 // isAPITokenRoute dit si un jeton d'API ouvre la route.
