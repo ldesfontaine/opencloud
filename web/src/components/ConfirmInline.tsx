@@ -10,9 +10,13 @@ import "./ConfirmInline.scss";
 // en « question [Confirmer] [Annuler] » à sa place, le focus sur « Annuler »,
 // Échap annule. Pour un plan à lire avant de supprimer, la boîte
 // DeletePlanDialog reste.
+// asking : la question est posée d'emblée, quand le geste a été choisi
+// ailleurs (un menu « … ») ; onCancel dit alors à l'appelant de la retirer.
 export function ConfirmInline({
   question,
   onConfirm,
+  onCancel,
+  asking = false,
   variant = "secondary",
   small = false,
   icon,
@@ -21,6 +25,8 @@ export function ConfirmInline({
 }: {
   question: string;
   onConfirm: () => void;
+  onCancel?: () => void;
+  asking?: boolean;
   variant?: ComponentProps<typeof Button>["variant"];
   small?: boolean;
   icon?: IconName;
@@ -28,7 +34,7 @@ export function ConfirmInline({
   children: ReactNode;
 }) {
   const t = useT();
-  const [state, setState] = useState<ConfirmState>("idle");
+  const [state, setState] = useState<ConfirmState>(asking ? "asking" : "idle");
   const root = useRef<HTMLSpanElement>(null);
   const refocus = useRef(false);
 
@@ -44,6 +50,8 @@ export function ConfirmInline({
     const after = nextConfirm(state, event);
     if (shouldConfirm(state, event)) {
       onConfirm();
+    } else if (state === "asking" && after === "idle") {
+      onCancel?.();
     }
     refocus.current = returnsFocus(state, after);
     setState(after);

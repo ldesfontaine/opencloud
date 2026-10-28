@@ -127,12 +127,12 @@ func TestUnavailable_RefusesTheWholeHeaderOnOneBadItem(t *testing.T) {
 }
 
 func TestUnavailableReasons_AreTheClosedListTheAgentJudgesWith(t *testing.T) {
-	if len(UnavailableReasons()) != 8 {
-		t.Fatalf("eight reasons, got %v", UnavailableReasons())
+	if len(UnavailableReasons()) != 11 {
+		t.Fatalf("eleven reasons, got %v", UnavailableReasons())
 	}
 	// Les droits qui écrivent, dans l'ordre des droits ; une liste écrite : un
 	// droit ajouté plus tard (probe.lan, ssh.keys) n'y entre pas tout seul.
-	want := []string{CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite}
+	want := []string{CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite, CapabilityProxmoxPower, CapabilityProxmoxSnapshot}
 	if !slices.Equal(JudgedCapabilities(), want) || slices.Contains(JudgedCapabilities(), CapabilityObserve) {
 		t.Errorf("judged rights %v, want %v", JudgedCapabilities(), want)
 	}

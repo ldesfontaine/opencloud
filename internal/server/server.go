@@ -286,6 +286,9 @@ type SSHKeysService interface {
 type ProxmoxService interface {
 	Declare(ctx context.Context, machineID string, definition proxmox.Definition) error
 	Remove(ctx context.Context, machineID string) error
+	// Act envoie à l'agent de l'hôte le geste sur un invité (démarrer, arrêter,
+	// instantané) et rend l'ordre écrit.
+	Act(ctx context.Context, machineID string, vmid int, verb proxmox.Verb, snapshot string) (action.Run, error)
 }
 
 // Ce que le serveur attend du composant firewall : déclarer, redéclarer et

@@ -63,10 +63,17 @@ type Service struct {
 	// reading ne laisse lire qu'un hôte à la fois, et ne laisse pas un relevé
 	// qui a commencé avec l'ancienne connexion écrire après une redéclaration.
 	reading sync.Mutex
+
+	// Les gestes sur les invités : l'envoi des ordres, la lecture du dernier
+	// relevé, et la vie du serveur que le suivi d'un ordre accompagne.
+	orders     Orders
+	viewer     Viewer
+	lifetime   context.Context
+	background sync.WaitGroup
 }
 
 func New(store Store, machines Machines, logger *slog.Logger) *Service {
-	return &Service{store: store, machines: machines, logger: logger, now: time.Now}
+	return &Service{store: store, machines: machines, logger: logger, now: time.Now, lifetime: context.Background()}
 }
 
 func (s *Service) SetWatcher(watcher Watcher)         { s.watcher = watcher }
@@ -215,6 +222,8 @@ func (s *Service) noteFailure(ctx context.Context, machineID string, cause error
 // Watch relit chaque hôte au démarrage puis toutes les cinq minutes, jusqu'à
 // l'annulation du contexte.
 func (s *Service) Watch(ctx context.Context) {
+	// Les suivis d'un geste sur un invité finissent avant que la base ne se ferme.
+	defer s.background.Wait()
 	s.refreshAll(ctx)
 	ticker := time.NewTicker(watchPeriod)
 	defer ticker.Stop()

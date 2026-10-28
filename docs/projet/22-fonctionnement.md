@@ -156,6 +156,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
 | Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` (au compte de l'agent, `opencloud-agent`, ou root s'il tourne en root ; `0700`, hors du dossier du serveur) | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main (la clé change seule pendant une rotation, par l'ordre `agent.server_key`) : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart. Le dossier est à root et **hors de `/var/lib/opencloud`**, que le compte du serveur possède sur la machine openCloud : ce compte ne peut ni remplacer le fichier ni renommer le dossier. L'agent juge sa chaîne de dossiers au démarrage (« Les droits d'un agent », état mal gardé) |
+| Hôte Proxmox, `/var/lib/opencloud-agent` | `proxmox.json` | Le jeton Proxmox **local** de l'agent : identifiant, **secret** et empreinte du certificat (`token_id`, `secret`, `fingerprint`), posé à la main par l'opérateur, jamais envoyé ni stocké par le serveur | `0600`, au compte de l'agent ; sans lui les droits `proxmox.*` sont indisponibles (« Comment un hôte Proxmox agit »). Le secret est en clair dans ce fichier : le protège le compte, pas un chiffrement |
 | Un hôte Proxmox dont l'agent a `backup.produce`, `/var/lib/opencloud-agent/produce/` | `<préfixe>-AAAAMMJJ-HHMMSS.tar.age.raw`, puis `….tar.age` | Les archives en cours de production : le flux brut de `vzdump` (compressé `zstd`, **en clair**), puis le même emballé dans un `tar` et chiffré pour la clé publique du trousseau ; les deux coexistent avant l'envoi, d'où **deux fois** la plus grosse VM compressée. L'agent refuse de commencer sous 1 Gio libre (`disk_full`) | `0700` et `0600`, au compte de l'agent. Vidé à la fin de **chaque** ordre, réussi ou non, et au démarrage de l'agent (un arrêt en pleine production ne laisse rien). Posé par la préparation du droit, créé par l'agent s'il manque. Le clair de la VM ne quitte jamais cet hôte |
 
 **Ce que le chiffrement couvre.** Six colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
@@ -321,6 +322,8 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
 | `backup.produce` | un à quatre **producteurs** (aujourd'hui `proxmox-vzdump`) | Produire une sauvegarde sur cette machine avec ce producteur : `proxmox-vzdump` lance `vzdump` en root par une règle `sudo` étroite (voir plus bas). **Vaut root** pour un agent compromis. Le droit se pose et se juge ici ; l'ordre qui s'en sert est décrit dans « Comment une sauvegarde se fait » |
 | `files.write` | un à huit chemins | Écrire des fichiers, dans ces dossiers |
+| `proxmox.power` | — | Démarrer et arrêter proprement (ACPI) une VM ou un conteneur de l'hôte Proxmox, par le jeton local de l'agent (« Comment un hôte Proxmox agit »). Ne se propose que sur une machine où le rôle `proxmox_ve` est détecté |
+| `proxmox.snapshot` | — | Créer un instantané d'une VM de l'hôte et supprimer **ceux que l'agent a créés** (`oc-AAAAMMJJ-HHMMSS`), jamais ceux de l'opérateur. Même condition et même jeton |
 
 - **Forme texte**, la même dans la ligne d'installation, le fichier de
   l'agent, l'en-tête et la base : droits séparés par `,`, un droit borné
@@ -389,6 +392,9 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   | `sudo_missing` | pas de `sudo` sur le `PATH` de l'agent | `backup.produce` |
   | `producer_missing` | le script de root `/usr/local/sbin/opencloud-vzdump` ou `/usr/bin/vzdump` manque ou ne s'exécute pas | `backup.produce` |
   | `sudo_denied` | `sudo -n -l /usr/local/sbin/opencloud-vzdump` échoue : la règle manque, ou l'unité interdit `sudo` (`NoNewPrivileges=true`) | `backup.produce` |
+  | `proxmox_token_missing` | le fichier du jeton local manque, est illisible, mal formé ou porte un champ inconnu | `proxmox.power`, `proxmox.snapshot` |
+  | `proxmox_token_unsafe` | le fichier est lisible du groupe ou des autres, ou n'est pas au compte de l'agent | idem |
+  | `proxmox_pin_missing` | pas d'empreinte SHA-256 valide dans le fichier | idem |
 
   `agent.update` demande en plus que le compte écrive dans `<état>/bin/` : sinon
   `path_denied` avant de télécharger quoi que ce soit. `access(2)` juge l'uid
@@ -524,8 +530,9 @@ sur la fiche d'une machine, l'hôte Proxmox qu'elle porte ; openCloud interroge
 l'API de l'hyperviseur et montre ses VM et conteneurs, ses stockages et la
 dernière sauvegarde de chaque VM (onglet « Hyperviseur » de la machine), et, sur
 la fiche d'une machine qui est une de ces VM, l'encadré « Sur l'hôte Proxmox »
-(« VM 5012, 2 vCPU, 2 Gio, dernière sauvegarde le … (233 Mio) »). **Aucun ordre
-n'est donné à Proxmox** : ni démarrage, ni arrêt, ni sauvegarde lancée, ni
+(« VM 5012, 2 vCPU, 2 Gio, dernière sauvegarde le … (233 Mio) »). **Le
+serveur ne donne aucun ordre à Proxmox** (ses gestes passent par l'agent de
+l'hôte, « Comment un hôte Proxmox agit ») : ni démarrage, ni arrêt, ni sauvegarde lancée, ni
 fichier écrit. **Aucune alerte** ne naît d'un relevé : une VM arrêtée, un
 stockage plein ou une sauvegarde ancienne se lisent, rien ne sonne. Le droit
 d'agir ou d'alerter viendra, s'il vient, d'une décision à part.
@@ -670,11 +677,122 @@ Proxmox (il ne se relit plus) et dit combien : les hôtes restent déclarés, le
 dernier relevé reste affiché, le relevé suivant échoue en `proxmox.unauthorized`
 jusqu'à ce que l'opérateur ressaisisse le jeton.
 
-**Ce qui n'est pas fait.** Aucun ordre à Proxmox ; aucune alerte sur ses VM ou ses
+**Ce qui n'est pas fait.** Aucun ordre à Proxmox **depuis le serveur** (les gestes passent par l'agent de l'hôte, section suivante) ; aucune alerte sur ses VM ou ses
 stockages ; pas de consommation (CPU, mémoire, disque réellement utilisés) ; pas
 d'historique des relevés ; pas de découverte d'une grappe par ses nœuds (un hôte
 est déclaré par l'adresse d'un seul nœud, l'API de la grappe est la même) ; pas
 de Proxmox Backup Server.
+
+## Comment un hôte Proxmox agit
+
+Premiers gestes d'écriture sur Proxmox, tous **réversibles**, faits **par l'agent
+de l'hôte** et non par le serveur (décision 18, `23-direction.md`) : démarrer,
+arrêter proprement, prendre un instantané, supprimer un instantané qu'il a pris.
+Le jeton d'API Proxmox du serveur reste en lecture seule (`PVEAuditor`) : le
+serveur n'a **jamais** de jeton d'écriture.
+
+| Ordre | Droit | Ce que l'agent fait |
+| --- | --- | --- |
+| `proxmox.vm.start` | `proxmox.power` | `POST …/status/start` sur une VM arrêtée |
+| `proxmox.vm.shutdown` | `proxmox.power` | `POST …/status/shutdown` sur une VM en marche : arrêt ACPI, **sans** `forceStop` ni délai donné |
+| `proxmox.vm.snapshot` | `proxmox.snapshot` | `POST …/snapshot` avec le seul `snapname` `oc-AAAAMMJJ-HHMMSS` (UTC) tiré par l'agent : sans état de mémoire, sans description |
+| `proxmox.vm.snapshot_delete` | `proxmox.snapshot` | `DELETE …/snapshot/<nom>`, seulement si le nom est exactement de la forme ci-dessus et qu'il existe sur l'invité |
+
+Paramètres (`agentwire.ProxmoxGuestParams`) : `vmid` (100 à 999999999), `type`
+(`qemu` ou `lxc`), et `snapshot` pour la suppression seule. Lecture stricte : un
+champ inconnu, un numéro faux ou un nom d'instantané sur un autre ordre est
+`bad_order`. **Il n'existe aucun ordre** pour un arrêt forcé, un redémarrage, un
+retour en arrière ni la suppression d'une VM, et un test garde la liste des
+appels que l'agent fait à Proxmox (quatre gestes, jamais `stop`, `reset`,
+`rollback`, `vmstate`).
+
+**Le jeton local.** Un jeton d'API Proxmox que l'opérateur crée **sur l'hôte**,
+au rôle `OpenCloudAgent` (`VM.PowerMgmt`, `VM.Snapshot`, plus `VM.Audit`, que
+Proxmox exige pour lire l'état d'une VM). La page du jeton de l'agent donne les
+commandes (`pveum role add`, `user add`, `acl modify`, `user token add`, puis
+la pose du fichier) quand un droit `proxmox.*` est coché. Le secret :
+
+| Où | Règle |
+| --- | --- |
+| Fichier | `proxmox.json` dans l'état de l'agent, `0600`, au compte de l'agent : `{"token_id","secret","fingerprint"}`. Un champ inconnu, un fichier de plus de 4 Kio, lisible d'un autre compte ou qui est un lien sortant de l'état est refusé (`os.Root`) |
+| Pose | saisi sans écho (`read -rs`) et écrit par `printf`, un builtin : jamais en argument de commande, jamais dans l'historique |
+| Serveur | ne le voit jamais : ni dans un ordre, ni en base, ni dans l'API, le journal ou l'audit |
+| Agent | l'envoie dans l'en-tête `Authorization` seulement ; ni journal, ni résultat d'ordre, ni message d'erreur ne le portent (un test relit tout) |
+
+**Le certificat.** Celui de Proxmox est auto-signé : l'agent parle à
+`https://127.0.0.1:8006` et le juge **par l'empreinte SHA-256 du fichier, seule**
+(la même vérification que le relevé du serveur, `proxmox.PinnedTLSConfig`). Sans
+empreinte valide l'agent ne se connecte pas : il n'y a **aucun
+`InsecureSkipVerify` sans empreinte**. Une empreinte fausse arrête la connexion
+avant que le jeton ne parte. Aucune redirection n'est suivie, aucun mandataire
+d'environnement.
+
+**Ce que l'agent vérifie, dans l'ordre**, avec ses propres appels à l'API (le
+relevé du serveur peut dater de cinq minutes) : le droit du genre ; les
+paramètres ; le fichier du jeton (`proxmox_token_missing`, `_unsafe`,
+`proxmox_pin_missing`, refus avant tout appel) ; puis, une fois l'ordre accepté,
+l'invité existe et est de la sorte demandée (`proxmox_guest_missing`) ; ce n'est
+pas un modèle (`proxmox_template`) ; son état convient, démarrer demande
+`stopped`, arrêter `running` (`proxmox_state_mismatch`) ; pour la suppression,
+l'instantané est de ce produit (`proxmox_snapshot_not_ours`) et présent
+(`proxmox_snapshot_missing`). Chaque refus laisse Proxmox intact (état
+« refusé »). Puis la **tâche** : l'agent suit l'UPID jusqu'à son code de sortie
+(`OK` ou `WARNINGS…` : fait ; autre : `proxmox_task_failed` avec le code), borné
+à dix minutes (`proxmox_task_timeout` : la tâche peut courir encore, l'agent ne
+sait pas l'annuler et ne force rien). Le résultat dit l'issue réelle, pas
+« accepté ». Sortie : `task <UPID>` puis `started|shutdown qemu/105`, ou
+`snapshot qemu/105 oc-…`, `snapshot_deleted qemu/105 oc-…`. Un transport en échec
+est `proxmox_unreachable`, `proxmox_certificate` ou `proxmox_unauthorized` (401,
+403), tout autre statut `proxmox_bad_response`.
+
+**Ce que le serveur fait.** `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/{start|shutdown|snapshot|snapshot-delete}`
+(`{id}` : la machine qui porte l'hôte ; corps `{}`, ou `{"snapshot":"oc-…"}` pour
+la suppression), réservée à l'opérateur : `403` à un jeton d'API. Il refuse
+**avant d'envoyer**, sans rien écrire :
+
+| Refus | Cause |
+| --- | --- |
+| `404` | hôte non déclaré, geste inconnu (`stop`, `reboot`…), numéro illisible |
+| `409 machine.no_agent`, `action.machine_offline`, `action.right_missing` | comme tout ordre : pas d'agent actif, hors ligne, droit rapporté absent |
+| `409 proxmox.guest_unknown` | l'invité n'est pas dans le dernier relevé |
+| `409 proxmox.guest_template` | un modèle |
+| `409 proxmox.state_mismatch` | démarrer une VM qui n'est pas arrêtée, arrêter celle qui n'est pas en marche |
+| `409 proxmox.self_target` | **arrêter** l'invité rapproché de la machine `local`, celle qui porte ce serveur |
+| `422 proxmox.snapshot_invalid` | un nom d'instantané qui n'est pas `oc-AAAAMMJJ-HHMMSS` |
+| `422 proxmox.guest_invalid` | numéro hors de la plage de Proxmox |
+
+Sinon le run est écrit dans `action_runs` et l'événement `action.order` au
+journal d'audit **avant l'envoi** (« Comment un ordre part et revient »), puis
+`machine.proxmox_guest` (geste, numéro, sorte, run ; acteur : l'opérateur) ;
+la réponse est le run (`201`). Quand le run réussit, le serveur relit l'hôte
+(le suivi vit avec `serve`). L'interface suit le run par le direct. Le serveur
+ne sait **pas** qu'une VM est la sienne si le nom d'hôte de l'invité n'est pas
+celui de la machine `local` (rapprochement, « Comment un hôte Proxmox se
+lit ») : `proxmox.self_target` ne couvre que ce cas.
+
+**Les instantanés à supprimer.** Le relevé ne liste pas les instantanés (le jeton
+du serveur ne fait que lire l'hôte). Chaque invité de `GET
+/api/machines/{id}/proxmox` porte `own_snapshots` : les noms créés par un ordre
+réussi, moins ceux qu'un ordre réussi a supprimés, lus dans les 500 derniers
+ordres de snapshot de l'hôte. Un instantané supprimé dans Proxmox reste proposé
+jusqu'à ce que l'agent le refuse (`proxmox_snapshot_missing`), un instantané pris
+hors de ce produit n'est jamais proposé.
+
+**Ce que ça coûte.** Le rôle limite le jeton aux privilèges `VM.PowerMgmt` et
+`VM.Snapshot`, **pas aux gestes** : Proxmox n'a pas de privilège « arrêter
+proprement seulement ». Un jeton volé, ou un agent compromis (le fichier est à
+son compte), peut **couper de force ou redémarrer** les VM de l'hôte et
+**supprimer n'importe quel instantané**, ceux de l'opérateur compris. C'est
+l'agent qui s'en abstient, pas Proxmox. La limite tient à la lisibilité du
+fichier (`0600`) et à l'agent qui n'obéit qu'à des ordres signés. `VM.Audit` est
+ajouté au rôle pour lire l'état d'une VM : lecture seule. Le droit ne se
+propose que si le rôle `proxmox_ve` est détecté (une machine neuve l'obtient
+par « Changer les droits » une fois enrôlée), et le serveur ne l'impose pas.
+
+**Ce qui n'est pas fait.** Pas de retour en arrière, de redémarrage, d'arrêt
+forcé, de suppression d'invité ni d'instantané qui garde la mémoire ; pas
+d'ouverture de ces ordres aux jetons d'API (chantier à part) ; commandes
+`pveum` non éprouvées sur un vrai Proxmox.
 
 ## Comment un pare-feu se lit
 
@@ -4509,3 +4627,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Mise à jour des agents (#153, 07) | Le paquet `internal/release` étendu (`Library` : `Import`, `Artifact`, `releasetest`), la sous-commande `opencloud release import`, l'ordre `agent.update` (`agentwire.AgentUpdateParams` et six refus : `not_self_updatable`, `release_key_missing`, `signature_invalid`, `version_mismatch`, `downgrade`, `self_check_failed`), `action.Service` (`SetReleases`, `OfferUpdate`, `UpdateAgent`, `ConfirmAgentUpdate`), `store.CompleteAgentUpdates`, la confirmation à l'ouverture du flux (`agentapi`), l'exécuteur de l'agent (`internal/agent/update.go`, `ErrUpdated`, sortie de code 3), `Options.ReleaseKey`, les routes `GET /api/machines/{id}/agent-update` et `POST …/actions/update-agent`, le bouton « Mettre à jour l'agent » de la fiche, les clés `machine.agent_update*` et `action.reason_*`, le golden `agent_update_offer.golden.json`. Pas de migration |
 | Sortie du MCP (#224, #225) | La migration `008_api_tokens.sql` (`api_tokens` reconstruite à partir de `mcp_tokens`, `mcp_clients` et `mcp_codes` supprimées), les paquets `internal/apitoken` et `internal/mcpcheck`, `store/api_tokens.go`, la clé `mcp_url` de `config.toml`, `GET /api/settings/mcp`, `/api/settings/api-tokens`, l'admission d'un Bearer sur 25 routes en lecture (`admitAPIToken`), le masquage des secrets pour un jeton, l'acteur d'audit `api` et `details.on_behalf_of`, la carte « Agent IA » et la section « Jetons d'API » de Paramètres, `docs/installation/compose.mcp-maison.yml`. Retirés : `internal/mcp`, `/mcp`, `/oauth/…`, `opencloud mcp`, les 21 outils (les outils MCP cités dans les lignes plus haut sont de l'histoire), `go-sdk` |
 | Déploiement Docker Compose (06) | La migration `007_deploy.sql` (`service_units.data_path`, `action_runs.service_id` en `set null`), le paquet `internal/deploy` (le `compose.yml` généré, le plan, `Deploy`/`Redeploy`), les ordres `docker.deploy` et `docker.update` et leurs sept raisons (`agentwire`, `internal/agent/docker.go`), `action.SendForService`, `-root-dir` et l'en-tête `OpenCloud-Agent-Root` (`agents.root_dir`), `data_path` dans l'annuaire, le fichier d'`apply` et l'export, les trois routes `deploy-plan`, `actions/deploy` et `actions/redeploy`, `service_id` dans les ordres, la carte Déploiement et le champ « Dossier de données » du formulaire |
+| Gestes sur Proxmox (#266) | Les droits `proxmox.power` et `proxmox.snapshot`, quatre ordres `proxmox.vm.*`, le jeton local de l'agent, la route `POST …/proxmox/guests/{vmid}/actions/{geste}`, l'événement d'audit `machine.proxmox_guest` (« Comment un hôte Proxmox agit ») |

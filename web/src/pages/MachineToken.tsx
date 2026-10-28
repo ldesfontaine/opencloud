@@ -52,6 +52,7 @@ export function MachineToken() {
             <span className="field-label">{t("machine.command_label")}</span>
             <TokenBox value={token.command} />
           </div>
+          {token.proxmox_commands !== "" && <ProxmoxToken commands={token.proxmox_commands} />}
           {writePaths.length > 0 && (
             <Note tone="warn">
               <p>{t("machine.unit_read_write", writePaths.join(", "))}</p>
@@ -68,5 +69,19 @@ export function MachineToken() {
         </CardBody>
       </Card>
     </FormPage>
+  );
+}
+
+// Les droits proxmox.* passent par un jeton Proxmox local que l'opérateur crée
+// lui-même sur l'hôte : le secret ne quitte jamais l'hôte.
+function ProxmoxToken({ commands }: { commands: string }) {
+  const t = useT();
+  return (
+    <div className="field">
+      <span className="field-label">{t("machine.proxmox_token_title")}</span>
+      <span className="field-help">{t("machine.proxmox_token_help")}</span>
+      <TokenBox value={commands} lines />
+      <Note tone="warn">{t("machine.capability_proxmox_warning")}</Note>
+    </div>
   );
 }

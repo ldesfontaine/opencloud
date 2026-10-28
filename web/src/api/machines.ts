@@ -96,6 +96,9 @@ export interface TokenResponse {
   command: string;
   // Les commandes à jouer une fois, en root, avant `command`.
   preparation: string;
+  // Les commandes à jouer en root sur l'hôte Proxmox, une par ligne, pour créer
+  // le jeton local des droits proxmox.* ; vide sans l'un de ces droits.
+  proxmox_commands: string;
   expires_at: string;
   url_local: boolean;
 }

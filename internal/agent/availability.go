@@ -52,6 +52,9 @@ type hostChecks struct {
 	// demander de mot de passe : la règle de sudo laisse le compte lancer ce
 	// programme. Une erreur : elle ne le laisse pas.
 	sudoList func(ctx context.Context, program string) error
+	// proxmoxToken : le jeton local de Proxmox est posé, lisible du seul compte
+	// de l'agent, avec l'empreinte du certificat.
+	proxmoxToken func() string
 }
 
 // newHostChecks branche les vérifications sur la vraie machine.
@@ -62,6 +65,8 @@ func newHostChecks(socket string, updater *selfUpdater) hostChecks {
 		agentUpdate: func() string { return updater.unavailableReason(writableOrCreatable) },
 		lookPath:    exec.LookPath,
 		sudoList:    sudoListsProgram,
+		// Branché par newOrderRunner : il lit l'état de l'agent.
+		proxmoxToken: func() string { return "" },
 	}
 }
 
@@ -69,11 +74,12 @@ func newHostChecks(socket string, updater *selfUpdater) hostChecks {
 // à juger.
 func allowAll() hostChecks {
 	return hostChecks{
-		docker:      func(context.Context) string { return "" },
-		writable:    func(string) string { return "" },
-		agentUpdate: func() string { return "" },
-		lookPath:    func(name string) (string, error) { return name, nil },
-		sudoList:    func(context.Context, string) error { return nil },
+		docker:       func(context.Context) string { return "" },
+		writable:     func(string) string { return "" },
+		agentUpdate:  func() string { return "" },
+		lookPath:     func(name string) (string, error) { return name, nil },
+		sudoList:     func(context.Context, string) error { return nil },
+		proxmoxToken: func() string { return "" },
 	}
 }
 
@@ -202,6 +208,8 @@ func judgeRights(ctx context.Context, identity Identity, checks hostChecks) map[
 			note(capability.Name, firstPathReason(checks, capability.Paths))
 		case machine.CapabilityBackupProduce:
 			note(capability.Name, firstProducerReason(ctx, checks, capability.Paths))
+		case machine.CapabilityProxmoxPower, machine.CapabilityProxmoxSnapshot:
+			note(capability.Name, checks.proxmoxToken())
 		}
 	}
 	return unavailable

@@ -60,6 +60,7 @@ func (s *Server) routes() []route {
 		// motif recoupe DELETE /api/machines/tokens/{id} (tokens/proxmox), et le
 		// multiplexeur de Go refuse deux motifs dont aucun n'est plus précis.
 		{"POST", "/api/machines/{id}/actions/remove-proxmox", s.removeMachineProxmox},
+		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/{verb}", s.actOnProxmoxGuest},
 		{"GET", "/api/firewalls", s.listFirewalls},
 		{"POST", "/api/firewalls", s.createFirewall},
 		{"GET", "/api/firewalls/{id}", s.getFirewall},

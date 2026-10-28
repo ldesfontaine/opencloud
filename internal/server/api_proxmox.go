@@ -3,12 +3,20 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
+
+// ownSnapshotRunsLimit borne la lecture des ordres d'où l'on tire les
+// instantanés de ce produit : les plus récents suffisent, un instantané plus
+// ancien se supprime à la main dans Proxmox.
+const ownSnapshotRunsLimit = 500
 
 // L'hôte Proxmox d'une machine, tel que la fiche le lit : ce que l'API de
 // l'hyperviseur a dit au dernier relevé réussi. Le secret du jeton ne sort
@@ -43,6 +51,9 @@ type proxmoxGuestJSON struct {
 	LinkedMachineID *string    `json:"linked_machine_id"`
 	LastBackupAt    *time.Time `json:"last_backup_at"`
 	LastBackupBytes int64      `json:"last_backup_bytes"`
+	// Les instantanés de ce produit que ses ordres ont créés et que nul n'a
+	// supprimés depuis : ce que le menu de l'invité propose de supprimer.
+	OwnSnapshots []string `json:"own_snapshots"`
 }
 
 type proxmoxStorageJSON struct {
@@ -88,21 +99,24 @@ type proxmoxRequest struct {
 	Pin string `json:"pin"`
 }
 
-func proxmoxViewToJSON(view proxmox.View) proxmoxHostJSON {
+func proxmoxViewToJSON(view proxmox.View, runs []action.Run) proxmoxHostJSON {
 	host := view.Host
 	return proxmoxHostJSON{
 		APIURL: host.APIURL, TokenID: host.TokenID, Pin: host.Pin, Node: host.Node, Version: host.Version,
 		VerifiedAt: host.VerifiedAt.UTC(), LastReadAt: httpx.TimeOrNil(host.LastReadAt), LastError: host.LastError,
-		Guests:   httpx.ConvertAll(view.Guests, proxmoxGuestToJSON),
+		Guests: httpx.ConvertAll(view.Guests, func(guest proxmox.Guest) proxmoxGuestJSON {
+			return proxmoxGuestToJSON(guest, proxmox.OwnSnapshots(runs, guest.VMID))
+		}),
 		Storages: httpx.ConvertAll(view.Storages, proxmoxStorageToJSON),
 	}
 }
 
-func proxmoxGuestToJSON(guest proxmox.Guest) proxmoxGuestJSON {
+func proxmoxGuestToJSON(guest proxmox.Guest, ownSnapshots []string) proxmoxGuestJSON {
 	converted := proxmoxGuestJSON{
 		VMID: guest.VMID, Kind: guest.Kind, Name: guest.Name, Status: guest.Status, Template: guest.Template, Node: guest.Node,
 		CPUs: guest.CPUs, MaxMemory: guest.MaxMem, MaxDisk: guest.MaxDisk,
 		LastBackupAt: httpx.TimeOrNil(guest.LastBackupAt), LastBackupBytes: guest.LastBackupBytes,
+		OwnSnapshots: orEmpty(ownSnapshots),
 	}
 	if guest.LinkedMachineID != "" {
 		converted.LinkedMachineID = &guest.LinkedMachineID
@@ -140,11 +154,24 @@ func (s *Server) proxmoxFailed(w http.ResponseWriter, r *http.Request, err error
 }
 
 func (s *Server) getMachineProxmox(w http.ResponseWriter, r *http.Request) {
-	view, err := s.reader.GetProxmoxView(r.Context(), r.PathValue("id"))
+	s.writeProxmoxView(w, r, http.StatusOK, r.PathValue("id"))
+}
+
+// writeProxmoxView répond la fiche de l'hôte : le dernier relevé, et les
+// instantanés que les ordres de ce produit y ont laissés.
+func (s *Server) writeProxmoxView(w http.ResponseWriter, r *http.Request, status int, machineID string) {
+	view, err := s.reader.GetProxmoxView(r.Context(), machineID)
 	if s.proxmoxFailed(w, r, err) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, proxmoxViewToJSON(view))
+	runs, err := s.reader.ListActionRuns(r.Context(), action.Query{
+		MachineID: machineID, Kinds: []agentwire.Kind{agentwire.KindProxmoxSnapshot, agentwire.KindProxmoxSnapshotDelete},
+		Limit: ownSnapshotRunsLimit,
+	})
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, status, proxmoxViewToJSON(view, runs))
 }
 
 // Déclarer ou redéclarer l'hôte : le jeton répond à l'API avant que rien ne
@@ -162,11 +189,35 @@ func (s *Server) setMachineProxmox(w http.ResponseWriter, r *http.Request) {
 	if s.proxmoxFailed(w, r, err) {
 		return
 	}
-	view, err := s.reader.GetProxmoxView(r.Context(), id)
+	s.writeProxmoxView(w, r, http.StatusOK, id)
+}
+
+// Une demande de geste sur un invité : le seul paramètre est le nom de
+// l'instantané à supprimer. Le nom d'un instantané créé n'est jamais saisi.
+type proxmoxGuestActionRequest struct {
+	Snapshot string `json:"snapshot"`
+}
+
+// actOnProxmoxGuest envoie le geste à l'agent de l'hôte : le serveur juge
+// d'abord (invité connu, pas un modèle, état cohérent, jamais l'arrêt de la
+// machine qui l'héberge), écrit le run et l'audit, puis l'ordre part. La
+// réponse est le run ; l'issue réelle vient de l'agent, par le signal.
+func (s *Server) actOnProxmoxGuest(w http.ResponseWriter, r *http.Request) {
+	verb, isVerb := proxmox.ParseVerb(r.PathValue("verb"))
+	vmid, err := strconv.Atoi(r.PathValue("vmid"))
+	if !isVerb || err != nil {
+		s.apiNotFound(w)
+		return
+	}
+	var request proxmoxGuestActionRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	run, err := s.proxmox.Act(r.Context(), r.PathValue("id"), vmid, verb, request.Snapshot)
 	if s.proxmoxFailed(w, r, err) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, proxmoxViewToJSON(view))
+	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 }
 
 func (s *Server) removeMachineProxmox(w http.ResponseWriter, r *http.Request) {

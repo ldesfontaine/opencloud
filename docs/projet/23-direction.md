@@ -325,6 +325,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 | 7 | à ouvrir | déployer un compose dans `/srv/workspace/<service>/`. **Fait** (première version, 21/10) : déployer et redéployer un service Compose déclaré ; pas de retrait, pas de modules | oui |
 | 8 | #152 | clés SSH distribuées. **Étape 1 faite** (22/10) : relevé en lecture seule des `authorized_keys` de chaque compte, affiché par machine et en matrice ; l'écriture (`ssh.keys`) reste à décider | non pour l'étape 1, oui ensuite |
 | 9 | à ouvrir | modules et dépendances ; catalogue | — |
+| 10 | #266 | **gestes sur Proxmox**. **Fait** (28/10) : démarrer, arrêter proprement, prendre et supprimer ses instantanés `oc-`, par l'agent de l'hôte et son jeton local (droits `proxmox.power`, `proxmox.snapshot`, décision 18) | oui, sur l'hôte Proxmox |
 | 10 | à ouvrir | **jetons d'API en écriture** (décision 19). **Fait** (28/10) : registre de verbes (`internal/verb`), jeton `write` avec sa liste de verbes (migration `016`), admission par verbe, débit par jeton, audit `api_token.deny`, contrat de réponse (`run_id`, `state`, `reverse_with`) ; départ : `agent.ping`, `probe.pause`/`resume`, `job.pause`/`resume`. À suivre : les verbes Proxmox (décision 18), puis OPNsense en écriture (décision 20, phase 2c) | oui : les gestes cochés, par jeton |
 
 Rien ne passe à l'étape 5 tant que 2 et 3 ne sont pas fermées. Les contrôles

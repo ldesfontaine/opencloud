@@ -116,9 +116,13 @@ type tokenResponse struct {
 	Command string `json:"command"`
 	// Les commandes à jouer une fois en root avant Command : le compte de
 	// l'agent, son dossier, son binaire, les dossiers où ses droits écrivent.
-	Preparation string    `json:"preparation"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	URLLocal    bool      `json:"url_local"`
+	Preparation string `json:"preparation"`
+	// Les commandes à jouer en root sur l'hôte Proxmox pour créer le jeton local
+	// des droits proxmox.* ; vide sans l'un de ces droits. Aucune ne porte de
+	// secret : il se saisit sur l'hôte, sans écho.
+	ProxmoxCommands string    `json:"proxmox_commands"`
+	ExpiresAt       time.Time `json:"expires_at"`
+	URLLocal        bool      `json:"url_local"`
 }
 
 func machineToJSON(machineStatus machine.Status) machineJSON {
@@ -283,12 +287,13 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, tokenResponse{
-		Name:        token.Name,
-		Token:       cleartext,
-		Command:     installCommand(url, cleartext, language, token.Capabilities),
-		Preparation: installPreparation(token.Capabilities, version.Number(), local),
-		ExpiresAt:   token.ExpiresAt.UTC(),
-		URLLocal:    isLocal,
+		Name:            token.Name,
+		Token:           cleartext,
+		Command:         installCommand(url, cleartext, language, token.Capabilities),
+		Preparation:     installPreparation(token.Capabilities, version.Number(), local),
+		ProxmoxCommands: proxmoxCommands(token.Capabilities),
+		ExpiresAt:       token.ExpiresAt.UTC(),
+		URLLocal:        isLocal,
 	})
 }
 
@@ -401,6 +406,15 @@ func sudoersPreparation() string {
 	return printfLines(machine.SudoersRuleLines()) + " | install -m 0440 -o root -g root /dev/stdin " + temp +
 		" && visudo -cf " + temp + " && mv " + temp + " " + machine.SudoersFile +
 		" || { rm -f " + temp + "; false; }"
+}
+
+// proxmoxCommands : ce que l'opérateur joue lui-même sur l'hôte Proxmox pour les
+// droits proxmox.* (machine.ProxmoxTokenCommands), une commande par ligne.
+func proxmoxCommands(capabilities []machine.Capability) string {
+	if !machine.ProxmoxRights(capabilities) {
+		return ""
+	}
+	return strings.Join(machine.ProxmoxTokenCommands(), "\n")
 }
 
 // printfLines écrit des lignes de texte en une commande : printf, un builtin,

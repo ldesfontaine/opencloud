@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { backupProducer, capabilitiesOf, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
+import { backupProducer, capabilitiesOf, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -116,4 +116,17 @@ test("unavailableRights : seuls les droits que le compte ne peut pas exercer, av
     "machine.capability_unavailable_item:machine.right_with_paths:machine.capability_backup_receive:/srv/backups:machine.capability_unavailable_path_denied:svc",
   ]);
   expect(unavailableRights(t, { run_as: null, capabilities: [{ name: "observe", paths: [], unavailable: "" }] })).toEqual([]);
+});
+
+test("les droits Proxmox se rangent en fin de liste, sans chemin, et ne se proposent qu'à un hôte Proxmox reconnu", () => {
+  expect(capabilityNames.slice(-3)).toEqual(["files.write", "proxmox.power", "proxmox.snapshot"]);
+  expect(capabilitiesOf({ rights: ["proxmox.snapshot", "proxmox.power"], backupPath: "", writePaths: "" })).toEqual([
+    { name: "proxmox.power", paths: [] },
+    { name: "proxmox.snapshot", paths: [] },
+  ]);
+  expect(offeredCapabilities(false, [])).not.toContain("proxmox.power");
+  expect(offeredCapabilities(true, [])).toEqual([...capabilityNames]);
+  // Déjà coché, il reste visible pour être décoché, même si le rôle a disparu.
+  expect(offeredCapabilities(false, ["proxmox.snapshot"])).toEqual([...capabilityNames.filter((name) => name !== "proxmox.power")]);
+  expect(capabilityLabelKey("proxmox.power")).toBe("machine.capability_proxmox_power");
 });

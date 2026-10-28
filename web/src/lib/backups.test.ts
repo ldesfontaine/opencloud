@@ -214,6 +214,7 @@ describe("the choice of virtual machines", () => {
     linked_machine_id: null,
     last_backup_at: null,
     last_backup_bytes: 0,
+    own_snapshots: [],
   });
 
   it("offers the guests by number, templates left out", () => {

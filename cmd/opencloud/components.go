@@ -148,6 +148,11 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// boucle de relevé est à serve seul.
 	hypervisors := proxmox.New(db, machines, logger)
 	hypervisors.SetAuditor(journal)
+	// Démarrer, arrêter proprement, prendre un instantané : des ordres à l'agent
+	// de l'hôte, qui a son propre jeton local. Le serveur n'écrit jamais dans
+	// Proxmox.
+	hypervisors.SetOrders(actions)
+	hypervisors.SetViewer(db)
 	// Les pare-feu que l'opérateur déclare, lus en lecture seule ; la boucle de
 	// relevé est à serve seul. Un autre constructeur ajoute ici son connecteur.
 	firewalls := firewall.New(db, logger)

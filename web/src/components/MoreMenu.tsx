@@ -6,8 +6,10 @@ import { nextItemIndex, placeMenu, returnsFocus, type MenuClose } from "../lib/m
 import { Button } from "./Button";
 import "./MoreMenu.scss";
 
-// Un choix du menu : une action sur place, ou un lien vers un écran.
-export type MenuAction = { label: string; danger?: boolean } & ({ onSelect: () => void } | { to: string });
+// Un choix du menu : une action sur place, ou un lien vers un écran. Une
+// action impossible reste au menu, grisée, avec sa raison en dessous (hint) :
+// elle ne se cache jamais.
+export type MenuAction = { label: string; danger?: boolean; disabled?: boolean; hint?: string } & ({ onSelect: () => void } | { to: string });
 
 // Le menu « … » d'un objet : ses actions secondaires, hors de la ligne ou de
 // la carte. Le menu se pose en position fixe, contre le bouton : il sort du
@@ -92,6 +94,9 @@ export function MoreMenu({ actions, label }: { actions: MenuAction[]; label?: st
   };
 
   const choose = (action: MenuAction) => {
+    if (action.disabled) {
+      return;
+    }
     close("select");
     if ("onSelect" in action) {
       action.onSelect();
@@ -113,17 +118,34 @@ export function MoreMenu({ actions, label }: { actions: MenuAction[]; label?: st
       {open && (
         <div className="more-list" role="menu" id={listId} aria-label={label ?? t("action.more")} ref={list} onKeyDown={onKeyDown}>
           {actions.map((action) => {
-            const className = action.danger ? "more-item danger" : "more-item";
+            const className = ["more-item", action.danger && "danger", action.hint !== undefined && "has-hint"].filter(Boolean).join(" ");
+            const content =
+              action.hint === undefined ? (
+                action.label
+              ) : (
+                <>
+                  <span>{action.label}</span>
+                  <span className="more-hint">{action.hint}</span>
+                </>
+              );
             if ("to" in action) {
               return (
                 <Link key={action.label} className={className} role="menuitem" tabIndex={-1} to={action.to} onClick={() => choose(action)}>
-                  {action.label}
+                  {content}
                 </Link>
               );
             }
             return (
-              <button key={action.label} className={className} type="button" role="menuitem" tabIndex={-1} onClick={() => choose(action)}>
-                {action.label}
+              <button
+                key={action.label}
+                className={className}
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                aria-disabled={action.disabled ? true : undefined}
+                onClick={() => choose(action)}
+              >
+                {content}
               </button>
             );
           })}
