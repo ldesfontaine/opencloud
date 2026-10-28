@@ -131,7 +131,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes par heure et par jour dans `machine_rollups` (une ligne par machine, granularité `hour` ou `day` et seau) | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services`, et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le journal des fichiers appliqués : la table `applies` (`id` en `apl_` et seize hexadécimaux, `at`, `finished_at`, `actor_kind` `cli` ou `operator`, `actor_name`, `file_hash`, `file_name`, `prune`, `plan_hash`, `state` `confirmed`, `applied` ou `failed`, les quatre compteurs, `done`, `error` et `error_object`, et `plan`, le JSON des changements dans l'ordre d'écriture). **Ni le fichier ni aucun secret** : le plan ne porte que des valeurs de l'annuaire, la cible d'une sonde y est masquée (`user:…@hôte`) et un jeton n'y est jamais ; une tâche créée y est notée `token_generated` sans le jeton. Pas de clé étrangère vers les objets touchés : le journal leur survit | Pas de purge : le journal est petit (une ligne par fichier appliqué) et c'est lui qui répond à « qui a changé ça ». Une ligne restée `confirmed` au démarrage est celle d'un arrêt brutal : `serve` la passe en `failed` (`manifest.interrupted`) |
-| Machine openCloud, `state_dir` | `opencloud.db` | Le journal d'audit : la table `audit_events`, une ligne par geste réussi qui écrit un objet déclaré ou une autorité : `at`, `actor_kind` et `actor_name`, `action`, `object_kind`, `object_id`, `object_name` recopié, `details` (JSON plat de textes) et `apply_id` quand un apply l'a écrit. **Aucun secret** : ni mot de passe, ni jeton, ni secret, ni URL de webhook (« Le journal d'audit ») | Ajout seul : un déclencheur refuse toute modification d'une ligne, hors la mise à nul du lien `apply_id` (`ON DELETE SET NULL`). Pas de clé étrangère vers l'objet : la ligne lui survit. Purgé après **un an** (`audit.Retention`), avec les alertes, au démarrage puis une fois par jour |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le journal d'audit : la table `audit_events`, une ligne par geste réussi qui écrit un objet déclaré ou une autorité : `at`, `actor_kind`, `actor_name` et `actor_label` (le nom que portait l'acteur à l'instant du geste, nullable : migration `017_audit_actor_label.sql`), `action`, `object_kind`, `object_id`, `object_name` recopié, `details` (JSON plat de textes) et `apply_id` quand un apply l'a écrit. **Aucun secret** : ni mot de passe, ni jeton, ni secret, ni URL de webhook (« Le journal d'audit ») | Ajout seul : un déclencheur refuse toute modification d'une ligne, hors la mise à nul du lien `apply_id` (`ON DELETE SET NULL`). Pas de clé étrangère vers l'objet : la ligne lui survit. Purgé après **un an** (`audit.Retention`), avec les alertes, au démarrage puis une fois par jour |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'envoi du journal : la table `audit_deliveries`, une ligne par (événement, canal qui reçoit le journal) : `status` (`pending`, `delivered`, `failed`), `attempts`, `reason` et `code` du dernier essai, `next_attempt_at`. Réservée dans la transaction de l'événement. **Aucun contenu** : le message se refait de l'événement, relu à l'envoi (« Le journal d'audit › Envoi aux canaux ») | Part avec son événement (la purge à un an) et avec son canal (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ordres envoyés aux agents : `action_runs` (identifiant, genre `action`, paramètres sans secret `params`, machine et agent en `set null` avec `machine_name` recopié, état, `refusal_reason`, `not_after`, rang `seq` unique par agent, `requested_by` recopié de l'acteur, `requested_at`, `finished_at`) et leur sortie, `run_logs` (rang, instant, flux, ligne ; 64 lignes au plus par run), partie avec son run (`cascade`). Écrit **avant** que l'ordre ne parte (« Comment un ordre part et revient ») | Un run survit à sa machine et à son agent : c'est une trace. Purgé à 90 jours (`action.Retention`) avec sa sortie, par la boucle des ordres. La sortie est ce que l'agent a écrit : rien n'y est masqué |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
@@ -3637,7 +3637,10 @@ l'acteur du journal, et un moyen de voir si mcp-maison répond.
    l'adresse d'écoute. La base ne garde que son empreinte SHA-256 (sans sel :
    l'entrée est un aléa de 256 bits) et un préfixe pour le reconnaître dans la
    liste.
-3. 16 jetons au plus (`api_token.too_many`). La portée est `read` ou `write`
+3. 16 jetons au plus (`api_token.too_many`), et **un nom par jeton vivant**
+   (`api_token.name_taken`, `409`, sans égard à la casse : à l'audit, deux
+   jetons au même nom ne se distinguent plus ; un nom libéré par une
+   révocation redevient disponible). La portée est `read` ou `write`
    (une autre : `api_token.scope_invalid`). Un jeton `write` lit comme un
    `read` et ne déclenche que ses verbes ; **sans verbe, il n'agit sur rien**.
    Un verbe inconnu est refusé (`api_token.verb_unknown`), des verbes sur un
@@ -4215,7 +4218,7 @@ Basic, et vérifie que chacun porte l'opérateur et aucun secret.
 | `actor_kind` | `actor_name` | Posé par |
 | --- | --- | --- |
 | `operator` | L'identifiant Basic, ou l'identité transmise par le SSO en mode `forward` ; vide à la première configuration, seul geste admis sans compte (un en-tête Basic qu'aucun mode ne vérifie ne nomme personne ; le compte créé se lit dans les détails). Borné, sans caractère de contrôle | `server`, sur toute route de l'opérateur, juste après `requireOperator` (`withOperatorActor`) |
-| `api` | L'identifiant du jeton d'API ; la personne au nom de qui mcp-maison lit est dans `details.on_behalf_of` (en-tête `X-MCP-Maison-User`, bornée à 200 caractères), indicative, pas une preuve | `server`, sur une route admise par jeton. Aucune écriture n'est admise : rien ne s'écrit encore sous cet acteur, le chemin attend les actions de l'API (#153, étape 5) |
+| `api` | L'identifiant du jeton d'API ; la personne au nom de qui l'agent appelle est dans `details.on_behalf_of` (en-tête `X-MCP-Maison-User`, bornée à 200 caractères), indicative, pas une preuve. Le **nom du jeton**, recopié à l'écriture, est dans `actor_label` | `server`, sur une route admise par jeton (`admitAPIToken`), pour ses lectures, ses verbes et ses refus (`api_token.deny`) |
 | `cli` | Le compte système que la commande déclare : indicatif, pas une preuve | La socket de commande (`markControlSocket`), puis `apply` sous le nom qu'il porte déjà dans `applies` ; `opencloud auth disable` et `opencloud secrets forget`, qui écrivent sur la base |
 | `rule` | Vide | `serve`, sur son contexte racine : ses boucles de fond et ce qu'il fait au démarrage (une sonde qui porte des identifiants mise en pause, la fenêtre d'une maintenance qui s'ouvre ou se ferme) |
 | `agent` | L'identifiant de la machine que l'agent présente | `agentapi` : l'enrôlement, et les sections du signal : des observations, que rien ne journalise, et le refus d'un ordre (`action.refused`) |
@@ -4225,6 +4228,38 @@ L'acteur `mcp` (et les sortes d'objet `mcp`, `mcp_token`, `mcp_session`, les
 actions `mcp.*`, `mcp_token.*`, `mcp_session.*`) ne s'écrit plus depuis le
 21 octobre 2026, mais les lignes déjà écrites restent : le journal est en ajout
 seul, elles se lisent, sous un libellé « ancien ».
+
+**Le nom du jeton, instantané.** `actor_label` est écrit avec la ligne
+(`audit.API(id, nom, pour qui)`), jamais retrouvé par jointure : révoquer le
+jeton efface sa ligne `api_tokens`, et les gestes d'avant gardent son nom
+d'alors. Le `Recorder` le borne (80 caractères, sans caractère de contrôle) ;
+c'est le nom que l'opérateur a choisi, jamais un secret. Les lignes d'avant la
+`017` et les acteurs sans nom (personne, règle, agent, commande) n'en ont pas :
+elles se lisent comme avant, par `actor_name`. Les noms de deux jetons vivants
+ne se confondent pas : la création refuse un nom déjà porté
+(`api_token.name_taken`, `409`, sans égard à la casse) ; les jetons déjà créés
+ne sont pas touchés, et un nom d'un jeton révoqué redevient libre.
+
+**Ce que l'opérateur lit** (page **Journal**) : une pastille par genre, puis
+le nom.
+
+| Genre | Pastille | Suite |
+| --- | --- | --- |
+| `operator` | Personne (verte) | L'identité vue par l'authentification |
+| `api` | Jeton d'API (teinte d'accent) | Le nom du jeton, puis **pour : <qui>** en gras ; **pour : inconnu** en discret quand le jeton n'a pas dit pour qui (un jeton d'écriture sans identité d'appelant se voit) |
+| `agent`, `rule`, `cli` | Agent, Règle, CLI (neutres) | L'identifiant de la machine, de la règle, ou le compte système |
+| `unknown` | Acteur inconnu (rouge) | Rien : un oubli de câblage |
+
+Un filtre par genre et une recherche (nom du jeton, identifiant, « pour qui »,
+sans casse ASCII) s'appliquent côté serveur : `actor_kind=` et `actor=` sur
+`GET /api/audit`. Coût : la recherche lit `details` en JSON sans index, ce qui
+reste bon pour un journal d'un an et de cette taille, à revoir s'il grossit.
+Un jeton lit la même route (`GET /api/audit`) : il y voit `actor_label` en
+plus ; l'audit ne porte aucun secret, rien n'y est masqué. Un champ ajouté
+n'en retire ni n'en renomme aucun. Il n'y a pas de commande `opencloud audit` :
+la seule autre sortie texte de l'audit est la notification d'un canal, qui
+nomme le jeton par son nom (« Par Jeton d'API « nom », … ») et ajoute
+`actor_label` à son corps JSON.
 
 ### Ce qui est journalisé
 
@@ -4288,10 +4323,10 @@ l'acteur de l'apply et avec son `apply_id`.
   suppression est la purge à l'âge.
 - **Un an** (`audit.Retention`), purgé par la boucle des alertes, au
   démarrage puis une fois par jour.
-- **Lire** : `GET /api/audit?limit=&before=&object_kind=&object_id=`, route de
-  l'opérateur, 50 par page, 200 au plus, du plus récent au plus ancien ;
+- **Lire** : `GET /api/audit?limit=&before=&object_kind=&object_id=&actor_kind=&actor=`,
+  lue par l'opérateur et par un jeton d'API, 50 par page, 200 au plus, du plus récent au plus ancien ;
   `next_before` donne la page suivante, `null` à la fin. Un nombre illisible
-  ou une sorte d'objet inconnue : `400 bad_query`. Dans l'interface, l'onglet **Journal** (`/journal`, sous
+  ou une sorte d'objet ou un genre d'acteur inconnu, ou une recherche de plus de 200 caractères : `400 bad_query`. Dans l'interface, l'onglet **Journal** (`/journal`, sous
   Administration) : date, acteur, action, objet, détail replié ; cliquer un
   objet ne montre que son histoire.
 
@@ -4334,7 +4369,7 @@ Le flux d'un geste :
 « Journal · <verbe> · <sorte d'objet> « <nom> » » ; corps : « Par <acteur>
 « <nom> », <instant UTC, RFC 3339>. » (sans le nom, « Par <acteur>, … »). En
 JSON, un corps à lui : `event: "audit"`, l'événement tel que la base le garde
-(`id`, `at`, `actor_kind`, `actor_name`, `action`, `object_kind`, `object_id`,
+(`id`, `at`, `actor_kind`, `actor_name`, `actor_label` s'il existe, `action`, `object_kind`, `object_id`,
 `object_name`, `details`), signé comme les alertes
 (`OpenCloud-Signature`), avec `OpenCloud-Event: audit`. ntfy : priorité
 `default`. Le lien mène à `<public_url>/journal` quand `public_url` est réglé.

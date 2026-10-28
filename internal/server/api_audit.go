@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
@@ -18,13 +20,18 @@ const (
 	auditDefaultLimit = 50
 	auditMaxLimit     = 200
 	codeBadQuery      = "bad_query"
+	// La recherche d'un acteur : un nom de jeton (80) ou un « pour qui » (200).
+	maxActorSearchRunes = 200
 )
 
 type auditEventJSON struct {
-	ID         int64             `json:"id"`
-	At         time.Time         `json:"at"`
-	ActorKind  string            `json:"actor_kind"`
-	ActorName  string            `json:"actor_name"`
+	ID        int64     `json:"id"`
+	At        time.Time `json:"at"`
+	ActorKind string    `json:"actor_kind"`
+	ActorName string    `json:"actor_name"`
+	// ActorLabel : le nom du jeton à l'instant du geste ; null pour un acteur
+	// qui n'en a pas et pour les lignes d'avant la migration 017.
+	ActorLabel *string           `json:"actor_label"`
 	Action     string            `json:"action"`
 	ObjectKind string            `json:"object_kind"`
 	ObjectID   string            `json:"object_id"`
@@ -76,6 +83,11 @@ func auditQueryOf(values url.Values) (audit.Query, bool) {
 	query := audit.Query{
 		ObjectKind: audit.ObjectKind(values.Get("object_kind")),
 		ObjectID:   values.Get("object_id"),
+		ActorKind:  audit.ActorKind(values.Get("actor_kind")),
+		Actor:      strings.TrimSpace(values.Get("actor")),
+	}
+	if utf8.RuneCountInString(query.Actor) > maxActorSearchRunes || !isKnownActorKind(query.ActorKind) {
+		return audit.Query{}, false
 	}
 	if text := values.Get("limit"); text != "" {
 		limit, err := strconv.Atoi(text)
@@ -92,6 +104,11 @@ func auditQueryOf(values url.Values) (audit.Query, bool) {
 		query.Before = before
 	}
 	return query, isKnownObjectKind(query.ObjectKind)
+}
+
+// Les anciens acteurs (« mcp ») restent filtrables, comme leurs lignes.
+func isKnownActorKind(kind audit.ActorKind) bool {
+	return kind == "" || slices.Contains(audit.ActorKinds(), kind) || slices.Contains(audit.LegacyActorKinds(), kind)
 }
 
 // Les anciennes sortes (celles du MCP interne) restent suivables : leurs
@@ -125,6 +142,10 @@ func auditEventToJSON(event audit.Event) auditEventJSON {
 		Action:     string(event.Action),
 		ObjectKind: string(event.ObjectKind), ObjectID: event.ObjectID, ObjectName: event.ObjectName,
 		Details: event.Details,
+	}
+	if event.Actor.Label != "" {
+		label := event.Actor.Label
+		converted.ActorLabel = &label
 	}
 	if converted.Details == nil {
 		converted.Details = map[string]string{}

@@ -759,6 +759,7 @@ const audit = shape<AuditResponse>("AuditResponse", {
     at: value,
     actor_kind: value,
     actor_name: value,
+    actor_label: value,
     action: value,
     object_kind: value,
     object_id: value,

@@ -262,6 +262,12 @@ type Query struct {
 	Before     int64
 	ObjectKind ObjectKind
 	ObjectID   string
+	// ActorKind ne garde que ce genre d'acteur ; vide : tous.
+	ActorKind ActorKind
+	// Actor cherche un morceau de texte, sans casse ASCII, dans le nom du
+	// jeton (actor_label), l'identifiant (actor_name) ou « pour qui »
+	// (on_behalf_of) ; vide : tous.
+	Actor string
 }
 
 // isForbiddenDetail dit si un nom de détail porte un secret. Un nom qui finit

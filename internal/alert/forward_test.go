@@ -364,3 +364,30 @@ func TestRequeue_NeverQueuesAnAuditDeliveryTwiceAtStartup(t *testing.T) {
 		t.Fatalf("queued twice: %q", got)
 	}
 }
+
+// Un jeton d'API se nomme par son nom d'alors, pas par son identifiant ; le
+// corps JSON porte les deux.
+func TestRenderAudit_NamesATokenByItsLabel(t *testing.T) {
+	catalogs, err := lang.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := audit.Event{
+		At: testNow, Actor: audit.API("tok0000000000001", "agent-veille", "alice-sub"),
+		Action: audit.ProbePause, ObjectKind: audit.ObjectProbe, ObjectID: "p1", ObjectName: "site",
+	}
+	text, err := alert.RenderAudit(catalogs.For(lang.French), alert.FormatText, event, testNow, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(text.Content); !strings.Contains(got, "agent-veille") || strings.Contains(got, "tok0000000000001") {
+		t.Fatalf("text %q", got)
+	}
+	body, err := alert.RenderAudit(catalogs.For(lang.French), alert.FormatJSON, event, testNow, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(body.Content); !strings.Contains(got, `"actor_label":"agent-veille"`) || !strings.Contains(got, `"actor_name":"tok0000000000001"`) {
+		t.Fatalf("json %q", got)
+	}
+}

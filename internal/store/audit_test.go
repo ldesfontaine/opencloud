@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -121,5 +122,64 @@ func TestAuditEvents_AreAppendOnlyAndOutliveTheirApply(t *testing.T) {
 	}
 	if len(left) != 1 || left[0].ApplyID != "" || left[0].Actor != audit.Operator("lucas") {
 		t.Fatalf("left: %+v", left)
+	}
+}
+
+// Le libellé de l'acteur se relit tel quel ; une ligne d'avant la
+// migration 017 (sans colonne remplie) se lit sans libellé ; le filtre par
+// genre et la recherche trouvent le nom du jeton, son identifiant et « pour
+// qui ». Le libellé ne se modifie pas : le déclencheur le garde.
+func TestAuditEvents_ActorLabelLegacyRowsAndFilters(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	at := time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
+	byToken := auditEvent(audit.ObjectProbe, audit.ProbePause, "p1", at)
+	byToken.Actor = audit.API("tok0000000000001", "Agent-Veille", "alice-sub")
+	byToken.Details = audit.Details{"on_behalf_of": "alice-sub"}
+	if _, err := db.InsertAuditEvent(ctx, byToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.InsertAuditEvent(ctx, auditEvent(audit.ObjectProbe, audit.ProbePause, "p2", at)); err != nil {
+		t.Fatal(err)
+	}
+	// Une ligne telle que l'écrivait la version d'avant : sans actor_label.
+	if _, err := db.sql.ExecContext(ctx, `
+		INSERT INTO audit_events (at, actor_kind, actor_name, action, object_kind, object_id, object_name, details)
+		VALUES (?, 'api', 'tok0000000000002', 'probe.pause', 'probe', 'p3', '', '{}')`, at.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	find := func(query audit.Query) []string {
+		t.Helper()
+		query.Limit = 10
+		events, err := db.ListAuditEvents(ctx, query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var objects []string
+		for _, event := range events {
+			objects = append(objects, event.ObjectID)
+		}
+		return objects
+	}
+	if got := find(audit.Query{ActorKind: audit.ActorAPI}); !slices.Equal(got, []string{"p3", "p1"}) {
+		t.Fatalf("api kind: %v", got)
+	}
+	for search, want := range map[string][]string{
+		"agent-veille":     {"p1"},
+		"ALICE":            {"p1"},
+		"tok0000000000002": {"p3"},
+		"lucas":            {"p2"},
+		"absent":           nil,
+	} {
+		if got := find(audit.Query{Actor: search}); !slices.Equal(got, want) {
+			t.Fatalf("search %q: %v, want %v", search, got, want)
+		}
+	}
+	legacy, err := db.ListAuditEvents(ctx, audit.Query{Limit: 10, ObjectID: "p3"})
+	if err != nil || len(legacy) != 1 || legacy[0].Actor.Label != "" || legacy[0].Actor.Name != "tok0000000000002" {
+		t.Fatalf("legacy row: %+v %v", legacy, err)
+	}
+	if _, err := db.sql.ExecContext(ctx, `UPDATE audit_events SET actor_label = 'autre' WHERE object_id = 'p1'`); err == nil {
+		t.Fatal("the label must stay append-only")
 	}
 }

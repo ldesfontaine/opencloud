@@ -112,10 +112,10 @@ func TestRecord_DropsAPassphraseDetail(t *testing.T) {
 // « pour qui » le détail n'existe pas.
 func TestRecord_OnBehalfOfLandsInDetailsAndCannotBeForged(t *testing.T) {
 	recorder, db, _ := newRecorder(t)
-	ctx := audit.WithActor(context.Background(), audit.API("tok1", "alice@example.org"))
+	ctx := audit.WithActor(context.Background(), audit.API("tok1", "agent-veille", "alice@example.org"))
 	recorder.Record(ctx, audit.Event{Action: audit.ProbePause, ObjectID: "p1", Details: audit.Details{"on_behalf_of": "mallory", "kind": "http"}})
 	recorder.Record(ctx, audit.Event{Action: audit.ProbePause, ObjectID: "p2"})
-	recorder.Record(audit.WithActor(context.Background(), audit.API("tok1", "")), audit.Event{Action: audit.ProbePause, ObjectID: "p3", Details: audit.Details{"on_behalf_of": "mallory"}})
+	recorder.Record(audit.WithActor(context.Background(), audit.API("tok1", "agent-veille", "")), audit.Event{Action: audit.ProbePause, ObjectID: "p3", Details: audit.Details{"on_behalf_of": "mallory"}})
 	recorder.Record(audit.WithActor(context.Background(), audit.Operator("lucas")), audit.Event{Action: audit.ProbePause, ObjectID: "p4"})
 	byObject := map[string]audit.Event{}
 	for _, event := range listAll(t, db) {
@@ -268,5 +268,28 @@ func TestRecord_WithoutForwarder_StillWrites(t *testing.T) {
 	recorder.Record(ctx, audit.Event{Action: audit.ProbePause, ObjectID: "p1"})
 	if events := listAll(t, db); len(events) != 1 {
 		t.Fatalf("events: %+v", events)
+	}
+}
+
+// Le libellé de l'acteur (le nom du jeton) est recopié dans la ligne, borné
+// et sans caractère de contrôle ; un acteur sans libellé n'en écrit pas.
+func TestRecord_KeepsTheActorLabelBoundedAndPrintable(t *testing.T) {
+	recorder, db, _ := newRecorder(t)
+	long := strings.Repeat("é", audit.MaxLabelRunes+20)
+	recorder.Record(audit.WithActor(context.Background(), audit.API("tok1", " agent\x00-veille\n ", "")), audit.Event{Action: audit.ProbePause, ObjectID: "p1"})
+	recorder.Record(audit.WithActor(context.Background(), audit.API("tok2", long, "")), audit.Event{Action: audit.ProbePause, ObjectID: "p2"})
+	recorder.Record(audit.WithActor(context.Background(), audit.Operator("lucas")), audit.Event{Action: audit.ProbePause, ObjectID: "p3"})
+	byObject := map[string]audit.Event{}
+	for _, event := range listAll(t, db) {
+		byObject[event.ObjectID] = event
+	}
+	if got := byObject["p1"].Actor.Label; got != "agent-veille" {
+		t.Fatalf("p1 label %q", got)
+	}
+	if got := []rune(byObject["p2"].Actor.Label); len(got) != audit.MaxLabelRunes {
+		t.Fatalf("p2 label has %d runes", len(got))
+	}
+	if got := byObject["p3"].Actor; got != audit.Operator("lucas") {
+		t.Fatalf("p3 actor %+v", got)
 	}
 }

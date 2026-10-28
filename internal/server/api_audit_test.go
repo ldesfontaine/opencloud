@@ -16,6 +16,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // callAsOperator joue une requête JSON comme le front, sous les
@@ -343,8 +344,74 @@ func (ts *testServer) seedAudit(t *testing.T) {
 		Action: audit.ProbePause, ObjectID: "5ec0be5ec0be5ec0", ObjectName: "api interne",
 		Details: audit.Details{"kind": "http", "machine_id": remoteID},
 	})
-	ts.journal.Record(audit.WithActor(ctx, audit.API("tok0000000000001", "")), audit.Event{
+	ts.journal.Record(audit.WithActor(ctx, audit.API("tok0000000000001", "agent-veille", "")), audit.Event{
 		Action: audit.MuteCreate, ObjectID: "1", ObjectName: "vps-paris-1",
 		Details: audit.Details{"target_kind": "machine", "reason": "maintenance"},
 	})
+}
+
+// Un geste de jeton se lit « jeton · nom · pour qui » : le nom est recopié à
+// l'écriture, le jeton révoqué le garde sur ses anciens gestes, et le geste
+// de l'opérateur n'a pas de libellé qui le ferait prendre pour un jeton.
+func TestAudit_TokenGestureKeepsTheTokenNameAfterRevocation(t *testing.T) {
+	server := newTestServer(t)
+	bearer, token := server.issueWriteToken(t, "agent-veille", "probe.pause")
+	created := server.createProbeVia(t, probeRequest{Name: "site", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID})
+	if got := callBearerWith(server.Server, http.MethodPost, "/api/probes/"+created.ID+"/actions/pause", bearer, "", onBehalfOfHeader, "alice-sub"); got.Code != http.StatusOK {
+		t.Fatalf("pause: %d %s", got.Code, got.Body.String())
+	}
+	if err := server.apiTokens.Revoke(context.Background(), token.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var page auditResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/audit?actor_kind=api&object_kind=probe", nil), &page)
+	if len(page.Events) != 1 {
+		t.Fatalf("events %+v", page.Events)
+	}
+	event := page.Events[0]
+	if event.ActorKind != "api" || event.ActorName != token.ID || event.ActorLabel == nil || *event.ActorLabel != "agent-veille" || event.Details["on_behalf_of"] != "alice-sub" {
+		t.Fatalf("event %+v", event)
+	}
+
+	var operated auditResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/audit?actor_kind=operator", nil), &operated)
+	if len(operated.Events) == 0 {
+		t.Fatal("no operator event")
+	}
+	for _, own := range operated.Events {
+		if own.ActorKind != "operator" || own.ActorLabel != nil || own.Details["on_behalf_of"] != "" {
+			t.Fatalf("operator event %+v", own)
+		}
+	}
+}
+
+// Le filtre par genre et la recherche (nom du jeton, « pour qui ») passent
+// par la requête ; un genre inconnu ou une recherche démesurée est refusé.
+func TestAudit_FilterByActorKindAndSearch(t *testing.T) {
+	server := newTestServer(t)
+	server.seedAudit(t)
+	read := func(query string) auditResponse {
+		t.Helper()
+		var page auditResponse
+		decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/audit?"+query, nil), &page)
+		return page
+	}
+	if page := read("actor_kind=api"); len(page.Events) != 1 || page.Events[0].Action != "mute.create" {
+		t.Fatalf("api only: %+v", page.Events)
+	}
+	if page := read("actor=VEILLE"); len(page.Events) != 1 || page.Events[0].ActorKind != "api" {
+		t.Fatalf("by token name: %+v", page.Events)
+	}
+	if page := read("actor=lucas&actor_kind=operator"); len(page.Events) != 1 || page.Events[0].ActorKind != "operator" {
+		t.Fatalf("by operator name: %+v", page.Events)
+	}
+	if page := read("actor_kind=rule"); len(page.Events) != 0 {
+		t.Fatalf("rule: %+v", page.Events)
+	}
+	for _, bad := range []string{"actor_kind=robot", "actor=" + strings.Repeat("a", maxActorSearchRunes+1)} {
+		if got := callAPI(server.Server, http.MethodGet, "/api/audit?"+bad, nil); got.Code != http.StatusBadRequest {
+			t.Fatalf("%s: %d", bad, got.Code)
+		}
+	}
 }

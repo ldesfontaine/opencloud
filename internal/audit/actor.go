@@ -1,6 +1,11 @@
 package audit
 
-import "context"
+import (
+	"context"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 // ActorKind dit qui a agi : une liste fermée.
 type ActorKind string
@@ -35,19 +40,40 @@ func LegacyActorKinds() []ActorKind {
 }
 
 // Actor est qui a agi, et sous quel nom. OnBehalfOf ne vit jamais en
-// colonne : le Recorder le copie dans les détails de la ligne.
+// colonne : le Recorder le copie dans les détails de la ligne. Label est le
+// nom lisible de l'acteur à cet instant (le nom d'un jeton d'API) : Name
+// reste son identifiant stable, Label est recopié dans la ligne pour qu'un
+// jeton révoqué ou renommé garde sur ses anciens gestes le nom d'alors.
 type Actor struct {
 	Kind       ActorKind
 	Name       string
+	Label      string
 	OnBehalfOf string
 }
+
+// MaxLabelRunes borne Label, comme le nom d'un jeton (apitoken.MaxNameLength).
+const MaxLabelRunes = 80
 
 func Operator(identity string) Actor {
 	return Actor{Kind: ActorOperator, Name: identity}
 }
 
-func API(tokenID, onBehalfOf string) Actor {
-	return Actor{Kind: ActorAPI, Name: tokenID, OnBehalfOf: onBehalfOf}
+func API(tokenID, tokenName, onBehalfOf string) Actor {
+	return Actor{Kind: ActorAPI, Name: tokenID, Label: tokenName, OnBehalfOf: onBehalfOf}
+}
+
+// cleanLabel rend un libellé affichable : sans caractère de contrôle, coupé.
+func cleanLabel(text string) string {
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == utf8.RuneError {
+			return -1
+		}
+		return r
+	}, text)
+	if runes := []rune(text); len(runes) > MaxLabelRunes {
+		text = string(runes[:MaxLabelRunes])
+	}
+	return strings.TrimSpace(text)
 }
 
 func CLI(account string) Actor {

@@ -94,6 +94,10 @@ func (s *Service) insertUnderCeiling(ctx context.Context, token Token) error {
 	if len(existing) >= MaxTokens {
 		return ErrTooMany
 	}
+	// Deux jetons vivants au même nom ne se distinguent plus à l'audit.
+	if slices.ContainsFunc(existing, func(other Token) bool { return strings.EqualFold(other.Name, token.Name) }) {
+		return ErrNameTaken
+	}
 	return s.store.InsertAPIToken(ctx, token)
 }
 
