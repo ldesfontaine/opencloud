@@ -26,6 +26,7 @@ GET /api/machines/{id}/ssh-keys
 GET /api/machines/{id}/proxmox
 PUT /api/machines/{id}/proxmox
 POST /api/machines/{id}/actions/remove-proxmox
+POST /api/machines/{id}/proxmox/guests/{vmid}/actions/{verb}
 GET /api/firewalls
 POST /api/firewalls
 GET /api/firewalls/{id}

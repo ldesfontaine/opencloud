@@ -76,6 +76,7 @@ func UnavailableReasons() []string {
 	return []string{
 		"docker_denied", "docker_missing", "path_denied", "path_unwritable", "not_self_updatable",
 		"sudo_missing", "producer_missing", "sudo_denied",
+		"proxmox_token_missing", "proxmox_token_unsafe", "proxmox_pin_missing",
 	}
 }
 
@@ -86,7 +87,7 @@ func UnavailableReasons() []string {
 func JudgedCapabilities() []string {
 	return []string{
 		CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive,
-		CapabilityBackupProduce, CapabilityFilesWrite,
+		CapabilityBackupProduce, CapabilityFilesWrite, CapabilityProxmoxPower, CapabilityProxmoxSnapshot,
 	}
 }
 

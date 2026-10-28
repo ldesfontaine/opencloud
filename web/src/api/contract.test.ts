@@ -296,6 +296,7 @@ const proxmoxHost = shape<ProxmoxHost>("ProxmoxHost", {
     linked_machine_id: value,
     last_backup_at: value,
     last_backup_bytes: value,
+    own_snapshots: value,
   }),
   storages: shape("ProxmoxStorage", { node: value, name: value, type: value, total: value, used: value, avail: value, content: value, active: value }),
 });

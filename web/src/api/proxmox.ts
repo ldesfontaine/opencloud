@@ -1,4 +1,5 @@
 import { useResource, type Resource } from "../hooks/useResource";
+import type { ActionRun } from "./actions";
 import { api, segment } from "./client";
 
 // L'hôte Proxmox qu'une machine porte et ce que son API en dit. Sujet du
@@ -25,6 +26,9 @@ export interface ProxmoxGuest {
   linked_machine_id: string | null;
   last_backup_at: string | null;
   last_backup_bytes: number;
+  // Les instantanés (oc-AAAAMMJJ-HHMMSS) que les ordres de ce produit ont
+  // créés et que nul n'a supprimés depuis : les seuls qu'on propose de supprimer.
+  own_snapshots: string[];
 }
 
 export interface ProxmoxStorage {
@@ -95,4 +99,16 @@ export function setMachineProxmox(machineID: string, definition: ProxmoxDefiniti
 
 export async function removeMachineProxmox(machineID: string): Promise<void> {
   return api.post(`/api/machines/${segment(machineID)}/actions/remove-proxmox`);
+}
+
+// Un geste sur un invité, fait par l'agent de l'hôte : démarrer, arrêter
+// proprement, prendre un instantané, supprimer un instantané de ce produit.
+export type GuestVerb = "start" | "shutdown" | "snapshot" | "snapshot-delete";
+
+// L'ordre part vers l'agent de la machine qui porte l'hôte ; la réponse est son
+// run, que le direct (« actions ») fait avancer. snapshot ne sert qu'à la
+// suppression : le nom d'un instantané créé n'est jamais saisi.
+export function actOnGuest(machineID: string, vmid: number, verb: GuestVerb, snapshot: string): Promise<ActionRun> {
+  const body = verb === "snapshot-delete" ? { snapshot } : {};
+  return api.post<ActionRun>(`/api/machines/${segment(machineID)}/proxmox/guests/${vmid}/actions/${verb}`, body);
 }

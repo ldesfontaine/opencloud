@@ -46,6 +46,8 @@ type orderRunner struct {
 	// Le dossier produce/ de l'état et la table des producteurs, que backup.produce
 	// touche ; les tests y mettent les leurs.
 	produce produceTools
+	// Le jeton local et l'API de Proxmox, que les ordres proxmox.vm.* touchent.
+	proxmox proxmoxTools
 	// Ce que la machine répond au compte de l'agent : Docker, les dossiers, son
 	// propre dossier bin/. Les mêmes questions que le rapport des droits
 	// indisponibles ; un ordre est refusé, avant d'écrire, sur la même raison.
@@ -58,10 +60,14 @@ type orderRunner struct {
 func newOrderRunner(stateDir *os.Root, identity Identity, version, dockerSocket string, results *actionResults, logger *slog.Logger) *orderRunner {
 	updater := newSelfUpdater(stateDir, version, logger)
 	checks := newHostChecks(dockerSocket, updater)
+	checks.proxmoxToken = func() string {
+		_, reason := readProxmoxToken(stateDir)
+		return reason
+	}
 	return &orderRunner{
 		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
 		worker: newOrderWorker(), fetch: &fetcher{}, updater: updater, docker: newDockerTools(checks), checks: checks,
-		produce: newProduceTools(stateDir),
+		produce: newProduceTools(stateDir), proxmox: newProxmoxTools(stateDir),
 	}
 }
 
@@ -167,6 +173,8 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 		return r.acceptBackupProduce(body)
 	case agentwire.KindAgentUpdate:
 		return r.acceptAgentUpdate(body)
+	case agentwire.KindProxmoxStart, agentwire.KindProxmoxShutdown, agentwire.KindProxmoxSnapshot, agentwire.KindProxmoxSnapshotDelete:
+		return r.acceptProxmox(body)
 	case agentwire.KindDockerDeploy:
 		return r.acceptDocker(body, false)
 	case agentwire.KindDockerUpdate:
@@ -226,6 +234,21 @@ func (r *orderRunner) acceptBackupProduce(body agentwire.OrderBody) (agentwire.A
 	}
 	return accepted(body), func(ctx context.Context) {
 		output, err := r.produce.produce(ctx, r.checks, r.fetch, job, r.now())
+		r.finishProduce(body, output, err)
+	}
+}
+
+// acceptProxmox juge un geste sur un invité vite (paramètres, jeton local),
+// puis l'accepte : appeler l'API et suivre la tâche de Proxmox est le travail
+// du worker. Il se juge et se rapporte comme une production.
+func (r *orderRunner) acceptProxmox(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
+	job, refused := r.proxmox.readProxmoxOrder(body)
+	if refused != nil {
+		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		return *refused, nil
+	}
+	return accepted(body), func(ctx context.Context) {
+		output, err := r.proxmox.run(ctx, job)
 		r.finishProduce(body, output, err)
 	}
 }

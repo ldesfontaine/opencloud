@@ -78,7 +78,28 @@ export function unitDropIn(paths: string[]): string {
 }
 
 // La liste fermée du serveur (machine.CapabilityNames), dans son ordre.
-export const capabilityNames = ["observe", "probe.lan", "agent.update", "docker.deploy", "docker.update", "backup.receive", "backup.produce", "files.write"] as const;
+export const capabilityNames = [
+  "observe",
+  "probe.lan",
+  "agent.update",
+  "docker.deploy",
+  "docker.update",
+  "backup.receive",
+  "backup.produce",
+  "files.write",
+  "proxmox.power",
+  "proxmox.snapshot",
+] as const;
+
+// Les droits qui agissent sur les invités d'un hôte Proxmox, sans chemin.
+const proxmoxRights: readonly string[] = ["proxmox.power", "proxmox.snapshot"];
+
+// Les droits que le formulaire propose : ceux de Proxmox seulement quand
+// l'agent a reconnu un hôte Proxmox VE sur la machine. Un droit déjà coché
+// reste, pour pouvoir le décocher si le rôle a disparu.
+export function offeredCapabilities(proxmoxDetected: boolean, checked: string[]): string[] {
+  return capabilityNames.filter((name) => proxmoxDetected || !proxmoxRights.includes(name) || checked.includes(name));
+}
 
 // Le seul producteur de sauvegardes que le serveur connaisse (machine.Producers) :
 // la portée de backup.produce est fixée, la case suffit.

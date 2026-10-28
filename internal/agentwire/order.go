@@ -117,6 +117,28 @@ const (
 	ReasonProducerUnknown = "producer_unknown"
 	ReasonProducerFailed  = "producer_failed"
 	ReasonUploadFailed    = "upload_failed"
+	// Les raisons des droits proxmox.* : le jeton local de l'agent manque ou
+	// n'est pas lisible du seul compte de l'agent, ou l'empreinte du
+	// certificat n'y est pas.
+	ReasonProxmoxTokenMissing = "proxmox_token_missing" // #nosec G101 -- une raison de refus, pas un secret.
+	ReasonProxmoxTokenUnsafe  = "proxmox_token_unsafe"  // #nosec G101 -- une raison de refus, pas un secret.
+	ReasonProxmoxPinMissing   = "proxmox_pin_missing"
+	// Les raisons des ordres proxmox.vm.* : l'API locale ne répond pas, son
+	// certificat n'est pas celui de l'empreinte, elle refuse le jeton ou répond
+	// autre chose que prévu ; l'invité n'existe pas ou est un modèle ; son état
+	// ne permet pas le geste ; l'instantané n'est pas de ce produit ou
+	// n'existe pas ; la tâche de Proxmox a échoué ou n'a pas fini à temps.
+	ReasonProxmoxUnreachable     = "proxmox_unreachable"
+	ReasonProxmoxCertificate     = "proxmox_certificate"
+	ReasonProxmoxUnauthorized    = "proxmox_unauthorized"
+	ReasonProxmoxBadResponse     = "proxmox_bad_response"
+	ReasonProxmoxGuestMissing    = "proxmox_guest_missing"
+	ReasonProxmoxTemplate        = "proxmox_template"
+	ReasonProxmoxStateMismatch   = "proxmox_state_mismatch"
+	ReasonProxmoxSnapshotNotOurs = "proxmox_snapshot_not_ours"
+	ReasonProxmoxSnapshotMissing = "proxmox_snapshot_missing"
+	ReasonProxmoxTaskFailed      = "proxmox_task_failed"
+	ReasonProxmoxTaskTimeout     = "proxmox_task_timeout"
 	// La file des ordres longs de l'agent est pleine.
 	ReasonBusy = "busy"
 	// Les raisons de agent.update : l'agent ne tourne pas depuis son dossier
@@ -160,6 +182,10 @@ func RefusalReasons() []string {
 		ReasonPathDenied, ReasonDockerDenied,
 		ReasonSudoMissing, ReasonProducerMissing, ReasonSudoDenied,
 		ReasonProducerUnknown, ReasonProducerFailed, ReasonUploadFailed,
+		ReasonProxmoxTokenMissing, ReasonProxmoxTokenUnsafe, ReasonProxmoxPinMissing,
+		ReasonProxmoxUnreachable, ReasonProxmoxCertificate, ReasonProxmoxUnauthorized, ReasonProxmoxBadResponse,
+		ReasonProxmoxGuestMissing, ReasonProxmoxTemplate, ReasonProxmoxStateMismatch,
+		ReasonProxmoxSnapshotNotOurs, ReasonProxmoxSnapshotMissing, ReasonProxmoxTaskFailed, ReasonProxmoxTaskTimeout,
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 )
@@ -99,6 +100,8 @@ func proxmoxBench(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer) {
 	component.SetClock(func() time.Time { return testNow })
 	component.SetWatcher(server.bus)
 	component.SetAuditor(server.journal)
+	component.SetOrders(server.actions)
+	component.SetViewer(server.db)
 	server.Server.proxmox = component
 	server.enroll(t, "pve", pveID)
 	server.enroll(t, "docker1", dockerVMID)
@@ -349,5 +352,50 @@ func TestProxmox_TheDeletePlanOfAMachineCountsTheHostAndTheLinks(t *testing.T) {
 	guest := callAPI(server.Server, http.MethodGet, "/api/machines/"+dockerVMID+"/delete-plan", nil)
 	if !strings.Contains(guest.Body.String(), `"kind":"proxmox_links","count":1`) {
 		t.Errorf("guest plan: %s", guest.Body.String())
+	}
+}
+
+func postGuestAction(server *testServer, id, vmid, verb, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, "/api/machines/"+id+"/proxmox/guests/"+vmid+"/actions/"+verb, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	return recorder
+}
+
+// Le serveur refuse avant d'envoyer, avec la clé du refus : un geste inconnu,
+// un hôte non déclaré, un invité absent du relevé, un état incohérent, un
+// instantané qui n'est pas de ce produit. Aucun run n'est écrit.
+func TestProxmox_GuestActionRefusesBeforeSending(t *testing.T) {
+	server, api, _ := proxmoxBench(t)
+	if got := postGuestAction(server, pveID, "5012", "shutdown", "{}"); got.Code != http.StatusNotFound {
+		t.Fatalf("undeclared host: %d %s", got.Code, got.Body.String())
+	}
+	if got := putProxmox(server, pveID, api.request(pveTokenSecret)); got.Code != http.StatusOK {
+		t.Fatalf("declare: %d %s", got.Code, got.Body.String())
+	}
+	cases := map[string]struct {
+		vmid, verb, body string
+		status           int
+		key              string
+	}{
+		"unknown verb":       {"5012", "reboot", "{}", http.StatusNotFound, "not_found"},
+		"forced stop":        {"5012", "stop", "{}", http.StatusNotFound, "not_found"},
+		"vmid not a number":  {"abc", "start", "{}", http.StatusNotFound, "not_found"},
+		"unknown guest":      {"9999", "start", "{}", http.StatusConflict, "proxmox.guest_unknown"},
+		"start a running":    {"5012", "start", "{}", http.StatusConflict, "proxmox.state_mismatch"},
+		"shutdown a stopped": {"200", "shutdown", "{}", http.StatusConflict, "proxmox.state_mismatch"},
+		"not our snapshot":   {"200", "snapshot-delete", `{"snapshot":"avant-migration"}`, http.StatusUnprocessableEntity, "proxmox.snapshot_invalid"},
+		"bad body":           {"200", "start", "{", http.StatusBadRequest, "bad_json"},
+	}
+	for name, c := range cases {
+		got := postGuestAction(server, pveID, c.vmid, c.verb, c.body)
+		if got.Code != c.status || errorCode(t, got) != c.key {
+			t.Errorf("%s: %d %s", name, got.Code, got.Body.String())
+		}
+	}
+	runs, err := server.db.ListActionRuns(context.Background(), action.Query{MachineID: pveID, Limit: 10})
+	if err != nil || len(runs) != 0 {
+		t.Fatalf("a refusal wrote runs: %v %v", runs, err)
 	}
 }

@@ -57,6 +57,18 @@ const (
 	// Là où l'agent range ce qu'il produit (backup.produce), dans son état : à
 	// lui, 0700.
 	AgentProduceDir = "produce"
+	// Le jeton Proxmox local de l'agent (proxmox.power, proxmox.snapshot), dans
+	// son état : posé par l'opérateur sur l'hôte, à l'agent seul, 0600. Il ne
+	// voyage jamais, le serveur ne le garde pas.
+	AgentProxmoxFile = "proxmox.json"
+	// Ce que l'opérateur crée dans Proxmox pour ce jeton : un rôle réduit, un
+	// compte qui ne sert qu'à cela, le nom du jeton.
+	ProxmoxRole      = "OpenCloudAgent"
+	ProxmoxUser      = ID + "-agent@pve"
+	ProxmoxTokenName = "agent"
+	// Les instantanés que l'agent crée portent ce préfixe : il ne supprime que
+	// ceux-là, jamais ceux de l'opérateur.
+	SnapshotPrefix = TokenPrefix + "-"
 	// Le script de root que la règle sudo de backup.produce nomme, seul : il
 	// lance vzdump hors du bac à sable de l'unité de l'agent.
 	VzdumpWrapperPath = "/usr/local/sbin/" + ID + "-vzdump"

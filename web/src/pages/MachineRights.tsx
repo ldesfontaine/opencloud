@@ -10,6 +10,7 @@ import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
 import { capabilitiesOf, rightsFormOf, tokenPageState, type RightsValues } from "../lib/machines";
+import { detectedProxmox } from "../lib/proxmox";
 import { NotFound } from "./NotFound";
 
 const noRights: RightsValues = { rights: [], backupPath: "", writePaths: "" };
@@ -60,7 +61,7 @@ function RightsForm({ machine }: { machine: Machine }) {
           />
         }
       >
-        <RightsFields values={values} update={form.update} />
+        <RightsFields values={values} update={form.update} proxmoxDetected={detectedProxmox(machine) !== null} />
       </FormCard>
     </FormPage>
   );

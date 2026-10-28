@@ -188,6 +188,7 @@ func TestProxmox_AnAPITokenReadsTheHostGuestsAndStoragesWithoutAnySecret(t *test
 	for _, request := range []struct{ method, path string }{
 		{http.MethodPut, "/api/machines/" + pveID + "/proxmox"},
 		{http.MethodPost, "/api/machines/" + pveID + "/actions/remove-proxmox"},
+		{http.MethodPost, "/api/machines/" + pveID + "/proxmox/guests/5012/actions/shutdown"},
 	} {
 		got := callBearerWith(server.Server, request.method, request.path, bearer, "{}")
 		if got.Code != http.StatusForbidden || errorCode(t, got) != codeAPITokenRouteForbidden {

@@ -66,8 +66,37 @@
   }
 }
 
+// Un choix avec sa raison dessous : la hauteur suit le texte, qui passe à la ligne.
+.more-item.has-hint {
+  height: auto;
+  min-height: 32px;
+  max-width: 320px;
+  padding: 6px 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  white-space: normal;
+}
+
+.more-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+// Grisé, jamais caché : le choix se lit, il ne se prend pas.
+.more-item[aria-disabled="true"],
+.more-item[aria-disabled="true"]:hover {
+  color: var(--muted);
+  cursor: default;
+}
+
 @media (max-width: 860px) {
   .more-item {
     height: 44px;
+  }
+
+  .more-item.has-hint {
+    height: auto;
+    min-height: 44px;
   }
 }

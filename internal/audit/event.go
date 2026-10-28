@@ -87,6 +87,9 @@ const (
 	// jeton n'y figure pas : seulement son identifiant.
 	MachineProxmoxSet   Action = "machine.proxmox_set"
 	MachineProxmoxUnset Action = "machine.proxmox_unset"
+	// Un geste demandé sur un invité de l'hôte (démarrer, arrêter, instantané) :
+	// le numéro, le geste et le run. Aucun secret : le jeton ne quitte pas l'hôte.
+	MachineProxmoxGuest Action = "machine.proxmox_guest"
 
 	// L'agent est enrôlé (la machine créée ou retrouvée) ou révoqué : l'objet
 	// est l'agent, nommé par sa machine. Avant la table agents, l'enrôlement
@@ -188,7 +191,7 @@ const (
 
 func Actions() []Action {
 	return []Action{
-		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset,
+		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset, MachineProxmoxGuest,
 		AgentEnroll, AgentRevoke,
 		EnrollmentTokenCreate, EnrollmentTokenCancel,
 		ProjectCreate, ProjectUpdate, ProjectDelete,

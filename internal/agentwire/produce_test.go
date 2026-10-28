@@ -21,7 +21,7 @@ func TestBackupProduceParams_JSONLabelsAreFrozen(t *testing.T) {
 // backup.produce est le huitième ordre ; un agent ne le prend que par le flux
 // signé, jamais comme une observation.
 func TestOrderKinds_BackupProduceIsTheEighthOrder(t *testing.T) {
-	if len(OrderKinds()) != 8 || !KindBackupProduce.IsOrder() || string(KindBackupProduce) != "backup.produce" {
+	if len(OrderKinds()) != 12 || !KindBackupProduce.IsOrder() || string(KindBackupProduce) != "backup.produce" {
 		t.Fatalf("kinds %v", OrderKinds())
 	}
 	if _, err := DecodeObservation(string(KindBackupProduce), []byte("{}")); err == nil {

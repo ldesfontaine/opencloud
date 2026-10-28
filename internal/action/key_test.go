@@ -137,3 +137,15 @@ func TestKey_RotationSignsWithTheKeyTheAgentPinned(t *testing.T) {
 		t.Fatal("after the rotation, the previous key still signs")
 	}
 }
+
+func TestRightOf_GuestOrdersNeedTheirOwnRight(t *testing.T) {
+	want := map[agentwire.Kind]string{
+		agentwire.KindProxmoxStart: "proxmox.power", agentwire.KindProxmoxShutdown: "proxmox.power",
+		agentwire.KindProxmoxSnapshot: "proxmox.snapshot", agentwire.KindProxmoxSnapshotDelete: "proxmox.snapshot",
+	}
+	for kind, right := range want {
+		if got, ok := RightOf(kind); !ok || got != right {
+			t.Errorf("%s: %q %v", kind, got, ok)
+		}
+	}
+}

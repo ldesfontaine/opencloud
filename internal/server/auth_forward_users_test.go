@@ -321,7 +321,7 @@ func callUnlisted(server *Server, method, path string) *httptest.ResponseRecorde
 func TestForwardUsers_EveryOperatorRouteRefusesAnUnlistedIdentity(t *testing.T) {
 	server, _ := forwardWithList(t, "lucas")
 	mark := server.latestAuditID(t)
-	placeholders := strings.NewReplacer("{id}", "x", "{code}", "fr", "{name}", "x", "{kind}", "x", "{subject}", "x")
+	placeholders := strings.NewReplacer("{id}", "x", "{code}", "fr", "{name}", "x", "{kind}", "x", "{subject}", "x", "{vmid}", "105", "{verb}", "start")
 	checked := 0
 	for _, route := range server.routes() {
 		if !isOperatorRoute(route.pattern) {

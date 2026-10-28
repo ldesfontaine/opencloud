@@ -186,3 +186,19 @@ func TestCoversPath(t *testing.T) {
 		t.Errorf("covering path %q %t", granted, ok)
 	}
 }
+
+func TestProxmoxRights_TakeNoScopeAndAreRoundTripped(t *testing.T) {
+	parsed, err := ParseCapabilities("proxmox.snapshot,proxmox.power")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := FormatCapabilities(parsed); text != "observe,proxmox.power,proxmox.snapshot" || !ProxmoxRights(parsed) {
+		t.Fatalf("%q", text)
+	}
+	if _, err := ParseCapabilities("proxmox.power=/srv"); err == nil {
+		t.Error("a scope was accepted")
+	}
+	if ProxmoxRights([]Capability{{Name: CapabilityObserve}}) {
+		t.Error("observe is not a Proxmox right")
+	}
+}

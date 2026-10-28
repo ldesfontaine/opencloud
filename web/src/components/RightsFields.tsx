@@ -1,17 +1,27 @@
 import { useT } from "../i18n/context";
-import { alwaysGranted, capabilityLabelKey, capabilityNames, toggleRight, type RightsValues } from "../lib/machines";
+import { alwaysGranted, capabilityLabelKey, offeredCapabilities, toggleRight, type RightsValues } from "../lib/machines";
 import { Checkbox, Checks, Field, Input } from "./Field";
 
 // Les droits d'un agent à cocher, avec les chemins d'un droit borné : à
 // l'ajout d'une machine comme au changement de ses droits. update écrit les
 // seuls champs touchés : le formulaire de l'ajout porte aussi le nom.
-export function RightsFields({ values, update }: { values: RightsValues; update: (patch: Partial<RightsValues>) => void }) {
+// proxmoxDetected : l'agent a reconnu un hôte Proxmox VE sur la machine ; faux
+// pour une machine pas encore enrôlée.
+export function RightsFields({
+  values,
+  update,
+  proxmoxDetected,
+}: {
+  values: RightsValues;
+  update: (patch: Partial<RightsValues>) => void;
+  proxmoxDetected: boolean;
+}) {
   const t = useT();
   return (
     <>
       <Field label={t("machine.rights_label")} help={t("machine.rights_help")}>
         <Checks>
-          {capabilityNames.map((name) => (
+          {offeredCapabilities(proxmoxDetected, values.rights).map((name) => (
             <Checkbox
               key={name}
               label={t(capabilityLabelKey(name))}

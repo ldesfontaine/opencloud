@@ -229,15 +229,24 @@ func (db *DB) PurgeRuns(ctx context.Context, before time.Time) error {
 	return nil
 }
 
-// ListActionRuns rend les runs, d'une machine ou de toutes, du plus récent
-// au plus ancien, avec leur sortie.
+// ListActionRuns rend les runs, d'une machine ou de toutes, de ces genres ou
+// de tous, du plus récent au plus ancien, avec leur sortie.
 func (db *DB) ListActionRuns(ctx context.Context, query action.Query) ([]action.Run, error) {
+	args := []any{query.MachineID, query.MachineID}
+	kindsFilter := ""
+	if len(query.Kinds) > 0 {
+		kindsFilter = " AND action IN (" + strings.TrimSuffix(strings.Repeat("?,", len(query.Kinds)), ",") + ")"
+		for _, kind := range query.Kinds {
+			args = append(args, string(kind))
+		}
+	}
+	args = append(args, query.Limit)
 	rows, err := db.sql.QueryContext(ctx, `
 		SELECT `+runColumns+`
 		FROM action_runs
-		WHERE (? = '' OR machine_id = ?)
+		WHERE (? = '' OR machine_id = ?)`+kindsFilter+`
 		ORDER BY requested_at DESC, id DESC
-		LIMIT ?`, query.MachineID, query.MachineID, query.Limit)
+		LIMIT ?`, args...) // #nosec G202 -- une condition fixe du code, les valeurs sont liées.
 	if err != nil {
 		return nil, fmt.Errorf("list runs: %w", err)
 	}

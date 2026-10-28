@@ -46,6 +46,14 @@ const (
 	// suivants (il existe).
 	KindDockerDeploy Kind = "docker.deploy"
 	KindDockerUpdate Kind = "docker.update"
+	// Les gestes réversibles sur un invité Proxmox (ProxmoxGuestParams), faits
+	// par l'agent de l'hôte avec son jeton local : démarrer, arrêter par ACPI,
+	// prendre un instantané, supprimer un instantané créé par ce produit. Ni
+	// arrêt forcé, ni redémarrage, ni retour en arrière, ni suppression d'invité.
+	KindProxmoxStart          Kind = "proxmox.vm.start"
+	KindProxmoxShutdown       Kind = "proxmox.vm.shutdown"
+	KindProxmoxSnapshot       Kind = "proxmox.vm.snapshot"
+	KindProxmoxSnapshotDelete Kind = "proxmox.vm.snapshot_delete"
 )
 
 // ServerKeyParams sont les paramètres de agent.server_key : la clé publique
@@ -61,7 +69,8 @@ func ObservationKinds() []Kind {
 
 // OrderKinds rend les genres d'ordres, signés et journalisés.
 func OrderKinds() []Kind {
-	return []Kind{KindAgentPing, KindAgentUpdate, KindServerKey, KindBackupReceive, KindBackupPrune, KindBackupProduce, KindDockerDeploy, KindDockerUpdate}
+	return []Kind{KindAgentPing, KindAgentUpdate, KindServerKey, KindBackupReceive, KindBackupPrune, KindBackupProduce, KindDockerDeploy, KindDockerUpdate,
+		KindProxmoxStart, KindProxmoxShutdown, KindProxmoxSnapshot, KindProxmoxSnapshotDelete}
 }
 
 func (k Kind) IsOrder() bool {

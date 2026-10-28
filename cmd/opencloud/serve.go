@@ -140,6 +140,9 @@ func runServe(args []string) error {
 	// vie de serve.
 	parts.backups.SetLifetime(ctx)
 	parts.backups.SetWatcher(bus)
+	// Le suivi d'un geste sur un invité Proxmox (relire l'hôte quand il a
+	// réussi) vit avec serve.
+	parts.proxmox.SetLifetime(ctx)
 
 	// serve n'observe rien de sa propre machine : c'est l'agent installé sur
 	// elle, comme sur les autres. L'empreinte de la machine ne sert qu'à le
