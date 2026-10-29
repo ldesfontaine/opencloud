@@ -79,6 +79,8 @@ type MachineService interface {
 	NoteSystem(ctx context.Context, machineID, system string) error
 	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
 	NoteRootDir(ctx context.Context, agentID, root string) error
+	NoteRollbackVersion(ctx context.Context, agentID, reported string) error
+	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) (machine.Machine, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
 	SessionMachine(sessionToken string) (machineID string, err error)
@@ -270,6 +272,12 @@ type ActionService interface {
 	// fin de l'ordre au retour de l'agent (voir agentapi).
 	OfferUpdate(ctx context.Context, machineID string) (action.UpdateOffer, error)
 	UpdateAgent(ctx context.Context, machineID string) (action.Run, error)
+	RollbackAgent(ctx context.Context, machineID string) (action.Run, error)
+	// Le plan : où en est l'agent de chaque machine, dans quel ordre les mettre
+	// à jour, et ce qui est en vol. Rien ne s'exécute.
+	UpdatePlan(ctx context.Context) ([]action.PlanEntry, error)
+	UpdateInFlight(ctx context.Context) (action.Run, bool, error)
+	TargetVersion() string
 	ConfirmAgentUpdate(ctx context.Context, machineID, agentID, reported string) error
 }
 

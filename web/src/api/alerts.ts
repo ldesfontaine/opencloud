@@ -16,7 +16,8 @@ export type AlertKind =
   | "cert_expiring"
   | "cert_expired"
   | "cert_untrusted"
-  | "disk_full";
+  | "disk_full"
+  | "agent_rolled_back";
 
 // Le catalogue fermé, dans l'ordre des écrans.
 export const alertKinds: readonly AlertKind[] = [
@@ -31,6 +32,7 @@ export const alertKinds: readonly AlertKind[] = [
   "cert_expired",
   "cert_untrusted",
   "disk_full",
+  "agent_rolled_back",
 ];
 
 export type AlertSeverity = "attention" | "danger";

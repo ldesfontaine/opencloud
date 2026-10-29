@@ -108,6 +108,10 @@ export function Overview() {
   const alerts = useAlerts();
   const resources = useCurrentResources();
   const list = machines.data?.machines ?? [];
+  // Un agent revenu à sa version d'avant : l'alerte ouverte de sa machine.
+  const rolledBack = new Set(
+    (alerts.data?.alerts ?? []).filter((alert) => alert.kind === "agent_rolled_back" && alert.status === "open").map((alert) => alert.object.id),
+  );
   const online = list.filter((machine) => machine.online).length;
   const currentOf = (machineID: string) => resources.data?.machines.find((current) => current.machine_id === machineID);
   return (
@@ -198,7 +202,14 @@ export function Overview() {
                         {machine.address !== "" ? machine.address : machine.os}
                       </span>
                     </span>
-                    <OnlinePill online={machine.online} />
+                    <span className="machine-card-pills">
+                      {rolledBack.has(machine.id) && (
+                        <Pill tone="warn" small title={t("alert.fact_agent_rolled_back")}>
+                          {t("overview.agent_rolled_back")}
+                        </Pill>
+                      )}
+                      <OnlinePill online={machine.online} />
+                    </span>
                   </div>
                   <MachineMeters current={currentOf(machine.id)} />
                   <div className="machine-card-foot secondary">

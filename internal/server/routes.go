@@ -47,6 +47,10 @@ func (s *Server) routes() []route {
 		{"POST", "/api/machines/{id}/actions/ping", s.pingAgent},
 		{"GET", "/api/machines/{id}/agent-update", s.getAgentUpdate},
 		{"POST", "/api/machines/{id}/actions/update-agent", s.updateAgent},
+		{"POST", "/api/machines/{id}/actions/rollback-agent", s.rollbackAgent},
+		{"GET", "/api/agent-updates", s.listAgentUpdates},
+		{"GET", "/api/agent-migration", s.getAgentMigration},
+		{"PUT", "/api/machines/{id}/update-last", s.setUpdateLast},
 		{"POST", "/api/machines/{id}/actions/check-updates", s.checkUpdates},
 		{"GET", "/api/machines/{id}/resources", s.getMachineResources},
 		{"GET", "/api/machines/{id}/resources/history", s.getMachineHistory},
@@ -210,7 +214,7 @@ var apiTokenRoutes = []string{
 	"GET /api/probes", "GET /api/probes/{id}",
 	"GET /api/status/pages", "GET /api/status/pages/{id}", "GET /api/status/components", "GET /api/status/incidents",
 	"GET /api/alerts", "GET /api/alerts/{id}", "GET /api/alerts/channels",
-	"GET /api/audit", "GET /api/actions",
+	"GET /api/audit", "GET /api/actions", "GET /api/agent-updates",
 	"GET /api/token/verbs",
 }
 

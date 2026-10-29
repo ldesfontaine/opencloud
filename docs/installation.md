@@ -38,7 +38,7 @@ le tenir à jour, le sauvegarder. Ce que fait chaque pièce, et pourquoi :
 9. [Brancher un agent IA](#brancher-un-agent-ia)
 10. [Ajouter une machine](#ajouter-une-machine)
 11. [Déclarer un hôte Proxmox](#déclarer-un-hôte-proxmox)
-12. [Mettre à jour](#mettre-à-jour) (dont [passer un agent en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte))
+12. [Mettre à jour](#mettre-à-jour) (dont [revenir en arrière automatiquement](#revenir-en-arrière-automatiquement), [migrer l'agent](#migrer-lagent-vers-le-retour-arrière-automatique) et [passer un agent en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte))
 13. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
 14. [Sauvegarder des VM Proxmox](#sauvegarder-des-vm-proxmox) (dont [restaurer une VM sans openCloud](#une-vm-proxmox-sans-opencloud))
 15. [Désinstaller](#désinstaller)
@@ -50,7 +50,7 @@ Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 | --- | --- |
 | [`config.toml`](installation/config.toml) | `/etc/opencloud/config.toml`, toutes les clés commentées |
 | [`opencloud.service`](installation/opencloud.service) | `/etc/systemd/system/`, le serveur |
-| [`opencloud-agent.service`](installation/opencloud-agent.service) | `/etc/systemd/system/` de chaque machine, la machine openCloud comprise : l'agent, sous le compte `opencloud-agent` |
+| [`opencloud-agent.service`](installation/opencloud-agent.service) | `/etc/systemd/system/` de chaque machine, la machine openCloud comprise : le lanceur stable, qui lance l'agent sous le compte `opencloud-agent` |
 | [`traefik-opencloud.yml`](installation/traefik-opencloud.yml) | Le dossier de configuration dynamique de Traefik |
 | [`compose.traefik.yml`](installation/compose.traefik.yml) | Extrait Compose d'un Traefik en conteneur qui joint openCloud sur l'hôte |
 | [`compose.mcp-maison.yml`](installation/compose.mcp-maison.yml) | `/srv/workspace/mcp-maison/compose.yml`, mcp-maison pour [brancher un agent IA](#brancher-un-agent-ia) |
@@ -220,6 +220,9 @@ getent group docker >/dev/null && usermod -aG docker opencloud-agent
 install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent
 runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin
 runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
+# Le lanceur stable que l'unité lance (à root, hors de bin/) : il ramène l'agent à la version précédente si une mise à jour ne tient pas
+install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
+install -m 0755 -o root -g root /usr/local/bin/opencloud /usr/local/lib/opencloud-agent/opencloud-guard
 
 # La ligne d'installation de l'écran ; « connected » au journal : Ctrl-C
 printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://opencloud.example.org
@@ -1013,6 +1016,8 @@ getent group docker >/dev/null && usermod -aG docker opencloud-agent
 install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent
 runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin
 runuser -u opencloud-agent -- install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
+install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
+install -m 0755 -o root -g root /tmp/opencloud /usr/local/lib/opencloud-agent/opencloud-guard
 test ! -L /srv/workspace && install -d -m 0755 -o opencloud-agent -g opencloud-agent /srv/workspace # docker.deploy
 test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups # backup.receive
 ```
@@ -1027,6 +1032,12 @@ test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-age
   préparation, ou rejouez `usermod -aG docker opencloud-agent` après, puis
   `systemctl restart opencloud-agent` : un groupe se lit au démarrage du
   processus.
+- **Le lanceur stable** (`/usr/local/lib/opencloud-agent/opencloud-guard`) est
+  une copie du même binaire, posée par root hors de `bin/` : l'unité lance
+  *lui*, et lui lance `bin/current` sous le compte de l'agent. C'est ce qui
+  ramène l'agent à la version précédente si une mise à jour ne tient pas
+  (voir « [Revenir en arrière automatiquement](#revenir-en-arrière-automatiquement) »). Sans lui,
+  openCloud n'envoie aucune mise à jour à l'agent.
 - **Le binaire** est copié dans `bin/` de l'état de l'agent, et le lien `current`
   désigne celui qui tourne : c'est ce qui permet à l'agent de se mettre à jour
   seul (voir [Mettre à jour](#mettre-à-jour)). `v0.0.1` est la version du
@@ -1166,9 +1177,10 @@ journalctl -u opencloud-agent -f
 ```
 
 L'unité ([`opencloud-agent.service`](installation/opencloud-agent.service))
-lance `/var/lib/opencloud-agent/bin/current agent -state
-/var/lib/opencloud-agent` sous `opencloud-agent` (`User=` et `Group=`), sans
-`-server` ni jeton : l'agent relit son identité (`identity loaded`) et se
+lance le lanceur stable (`/usr/local/lib/opencloud-agent/opencloud-guard guard
+-state /var/lib/opencloud-agent agent -state /var/lib/opencloud-agent`) sous
+`opencloud-agent` (`User=` et `Group=`), sans `-server` ni jeton ; lui lance
+`/var/lib/opencloud-agent/bin/current` avec la fin de la ligne : l'agent relit son identité (`identity loaded`) et se
 connecte. Il lit `/proc`, les volumes montés et, par le groupe `docker`, la
 socket Docker. Il n'y a pas de `SupplementaryGroups=docker` dans l'unité :
 systemd lit les groupes du compte au démarrage (un groupe absent empêcherait
@@ -1206,9 +1218,12 @@ l'ordre, ne peut pas écrire, et répond `path_unwritable` ; si le dossier n'est
 pas au compte de l'agent, c'est `path_denied`.
 
 **Le code de sortie 3** veut dire « mis à jour, relance-moi » : l'agent vient
-de changer de binaire (`agent.update`) et s'arrête pour que systemd le relance
-sur le nouveau. `Restart=on-failure` le relance, `RestartPreventExitStatus=2`
-ne retient que le code 2.
+de changer de binaire (`agent.update`) ou de revenir en arrière
+(`agent.rollback`) et s'arrête pour que systemd relance le lanceur, qui lance
+le binaire que `bin/current` désigne maintenant. `Restart=on-failure` le
+relance, `RestartPreventExitStatus=2` ne retient que le code 2 (un refus, ou le
+lanceur qui s'arrête parce que la remise en état d'une mise à jour a échoué
+aussi).
 
 **Déployer un service Docker** (droits `docker.deploy` et `docker.update`)
 demande deux choses sur la machine, et une dans l'unité :
@@ -1516,9 +1531,18 @@ l'agent**. Le bouton n'apparaît que si l'agent est en ligne, a le droit
 en donne la raison (version plus récente, rien d'importé pour cette
 architecture, droit manquant…). L'agent télécharge le binaire, **revérifie
 lui-même la signature avec sa propre clé**, l'éprouve (`opencloud version`),
-bascule le lien `bin/current`, puis s'arrête avec le code 3 : systemd le
-relance. L'ordre devient « fait » quand l'agent revient en annonçant la
-nouvelle version. Il garde la version précédente à côté.
+écrit le marqueur d'attente de confirmation, bascule le lien `bin/current`, puis
+s'arrête avec le code 3 : systemd relance le lanceur. L'ordre devient « fait »
+quand l'agent revient en annonçant la nouvelle version **et** que le serveur
+l'a acquitté. Il garde la version précédente à côté (`bin/previous`), intacte.
+
+**Une seule mise à jour à la fois**, tous agents confondus : tant qu'une n'est
+ni confirmée, ni en échec, ni échue (30 minutes), les autres sont refusées
+(`action.update_in_progress`). Pour enchaîner les machines,
+`GET /api/agent-updates` (ou la fiche de chaque machine) donne un ordre
+conseillé : les machines marquées « à mettre à jour en dernier » (celles qui
+portent le chemin des ordres : proxy, VPN…) viennent après les autres. Le
+serveur n'en lance aucune tout seul ; on s'arrête au premier échec.
 
 **Un agent installé avant le 22 octobre 2026** a son état dans
 `/var/lib/opencloud/agent`, et le plus ancien lance encore
@@ -1527,13 +1551,96 @@ nouvelle version. Il garde la version précédente à côté.
 état](#déplacer-létat-de-lagent-installé-avant-le-22-octobre-2026) règle les
 deux d'un coup.
 
-**Revenir en arrière** sur une machine : l'interface n'envoie pas de version
-plus ancienne (l'agent la refuserait aussi). À la main, sur la machine :
+### Revenir en arrière automatiquement
+
+Une mise à jour d'agent a **trois minutes** pour se confirmer : le nouvel
+agent doit rejoindre openCloud et être acquitté. Sinon, **la machine revient
+seule** à la version précédente, sans rien demander au serveur, même si le
+nouveau binaire ne démarre pas, plante en boucle, ne se connecte plus ou si le
+serveur a disparu. C'est le lanceur stable qui le fait ; il n'a besoin d'aucun
+droit de plus que l'agent (aucun `sudo`, aucun root permanent).
+
+| Ce qui arrive | Ce que fait la machine | Ce que le serveur voit |
+| --- | --- | --- |
+| La nouvelle version ne démarre pas, plante en boucle | Le lanceur compte les plantages, puis à l'échéance rebascule sur la précédente | Run en **échec** (`rolled_back_crash`), événement `action.rolled_back`, alerte « Agent revenu à la version précédente » |
+| Elle tourne mais ne rejoint pas le serveur | À l'échéance le lanceur l'arrête, rebascule, et systemd relance | Idem avec `rolled_back_timeout` |
+| La version précédente échoue aussi | **Une seule** remise en état : le lanceur s'arrête (code 2), le marqueur dit l'échec, le journal local le crie | Run en échec (`rollback_failed`), alerte **danger**, dès qu'un agent revient |
+
+Ce que ça coûte : un second processus par agent (le lanceur, quelques Mio), une
+copie figée du binaire dans `/usr/local/lib/opencloud-agent/` qu'il faut
+reposer à la main si le lanceur change, et une étape de migration par agent
+déjà installé. Une machine éteinte plus de trois minutes juste après la
+bascule revient à la précédente à son démarrage.
+
+Le journal de l'unité (`journalctl -u opencloud-agent`) dit chaque décision :
+`update not confirmed in time`, `update refused, returned to the previous
+version`, `the previous version fails too, giving up`.
+
+**Revenir en arrière à la main** : fiche › Agent › **Revenir à la version
+précédente** (ordre `agent.rollback`, même droit que la mise à jour). L'agent
+éprouve la version d'avant, rebascule et redémarre ; le retour est confirmé
+comme une mise à jour, mais s'il échoue la machine n'essaie pas de revenir une
+seconde fois : elle le dit. L'agent refuse sans rien changer s'il n'a pas de
+version précédente (`no_previous`) ou si elle est celle qui tourne
+(`previous_identical`). Sans l'interface, sur la machine :
 
 ```sh
-runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current   # la précédente
-systemctl restart opencloud-agent
+sudo -u opencloud-agent ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current   # la précédente
+sudo rm -f /var/lib/opencloud-agent/update.json                                         # plus rien à confirmer
+sudo systemctl restart opencloud-agent
 ```
+
+### Migrer l'agent vers le retour arrière automatique
+
+**Un agent installé avant le 29 octobre 2026 n'a pas le lanceur stable** :
+openCloud refuse de lui envoyer une mise à jour (`409
+action.rollback_unavailable`) et sa fiche dit « Cette machine doit être migrée
+avant d'être mise à jour », avec les lignes ci-dessous (l'interface les produit,
+`GET /api/agent-migration`). **Une fois par machine**, depuis un compte non
+root qui a `sudo`. Prérequis : l'unité est celle de ce dépôt, avec son
+`ExecStart=/var/lib/opencloud-agent/bin/current agent …` (voir [Déplacer
+l'état](#déplacer-létat-de-lagent-installé-avant-le-22-octobre-2026) sinon).
+
+Le binaire à poser est celui de ce serveur : vérifiez-le (`opencloud release
+verify`, [Télécharger](#télécharger)), copiez-le sur la machine, puis :
+
+```sh
+scp opencloud-linux-amd64 vous@machine:/tmp/opencloud          # arm64 pour une machine arm64
+# Sur la machine :
+sudo systemctl stop opencloud-agent.service
+sudo install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
+sudo install -m 0755 -o root -g root /tmp/opencloud /usr/local/lib/opencloud-agent/opencloud-guard
+sudo -u opencloud-agent install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1
+sudo -u opencloud-agent ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
+sudo sed -i 's|^ExecStart=/var/lib/opencloud-agent/bin/current |ExecStart=/usr/local/lib/opencloud-agent/opencloud-guard guard -state /var/lib/opencloud-agent |' /etc/systemd/system/opencloud-agent.service
+systemctl cat opencloud-agent.service | grep '^ExecStart='
+sudo systemctl daemon-reload
+sudo systemctl start opencloud-agent.service
+```
+
+(`v0.0.1` : le numéro que `opencloud version` affiche pour ce binaire.) La
+ligne `sed` garde les options de l'agent (`-ca-file`, `-allow-plain`…) ; la
+rejouer ne change rien. N'ajoutez **pas** de lien `bin/previous` à la main : il
+naît à la première mise à jour.
+
+**Vérifier.** `systemctl cat opencloud-agent.service | grep '^ExecStart='` doit
+montrer `…/opencloud-guard guard -state … agent -state …` (une seule ligne, sinon
+un drop-in redéfinit `ExecStart=`) ; `journalctl -u opencloud-agent -n 20` doit
+dire `agent starting` puis `connected` ; la fiche de la machine dit « Retour
+arrière automatique : Oui ».
+
+**Annuler la migration.**
+
+```sh
+sudo systemctl stop opencloud-agent.service
+sudo sed -i 's|^ExecStart=/usr/local/lib/opencloud-agent/opencloud-guard guard -state /var/lib/opencloud-agent |ExecStart=/var/lib/opencloud-agent/bin/current |' /etc/systemd/system/opencloud-agent.service
+sudo systemctl daemon-reload
+sudo systemctl start opencloud-agent.service
+sudo rm -r /usr/local/lib/opencloud-agent
+```
+
+L'agent redevient comme avant : plus de retour arrière, donc plus de mise à
+jour depuis l'interface (il faut migrer de nouveau).
 
 **Le niveau label demande des agents à jour ; mettez à jour le serveur d'abord, puis les agents.**
 Un agent plus ancien ne transmet pas les labels : un conteneur étiqueté reste rattaché par son projet Compose ou
@@ -1658,9 +1765,12 @@ Les liens de `bin/` sont relatifs : ils ont suivi le déplacement.
   ```
 
 Enfin la nouvelle unité (`-state` et `ExecStart` y sont déjà ceux du nouveau
-chemin), sans la démarrer encore :
+chemin), sans la démarrer encore. **Elle lance le lanceur stable** : posez-le
+d'abord (une copie du binaire, à root), sans quoi l'unité ne démarre pas :
 
 ```sh
+install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
+install -m 0755 -o root -g root /var/lib/opencloud-agent/bin/opencloud-v0.0.1 /usr/local/lib/opencloud-agent/opencloud-guard
 install -m 0644 docs/installation/opencloud-agent.service /etc/systemd/system/opencloud-agent.service
 # Les options notées au début (-allow-plain, -ca-file, -docker-socket), en fin de ligne, par exemple :
 sed -i 's|^ExecStart=.*|& -ca-file /etc/ssl/ca-interne.pem|' /etc/systemd/system/opencloud-agent.service
@@ -1728,6 +1838,9 @@ test ! -L /opt/site && chown -h opencloud-agent:opencloud-agent /opt/site
 
 # Le lien /usr/local/bin/opencloud qui mène dans l'état de l'agent, s'il existe (jamais le binaire du serveur)
 case "$(readlink -f /usr/local/bin/opencloud)" in /var/lib/opencloud-agent/*) rm /usr/local/bin/opencloud ;; esac
+
+# Le lanceur stable que l'unité lance, s'il n'est pas posé (« Migrer l'agent »)
+test -x /usr/local/lib/opencloud-agent/opencloud-guard || { install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent && install -m 0755 -o root -g root /var/lib/opencloud-agent/bin/current /usr/local/lib/opencloud-agent/opencloud-guard; }
 
 # L'unité (sous le compte). S'il y avait des options à reporter, décommentez le sed
 install -m 0644 docs/installation/opencloud-agent.service /etc/systemd/system/opencloud-agent.service
@@ -2337,6 +2450,7 @@ rm /etc/systemd/system/opencloud-agent.service && systemctl daemon-reload
 rm -rf /etc/systemd/system/opencloud-agent.service.d          # droits.conf, root.conf, s'il y en a
 rm -f /usr/local/bin/opencloud                                  # un lien d'une installation d'avant, s'il existe
 rm -r /var/lib/opencloud-agent
+rm -r /usr/local/lib/opencloud-agent                            # le lanceur stable
 userdel opencloud-agent
 ```
 
@@ -2353,7 +2467,7 @@ machine :
 systemctl disable --now opencloud opencloud-agent
 rm /etc/systemd/system/opencloud.service /etc/systemd/system/opencloud-agent.service && systemctl daemon-reload
 rm /usr/local/bin/opencloud
-rm -r /etc/opencloud /var/lib/opencloud /var/lib/opencloud-agent
+rm -r /etc/opencloud /var/lib/opencloud /var/lib/opencloud-agent /usr/local/lib/opencloud-agent
 userdel opencloud
 userdel opencloud-agent
 # et le fichier openCloud de la configuration dynamique de Traefik

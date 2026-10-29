@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 
-import { updateAgent, useAgentUpdateOffer } from "../api/actions";
 import { useMachineContainers } from "../api/containers";
 import type { Lifecycle } from "../api/lifecycle";
 import { deleteMachine, fetchMachineDeletePlan, reenrollMachine, revokeAgent, useMachines, type Agent, type Machine } from "../api/machines";
 import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
 import { ActionsCard } from "../components/ActionsCard";
+import { AgentUpdate } from "../components/AgentUpdate";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
@@ -86,7 +86,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
           {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
           {current.proxmox.hosted !== null && <HostedCard hosted={current.proxmox.hosted} />}
           <ProxmoxCard machine={current} />
-          <AgentCard machineID={current.id} agent={current.agent} now={now} />
+          <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} online={current.online} now={now} />
           <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
         </>
       ) : tab === "services" ? (
@@ -124,7 +124,7 @@ function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
 // droits, tels qu'il les rapporte et tels que sa commande d'installation les
 // demandait. Il applique ceux de son fichier ; les changer, c'est le
 // ré-enrôler, par la page des droits.
-function AgentCard({ machineID, agent, now }: { machineID: string; agent: Agent | null; now: number }) {
+function AgentCard({ machineID, agent, updateLast, online, now }: { machineID: string; agent: Agent | null; updateLast: boolean; online: boolean; now: number }) {
   const t = useT();
   if (agent === null) {
     return (
@@ -144,7 +144,7 @@ function AgentCard({ machineID, agent, now }: { machineID: string; agent: Agent 
       <CardBody gap={10}>
         {agent.revoked_at !== null && <Note tone="danger">{t("machine.agent_revoked", formatWhen(agent.revoked_at, now))}</Note>}
         <KeyValue label={t("machine.field_agent")} value={agent.version} mono />
-        {agent.revoked_at === null && <AgentUpdate machineID={machineID} />}
+        {agent.revoked_at === null && <AgentUpdate machineID={machineID} agent={agent} updateLast={updateLast} online={online} />}
         <KeyValue label={t("machine.field_agent_enrolled")} value={formatWhen(agent.enrolled_at, now)} />
         <KeyValue label={t("machine.agent_account")} value={account ?? t("machine.agent_account_unreported")} mono={account !== null} />
         {agent.run_as?.uid === 0 && <p className="secondary">{t("machine.agent_account_root_note")}</p>}
@@ -177,42 +177,6 @@ function AgentCard({ machineID, agent, now }: { machineID: string; agent: Agent 
       </CardBody>
     </Card>
   );
-}
-
-// La mise à jour de l'agent : le bouton quand la version du serveur est
-// importée et que l'agent peut la recevoir, sinon la raison en une ligne.
-// Une machine à jour n'a rien à dire.
-function AgentUpdate({ machineID }: { machineID: string }) {
-  const t = useT();
-  const offer = useAgentUpdateOffer(machineID);
-  const action = useAction();
-  const current = offer.data;
-  if (current === null) {
-    return offer.error ? <Failure error={offer.error} /> : null;
-  }
-  if (current.available) {
-    const update = () => {
-      action.run(() => updateAgent(machineID), {
-        confirm: t("machine.agent_update_confirm", current.current, current.target),
-        topic: "actions",
-      });
-    };
-    return (
-      <>
-        <Failure error={action.error} />
-        <div>
-          <Button small icon="refresh" onClick={update} disabled={action.busy}>
-            {t("machine.agent_update", current.target)}
-          </Button>
-        </div>
-        {current.reason === "right_unavailable" && <p className="secondary">{t("machine.agent_update_reason_right_unavailable")}</p>}
-      </>
-    );
-  }
-  if (current.reason === "" || current.reason === "same_version") {
-    return null;
-  }
-  return <p className="secondary">{t(`machine.agent_update_reason_${current.reason}`, current.target, current.arch)}</p>;
 }
 
 // L'onglet Disponibilité : les sondes que cette machine exécute,

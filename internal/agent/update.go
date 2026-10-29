@@ -19,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/release"
+	"github.com/ldesfontaine/opencloud/internal/rollback"
 )
 
 // ErrUpdated : l'agent a installé une version plus récente et bascule son lien
@@ -37,7 +38,6 @@ const (
 	// Un binaire tient en dizaines de Mio ; au-delà, ce n'est pas le nôtre.
 	maxUpdateBinaryBytes = 256 << 20
 	incomingPrefix       = ".incoming-"
-	currentNewName       = brand.AgentCurrentLink + ".new"
 	binaryMode           = 0o755
 	incomingDirMode      = 0o700
 	binDirMode           = 0o755
@@ -58,6 +58,11 @@ type selfUpdater struct {
 	key    release.PublicKey
 	hasKey bool
 	logger *slog.Logger
+	// guarded : l'agent tourne sous le lanceur stable (rollback.Guard), le seul
+	// qui rebascule si la nouvelle version ne confirme pas. Sans lui, aucune
+	// bascule : jamais de mise à jour sans retour arrière.
+	guarded bool
+	now     func() time.Time
 	// Ce qui sort du processus, remplaçable par les tests : le chemin du
 	// binaire qui tourne, l'épreuve d'une version installée, et la relance.
 	executable func() (string, error)
@@ -68,7 +73,7 @@ type selfUpdater struct {
 func newSelfUpdater(stateDir *os.Root, version string, logger *slog.Logger) *selfUpdater {
 	return &selfUpdater{
 		stateDir: stateDir, version: version, logger: logger,
-		executable: os.Executable, selfCheck: runSelfCheck, restart: func() {},
+		executable: os.Executable, selfCheck: runSelfCheck, restart: func() {}, now: time.Now,
 	}
 }
 
@@ -158,9 +163,10 @@ func readAgentUpdate(body agentwire.OrderBody) (agentwire.AgentUpdateParams, boo
 // signature des sommes est vérifiée avec la clé que CE binaire embarque, pas
 // celle du serveur ; la version signée est celle demandée, et pas plus ancienne
 // que la sienne ; la somme du binaire est dans les sommes signées ; le binaire
-// est installé et éprouvé ; le lien bascule d'un coup. Avant la bascule, tout
+// est installé et éprouvé ; le marqueur d'attente de confirmation et le lien
+// previous sont écrits ; le lien bascule d'un coup. Avant la bascule, tout
 // échec laisse l'ancien lien et efface ce qui a été posé.
-func (u *selfUpdater) update(ctx context.Context, source parcelSource, params agentwire.AgentUpdateParams) error {
+func (u *selfUpdater) update(ctx context.Context, source parcelSource, params agentwire.AgentUpdateParams, runID string) error {
 	if !u.hasKey {
 		return failWith(agentwire.ReasonReleaseKeyMissing, errors.New("no release key embedded"))
 	}
@@ -191,20 +197,88 @@ func (u *selfUpdater) update(ctx context.Context, source parcelSource, params ag
 	if err != nil {
 		return err
 	}
-	target := brand.AgentBinaryPrefix + signed.Version.String()
-	previous := currentTarget(bin)
+	target := rollback.BinaryName(signed.Version.String())
+	previous := rollback.LinkTarget(bin, brand.AgentCurrentLink)
 	// Jamais par-dessus le binaire que current lance : une épreuve ratée
 	// l'effacerait, et systemd n'aurait plus rien à relancer.
 	if target == previous {
 		return failWith(agentwire.ReasonDowngrade, fmt.Errorf("%s is the running version", target))
 	}
+	// Sans version d'avant lisible, il n'y a rien à quoi revenir : pas de
+	// bascule.
+	previousVersion, hasPrevious := rollback.VersionOf(previous)
+	if !hasPrevious {
+		return failWith(agentwire.ReasonNoPrevious, fmt.Errorf("current points to %q", previous))
+	}
 	if err := u.install(ctx, bin, incomingName, target, params); err != nil {
 		return err
 	}
-	if err := switchCurrent(bin, target); err != nil {
+	marker := u.newMarker(rollback.KindUpdate, runID, signed.Version.String(), previousVersion)
+	if err := u.switchWithMarker(bin, marker, target); err != nil {
 		return err
 	}
 	u.prune(bin, target, previous)
+	return nil
+}
+
+// newMarker écrit l'attente de confirmation qui commence maintenant, avec le
+// délai du produit : le serveur ne le règle pas.
+func (u *selfUpdater) newMarker(kind rollback.Kind, runID, target, previous string) rollback.Marker {
+	now := u.now().UTC()
+	return rollback.Marker{
+		State: rollback.StatePending, Kind: kind, RunID: runID, Target: target, Previous: previous,
+		StartedAt: now, Deadline: now.Add(rollback.GracePeriod),
+	}
+}
+
+// switchWithMarker arme le retour (lien previous, marqueur) puis bascule
+// current. Si la bascule échoue, le marqueur part : il n'y a rien à confirmer.
+func (u *selfUpdater) switchWithMarker(bin *os.Root, marker rollback.Marker, target string) error {
+	if err := rollback.Arm(u.stateDir, bin, marker); err != nil {
+		return failWith(agentwire.ReasonPathUnwritable, err)
+	}
+	if err := rollback.SwitchLink(bin, brand.AgentCurrentLink, target); err != nil {
+		if removeErr := rollback.Remove(u.stateDir); removeErr != nil {
+			u.logger.Error("remove update marker", "error", removeErr)
+		}
+		return failWith(agentwire.ReasonPathUnwritable, err)
+	}
+	return nil
+}
+
+// rollback rebascule current sur previous, comme une mise à jour qui se
+// confirme : le même marqueur, la même attente, mais jamais de seconde remise
+// en état si la version d'avant ne revient pas (elle le dit). Il refuse sans
+// rien toucher s'il n'y a pas de précédent, ou s'il est la version qui tourne.
+func (u *selfUpdater) rollback(ctx context.Context, runID string) error {
+	bin, err := u.openBin()
+	if err != nil {
+		return err
+	}
+	defer bin.Close()
+	previous := rollback.LinkTarget(bin, brand.AgentPreviousLink)
+	running := rollback.LinkTarget(bin, brand.AgentCurrentLink)
+	previousVersion, hasPrevious := rollback.VersionOf(previous)
+	runningVersion, hasRunning := rollback.VersionOf(running)
+	if !hasPrevious || !hasRunning {
+		return refuseWith(agentwire.ReasonNoPrevious, fmt.Errorf("previous %q, current %q", previous, running))
+	}
+	if previous == running {
+		return refuseWith(agentwire.ReasonPreviousIdentical, fmt.Errorf("%s is the running version", previous))
+	}
+	binDir, err := u.binDir()
+	if err != nil {
+		return failWith(agentwire.ReasonPathUnwritable, err)
+	}
+	// Elle s'éprouve comme une version neuve : elle doit se lancer ici, aujourd'hui.
+	if err := u.selfCheck(ctx, filepath.Join(binDir, previous), previousVersion); err != nil {
+		return failWith(agentwire.ReasonSelfCheckFailed, err)
+	}
+	marker := u.newMarker(rollback.KindRollback, runID, previousVersion, runningVersion)
+	if err := u.switchWithMarker(bin, marker, previous); err != nil {
+		return err
+	}
+	u.prune(bin, previous, running)
 	return nil
 }
 
@@ -290,38 +364,6 @@ func (u *selfUpdater) install(ctx context.Context, bin *os.Root, incomingName, t
 	if err := u.selfCheck(ctx, filepath.Join(binDir, target), params.Version); err != nil {
 		_ = bin.Remove(target)
 		return failWith(agentwire.ReasonSelfCheckFailed, err)
-	}
-	return nil
-}
-
-// currentTarget rend le nom du binaire vers lequel current pointe avant la
-// bascule ; vide si le lien manque ou n'est pas un lien. Un lien posé à la
-// main en chemin absolu (ln -sfn /var/lib/…/bin/opencloud-v0.0.1) donne le
-// même nom : la précédente est gardée pour revenir en arrière.
-func currentTarget(bin *os.Root) string {
-	target, err := bin.Readlink(brand.AgentCurrentLink)
-	if err != nil || target == "" {
-		return ""
-	}
-	return filepath.Base(target)
-}
-
-// switchCurrent fait pointer current sur le binaire installé : un lien neuf à
-// côté, renommé sur l'ancien, donc atomique. Le dossier est écrit sur le
-// disque avant de redémarrer.
-func switchCurrent(bin *os.Root, target string) error {
-	if err := bin.Remove(currentNewName); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return failWith(agentwire.ReasonPathUnwritable, err)
-	}
-	if err := bin.Symlink(target, currentNewName); err != nil {
-		return failWith(agentwire.ReasonPathUnwritable, err)
-	}
-	if err := bin.Rename(currentNewName, brand.AgentCurrentLink); err != nil {
-		_ = bin.Remove(currentNewName)
-		return failWith(agentwire.ReasonPathUnwritable, err)
-	}
-	if err := fsx.SyncDir(bin, "."); err != nil {
-		return failWith(agentwire.ReasonPathUnwritable, err)
 	}
 	return nil
 }
@@ -414,10 +456,7 @@ func (r *orderRunner) acceptAgentUpdate(body agentwire.OrderBody) (agentwire.Act
 	// Hors de bin/, jamais : la règle ne dépend pas d'un juge qu'un banc
 	// remplace. Puis le compte de l'agent doit pouvoir écrire dans bin/ :
 	// refusé avant de télécharger quoi que ce soit.
-	reason := agentwire.ReasonNotSelfUpdatable
-	if r.updater.isSelfUpdatable() {
-		reason = r.checks.agentUpdate()
-	}
+	reason := r.updater.refusalReason(r.checks.agentUpdate)
 	if reason != "" {
 		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", reason)
 		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: reason}, nil
@@ -427,11 +466,45 @@ func (r *orderRunner) acceptAgentUpdate(body agentwire.OrderBody) (agentwire.Act
 		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBadOrder}, nil
 	}
 	return accepted(body), func(ctx context.Context) {
-		if err := r.updater.update(ctx, r.fetch, params); err != nil {
+		if err := r.updater.update(ctx, r.fetch, params, body.RunID); err != nil {
 			r.finishLong(body, nil, err)
 			return
 		}
 		r.logger.Info("agent updated, restarting", "run_id", body.RunID, "version", params.Version, "seq", body.Seq)
+		r.updater.restart()
+	}
+}
+
+// refusalReason dit pourquoi cet agent refuse de basculer son lien, vide s'il
+// le peut : hors de son dossier bin/, sans le lanceur stable (jamais de
+// bascule sans retour arrière), ou parce que son compte n'y écrit pas.
+func (u *selfUpdater) refusalReason(judgeBin func() string) string {
+	switch {
+	case !u.isSelfUpdatable():
+		return agentwire.ReasonNotSelfUpdatable
+	case !u.guarded:
+		return agentwire.ReasonGuardMissing
+	}
+	return judgeBin()
+}
+
+// acceptAgentRollback juge agent.rollback comme agent.update, sans colis : le
+// retour est un lien à rebasculer, rien à télécharger. Réussi, il ne rapporte
+// rien : l'agent s'arrête, et c'est la version d'avant, revenue et confirmée,
+// qui dit au serveur que l'ordre est fait.
+func (r *orderRunner) acceptAgentRollback(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
+	if reason := r.updater.refusalReason(r.checks.agentUpdate); reason != "" {
+		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", reason)
+		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: reason}, nil
+	}
+	// Le précédent ne se juge que dans le worker, avec la même bascule : un
+	// refus sans précédent arrive juste après « accepté », avant toute écriture.
+	return accepted(body), func(ctx context.Context) {
+		if err := r.updater.rollback(ctx, body.RunID); err != nil {
+			r.finishProduce(body, nil, err)
+			return
+		}
+		r.logger.Info("agent rolled back, restarting", "run_id", body.RunID, "seq", body.Seq)
 		r.updater.restart()
 	}
 }

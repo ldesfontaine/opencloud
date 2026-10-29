@@ -20,6 +20,7 @@ function machine(over: Partial<Machine> = {}): Machine {
     os: "Debian 12",
     arch: "amd64",
     online: true,
+    update_last: false,
     last_seen_at: null,
     agent: null,
     proxmox: { declared: false, guests: 0, last_error: "", hosted: null },

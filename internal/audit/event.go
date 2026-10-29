@@ -90,6 +90,8 @@ const (
 	// Un geste demandé sur un invité de l'hôte (démarrer, arrêter, instantané) :
 	// le numéro, le geste et le run. Aucun secret : le jeton ne quitte pas l'hôte.
 	MachineProxmoxGuest Action = "machine.proxmox_guest"
+	// Le drapeau « à mettre à jour en dernier », posé ou retiré par l'opérateur.
+	MachineUpdateLast Action = "machine.update_last"
 
 	// L'agent est enrôlé (la machine créée ou retrouvée) ou révoqué : l'objet
 	// est l'agent, nommé par sa machine. Avant la table agents, l'enrôlement
@@ -170,6 +172,10 @@ const (
 	// l'agent, avec sa raison.
 	ActionOrder   Action = "action.order"
 	ActionRefused Action = "action.refused"
+	// L'agent est revenu à sa version d'avant, seul, parce que la nouvelle
+	// n'a pas confirmé : l'acteur est l'agent de la machine. Aussi quand la
+	// remise en état a échoué à son tour.
+	ActionRolledBack Action = "action.rolled_back"
 
 	// La phrase de passe n'est jamais écrite ici : seulement l'empreinte de
 	// la clé qu'elle scelle.
@@ -191,7 +197,7 @@ const (
 
 func Actions() []Action {
 	return []Action{
-		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset, MachineProxmoxGuest,
+		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset, MachineProxmoxGuest, MachineUpdateLast,
 		AgentEnroll, AgentRevoke,
 		EnrollmentTokenCreate, EnrollmentTokenCancel,
 		ProjectCreate, ProjectUpdate, ProjectDelete,
@@ -210,7 +216,7 @@ func Actions() []Action {
 		AuthEnable, AuthDisable, AuthChangePassword,
 		APITokenCreate, APITokenRevoke, APITokenDeny,
 		SecretsForget, SecretsRotate, SecretsRotateServerKey, SecretsFinishServerKey,
-		ActionOrder, ActionRefused,
+		ActionOrder, ActionRefused, ActionRolledBack,
 		BackupKeyringCreate, BackupKeyringReplace, BackupDestinationCreate, BackupDestinationDelete,
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
 		FirewallCreate, FirewallUpdate, FirewallDelete,

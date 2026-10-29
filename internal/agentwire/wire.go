@@ -51,7 +51,16 @@ const (
 	// jugés avant chaque ouverture du flux. Absent quand tout est réalisable,
 	// et chez un agent plus vieux.
 	HeaderAgentUnavailable = brand.HeaderPrefix + "Agent-Unavailable"
+	// La version du retour arrière que l'agent sait faire, un entier : posée
+	// seulement s'il tourne sous le lanceur stable (brand.AgentGuardEnv). Absent
+	// chez un agent plus vieux ou qui n'est pas migré : le serveur refuse
+	// alors agent.update, jamais sans retour arrière.
+	HeaderAgentRollback = brand.HeaderPrefix + "Agent-Rollback"
 )
+
+// RollbackVersion est la version du retour arrière que ce binaire sait faire
+// avec le lanceur stable (le marqueur, le délai, le lien previous).
+const RollbackVersion = 1
 
 // ProtocolVersion est la seule que ce serveur et cet agent parlent. Le 1
 // avait un défi émis par le serveur (/agent/challenge) ; le 2 le retire.

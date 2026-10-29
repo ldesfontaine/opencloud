@@ -368,3 +368,20 @@ func attachRunLogs(ctx context.Context, q querier, runs []action.Run) error {
 	}
 	return rows.Err()
 }
+
+// FindUpdateInFlight rend un ordre agent.update ou agent.rollback qui n'a pas
+// fini (écrit, envoyé, ou accepté par l'agent) et a été demandé depuis since.
+func (db *DB) FindUpdateInFlight(ctx context.Context, since time.Time) (action.Run, bool, error) {
+	run, err := scanActionRun(db.sql.QueryRowContext(ctx, `
+		SELECT `+runColumns+` FROM action_runs
+		WHERE action IN (?, ?) AND state IN ('queued', 'sent', 'accepted') AND requested_at >= ?
+		ORDER BY requested_at DESC, id DESC LIMIT 1`,
+		string(agentwire.KindAgentUpdate), string(agentwire.KindAgentRollback), since.Unix())) // #nosec G202 -- des genres fixes, les valeurs sont liées.
+	if errors.Is(err, sql.ErrNoRows) {
+		return action.Run{}, false, nil
+	}
+	if err != nil {
+		return action.Run{}, false, fmt.Errorf("find update in flight: %w", err)
+	}
+	return run, true, nil
+}

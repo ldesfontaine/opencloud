@@ -17,6 +17,9 @@ export interface Machine {
   os: string;
   arch: string;
   online: boolean;
+  // À mettre à jour en dernier : la machine porte le chemin des ordres
+  // (proxy, VPN…). Réglé par l'opérateur seul.
+  update_last: boolean;
   last_seen_at: string | null;
   // L'agent courant : l'actif, sinon le dernier révoqué ; null tant
   // qu'aucun ne s'est enrôlé.
@@ -75,6 +78,9 @@ export interface Agent {
   // Le compte que l'agent a dit à l'ouverture de son flux ; null tant qu'il
   // n'a rien dit (un agent plus ancien).
   run_as: Account | null;
+  // L'agent revient seul à sa version d'avant si une mise à jour n'est pas
+  // confirmée ; sans cela, le serveur ne lui en envoie aucune.
+  rollback_capable: boolean;
 }
 
 export interface PendingToken {

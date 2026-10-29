@@ -133,6 +133,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// serveur, que serve seul charge (sans elle, rien ne part).
 	actions := action.New(db, machines, logger)
 	actions.SetAuditor(journal)
+	actions.SetAlerter(alerts)
 	// Les mises à jour des agents : la bibliothèque des versions importées, lue
 	// avec la clé de version embarquée. Sans clé (binaire de développement),
 	// rien ne se vérifie et la fiche ne propose rien.

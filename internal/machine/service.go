@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,8 @@ type Store interface {
 	RecordSystem(ctx context.Context, id, system string) error
 	RecordServerKey(ctx context.Context, agentID, fingerprint string) error
 	RecordRootDir(ctx context.Context, agentID, root string) error
+	RecordRollbackVersion(ctx context.Context, agentID string, version int) error
+	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) error
 	InsertToken(ctx context.Context, token Token) error
 	ListPendingTokens(ctx context.Context, now time.Time) ([]Token, error)
 	DeleteToken(ctx context.Context, id string) error
@@ -502,6 +505,45 @@ func (s *Service) NoteRootDir(ctx context.Context, agentID, root string) error {
 		return nil
 	}
 	return s.store.RecordRootDir(ctx, agentID, root)
+}
+
+// maxRollbackVersion borne ce qu'un agent dit de son retour arrière : un
+// entier court, jamais un texte long.
+const maxRollbackVersion = 1000
+
+// NoteRollbackVersion garde la version du retour arrière que l'agent dit
+// savoir faire, redite à chaque ouverture du flux. Rien, ou un texte qui n'est
+// pas un petit entier positif, vaut 0 : l'agent ne sait pas revenir en arrière
+// (aucune mise à jour ne lui sera envoyée).
+func (s *Service) NoteRollbackVersion(ctx context.Context, agentID, reported string) error {
+	version, err := strconv.Atoi(reported)
+	if err != nil || version < 1 || version > maxRollbackVersion {
+		version = 0
+	}
+	return s.store.RecordRollbackVersion(ctx, agentID, version)
+}
+
+// SetUpdateLast pose ou retire « à mettre à jour en dernier » : la machine
+// porte le chemin des ordres. Réservé à l'opérateur, par la route que les
+// jetons n'ouvrent pas.
+func (s *Service) SetUpdateLast(ctx context.Context, machineID string, updateLast bool) (Machine, error) {
+	target, err := s.store.GetMachine(ctx, machineID)
+	if err != nil {
+		return Machine{}, err
+	}
+	if target.UpdateLast == updateLast {
+		return target, nil
+	}
+	if err := s.store.SetUpdateLast(ctx, machineID, updateLast); err != nil {
+		return Machine{}, err
+	}
+	target.UpdateLast = updateLast
+	s.auditor.Record(ctx, audit.Event{
+		Action: audit.MachineUpdateLast, ObjectID: target.ID, ObjectName: target.Name,
+		Details: audit.Details{"update_last": strconv.FormatBool(updateLast)},
+	})
+	s.changed(machineID)
+	return target, nil
 }
 
 // isKeyFingerprint : « SHA256: » et 43 caractères de base64 sans

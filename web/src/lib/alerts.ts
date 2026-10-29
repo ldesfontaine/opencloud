@@ -82,6 +82,8 @@ export function describeAlert(t: Translate, alert: Alert, now: number, disks: Di
       return lines(t, alert.kind, [], [details.target ?? "", details.not_after ? -daysUntil(details.not_after, now) : 0]);
     case "cert_untrusted":
       return lines(t, alert.kind, [], [details.target ?? "", t(`alert.reason_${details.reason ?? "chain"}`)]);
+    case "agent_rolled_back":
+      return lines(t, alert.kind, [], [machine, details.target ?? "", t(`alert.rollback_cause_${details.reason ?? "timeout"}`)]);
     case "disk_full":
       return lines(t, alert.kind, [details.percent ?? 0], [details.mount_point ?? object, machine, details.threshold ?? disks.attention]);
   }

@@ -189,6 +189,11 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	if err := h.machines.NoteRootDir(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentRoot)); err != nil {
 		h.logger.Warn("note root dir", "machine_id", authenticated.ID, "error", err)
 	}
+	// Le retour arrière que l'agent sait faire : sans lui, aucune mise à jour
+	// ne lui est envoyée.
+	if err := h.machines.NoteRollbackVersion(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentRollback)); err != nil {
+		h.logger.Warn("note rollback version", "machine_id", authenticated.ID, "error", err)
+	}
 	// Les droits que l'agent lit dans son fichier : stockés tels qu'il les
 	// dit, comparés à ce que son jeton demandait ; l'agent les applique, le
 	// serveur s'en sert pour ne pas envoyer un ordre qu'il sait refusé. Avec

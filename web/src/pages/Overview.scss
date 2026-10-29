@@ -153,3 +153,12 @@ a.machine-card {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+// Les pastilles de l'en-tête d'une carte machine : l'agent revenu en arrière
+// à côté de l'état en ligne.
+.machine-card-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}

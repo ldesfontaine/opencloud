@@ -129,6 +129,7 @@ func runAgent(args []string) error {
 
 		ReleaseKey:    releaseKey,
 		HasReleaseKey: keyErr == nil,
+		GuardVersion:  agent.GuardVersionFromEnv(),
 	})
 	if err == nil {
 		return nil

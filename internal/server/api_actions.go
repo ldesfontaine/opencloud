@@ -137,6 +137,82 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 }
 
+// rollbackAgent envoie l'ordre agent.rollback : l'agent rebascule sur la
+// version d'avant et redémarre ; elle est confirmée ou annulée comme une mise
+// à jour.
+func (s *Server) rollbackAgent(w http.ResponseWriter, r *http.Request) {
+	run, err := s.actions.RollbackAgent(r.Context(), r.PathValue("id"))
+	if s.failed(w, r, err, machine.ErrNotFound) {
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
+}
+
+// Le plan des mises à jour d'agent : une ligne par machine, et la mise à jour
+// en vol s'il y en a une. order est le rang recommandé, null quand rien n'est
+// à faire ou que rien ne peut partir. Le serveur n'exécute rien du plan.
+type agentUpdatePlanJSON struct {
+	Target     string                     `json:"target"`
+	InProgress *agentUpdateInProgressJSON `json:"in_progress"`
+	Machines   []agentUpdatePlanEntryJSON `json:"machines"`
+}
+
+type agentUpdateInProgressJSON struct {
+	RunID       string    `json:"run_id"`
+	Kind        string    `json:"kind"`
+	MachineID   *string   `json:"machine_id"`
+	MachineName string    `json:"machine_name"`
+	RequestedAt time.Time `json:"requested_at"`
+}
+
+type agentUpdatePlanEntryJSON struct {
+	MachineID       string `json:"machine_id"`
+	Name            string `json:"name"`
+	Version         string `json:"version"`
+	Target          string `json:"target"`
+	UpToDate        bool   `json:"up_to_date"`
+	RollbackCapable bool   `json:"rollback_capable"`
+	Online          bool   `json:"online"`
+	UpdateLast      bool   `json:"update_last"`
+	// Une raison de la fiche (machine.agent_update_reason_*) ; vide si l'ordre
+	// peut partir, ou si la machine est à jour.
+	BlockedReason string `json:"blocked_reason"`
+	Order         *int   `json:"order"`
+}
+
+func planEntryToJSON(entry action.PlanEntry) agentUpdatePlanEntryJSON {
+	var order *int
+	if entry.Order > 0 {
+		order = &entry.Order
+	}
+	return agentUpdatePlanEntryJSON{
+		MachineID: entry.MachineID, Name: entry.MachineName, Version: entry.Version, Target: entry.Target,
+		UpToDate: entry.UpToDate, RollbackCapable: entry.RollbackCapable, Online: entry.Online,
+		UpdateLast: entry.UpdateLast, BlockedReason: entry.Blocked, Order: order,
+	}
+}
+
+// listAgentUpdates lit le plan. Ouverte aux jetons en lecture : un agent IA
+// y voit l'ordre recommandé, puis met à jour une machine à la fois.
+func (s *Server) listAgentUpdates(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.actions.UpdatePlan(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	plan := agentUpdatePlanJSON{Target: s.actions.TargetVersion(), Machines: httpx.ConvertAll(entries, planEntryToJSON)}
+	inFlight, found, err := s.actions.UpdateInFlight(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	if found {
+		plan.InProgress = &agentUpdateInProgressJSON{
+			RunID: inFlight.ID, Kind: string(inFlight.Kind), MachineID: stringOrNil(inFlight.MachineID),
+			MachineName: inFlight.MachineName, RequestedAt: inFlight.RequestedAt.UTC(),
+		}
+	}
+	s.writeAPI(w, http.StatusOK, plan)
+}
+
 // listActions rend les derniers ordres, d'une machine ou de toutes.
 func (s *Server) listActions(w http.ResponseWriter, r *http.Request) {
 	query, ok := actionQueryOf(r.URL.Query())

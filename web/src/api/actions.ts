@@ -108,3 +108,26 @@ export function useAgentUpdateOffer(machineID: string): Resource<AgentUpdateOffe
 export async function updateAgent(machineID: string): Promise<ActionRun> {
   return api.post<ActionRun>(`/api/machines/${segment(machineID)}/actions/update-agent`);
 }
+
+// L'ordre agent.rollback : l'agent rebascule sur la version d'avant, l'éprouve
+// et redémarre. Confirmé ou annulé comme une mise à jour.
+export async function rollbackAgent(machineID: string): Promise<ActionRun> {
+  return api.post<ActionRun>(`/api/machines/${segment(machineID)}/actions/rollback-agent`);
+}
+
+// Pose ou retire « à mettre à jour en dernier » sur la machine (l'opérateur
+// seul : la route n'est ouverte à aucun jeton).
+export async function setUpdateLast(machineID: string, updateLast: boolean): Promise<void> {
+  await api.put(`/api/machines/${segment(machineID)}/update-last`, { update_last: updateLast });
+}
+
+// Les lignes à coller sur une machine dont l'agent n'a pas encore le retour
+// arrière automatique : les mêmes pour toutes, avec la version de ce serveur.
+export interface AgentMigration {
+  version: string;
+  commands: string;
+}
+
+export function useAgentMigration(): Resource<AgentMigration> {
+  return useResource<AgentMigration>("/api/agent-migration");
+}

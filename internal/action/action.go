@@ -132,7 +132,7 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 	switch kind {
 	case agentwire.KindLogs, agentwire.KindLogsStop, agentwire.KindProbes, agentwire.KindImages, agentwire.KindAgentPing, agentwire.KindServerKey:
 		return machine.CapabilityObserve, true
-	case agentwire.KindAgentUpdate:
+	case agentwire.KindAgentUpdate, agentwire.KindAgentRollback:
 		return machine.CapabilityAgentUpdate, true
 	case agentwire.KindBackupReceive, agentwire.KindBackupPrune:
 		return machine.CapabilityBackupReceive, true

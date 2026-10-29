@@ -1,6 +1,7 @@
 package alert
 
 import (
+	"slices"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -77,10 +78,21 @@ func describe(catalog lang.Catalog, alert Alert, now time.Time, escape func(stri
 		return text(catalog, "cert_expired", nil, []any{details.Target, -daysUntil(details.NotAfter, now)})
 	case KindCertUntrusted:
 		return text(catalog, "cert_untrusted", nil, []any{details.Target, catalog.Get("alert.reason_" + details.Reason)})
+	case KindAgentRolledBack:
+		return text(catalog, "agent_rolled_back", nil, []any{machine, details.Target, catalog.Get("alert.rollback_cause_" + rollbackCauseOf(details))})
 	case KindDiskFull:
 		return text(catalog, "disk_full", []any{details.Percent}, []any{details.MountPoint, machine, diskThresholdOf(details)})
 	}
 	return Text{Fact: string(alert.Kind), Cause: object}
+}
+
+// rollbackCauseOf : la cause que dit l'alerte ; une cause inconnue se dit comme
+// un délai passé.
+func rollbackCauseOf(details Details) string {
+	if slices.Contains(RollbackCauses(), details.Reason) {
+		return details.Reason
+	}
+	return RollbackTimeout
 }
 
 // diskThresholdOf est le seuil que cite la phrase ; une alerte ouverte
