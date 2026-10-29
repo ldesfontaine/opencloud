@@ -87,6 +87,7 @@ func closedKeyLists() []composedKeys {
 		{prefix: "alert.fact_", values: names(alert.Kinds())},
 		{prefix: "alert.cause_", values: names(alert.Kinds())},
 		{prefix: "alert.action_", values: names(alert.Kinds())},
+		{prefix: "alert.rollback_cause_", values: alert.RollbackCauses()},
 		{prefix: "alert.fact_service_down_", values: alert.ServiceDownReasons()},
 		{prefix: "alert.cause_service_down_", values: alert.ServiceDownReasons()},
 		{prefix: "alert.action_service_down_", values: alert.ServiceDownReasons()},

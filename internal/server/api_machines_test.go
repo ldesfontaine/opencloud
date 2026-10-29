@@ -76,6 +76,10 @@ func TestInstallCommand_CarriesTheCheckedRights(t *testing.T) {
 	}
 }
 
+// accountLines : les lignes qui précèdent toujours les droits, cinq pour le
+// compte, son état et son binaire, deux pour le lanceur stable.
+const accountLines = 7
+
 // La préparation : une ligne par dossier où un droit coché écrit, aucune pour
 // observe seul ; le binaire vient de /tmp pour une machine ordinaire et du
 // serveur pour la machine openCloud.
@@ -88,9 +92,12 @@ func TestInstallPreparation_PreparesTheAccountAndOneFolderPerCheckedRight(t *tes
 		"install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent",
 		"runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin",
 		"runuser -u opencloud-agent -- install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current",
+		// Le lanceur stable, que l'unité lance : une copie à root, hors de bin/.
+		"install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent",
+		"install -m 0755 -o root -g root /tmp/opencloud /usr/local/lib/opencloud-agent/opencloud-guard",
 	}, "\n")
 	if plain != want {
-		t.Fatalf("observe alone prepares the account only:\n%s", plain)
+		t.Fatalf("observe alone prepares the account and the guard only:\n%s", plain)
 	}
 
 	rights, err := machine.ParseCapabilities("observe,docker.deploy,docker.update,backup.receive=/srv/backups,files.write=/opt/site:/srv/workspace,agent.update,probe.lan")
@@ -98,7 +105,7 @@ func TestInstallPreparation_PreparesTheAccountAndOneFolderPerCheckedRight(t *tes
 		t.Fatal(err)
 	}
 	lines := strings.Split(installPreparation(rights, "v0.0.1", false), "\n")
-	folders := lines[5:]
+	folders := lines[accountLines:]
 	wantFolders := []string{
 		"test ! -L /srv/workspace && install -d -m 0755 -o opencloud-agent -g opencloud-agent /srv/workspace # docker.deploy, docker.update, files.write",
 		"test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups # backup.receive",
@@ -226,7 +233,7 @@ func TestInstallPreparation_ProduceAddsOneLinePerGestureAfterTheAccount(t *testi
 		`printf '%s\n' '[Service]' 'NoNewPrivileges=false' | install -m 0644 /dev/stdin /etc/systemd/system/opencloud-agent.service.d/produce.conf`,
 		"systemctl daemon-reload",
 	}
-	if len(lines) != 5+len(want)+1 || !slices.Equal(lines[5:5+len(want)], want) {
+	if len(lines) != accountLines+len(want)+1 || !slices.Equal(lines[accountLines:accountLines+len(want)], want) {
 		t.Fatalf("the produce lines are not the six gestures right after the account:\n%s", strings.Join(lines, "\n"))
 	}
 	if folder := lines[len(lines)-1]; !strings.HasPrefix(folder, "test ! -L /srv/backups && ") {
@@ -252,7 +259,7 @@ func TestInstallPreparation_ProduceRootOnlyWritesWhatIsRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(installPreparation(rights, "v0.0.1", false), "\n")[5:] {
+	for _, line := range strings.Split(installPreparation(rights, "v0.0.1", false), "\n")[accountLines:] {
 		if strings.Contains(line, "/var/lib/opencloud-agent") && !strings.HasPrefix(line, "runuser -u opencloud-agent -- ") {
 			t.Errorf("root acts under the state of the account: %q", line)
 		}
@@ -311,10 +318,10 @@ func TestInstallPreparation_ProduceTheShellWritesExactlyTheTexts(t *testing.T) {
 			commands = append(commands, words)
 		}
 	}
-	// Les sept commandes des lignes du compte (trois de ces lignes en enchaînent
-	// deux), puis les six gestes, dont la règle sudo en trois commandes
-	// enchaînées (écrire, juger, poser).
-	const accountCommands = 7
+	// Les neuf commandes des lignes du compte et du lanceur stable (trois de ces
+	// lignes en enchaînent deux), puis les six gestes, dont la règle sudo en
+	// trois commandes enchaînées (écrire, juger, poser).
+	const accountCommands = 9
 	wantProduce := [][]string{
 		{"runuser", "-u", "opencloud-agent", "--", "install", "-d", "-m", "0700", "/var/lib/opencloud-agent/produce"},
 		{"install", "-m", "0755", "-o", "root", "-g", "root", "/dev/stdin", "/usr/local/sbin/opencloud-vzdump"},
@@ -435,8 +442,8 @@ func TestInstallPreparation_HostilePathsNeverReachTheLines(t *testing.T) {
 				t.Errorf("%s=%q passes the normalization", name, path)
 			}
 			for _, local := range []bool{false, true} {
-				// Cinq lignes : le compte et son état, aucun dossier de droit.
-				if preparation := installPreparation(raw, "v0.0.1", local); strings.Count(preparation, "\n") != 4 || path != "/" && strings.Contains(preparation, path) {
+				// Sept lignes : le compte, son état et le lanceur stable, aucun dossier de droit.
+				if preparation := installPreparation(raw, "v0.0.1", local); strings.Count(preparation, "\n") != accountLines-1 || path != "/" && strings.Contains(preparation, path) {
 					t.Errorf("%s=%q reaches the preparation:\n%s", name, path, preparation)
 				}
 			}
@@ -450,11 +457,11 @@ func TestInstallPreparation_HostilePathsNeverReachTheLines(t *testing.T) {
 		if _, err := machine.NormalizeCapabilities(raw); err == nil {
 			t.Errorf("backup.produce=%q passes the normalization", producer)
 		}
-		if preparation := installPreparation(raw, "v0.0.1", false); strings.Count(preparation, "\n") != 4 || strings.Contains(preparation, producer) {
+		if preparation := installPreparation(raw, "v0.0.1", false); strings.Count(preparation, "\n") != accountLines-1 || strings.Contains(preparation, producer) {
 			t.Errorf("backup.produce=%q reaches the preparation:\n%s", producer, preparation)
 		}
 		mixed := []machine.Capability{{Name: machine.CapabilityBackupProduce, Paths: []string{machine.ProducerProxmoxVzdump, producer}}}
-		if preparation := installPreparation(mixed, "v0.0.1", false); strings.Count(preparation, "\n") != 4+6 || strings.Contains(preparation, producer) {
+		if preparation := installPreparation(mixed, "v0.0.1", false); strings.Count(preparation, "\n") != accountLines-1+6 || strings.Contains(preparation, producer) {
 			t.Errorf("backup.produce=proxmox-vzdump:%q reaches the preparation:\n%s", producer, preparation)
 		}
 	}

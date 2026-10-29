@@ -30,6 +30,9 @@ const (
 	// depuis le serveur (AgentUpdateParams), la vérifie, bascule son lien
 	// current et demande à être relancé.
 	KindAgentUpdate Kind = "agent.update"
+	// Le retour arrière à la main : l'agent rebascule current sur previous,
+	// l'éprouve et se relance. Sans paramètre ; même droit que agent.update.
+	KindAgentRollback Kind = "agent.rollback"
 	// La rotation de la clé du serveur : signé par la clé que l'agent a
 	// épinglée, il lui livre la neuve (ServerKeyParams). Le serveur l'envoie
 	// de lui-même, à l'ouverture du flux d'un agent resté sur la précédente.
@@ -69,7 +72,7 @@ func ObservationKinds() []Kind {
 
 // OrderKinds rend les genres d'ordres, signés et journalisés.
 func OrderKinds() []Kind {
-	return []Kind{KindAgentPing, KindAgentUpdate, KindServerKey, KindBackupReceive, KindBackupPrune, KindBackupProduce, KindDockerDeploy, KindDockerUpdate,
+	return []Kind{KindAgentPing, KindAgentUpdate, KindAgentRollback, KindServerKey, KindBackupReceive, KindBackupPrune, KindBackupProduce, KindDockerDeploy, KindDockerUpdate,
 		KindProxmoxStart, KindProxmoxShutdown, KindProxmoxSnapshot, KindProxmoxSnapshotDelete}
 }
 

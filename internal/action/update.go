@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
@@ -17,6 +19,22 @@ import (
 // ErrUpdateUnavailable : l'agent n'a pas de mise à jour à recevoir en ce
 // moment ; la fiche de la machine dit pourquoi (UpdateOffer.Reason).
 var ErrUpdateUnavailable = refusal.Conflict("action.update_unavailable", "the agent cannot be updated now: its offer says why")
+
+// ErrRollbackUnavailable : l'agent ne sait pas revenir seul à sa version
+// d'avant (il n'est pas migré vers le lanceur stable, ou plus vieux que le
+// retour arrière). Aucune mise à jour ne lui est envoyée, sans exception.
+var ErrRollbackUnavailable = refusal.Conflict("action.rollback_unavailable", "the agent cannot return to its previous version by itself: migrate it first")
+
+// ErrUpdateInProgress : une mise à jour d'agent, de cette machine ou d'une
+// autre, n'est ni confirmée, ni en échec, ni échue. Une à la fois, pour
+// l'opérateur comme pour un jeton.
+var ErrUpdateInProgress = refusal.Conflict("action.update_in_progress", "another agent update is not confirmed yet: wait for it to end")
+
+// UpdateInFlightWindow : tant qu'un ordre agent.update ou agent.rollback n'a
+// pas fini depuis moins que cela, il compte comme en vol. Le téléchargement
+// (vingt minutes au plus chez l'agent), le délai de confirmation (trois
+// minutes) et une marge ; au-delà, l'ordre est échu et ne bloque plus rien.
+const UpdateInFlightWindow = 30 * time.Minute
 
 // Les raisons pour lesquelles une machine n'est pas à mettre à jour. same_version
 // est la seule sans phrase : une machine à jour n'a rien à dire.
@@ -29,6 +47,9 @@ const (
 	OfferOffline        = "offline"
 	OfferRightMissing   = "right_missing"
 	OfferArchUnknown    = "arch_unknown"
+	// L'agent ne rapporte pas de retour arrière automatique : il doit être
+	// migré une fois à la main avant sa prochaine mise à jour.
+	OfferRollbackUnavailable = "rollback_unavailable"
 	// Pas de bibliothèque de versions : la commande mcp n'en a pas, et un
 	// binaire sans clé de version ne peut rien vérifier.
 	OfferNoReleases = "no_releases"
@@ -44,6 +65,7 @@ func OfferReasons() []string {
 	return []string{
 		OfferNewerAgent, OfferNoRelease, OfferReleaseInvalid, OfferNoAgent,
 		OfferOffline, OfferRightMissing, OfferRightUnavailable, OfferArchUnknown, OfferNoReleases,
+		OfferRollbackUnavailable,
 	}
 }
 
@@ -93,11 +115,28 @@ func (s *Service) judgeUpdate(ctx context.Context, machineID string) (UpdateOffe
 	if s.releases == nil {
 		return UpdateOffer{Reason: OfferNoReleases}, release.Artifact{}, nil
 	}
-	offer := UpdateOffer{Target: s.serverVersion.String()}
 	target, err := s.machines.Get(ctx, machineID)
 	if err != nil {
 		return UpdateOffer{}, release.Artifact{}, err
 	}
+	return s.judgeMachine(target, nil)
+}
+
+// artifactCache garde, le temps d'une liste de machines, ce que la
+// bibliothèque a rendu par architecture : la revérifier coûte la lecture du
+// binaire, et dix machines de la même architecture n'en demandent qu'une.
+type artifactCache map[string]cachedArtifact
+
+type cachedArtifact struct {
+	artifact release.Artifact
+	err      error
+}
+
+func (s *Service) judgeMachine(target machine.Status, cache artifactCache) (UpdateOffer, release.Artifact, error) {
+	if s.releases == nil {
+		return UpdateOffer{Reason: OfferNoReleases}, release.Artifact{}, nil
+	}
+	offer := UpdateOffer{Target: s.serverVersion.String()}
 	if !target.Agent.IsActive() {
 		offer.Reason = OfferNoAgent
 		return offer, release.Artifact{}, nil
@@ -111,7 +150,13 @@ func (s *Service) judgeUpdate(ctx context.Context, machineID string) (UpdateOffe
 		offer.Reason = reason
 		return offer, release.Artifact{}, nil
 	}
-	artifact, err := s.releases.Artifact(s.serverVersion, target.Arch)
+	// Après « à jour » : une machine à jour n'a rien à migrer pour l'instant.
+	// Avant la bibliothèque : migrer ne dépend pas de ce qui est importé.
+	if !target.Agent.CanRollBack() {
+		offer.Reason = OfferRollbackUnavailable
+		return offer, release.Artifact{}, nil
+	}
+	artifact, err := s.artifactFor(target.Arch, cache)
 	if errors.Is(err, release.ErrNoRelease) {
 		offer.Reason = OfferNoRelease
 		return offer, release.Artifact{}, nil
@@ -126,6 +171,17 @@ func (s *Service) judgeUpdate(ctx context.Context, machineID string) (UpdateOffe
 		offer.Reason = OfferRightUnavailable
 	}
 	return offer, artifact, nil
+}
+
+func (s *Service) artifactFor(arch string, cache artifactCache) (release.Artifact, error) {
+	if found, ok := cache[arch]; ok {
+		return found.artifact, found.err
+	}
+	artifact, err := s.releases.Artifact(s.serverVersion, arch)
+	if cache != nil {
+		cache[arch] = cachedArtifact{artifact: artifact, err: err}
+	}
+	return artifact, err
 }
 
 // machineReason juge ce qui tient à la machine et à son agent : en ligne, le
@@ -169,6 +225,8 @@ func refusalOf(reason string) error {
 		return ErrRightMissing
 	case OfferNoAgent:
 		return machine.ErrNoAgent
+	case OfferRollbackUnavailable:
+		return ErrRollbackUnavailable
 	}
 	return ErrUpdateUnavailable
 }
@@ -179,12 +237,19 @@ func refusalOf(reason string) error {
 // revérifie tout avec sa propre clé ; l'ordre reste « accepté » jusqu'à son
 // retour (ConfirmAgentUpdate).
 func (s *Service) UpdateAgent(ctx context.Context, machineID string) (Run, error) {
+	// Une à la fois : juger « rien en vol » et écrire le run se font sous le
+	// même verrou, sans quoi deux demandes simultanées passeraient ensemble.
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
 	offer, artifact, err := s.judgeUpdate(ctx, machineID)
 	if err != nil {
 		return Run{}, err
 	}
 	if !offer.Available {
 		return Run{}, refusalOf(offer.Reason)
+	}
+	if err := s.refuseWhileUpdating(ctx); err != nil {
+		return Run{}, err
 	}
 	if s.outbox == nil {
 		return Run{}, ErrUpdateUnavailable
@@ -198,7 +263,12 @@ func (s *Service) UpdateAgent(ctx context.Context, machineID string) (Run, error
 		writer.Discard()
 		return Run{}, err
 	}
-	run, err := s.Send(ctx, machineID, agentwire.KindAgentUpdate, params)
+	// La version de départ et celle d'arrivée entrent dans l'audit : un agent
+	// ou un opérateur qui lit le journal sait de quoi à quoi.
+	run, err := s.send(ctx, ServiceOrder{
+		MachineID: machineID, Kind: agentwire.KindAgentUpdate, Params: params,
+		AuditDetails: audit.Details{"from": offer.Current, "to": offer.Target},
+	})
 	if err != nil || run.State.IsFinished() {
 		// L'ordre n'est pas parti : personne ne viendra chercher le colis.
 		writer.Discard()
@@ -251,6 +321,11 @@ func (s *Service) ConfirmAgentUpdate(ctx context.Context, machineID, agentID, re
 		s.logger.Info("agent updated", "run_id", run.ID, "machine_id", machineID, "version", reported)
 	}
 	if len(runs) > 0 {
+		// Une mise à jour confirmée referme l'alerte « revenu à la version
+		// précédente » de cette machine : elle a avancé.
+		if s.alerter != nil {
+			s.alerter.AgentUpdated(ctx, machineID)
+		}
 		s.changed(machineID)
 	}
 	return nil

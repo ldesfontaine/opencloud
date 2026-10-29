@@ -151,6 +151,19 @@ const (
 	ReasonVersionMismatch   = "version_mismatch"
 	ReasonDowngrade         = "downgrade"
 	ReasonSelfCheckFailed   = "self_check_failed"
+	// Les raisons de agent.rollback : rien d'installé avant la version qui
+	// tourne, ou le précédent est la version qui tourne ; l'agent ne tourne
+	// pas sous le lanceur stable, sans lequel aucun retour arrière ne tient.
+	ReasonNoPrevious        = "no_previous"
+	ReasonPreviousIdentical = "previous_identical"
+	ReasonGuardMissing      = "guard_missing"
+	// Les fins d'une mise à jour que l'agent revenu en arrière rapporte, au
+	// retour de l'ancienne version : le délai de confirmation est passé, ou
+	// la nouvelle version a planté ; et la remise en état qui échoue à son
+	// tour (une seule est tentée, jamais de boucle).
+	ReasonRolledBackTimeout = "rolled_back_timeout"
+	ReasonRolledBackCrash   = "rolled_back_crash"
+	ReasonRollbackFailed    = "rollback_failed"
 	// Les raisons d'un déploiement : le dossier du service existe déjà ou
 	// manque ; la racine existe sans être à openCloud ; Docker ou Compose
 	// manque ou est trop ancien ; le disque est plein ; Compose a échoué.
@@ -177,6 +190,8 @@ func RefusalReasons() []string {
 		ReasonDownloadFailed, ReasonDigestMismatch, ReasonNotAgeFile, ReasonBusy,
 		ReasonNotSelfUpdatable, ReasonReleaseKeyMissing, ReasonSignatureInvalid, ReasonVersionMismatch,
 		ReasonDowngrade, ReasonSelfCheckFailed,
+		ReasonNoPrevious, ReasonPreviousIdentical, ReasonGuardMissing,
+		ReasonRolledBackTimeout, ReasonRolledBackCrash, ReasonRollbackFailed,
 		ReasonServiceDirExists, ReasonServiceDirMissing, ReasonRootNotOurs, ReasonDockerMissing,
 		ReasonComposeTooOld, ReasonDiskFull, ReasonComposeFailed,
 		ReasonPathDenied, ReasonDockerDenied,

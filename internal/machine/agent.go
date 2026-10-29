@@ -38,6 +38,15 @@ type Agent struct {
 	// L'empreinte de la clé du serveur que l'agent dit avoir épinglée ; vide
 	// tant qu'il n'a rien dit, ou s'il n'en a pas.
 	ServerKeyFingerprint string
+	// La version du retour arrière que l'agent dit savoir faire ; 0 : aucun.
+	RollbackVersion int
+}
+
+// CanRollBack dit si l'agent revient seul à sa version d'avant quand une
+// mise à jour n'est pas confirmée : sans cela, le serveur ne lui en envoie
+// aucune.
+func (a Agent) CanRollBack() bool {
+	return a.RollbackVersion > 0
 }
 
 func (a Agent) Exists() bool {

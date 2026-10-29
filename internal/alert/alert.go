@@ -51,6 +51,9 @@ const (
 	KindCertExpired      Kind = "cert_expired"
 	KindCertUntrusted    Kind = "cert_untrusted"
 	KindDiskFull         Kind = "disk_full"
+	// L'agent d'une machine est revenu à sa version d'avant : la mise à jour
+	// n'a pas été confirmée à l'échéance. Danger si la remise en état a échoué.
+	KindAgentRolledBack Kind = "agent_rolled_back"
 )
 
 // Kinds liste le catalogue, dans l'ordre des écrans.
@@ -58,7 +61,7 @@ func Kinds() []Kind {
 	return []Kind{
 		KindMachineLost, KindServiceDown, KindServiceUnhealthy, KindServiceRestart,
 		KindJobLate, KindJobFailed, KindProbeDown,
-		KindCertExpiring, KindCertExpired, KindCertUntrusted, KindDiskFull,
+		KindCertExpiring, KindCertExpired, KindCertUntrusted, KindDiskFull, KindAgentRolledBack,
 	}
 }
 

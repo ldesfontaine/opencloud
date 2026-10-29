@@ -54,6 +54,19 @@ const (
 	// /usr/local/bin/opencloud : ce lien, root le lancerait, et le compte de
 	// l'agent peut remplacer ce qu'il vise.
 	AgentCurrentPath = AgentStateDir + "/" + AgentBinDir + "/" + AgentCurrentLink
+	// Le lien vers le binaire d'avant la dernière bascule : ce à quoi l'agent
+	// revient, seul ou sur ordre, et l'état de la mise à jour en attente de
+	// confirmation (dans l'état de l'agent, à lui, 0600).
+	AgentPreviousLink = "previous"
+	AgentUpdateMarker = "update.json"
+	AgentGuardBinary  = ID + "-guard"
+	// Le lanceur stable : une copie du binaire posée une fois par root, hors
+	// de bin/, que l'agent ne se met jamais à jour lui-même. L'unité lance
+	// lui, et lui lance bin/current ; il dit à l'agent qu'il est là par cette
+	// variable d'environnement.
+	AgentGuardDir  = "/usr/local/lib/" + ID + "-agent"
+	AgentGuardPath = AgentGuardDir + "/" + AgentGuardBinary
+	AgentGuardEnv  = "OPENCLOUD_AGENT_GUARD"
 	// Là où l'agent range ce qu'il produit (backup.produce), dans son état : à
 	// lui, 0700.
 	AgentProduceDir = "produce"

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
@@ -45,6 +46,9 @@ type Store interface {
 	// GetActionRun rend un run et sa sortie ; une erreur si la purge l'a
 	// emporté.
 	GetActionRun(ctx context.Context, id string) (Run, error)
+	// FindUpdateInFlight rend un ordre agent.update ou agent.rollback pas fini
+	// et demandé depuis since ; faux s'il n'y en a pas.
+	FindUpdateInFlight(ctx context.Context, since time.Time) (Run, bool, error)
 }
 
 // Machines est ce que le composant lit des machines : l'agent courant et
@@ -52,6 +56,7 @@ type Store interface {
 // du serveur.
 type Machines interface {
 	Get(ctx context.Context, id string) (machine.Status, error)
+	List(ctx context.Context) ([]machine.Status, error)
 	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
 }
 
@@ -83,6 +88,7 @@ type Service struct {
 	key       *Key
 	outbox    *Outbox
 	auditor   *audit.Recorder
+	alerter   Alerter
 	logger    *slog.Logger
 	now       func() time.Time
 
@@ -90,6 +96,10 @@ type Service struct {
 	// nil sans bibliothèque (voir SetReleases).
 	releases      Releases
 	serverVersion release.Version
+
+	// updateMu tient « rien en vol puis écrire le run » d'une seule main : une
+	// mise à jour d'agent à la fois.
+	updateMu sync.Mutex
 
 	// Ce qui réveille Wait : voir wait.go.
 	changes changeSignal
@@ -120,6 +130,11 @@ func (s *Service) SetWatcher(watcher Watcher) {
 
 func (s *Service) SetAuditor(auditor *audit.Recorder) {
 	s.auditor = auditor
+}
+
+// SetAlerter branche le moteur des alertes ; nil est toléré.
+func (s *Service) SetAlerter(alerter Alerter) {
+	s.alerter = alerter
 }
 
 func (s *Service) SetClock(now func() time.Time) {
@@ -213,6 +228,9 @@ type ServiceOrder struct {
 	Params      json.RawMessage
 	Secret      json.RawMessage
 	SecretLabel string
+	// Ce que l'audit retient de plus pour cet ordre (les versions de départ et
+	// d'arrivée d'une mise à jour) : jamais un secret.
+	AuditDetails audit.Details
 }
 
 // SendForService fait comme SendWithSecret pour un ordre qui vise un service
@@ -254,7 +272,7 @@ func (s *Service) send(ctx context.Context, order ServiceOrder) (Run, error) {
 	if err != nil {
 		return Run{}, fmt.Errorf("insert run: %w", err)
 	}
-	s.auditor.Record(ctx, orderEvent(run, order.SecretLabel))
+	s.auditor.Record(ctx, orderEvent(run, order.SecretLabel, order.AuditDetails))
 	run, err = s.deliver(ctx, run, target.Agent.ServerKeyFingerprint, secret)
 	s.changed(machineID)
 	return run, err
@@ -324,8 +342,11 @@ func requesterOf(actor audit.Actor) string {
 
 // orderEvent dit qu'un ordre est écrit et part. Un secret signé avec lui se
 // dit par son nom (« env: sent »), jamais par sa valeur.
-func orderEvent(run Run, secretLabel string) audit.Event {
+func orderEvent(run Run, secretLabel string, extra audit.Details) audit.Event {
 	details := audit.Details{"kind": string(run.Kind), "machine_id": run.MachineID, "agent_id": run.AgentID}
+	for name, value := range extra {
+		details[name] = value
+	}
 	if run.ServiceID != "" {
 		details["service_id"] = run.ServiceID
 	}

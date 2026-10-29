@@ -28,14 +28,20 @@ Type=simple
 # (voir « Garder l'agent en root » dans installation.md).
 User=opencloud-agent
 Group=opencloud-agent
-# -state doit être celui du premier lancement. Ajoutez ici -allow-plain,
-# -ca-file ou -docker-socket s'ils servaient au premier lancement : ils ne
-# sont pas retenus. -server, -pin et -lang le sont, inutile de les
-# redonner.
-# Le binaire est le lien bin/current de l'état : c'est lui que l'agent bascule
-# quand openCloud lui envoie une mise à jour (agent.update). Sur la machine
-# openCloud comme ailleurs.
-ExecStart=/var/lib/opencloud-agent/bin/current agent -state /var/lib/opencloud-agent
+# -state doit être celui du premier lancement, aux deux endroits. Ajoutez en
+# fin de ligne -allow-plain, -ca-file ou -docker-socket s'ils servaient au
+# premier lancement : ils ne sont pas retenus. -server, -pin et -lang le sont,
+# inutile de les redonner.
+# L'unité lance le lanceur stable (opencloud-guard), une copie du binaire que
+# root a posée hors de bin/ et que l'agent ne remplace jamais ; lui lance
+# bin/current, le lien que l'agent bascule quand openCloud lui envoie une mise
+# à jour (agent.update). Si la nouvelle version ne confirme pas en trois
+# minutes (elle ne démarre pas, plante en boucle, ne rejoint plus openCloud), le
+# lanceur rebascule seul sur la précédente (bin/previous) : un agent cassé ne
+# peut pas se réparer lui-même. Sans lui, openCloud n'envoie aucune mise à jour
+# à l'agent (« Migrer l'agent » dans installation.md). Sur la machine openCloud
+# comme ailleurs.
+ExecStart=/usr/local/lib/opencloud-agent/opencloud-guard guard -state /var/lib/opencloud-agent agent -state /var/lib/opencloud-agent
 # L'état est à l'utilisateur de l'unité (0700), hors de /var/lib/opencloud, dont
 # le compte du serveur est propriétaire sur la machine openCloud. systemd le
 # crée au nom de User=, le rend inscriptible sous ProtectSystem=strict, et
@@ -47,12 +53,15 @@ ExecStart=/var/lib/opencloud-agent/bin/current agent -state /var/lib/opencloud-a
 # is not safe »).
 StateDirectory=opencloud-agent
 StateDirectoryMode=0700
-# Code 3 : « mis à jour, relance-moi » ; on-failure le relance.
+# Code 3 : « mis à jour (ou revenu en arrière), relance-moi » ; on-failure le
+# relance. Un plantage de la nouvelle version, avant sa confirmation, est aussi
+# relancé : le lanceur compte, puis rebascule à l'échéance.
 Restart=on-failure
 RestartSec=10
 # Code 2 : refus (machine retirée, identité refusée, pas enrôlée, état que le
-# compte ne possède pas). Relancer n'y changerait rien ; il faut un nouveau
-# jeton, ou corriger le propriétaire.
+# compte ne possède pas), ou le lanceur qui s'arrête parce que la remise en
+# état d'une mise à jour a échoué aussi. Relancer n'y changerait rien ; il faut
+# un nouveau jeton, corriger le propriétaire, ou réparer la machine à la main.
 RestartPreventExitStatus=2
 # Durcissement : un agent compromis ne réécrit ni le système ni les comptes.
 # Il lit /proc, les volumes et, s'il a Docker, la socket ; il n'écrit que

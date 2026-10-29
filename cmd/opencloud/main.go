@@ -15,6 +15,8 @@ const usage = `Usage : {command} <commande> [options]
 Commandes :
   serve     démarre le serveur web (option -config)
   agent     tourne sur une machine gérée (options -server -lang -pin -allow-plain -state ; jeton d'enrôlement sur l'entrée standard)
+  guard     lanceur stable de l'agent : lance bin/current et revient à la version
+            précédente si une mise à jour n'est pas confirmée (option -state)
   auth      status | disable : état de l'authentification de l'interface,
             ou la couper en cas de mot de passe oublié (option -config)
   export    écrit l'annuaire dans un fichier YAML, par le serveur qui tourne
@@ -52,6 +54,8 @@ func main() {
 		err = runServe(os.Args[2:])
 	case "agent":
 		err = runAgent(os.Args[2:])
+	case "guard":
+		err = runGuard(os.Args[2:])
 	case "auth":
 		err = runAuth(os.Args[2:])
 	case "export":

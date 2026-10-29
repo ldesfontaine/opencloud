@@ -33,6 +33,15 @@ func (s *Service) Record(ctx context.Context, machineID string, report agentwire
 		if run.State == StateRefused {
 			s.auditor.Record(ctx, refusedEvent(run))
 		}
+		// Un agent revenu à la version d'avant dit pourquoi : l'audit et
+		// l'alerte, en plus du run fermé en échec.
+		if run.State == StateFailed && isRollbackReport(run.Kind, result.Reason) {
+			s.noteRollback(ctx, run)
+		}
+		// Un retour arrière manuel confirmé referme l'alerte de la machine.
+		if run.Kind == agentwire.KindAgentRollback && run.State == StateSucceeded && s.alerter != nil {
+			s.alerter.AgentUpdated(ctx, machineID)
+		}
 		// L'agent a pris la clé courante : c'est elle qui signera ses ordres.
 		if run.Kind == agentwire.KindServerKey && run.State == StateSucceeded && s.key != nil {
 			if err := s.machines.NoteServerKey(ctx, run.AgentID, s.key.Fingerprint()); err != nil {

@@ -173,6 +173,8 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 		return r.acceptBackupProduce(body)
 	case agentwire.KindAgentUpdate:
 		return r.acceptAgentUpdate(body)
+	case agentwire.KindAgentRollback:
+		return r.acceptAgentRollback(body)
 	case agentwire.KindProxmoxStart, agentwire.KindProxmoxShutdown, agentwire.KindProxmoxSnapshot, agentwire.KindProxmoxSnapshotDelete:
 		return r.acceptProxmox(body)
 	case agentwire.KindDockerDeploy:

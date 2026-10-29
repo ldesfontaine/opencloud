@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { ActionsResponse, ActionRun, AgentUpdateOffer, RunLine } from "./actions";
+import type { ActionsResponse, ActionRun, AgentMigration, AgentUpdateOffer, RunLine } from "./actions";
 import type { APITokensState } from "./apiTokens";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
@@ -111,6 +111,7 @@ const machine = shape<Machine>("Machine", {
   os: value,
   arch: value,
   online: value,
+  update_last: value,
   last_seen_at: value,
   agent: shape<Agent>("Agent", {
     id: value,
@@ -123,6 +124,7 @@ const machine = shape<Machine>("Machine", {
     server_key_fingerprint: value,
     capabilities_differ: value,
     run_as: shape<Account>("Account", { uid: value, name: value }),
+    rollback_capable: value,
   }),
   lifecycle: optional(lifecycle),
   roles: shape<MachineRole>("MachineRole", { name: value, version: value }),
@@ -910,6 +912,7 @@ const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
 const contract: Record<string, Shape<unknown>> = {
   "actions.golden.json": actions,
   "agent_update_offer.golden.json": agentUpdateOffer,
+  "agent_migration.golden.json": shape<AgentMigration>("AgentMigration", { version: value, commands: value }),
   "alert.golden.json": alertResponse,
   "alert_channels.golden.json": channels,
   "alert_mutes.golden.json": mutes,
@@ -996,6 +999,7 @@ const contract: Record<string, Shape<unknown>> = {
 
 // Les autres goldens JSON que le front ne lit pas, chacun avec sa raison.
 const notReadByFront: Record<string, string> = {
+  "agent_updates.golden.json": "le plan des mises à jour se lit par un agent IA (jeton en lecture) ; la fiche d'une machine lit l'offre de sa machine",
   "manifest_plan.golden.json": "le plan se lit par la commande apply ; l'écran ne montre que les passages",
   "transitions.golden.json": "la fiche d'un conteneur reçoit ses transitions avec lui ; aucun module ne lit la route seule",
 };

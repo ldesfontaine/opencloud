@@ -103,6 +103,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     capabilities_differ: false,
     server_key_fingerprint: "",
     run_as: { uid: 998, name: "opencloud" },
+    rollback_capable: true,
     ...over,
   };
 }

@@ -21,6 +21,8 @@ var (
 // en être une, chacun avec sa raison.
 var literalsNotKeys = map[string]string{
 	"agent.update":     "un droit d'agent (machine.CapabilityAgentUpdate), que le front envoie au serveur",
+	"agent.rollback":   "un genre d'ordre (agentwire.KindAgentRollback), que le front lit dans un run",
+	"agent.ping":       "un genre d'ordre (agentwire.KindAgentPing), que le front lit dans un run",
 	"backup.produce":   "un droit d'agent (machine.CapabilityBackupProduce), que le front envoie au serveur",
 	"proxmox.power":    "un droit d'agent (machine.CapabilityProxmoxPower), que le front envoie au serveur",
 	"proxmox.snapshot": "un droit d'agent (machine.CapabilityProxmoxSnapshot), que le front envoie au serveur",

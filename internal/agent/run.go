@@ -84,6 +84,10 @@ type Options struct {
 	// detectRoles reconnaît ce que la machine est ; nil vaut la lecture de la
 	// vraie machine. Non exporté, pour la même raison que readSSHKeys.
 	detectRoles func() role.Report
+	// GuardVersion est la version du lanceur stable sous lequel l'agent tourne
+	// (GuardVersionFromEnv), 0 s'il n'en a pas : l'agent ne rapporte alors pas
+	// de retour arrière, et refuse de basculer son lien.
+	GuardVersion int
 	// RootDir est la racine des services déployés (-root-dir), pour le premier
 	// lancement ; l'identité la garde ensuite. Vide : brand.WorkspaceRoot.
 	RootDir string
@@ -131,6 +135,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	client.SetCapabilities(identity.Capabilities())
 	client.SetRoot(identity.Root())
+	client.SetRollbackVersion(opts.GuardVersion)
 	// Le compte est dit à chaque ouverture du flux, et une fois au journal :
 	// c'est lui qui décide de ce que la machine laisse faire.
 	account := CurrentAccount()
@@ -176,6 +181,11 @@ func Run(ctx context.Context, opts Options) error {
 	// les interrompt pas, seul leur téléchargement échoue.
 	orders.fetch.use(client)
 	orders.updater.key, orders.updater.hasKey = opts.ReleaseKey, opts.HasReleaseKey
+	orders.updater.guarded = opts.GuardVersion > 0
+	// Ce que le lanceur a fait en notre absence se dit au journal et au
+	// serveur ; la mise à jour en attente se confirme à l'ouverture du flux.
+	outcome := newUpdateOutcome(opts.StateDir, opts.Version, actions, opts.Logger)
+	outcome.announce()
 	if opts.executable != nil {
 		orders.updater.executable = opts.executable
 	}
@@ -204,7 +214,7 @@ func Run(ctx context.Context, opts Options) error {
 	go rolesLoop(ctx, detectMachineRoles, roleReported, rolesPeriod, opts.Logger)
 	err = keepConnected(ctx, client, identity, &pending{
 		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported,
-		logs: watcher, probes: prober, updates: updater, orders: orders,
+		logs: watcher, probes: prober, updates: updater, orders: orders, outcome: outcome,
 	}, catalogs.For(identity.Language), opts)
 	if updated.Load() {
 		return ErrUpdated
@@ -227,6 +237,9 @@ type pending struct {
 	probes   probe.Assignable
 	updates  update.Assignable
 	orders   *orderRunner
+	// La mise à jour en attente de confirmation et ce que le lanceur a fait ;
+	// nil tolérée.
+	outcome *updateOutcome
 	// Les droits que le compte ne peut pas exercer, tels que le dernier flux
 	// les a dits : le journal ne parle que d'un changement.
 	unavailable map[string]string
@@ -382,6 +395,9 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	pending.orders.fetch.setSession(stream.Session)
 	defer pending.orders.fetch.setSession("")
 	opts.Logger.Info("connected", "server", identity.Server)
+	// Le flux s'ouvre après que le serveur a noté la version de l'agent : une
+	// mise à jour en attente est confirmée ici, et pas avant.
+	pending.outcome.confirm()
 	pending.reports.markReplayed()
 	pending.results.markReplayed()
 	pending.images.markReplayed()
@@ -452,6 +468,9 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 		}
 		for section, code := range rejected {
 			logger.Warn("signal section refused", "section", section, "code", code)
+		}
+		if _, refusedActions := rejected[agentwire.SectionActions]; err == nil && !refusedActions {
+			pending.outcome.delivered(sent.actions)
 		}
 		if len(sent.readings) < resource.MaxReadingsPerSignal {
 			return nil

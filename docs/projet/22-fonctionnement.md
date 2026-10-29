@@ -139,6 +139,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les rôles que l'agent reconnaît sur sa machine (migration `014_machine_roles.sql`) : `machine_roles` (machine, rôle de la liste fermée `proxmox_ve`, version trouvée ; aujourd'hui le seul rôle). **Aucun secret, aucun droit** : un rôle se montre, il n'ouvre rien | Un reflet du dernier rapport, remplacé en entier à chaque rapport retenu : un rôle que l'agent ne voit plus disparaît. Pas d'historique, pas de purge d'âge. La machine retirée l'emporte (`ON DELETE CASCADE`) |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le retour arrière des agents (migration `018_agent_rollback.sql`) : `agents.rollback_version` (la version du retour arrière que l'agent a dite à l'ouverture de son flux, 0 tant qu'il ne la dit pas) et `machines.update_last` (« à mettre à jour en dernier », 0 par défaut) | Aucun secret. `rollback_version` se réécrit à chaque ouverture de flux ; `update_last` ne change que par l'opérateur |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pare-feu que l'opérateur déclare et ce que leur API en a dit (migration `015_firewalls.sql`) : `firewalls` (nom unique sans casse, connecteur `opnsense`, adresse de l'API, clé d'API, **secret d'API chiffré**, empreinte épinglée, version, instants de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `firewall_interfaces`, `firewall_rules` (dans l'ordre où le pare-feu les rend), `firewall_leases` et `firewall_gateways`. **Jamais le trafic, jamais un journal de filtrage** | Le secret est chiffré comme les autres (« Ce que le chiffrement couvre »), lié à sa ligne ; il ne sort jamais de l'API ni des journaux. Les quatre tables de relevé sont remplacées en entier à chaque relevé réussi, dans une transaction ; un relevé qui échoue garde le précédent. Une autre adresse d'API ou un autre connecteur à la redéclaration efface le relevé (il décrivait un autre appareil). Pas d'historique, pas de purge d'âge. Le pare-feu retiré emporte son relevé (`ON DELETE CASCADE`). Un pare-feu n'appartient à aucune machine : le plan de suppression d'une machine n'en compte aucun. Au plus 20 pare-feu |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
@@ -156,6 +157,8 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
 | Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` (au compte de l'agent, `opencloud-agent`, ou root s'il tourne en root ; `0700`, hors du dossier du serveur) | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main (la clé change seule pendant une rotation, par l'ordre `agent.server_key`) : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart. Le dossier est à root et **hors de `/var/lib/opencloud`**, que le compte du serveur possède sur la machine openCloud : ce compte ne peut ni remplacer le fichier ni renommer le dossier. L'agent juge sa chaîne de dossiers au démarrage (« Les droits d'un agent », état mal gardé) |
+| Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` | `bin/` et `update.json` | `bin/opencloud-<version>` (la courante et la précédente, rien d'autre), les liens `bin/current` (ce que le lanceur exécute) et `bin/previous` (la version d'avant la dernière bascule), et le **marqueur** `update.json` : une mise à jour (ou un retour arrière) en attente de confirmation, avec son échéance, ou ce que le lanceur en a fait (« Comment un agent se met à jour », décision 9). Aucun secret : états, numéros de version, identifiant d'ordre | `0600` au compte de l'agent. Le marqueur disparaît à la confirmation, ou une fois son rapport livré au serveur ; un marqueur illisible est écarté |
+| Toute machine, la machine openCloud comprise, `/usr/local/lib/opencloud-agent` | `opencloud-guard` | Le **lanceur stable** : une copie du binaire, posée une fois par root (`root:root`, `0755`), que l'unité systemd lance. L'agent, qui écrit son état et `bin/`, ne le remplace jamais | Se repose à la main si le lanceur change (`GuardVersion`) ; l'agent le sait par la variable `OPENCLOUD_AGENT_GUARD` |
 | Hôte Proxmox, `/var/lib/opencloud-agent` | `proxmox.json` | Le jeton Proxmox **local** de l'agent : identifiant, **secret** et empreinte du certificat (`token_id`, `secret`, `fingerprint`), posé à la main par l'opérateur, jamais envoyé ni stocké par le serveur | `0600`, au compte de l'agent ; sans lui les droits `proxmox.*` sont indisponibles (« Comment un hôte Proxmox agit »). Le secret est en clair dans ce fichier : le protège le compte, pas un chiffrement |
 | Un hôte Proxmox dont l'agent a `backup.produce`, `/var/lib/opencloud-agent/produce/` | `<préfixe>-AAAAMMJJ-HHMMSS.tar.age.raw`, puis `….tar.age` | Les archives en cours de production : le flux brut de `vzdump` (compressé `zstd`, **en clair**), puis le même emballé dans un `tar` et chiffré pour la clé publique du trousseau ; les deux coexistent avant l'envoi, d'où **deux fois** la plus grosse VM compressée. L'agent refuse de commencer sous 1 Gio libre (`disk_full`) | `0700` et `0600`, au compte de l'agent. Vidé à la fin de **chaque** ordre, réussi ou non, et au démarrage de l'agent (un arrêt en pleine production ne laisse rien). Posé par la préparation du droit, créé par l'agent s'il manque. Le clair de la VM ne quitte jamais cet hôte |
 
@@ -316,7 +319,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
 | `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à **Changer les droits** (on ne coche rien à la place de l'opérateur) |
-| `agent.update` | — | L'ordre `agent.update`, mettre à jour l'agent depuis le serveur (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire |
+| `agent.update` | — | Les ordres `agent.update` (mettre à jour l'agent depuis le serveur) et `agent.rollback` (revenir à la version précédente) (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire, et ne le fait que sous le lanceur stable |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
@@ -932,7 +935,9 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 6. **Il exécute** : `agent.ping` finit `succeeded`, sortie `pong <version>`.
    `agent.server_key` épingle la clé qu'il livre, sortie `pinned <empreinte>`.
    `agent.update` télécharge, vérifie, change son binaire et s'arrête (code 3) ;
-   le run reste « accepté » jusqu'à son retour (« Comment un agent se met à jour »).
+   `agent.rollback` rebascule sur la version d'avant et s'arrête de même ; le
+   run reste « accepté » jusqu'au retour de l'agent (« Comment un agent se met
+   à jour »).
 7. **Il répond par le signal**, section `actions`, sans attendre les 30 s :
    un résultat réveille la boucle du flux. Un signal raté remet les résultats
    en tampon (32 au plus). Le serveur fait avancer le run : `accepted`, puis
@@ -3298,6 +3303,7 @@ liste vit dans `internal/alert`.
 | Certificat expiré | `probe` | échéance passée | renouvelé | danger |
 | Certificat non vérifié | `probe` | agrafe « révoqué », nom qui ne correspond pas, ou chaîne refusée d'un certificat pas encore expiré | chaîne et nom valides | attention |
 | Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** par défaut, réglable ; aggravée à **95 %** par défaut, réglable | sous le seuil d'attention **moins 5 points** (80 % par défaut), ou volume disparu | attention → danger |
+| Agent revenu à la version précédente | `action`, au rapport de l'agent | la mise à jour n'a pas été confirmée à temps (`timeout`) ou a planté (`crash`) : l'agent est revenu seul à la précédente ; la remise en état qui échoue à son tour (`failed`) | une mise à jour ou un retour arrière confirmé sur cette machine | attention, danger si la remise en état a échoué |
 | Sauvegarde en échec | aucune | **aucune alerte** : l'échec se lit sur la page Sauvegardes (`last_error` du plan, ou l'état du dernier ordre `backup.receive`), aucun canal n'est prévenu | | |
 
 **L'anti-rebond des services.** Un conteneur en boucle de redémarrage
@@ -3718,10 +3724,14 @@ l'instant, un jeton ne reçoit que des gestes qu'on peut défaire.
 | `probe.resume` | `POST /api/probes/{id}/actions/resume` | `probe.pause` |
 | `job.pause` | `POST /api/jobs/{id}/actions/pause` | `job.resume` |
 | `job.resume` | `POST /api/jobs/{id}/actions/resume` | `job.pause` |
+| `agent.update` | `POST /api/machines/{id}/actions/update-agent` | `agent.rollback` |
+| `agent.rollback` | `POST /api/machines/{id}/actions/rollback-agent` | `agent.update` |
 | `proxmox.vm.start` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/start` | `proxmox.vm.shutdown` |
 | `proxmox.vm.shutdown` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown` | `proxmox.vm.start` |
 | `proxmox.vm.snapshot` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot` | `proxmox.vm.snapshot_delete` |
 | `proxmox.vm.snapshot_delete` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete` (corps `{"snapshot":"oc-…"}`) | `proxmox.vm.snapshot` |
+
+Les deux verbes d'agent (« Comment un agent se met à jour ») agissent aussi sur des machines : `agent.update` envoie à l'agent la version que le serveur a déjà importée et que la clé de l'opérateur a signée, **une machine à la fois** (`409 action.update_in_progress` pour une seconde), et seulement à un agent qui revient seul en arrière (`409 action.rollback_unavailable`). Ni l'un ni l'autre ne signe ni n'importe de version : `release import` reste une commande de l'opérateur. Coût : un agent IA qui met à jour une machine la redémarre, et une version défectueuse la ramène trois minutes plus tard à l'ancienne, avec une alerte.
 
 Les quatre verbes Proxmox agissent **sur des machines** : l'ordre part à
 l'agent de l'hôte, qui appelle l'API locale de Proxmox avec son jeton étroit
@@ -3746,9 +3756,12 @@ passe tel quel. Ajouter un verbe, c'est appeler `verb.Default.MustRegister`
 pour une route existante : l'admission ne change pas. Toute route d'écriture
 qui n'est pas dans le registre reste fermée à un jeton, même `write` avec tous
 les verbes : un test de table parcourt chaque route non-`GET` de l'API et le
-vérifie (déploiement, mise à jour ou révocation d'un agent, ré-enrôlement,
+vérifie (déploiement, révocation d'un agent, ré-enrôlement,
 suppressions, réglages, authentification, gestion des jetons, pare-feu,
-déclaration Proxmox, acquittement).
+déclaration Proxmox, acquittement, drapeau « à mettre à jour en dernier »,
+migration d'un agent). La mise à jour et le retour arrière d'un agent sont
+désormais des verbes ; la signature et l'import d'une version n'ont aucune
+route.
 
 Comme toute écriture sous `/api`, un verbe exige `Content-Type:
 application/json`, corps vide compris (`requireSameOrigin`).
@@ -3844,8 +3857,12 @@ Côté openCloud, la défense est qu'**un jeton `read` n'écrit rien**, et qu'un
 jeton `write` ne fait que ce que l'opérateur a coché : des verbes réversibles,
 à débit borné, sans suppression de machine ni déploiement ni réglage. Un
 modèle poussé par un texte de tiers peut au pire mettre en pause une sonde ou,
-si l'opérateur a coché les verbes Proxmox, éteindre proprement une VM : cela se
-défait (et se lit à l'audit), mais l'arrêt coupe le service entre-temps.
+si l'opérateur a coché les verbes Proxmox, éteindre proprement une VM, ou, s'il
+a coché `agent.update`, redémarrer l'agent d'une machine sur la version du
+serveur : cela se défait (et se lit à l'audit), mais l'arrêt coupe le service
+entre-temps, et une mise à jour qui ne tient pas ramène l'agent à l'ancienne
+version trois minutes plus tard, avec une alerte. Aucun verbe ne signe ni
+n'importe de version.
 
 ### L'acteur d'audit et `on_behalf_of`
 
@@ -4294,10 +4311,12 @@ l'acteur de l'apply et avec son `apply_id`.
 | Jeton d'API, tous les jetons | `api_token.create`, `.revoke`, `.deny` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `verbs`, `expires_at` ; pour `.deny`, `verb` (l'identifiant du registre que le jeton a tenté sans le porter, jamais ce que le client a écrit) ; pour tous `all`, `api_tokens` ; jamais le jeton ni son préfixe |
 | Anciennes lignes du MCP, lues seulement | `mcp.*`, `mcp_token.*`, `mcp_session.*` | Le client OAuth, le jeton, la famille coupée | Ce qu'elles portaient ; plus aucune ne s'écrit |
 | Clé perdue, secrets oubliés | `secrets.forget` | — | `channels_disabled`, `ping_tokens_renewed` |
-| Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` |
+| Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` ; pour `agent.update`, `from` (version de l'agent) et `to` (version visée), pour `agent.rollback`, `from` |
 | Clé de sauvegarde créée, remplacée | `backup_keyring.create`, `.replace` | La clé | `fingerprint` ; jamais la phrase ni la clé privée scellée |
 | Destination de sauvegarde | `backup_destination.create`, `.delete` | La destination | `name`, `machine_id`, `path` |
 | Plan de sauvegarde | `backup_plan.update`, `.delete`, `.run` | Le plan (son sujet) | `source_kind`, `destination_id`, `keep` ; source machine : `source_machine_id`, `producer`, `selector` en plus ; `.run` : `run_id`, `destination_id` (sous `rule:backup` la nuit) |
+| Un agent revenu à la version précédente, seul, rapporté par son signal | `action.rolled_back` (acteur : l'agent de la machine ; une fois : un rapport rejoué ne s'écrit pas) | Le run de la mise à jour, nommé par sa machine | `kind`, `machine_id`, `agent_id`, `reason` (`rolled_back_timeout`, `rolled_back_crash`, `rollback_failed`), `target` (la version refusée), `version` (celle qui tourne) |
+| Le drapeau « à mettre à jour en dernier » | `machine.update_last` (une fois par changement) | La machine | `update_last` (`true` ou `false`) |
 | Un ordre refusé par l'agent, rapporté par son signal | `action.refused` (une fois : un rapport rejoué ne s'écrit pas) | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id`, `reason` (`right_missing:agent.update`, `bad_signature`…) |
 
 ### Ce qui ne l'est jamais
@@ -4429,38 +4448,109 @@ d'une machine propose « Mettre à jour l'agent » quand la version de son agent
 n'est pas celle du serveur. L'agent ne croit pas le serveur sur parole : il
 revérifie la signature avec **sa** clé embarquée avant de toucher à son binaire.
 
+**Jamais de mise à jour sans retour arrière automatique** (décision 21,
+`23-direction.md`). Après la bascule, l'agent a trois minutes pour rejoindre le
+serveur et être acquitté ; sinon la machine revient **seule** à la version
+précédente, même si le nouveau binaire ne s'exécute pas. Le serveur refuse
+`agent.update` pour un agent qui ne rapporte pas ce filet.
+
 | Acteur | Ce qu'il fait |
 | --- | --- |
-| L'opérateur | `opencloud release import <dossier>` (le dossier d'une version publiée : `SHA256SUMS`, `SHA256SUMS.minisig`, les binaires), puis le bouton de la fiche |
+| L'opérateur | `opencloud release import <dossier>` (le dossier d'une version publiée : `SHA256SUMS`, `SHA256SUMS.minisig`, les binaires), puis le bouton de la fiche. **Il garde la clé de signature des versions** : importer ou signer une version n'est pas un verbe et ne le deviendra pas |
 | `release.Library` | Range la version sous `<état>/releases/<version>/` (binaires, signature, sommes) ; **revérifie à chaque envoi** la signature, la version du dossier et la somme du binaire |
-| `action.Service` | `OfferUpdate` juge l'offre, `UpdateAgent` prépare le colis et signe l'ordre, `ConfirmAgentUpdate` ferme le run au retour de l'agent |
-| L'agent (`internal/agent/update.go`) | Télécharge, vérifie, s'éprouve, bascule son lien, s'arrête avec le code 3 |
-| systemd | Relance l'agent (`Restart=on-failure` : le code 3 en est un) sur le lien `bin/current`, désormais le nouveau binaire |
+| `action.Service` | `OfferUpdate` juge l'offre, `UpdateAgent` prépare le colis et signe l'ordre, `RollbackAgent` signe le retour arrière, `ConfirmAgentUpdate` ferme le run au retour de l'agent, `UpdatePlan` lit le plan, `Record` écrit l'audit et l'alerte d'un retour en arrière |
+| L'agent (`internal/agent/update.go`, `outcome.go`) | Télécharge, vérifie, s'éprouve, **écrit le marqueur et le lien `previous`**, bascule son lien, s'arrête avec le code 3 ; au retour, **confirme** quand le serveur l'a acquitté, et rapporte ce que le lanceur a fait en son absence |
+| Le lanceur stable (`opencloud guard`, `internal/rollback`) | Une copie du binaire que **root** pose hors de `bin/` ; l'unité systemd le lance, **sous le compte de l'agent**, et lui lance `bin/current`. Il tient l'échéance et rebascule sur `previous` si rien n'a confirmé |
+| systemd | Relance le lanceur (`Restart=on-failure` : le code 3 en est un, pas le 2) |
 
 | # | Décision | Contrepartie |
 | --- | --- | --- |
-| 1 | **La version visée est celle du serveur** : il n'envoie que sa propre version, jamais une autre. La fiche ne propose rien quand l'agent est à la même version (`same_version`) ou plus récent (`newer_agent`) ; une version d'agent illisible compte comme plus ancienne | Pas de retour en arrière par l'interface ; il se fait à la main (installation.md) |
+| 1 | **La version visée est celle du serveur** : il n'envoie que sa propre version, jamais une autre. La fiche ne propose rien quand l'agent est à la même version (`same_version`) ou plus récent (`newer_agent`) ; une version d'agent illisible compte comme plus ancienne | Pas de version choisie par l'interface ; revenir à la précédente se fait par `agent.rollback` (plus bas) |
 | 2 | **Une bibliothèque**, `<état>/releases/<version>/` : `release import` vérifie le dossier entier (signature avec la clé embarquée, chaque binaire listé présent et de la somme signée, 256 Mio au plus), puis écrit les binaires, la signature, et **les sommes en dernier** : une coupure laisse une version absente, que l'import suivant complète. La même version importée avec d'autres sommes est refusée (`ErrVersionConflict`) | Une version se publie une fois ; importer deux fois le même dossier ne change rien |
 | 3 | **Double vérification.** Le serveur rouvre la version à chaque envoi (`Library.Artifact`) et compare la somme du fichier emprunté à celle qu'il vient de vérifier. L'agent vérifie ensuite lui-même : clé embarquée (`release_key_missing` sans elle), signature (`signature_invalid`), version signée = version demandée (`version_mismatch`), une version plus récente que la sienne, jamais la même ni une plus ancienne, et jamais par-dessus le binaire que `current` lance (`downgrade`), binaire listé dans les sommes signées et de la taille et de la somme que l'ordre a signées (`digest_mismatch`) | Un serveur compromis ne fait pas installer ce que la clé de version n'a pas signé |
 | 4 | **Le colis est celui des sauvegardes** : trois fichiers (binaire de l'architecture de la machine, `SHA256SUMS`, `SHA256SUMS.minisig`), empruntés à la bibliothèque (`ParcelWriter.Borrow`, ni copiés ni effacés), téléchargés sous le jeton de session | Un ordre qui ne part pas rend le colis (`Discard`) |
-| 5 | **Disposition de l'agent** : `<état>/bin/opencloud-<version>`, le lien `<état>/bin/current` que l'unité systemd exécute. Le nouveau binaire arrive en `.incoming-<version>`, prend ses droits d'exécution, **s'éprouve** (`<binaire> version` sous un environnement remplacé, 10 s, la sortie doit nommer la version) ; seulement ensuite `current.new` est créé puis **renommé** sur `current` (atomique, dossier synchronisé). La version courante et la précédente restent, les plus anciennes sont retirées | Un binaire qui ne s'éprouve pas est retiré, le lien ne bouge pas (`self_check_failed`) |
-| 6 | **Un agent qui ne vit pas dans `bin/`** refuse avant de lire l'ordre (`not_self_updatable`) : son exécutable, liens suivis, doit être directement dans `<état>/bin/`. Les agents déjà installés sont migrés une fois à la main (installation.md). **La machine openCloud n'est plus une exception** (22 octobre 2026) : son état, `/var/lib/opencloud-agent`, est hors du dossier du serveur, son agent lance `bin/current` et se met à jour depuis sa fiche. Seule différence : pas de lien `/usr/local/bin/opencloud` vers `bin/current` sur elle, car `/usr/local/bin/opencloud` y est le binaire du serveur, que rien ne met à jour seul | Une étape manuelle par machine, une seule (le déplacement de l'état, qui y met aussi `bin/`) |
-| 7 | **L'agent s'arrête avec le code 3** une fois le lien basculé, sans rapporter de résultat : le run reste « accepté ». systemd le relance, il annonce sa version à l'ouverture du flux (`OpenCloud-Agent-Version`) | Entre l'arrêt et le retour, la fiche montre l'ordre en cours |
+| 5 | **Disposition de l'agent** : `<état>/bin/opencloud-<version>`, le lien `<état>/bin/current` que le lanceur exécute, le lien `<état>/bin/previous`. Le nouveau binaire arrive en `.incoming-<version>`, prend ses droits d'exécution, **s'éprouve** (`<binaire> version` sous un environnement remplacé, 10 s, la sortie doit nommer la version) ; le lien `previous` et le marqueur sont écrits ; seulement ensuite `current.new` est créé puis **renommé** sur `current` (atomique, dossier synchronisé). La version courante et la précédente restent, **intactes** ; les plus anciennes sont retirées | Un binaire qui ne s'éprouve pas est retiré, le lien ne bouge pas (`self_check_failed`). Une version d'avant illisible (`current` ne vise pas `opencloud-vX.Y.Z`) refuse la mise à jour (`no_previous`) |
+| 6 | **Un agent qui ne vit pas dans `bin/`**, ou qui ne tourne pas sous le lanceur, refuse avant de lire l'ordre (`not_self_updatable`, `guard_missing`) : son exécutable, liens suivis, doit être directement dans `<état>/bin/`. **La machine openCloud n'est pas une exception** : son état, `/var/lib/opencloud-agent`, est hors du dossier du serveur, son agent lance `bin/current` et se met à jour depuis sa fiche. Seule différence : pas de lien `/usr/local/bin/opencloud` vers `bin/current` sur elle, car `/usr/local/bin/opencloud` y est le binaire du serveur, que rien ne met à jour seul | Une étape manuelle par machine, une seule : la migration (installation.md, « Migrer l'agent vers le retour arrière automatique ») |
+| 7 | **L'agent s'arrête avec le code 3** une fois le lien basculé, sans rapporter de résultat : le run reste « accepté ». systemd relance le lanceur, qui relance `bin/current` ; l'agent annonce sa version à l'ouverture du flux (`OpenCloud-Agent-Version`) | Entre l'arrêt et le retour, la fiche montre l'ordre en cours |
 | 8 | **Le succès se constate au retour** : `CompleteAgentUpdates` ferme les runs `agent.update` envoyés ou acceptés **de cet agent** dont la version visée est celle qu'il annonce, ligne de sortie `reconnected as <version>`. Une autre version annoncée ne ferme rien ; un agent qui ne revient pas laisse l'ordre expirer (`MaxRunDuration`, une heure) | Pas de « fait » sans l'avoir entendu |
+| 9 | **Le marqueur** `<état>/update.json` (`0600`, écrit en une fois : temporaire, `fsync`, `rename`) est écrit **avant** la bascule : l'état (`pending`, `confirmed`, `rolled_back`, `failed`), le genre (`update` ou `rollback`), l'ordre (`run_id`), la version visée, la précédente, l'instant et l'**échéance** (`GracePeriod` = 3 minutes, constante de `internal/rollback`, ni dans l'ordre ni réglable par le serveur). Un marqueur illisible, d'un autre état, ou dont une version n'est pas `vX.Y.Z` est écarté bruyamment : le lanceur et l'agent démarrent sans lui | Trois minutes laissent un redémarrage (10 s), une reconnexion et une machine lente ; une machine éteinte plus de trois minutes juste après la bascule revient en arrière à son démarrage, à tort mais sans danger |
+| 10 | **La confirmation réutilise le signal de la décision 8** : l'agent est confirmé quand le flux est ouvert **et** que le serveur a noté sa version (l'événement `session` arrive après `ConfirmAgentUpdate`) et que cette version est la visée. L'agent retire alors le marqueur. Un retour arrière manuel passe par `confirmed` (le serveur n'a pas de version à attendre) puis l'agent rapporte `succeeded` | Un agent coupé du serveur ne se confirme pas, c'est voulu : il revient à la version qui, elle, tenait |
+| 11 | **Le retour automatique** (le cœur). À chaque lancement, le lanceur juge le marqueur *avant* de lancer `bin/current` : échéance passée → il rebascule `current` sur `previous` (le binaire de la version d'avant, présent et exécutable, sinon `failed`), écrit `rolled_back` avec la cause (`timeout` : rien n'a confirmé ; `crash` : le binaire s'est arrêté ou n'a pas pu démarrer avant l'échéance), puis lance la version d'avant. Pendant que le binaire tourne, il tient l'échéance : si le marqueur est encore `pending` à l'échéance, il arrête le binaire (SIGTERM, puis SIGKILL après 10 s), rebascule et sort avec le code 3. Un binaire **mort-né** (qui ne s'exécute pas) est un plantage de plus : le lanceur, lui, n'est pas ce binaire | Le lanceur est **un second processus** par agent (quelques Mio) et une copie figée du binaire : un correctif du lanceur demande de la reposer à la main (`GuardVersion`) |
+| 12 | **Une seule remise en état par mise à jour** : si la version d'avant s'arrête de façon anormale dans la minute qui suit (`SettleAfter`), le marqueur passe à `failed` (cause `previous_crash`), le lanceur sort avec le code **2** (systemd ne relance pas) et la machine le dit haut et fort : journal local au niveau d'erreur, signal au serveur dès qu'un agent revient (`rollback_failed`, alerte danger). Jamais de boucle. Un retour arrière **manuel** non confirmé passe de même à `failed` (`unconfirmed`) sans rebasculer | Une machine dont les deux versions sont cassées reste sans agent jusqu'à une main humaine ; c'est la seule issue honnête |
+| 13 | **Le rapport au retour** : l'ancienne version, revenue, pousse dans sa section `actions` le résultat de l'ordre de la mise à jour : `failed`, raison `rolled_back_timeout`, `rolled_back_crash` ou `rollback_failed`, trois lignes de sortie (`target`, `previous`, `running`). Le marqueur n'est retiré que **quand le signal qui le porte a été écrit** par le serveur. Le run se ferme en **échec** (jamais en succès) ; `Record` écrit l'événement d'audit `action.rolled_back` (acteur : l'agent de la machine) et lève l'alerte `agent_rolled_back` (attention, danger si `rollback_failed`), refermée par la mise à jour confirmée suivante | Un rapport arrivé après l'expiration du run (une heure) n'est plus appliqué |
+| 14 | **La capacité** est la version du retour arrière que l'agent rapporte (`OpenCloud-Agent-Rollback: 1`, colonne `agents.rollback_version`). Il ne la dit **que** s'il tourne sous le lanceur (variable `OPENCLOUD_AGENT_GUARD` posée par le lanceur) : un agent d'avant, ou pas migré, ne la dit pas. **Le serveur refuse `agent.update` et `agent.rollback` pour un agent à 0** (`409 action.rollback_unavailable`) ; aucune option ne l'impose, et l'agent refuse de lui-même sans lanceur (`guard_missing`) | Les agents installés doivent migrer une fois à la main ; l'offre le dit (`rollback_unavailable`) et l'interface donne les lignes à coller |
+| 15 | **Une seule mise à jour d'agent en vol, tous agents confondus** : `agent.update` et `agent.rollback` sont refusés (`409 action.update_in_progress`) tant qu'un run de l'un ou de l'autre n'est ni confirmé, ni en échec, ni échu (`UpdateInFlightWindow` = 30 minutes : téléchargement, délai de confirmation, marge). Vaut pour l'opérateur comme pour un jeton ; le « rien en vol puis écrire le run » se fait sous un verrou | Un run qui ne finit jamais bloque les autres jusqu'à son échéance |
+| 16 | **Le plan** : `GET /api/agent-updates` (ouverte aux jetons en lecture) liste les machines (version de l'agent, version visée, `up_to_date`, `rollback_capable`, `online`, `update_last`, raison de blocage, `order`) et la mise à jour en vol (`in_progress`). L'ordre recommandé met d'abord les machines ordinaires, puis celles marquées `update_last`, chaque groupe par nom ; une machine à jour ou bloquée n'a pas de rang. **Le serveur ne met jamais plusieurs agents à jour d'un coup** : l'enchaînement est fait par l'opérateur ou par un agent IA, une machine à la fois, en s'arrêtant au premier échec | L'ordre est un conseil, pas une file : rien ne part sans un geste |
+| 17 | **`update_last`** : un drapeau par machine (colonne `machines.update_last`, migration `018`), réglé par l'opérateur seul (`PUT /api/machines/{id}/update-last`, jamais un verbe) depuis la fiche : « À mettre à jour en dernier : cette machine porte le chemin des ordres (proxy, VPN…) ». Journalisé (`machine.update_last`) | Le serveur ne devine pas quelle machine porte le chemin des ordres |
+| 18 | **L'audit nomme l'acteur et les versions** : `action.order` porte `from` (version de l'agent) et `to` (version visée) pour `agent.update`, `from` pour `agent.rollback` ; l'acteur est l'opérateur, ou le jeton avec « pour qui » (`on_behalf_of`). `action.rolled_back` porte `reason`, `target` et `version` (celle qui tourne) | `to` d'un retour arrière manuel n'est pas connu du serveur : il est dans la sortie du run |
+
+**Pourquoi un lanceur stable, et ce que ça coûte.** Un agent cassé ne peut pas
+se réparer lui-même : il faut que ce qui rebascule ne soit pas le binaire mis à
+jour. Trois pistes ont été pesées.
+
+| Piste | Pourquoi pas |
+| --- | --- |
+| Unité de remise en état déclenchée par `OnFailure=` / `StartLimit*` | Ne voit pas un agent qui tourne sans jamais rejoindre le serveur (pour systemd, il va bien) ; la remise en état doit redémarrer l'unité, ce qu'un compte sans privilège ne fait pas ; trois unités à poser et à tenir cohérentes |
+| Minuterie systemd qui lance la remise en état | Même limite de privilège (redémarrer l'agent), et un processus à chaque minute pour rien |
+| **Un lanceur stable** *(retenu)* | Une seule ligne d'unité change (`ExecStart=`). Il est le *parent* de l'agent : il l'arrête quand il ne confirme pas, sans privilège ; il voit un binaire mort-né ; il est testable avec des faux (pas de vrai systemd) |
+
+Le lanceur tourne sous le **compte de l'agent** : aucun root permanent, pas de
+`sudo`, pas de règle en plus. Il ne lance **aucun shell** : un chemin
+(`bin/current`) et les arguments de la ligne de l'unité, l'environnement hérité
+plus `OPENCLOUD_AGENT_GUARD=1`. Il ne lit **rien venu du réseau** : seulement le
+marqueur, que le compte de l'agent écrit. Contrepartie : un agent compromis,
+qui tourne sous ce compte, peut écrire un marqueur ou rebasculer `current` ;
+il peut déjà remplacer `bin/current`, le lanceur n'ajoute pas ce pouvoir. Ce
+que le lanceur ajoute, c'est qu'une copie à root, que l'agent ne peut pas
+modifier, reste lancée à la place de ce qu'il a pu casser.
+
+**L'ordre `agent.rollback`** (son échec : décision 12) :
+signé, sans paramètre (liste fermée `agentwire.OrderKinds`), même droit que
+`agent.update` (`action.RightOf`, pas de droit nouveau), mêmes refus d'agent
+(`not_self_updatable`, `guard_missing`). L'agent lit `previous` ; il refuse
+sans rien toucher s'il n'y en a pas (`no_previous`) ou s'il est la version qui
+tourne (`previous_identical`) ; il **éprouve** la version d'avant comme une
+neuve (`self_check_failed`), écrit le marqueur (genre `rollback`, cible = la
+version d'avant, `previous` = celle qu'on quitte), rebascule et redémarre. Il
+est confirmé ou annulé comme une mise à jour, mais **ne déclenche pas de
+seconde remise en état** : si la version d'avant ne revient pas, le marqueur
+passe à `failed` (`unconfirmed`) et l'agent le dit.
+
+**Les verbes pour jetons.** `agent.update` (`POST
+/api/machines/{id}/actions/update-agent`) et `agent.rollback` (`POST
+/api/machines/{id}/actions/rollback-agent`) sont inverses l'un de l'autre,
+`Params: id`, pas de corps. Leurs phrases disent qu'ils ne signent ni
+n'importent jamais une version. Un jeton qui porte `agent.update` met à jour
+un agent, **une machine à la fois** ; il ne peut pas importer ni signer une
+version (aucune route de l'API ne le fait, un test le garde).
 
 **Les raisons de la fiche** (`GET /api/machines/{id}/agent-update`, jugées dans
 cet ordre, la première qui tient est rendue) : `no_releases` (le serveur n'a
 pas de clé de version embarquée, ou une version illisible), `no_agent`,
 `offline`, `right_missing` (l'agent a rapporté ses droits sans `agent.update`),
-`arch_unknown`, `same_version`, `newer_agent`, `no_release` (rien d'importé pour
-cette version et cette architecture), `release_invalid` (importée mais qui ne se
-revérifie plus : l'import est à refaire). Sauf `same_version`, chaque raison a sa
-phrase (`machine.agent_update_reason_*`). Une offre **disponible** peut porter
-`right_unavailable` : l'agent a dit que son compte ne peut pas exercer
-`agent.update`, l'offre reste faite et c'est l'agent qui refusera. L'envoi,
-`POST /api/machines/{id}/actions/update-agent`, refuse avec les mêmes motifs :
-`404` machine inconnue, `409 machine.no_agent`, `409 action.machine_offline`,
-`409 action.right_missing`, sinon `409 action.update_unavailable`.
+`arch_unknown`, `same_version`, `newer_agent`, **`rollback_unavailable`**
+(l'agent ne rapporte pas de retour arrière : à migrer), `no_release` (rien
+d'importé pour cette version et cette architecture), `release_invalid`
+(importée mais qui ne se revérifie plus : l'import est à refaire). Sauf
+`same_version`, chaque raison a sa phrase (`machine.agent_update_reason_*`).
+Une offre **disponible** peut porter `right_unavailable` : l'agent a dit que
+son compte ne peut pas exercer `agent.update`, l'offre reste faite et c'est
+l'agent qui refusera. L'envoi, `POST /api/machines/{id}/actions/update-agent`,
+refuse avec les mêmes motifs : `404` machine inconnue, `409 machine.no_agent`,
+`409 action.machine_offline`, `409 action.right_missing`, `409
+action.rollback_unavailable`, `409 action.update_in_progress`, sinon `409
+action.update_unavailable`. `POST …/actions/rollback-agent` refuse de même
+(sans la version importée).
+
+**La fiche d'une machine** montre où en est la dernière mise à jour, lue dans
+ses derniers ordres : *en attente de confirmation*, *confirmée*, *revenue en
+arrière toute seule* (avec la version refusée et la cause), *retour arrière en
+échec* ; le bouton « Revenir à la version précédente » (confirmation en
+ligne) ; le drapeau « à mettre à jour en dernier » ; et, quand l'agent n'est
+pas migré, les lignes de migration que produit `GET /api/agent-migration`
+(opérateur seul : elles posent des fichiers à root). La vue d'ensemble pose une
+pastille « Agent revenu en arrière » sur la carte d'une machine dont l'alerte
+`agent_rolled_back` est ouverte.
 
 **Ce qui n'est pas journalisé.** `release import` n'ouvre pas la base : il ne
 laisse pas d'événement d'audit. L'ordre, lui, écrit `action.order` comme tous
@@ -4714,4 +4804,5 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Mise à jour des agents (#153, 07) | Le paquet `internal/release` étendu (`Library` : `Import`, `Artifact`, `releasetest`), la sous-commande `opencloud release import`, l'ordre `agent.update` (`agentwire.AgentUpdateParams` et six refus : `not_self_updatable`, `release_key_missing`, `signature_invalid`, `version_mismatch`, `downgrade`, `self_check_failed`), `action.Service` (`SetReleases`, `OfferUpdate`, `UpdateAgent`, `ConfirmAgentUpdate`), `store.CompleteAgentUpdates`, la confirmation à l'ouverture du flux (`agentapi`), l'exécuteur de l'agent (`internal/agent/update.go`, `ErrUpdated`, sortie de code 3), `Options.ReleaseKey`, les routes `GET /api/machines/{id}/agent-update` et `POST …/actions/update-agent`, le bouton « Mettre à jour l'agent » de la fiche, les clés `machine.agent_update*` et `action.reason_*`, le golden `agent_update_offer.golden.json`. Pas de migration |
 | Sortie du MCP (#224, #225) | La migration `008_api_tokens.sql` (`api_tokens` reconstruite à partir de `mcp_tokens`, `mcp_clients` et `mcp_codes` supprimées), les paquets `internal/apitoken` et `internal/mcpcheck`, `store/api_tokens.go`, la clé `mcp_url` de `config.toml`, `GET /api/settings/mcp`, `/api/settings/api-tokens`, l'admission d'un Bearer sur 25 routes en lecture (`admitAPIToken`), le masquage des secrets pour un jeton, l'acteur d'audit `api` et `details.on_behalf_of`, la carte « Agent IA » et la section « Jetons d'API » de Paramètres, `docs/installation/compose.mcp-maison.yml`. Retirés : `internal/mcp`, `/mcp`, `/oauth/…`, `opencloud mcp`, les 21 outils (les outils MCP cités dans les lignes plus haut sont de l'histoire), `go-sdk` |
 | Déploiement Docker Compose (06) | La migration `007_deploy.sql` (`service_units.data_path`, `action_runs.service_id` en `set null`), le paquet `internal/deploy` (le `compose.yml` généré, le plan, `Deploy`/`Redeploy`), les ordres `docker.deploy` et `docker.update` et leurs sept raisons (`agentwire`, `internal/agent/docker.go`), `action.SendForService`, `-root-dir` et l'en-tête `OpenCloud-Agent-Root` (`agents.root_dir`), `data_path` dans l'annuaire, le fichier d'`apply` et l'export, les trois routes `deploy-plan`, `actions/deploy` et `actions/redeploy`, `service_id` dans les ordres, la carte Déploiement et le champ « Dossier de données » du formulaire |
+| Retour arrière des mises à jour d'agent | La migration `018_agent_rollback.sql` (`agents.rollback_version`, `machines.update_last`), le paquet `internal/rollback` (le marqueur `update.json`, `Arm`, `SwitchLink`, `Guard` et son lanceur de processus), la sous-commande `opencloud guard`, l'ordre `agent.rollback` (`agentwire.KindAgentRollback`, droit `agent.update`), l'en-tête `OpenCloud-Agent-Rollback`, `internal/agent/outcome.go` (confirmer, rapporter), `action.RollbackAgent`/`UpdatePlan`/`refuseWhileUpdating`, les refus `action.rollback_unavailable` et `action.update_in_progress`, l'audit `action.rolled_back` et `machine.update_last`, l'alerte `agent_rolled_back`, les verbes `agent.update` et `agent.rollback`, `GET /api/agent-updates`, `GET /api/agent-migration`, `PUT /api/machines/{id}/update-last`, la fiche (état de la mise à jour, retour arrière, drapeau, migration) et la pastille de la vue d'ensemble, `docs/installation/opencloud-agent.service` (lanceur), « Migrer l'agent vers le retour arrière automatique » |
 | Gestes sur Proxmox (#266) | Les droits `proxmox.power` et `proxmox.snapshot`, quatre ordres `proxmox.vm.*`, le jeton local de l'agent, la route `POST …/proxmox/guests/{vmid}/actions/{geste}`, l'événement d'audit `machine.proxmox_guest` (« Comment un hôte Proxmox agit ») |

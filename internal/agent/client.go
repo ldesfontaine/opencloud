@@ -95,6 +95,8 @@ type Client struct {
 	// pas exercer : jugés avant chaque ouverture du flux, redits avec lui.
 	account     string
 	unavailable string
+	// Le retour arrière que l'agent sait faire (0 : aucun).
+	rollback int
 }
 
 // SetAccount fixe le compte que l'agent dit à l'ouverture du flux.
@@ -106,6 +108,13 @@ func (c *Client) SetAccount(account machine.Account) {
 // exercer, avec leur raison. Une table vide efface le rapport précédent.
 func (c *Client) SetUnavailable(unavailable map[string]string) {
 	c.unavailable = machine.FormatUnavailable(unavailable)
+}
+
+// SetRollbackVersion fixe la version du retour arrière que l'agent rapporte à
+// l'ouverture du flux ; 0 : rien n'est dit, le serveur refuse alors de le
+// mettre à jour.
+func (c *Client) SetRollbackVersion(version int) {
+	c.rollback = version
 }
 
 // SetRoot fixe la racine des services que l'agent rapporte à l'ouverture du
@@ -267,6 +276,9 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	}
 	if c.unavailable != "" {
 		request.Header.Set(agentwire.HeaderAgentUnavailable, c.unavailable)
+	}
+	if c.rollback > 0 {
+		request.Header.Set(agentwire.HeaderAgentRollback, strconv.Itoa(c.rollback))
 	}
 	request.Header.Set("Accept", "text/event-stream")
 

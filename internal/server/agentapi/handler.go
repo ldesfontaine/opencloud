@@ -27,6 +27,7 @@ type MachineService interface {
 	NoteSystem(ctx context.Context, machineID, system string) error
 	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
 	NoteRootDir(ctx context.Context, agentID, root string) error
+	NoteRollbackVersion(ctx context.Context, agentID, reported string) error
 	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities, account, unavailable string) (*machine.Session, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)

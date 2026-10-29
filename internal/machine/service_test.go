@@ -68,6 +68,27 @@ func (f *fakeStore) RecordSystem(_ context.Context, id, system string) error {
 	return nil
 }
 
+func (f *fakeStore) RecordRollbackVersion(_ context.Context, agentID string, version int) error {
+	for id, m := range f.machines {
+		if m.Agent.ID == agentID {
+			m.Agent.RollbackVersion = version
+			f.machines[id] = m
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeStore) SetUpdateLast(_ context.Context, machineID string, updateLast bool) error {
+	m, ok := f.machines[machineID]
+	if !ok {
+		return ErrNotFound
+	}
+	m.UpdateLast = updateLast
+	f.machines[machineID] = m
+	return nil
+}
+
 func (f *fakeStore) RecordRootDir(_ context.Context, agentID, root string) error {
 	for id, m := range f.machines {
 		if m.Agent.ID == agentID {

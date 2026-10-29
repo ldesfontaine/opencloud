@@ -662,3 +662,53 @@ func TestDiskThresholds_RefuseWhatMakesNoSense_AndFallBackToTheDefaults(t *testi
 		t.Fatalf("50/99 refused: %+v", got)
 	}
 }
+
+// Un agent revenu à sa version d'avant ouvre une alerte lisible, attention ;
+// danger quand la remise en état a échoué ; une mise à jour confirmée la
+// referme. Une seule alerte vivante par machine : le pire des deux l'emporte.
+func TestAgentRolledBack_OpensReadableAlertAndAConfirmedUpdateResolvesIt(t *testing.T) {
+	f := newFixture(t)
+	f.channel(t, "ops", alert.SeverityAttention, true)
+	ctx := context.Background()
+	enrolled := f.enrollRemote(t)
+
+	f.AgentRolledBack(ctx, enrolled.ID, "vps-paris-1", "v0.0.2", alert.RollbackCrash, false)
+	if f.kinds(t) != "agent_rolled_back:attention" {
+		t.Fatalf("kinds %q", f.kinds(t))
+	}
+	opened := f.only(t, alert.StatusOpen)
+	if opened.Object.Kind != alert.ObjectMachine || opened.Object.ID != enrolled.ID || opened.Details.Target != "v0.0.2" || opened.Details.Reason != alert.RollbackCrash {
+		t.Fatalf("alert %+v", opened)
+	}
+	catalogs, err := lang.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := alert.Describe(catalogs.For(lang.French), opened, testNow)
+	if text.Fact != "Agent revenu à la version précédente" || !strings.Contains(text.Cause, "vps-paris-1") || !strings.Contains(text.Cause, "v0.0.2") || !strings.Contains(text.Cause, "planté") {
+		t.Fatalf("text %+v", text)
+	}
+
+	// La remise en état échoue à son tour : l'alerte s'aggrave, elle ne se double pas.
+	f.AgentRolledBack(ctx, enrolled.ID, "vps-paris-1", "v0.0.2", alert.RollbackFailed, true)
+	if f.kinds(t) != "agent_rolled_back:danger" {
+		t.Fatalf("kinds %q", f.kinds(t))
+	}
+	failed := alert.Describe(catalogs.For(lang.French), f.only(t, alert.StatusOpen), testNow)
+	if !strings.Contains(failed.Cause, "plus d'agent") {
+		t.Fatalf("text %+v", failed)
+	}
+
+	f.AgentUpdated(ctx, enrolled.ID)
+	if f.kinds(t) != "" {
+		t.Fatalf("a confirmed update leaves the alert open: %q", f.kinds(t))
+	}
+	if f.sender.events() != "opened:ops,aggravated:ops,resolved:ops" {
+		t.Fatalf("events %q", f.sender.events())
+	}
+	// Une cause inconnue se dit comme un délai passé, sans casser la phrase.
+	f.AgentRolledBack(ctx, enrolled.ID, "vps-paris-1", "v0.0.2", "mystery", false)
+	if text := alert.Describe(catalogs.For(lang.English), f.only(t, alert.StatusOpen), testNow); strings.Contains(text.Cause, "[") {
+		t.Fatalf("text %+v", text)
+	}
+}
