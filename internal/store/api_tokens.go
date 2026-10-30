@@ -14,15 +14,24 @@ var _ apitoken.Store = (*DB)(nil)
 
 const apiTokenColumns = `id, token_hash, token_prefix, scope, name, created_at, expires_at, last_used_at` // #nosec G101 -- des noms de colonnes.
 
+// InsertAPIToken écrit le jeton et ses verbes d'un seul tenant : un jeton
+// write ne doit jamais exister à moitié.
 func (db *DB) InsertAPIToken(ctx context.Context, token apitoken.Token) error {
-	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO api_tokens (id, token_hash, token_prefix, scope, name, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		token.ID, token.Hash, token.Prefix, string(token.Scope), token.Name, token.CreatedAt.Unix(), nullableTime(token.ExpiresAt))
-	if err != nil {
-		return fmt.Errorf("insert api token: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "insert api token", func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO api_tokens (id, token_hash, token_prefix, scope, name, created_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			token.ID, token.Hash, token.Prefix, string(token.Scope), token.Name, token.CreatedAt.Unix(), nullableTime(token.ExpiresAt))
+		if err != nil {
+			return fmt.Errorf("insert api token: %w", err)
+		}
+		for _, verbID := range token.Verbs {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO api_token_verbs (token_id, verb) VALUES (?, ?)`, token.ID, verbID); err != nil {
+				return fmt.Errorf("insert api token verb: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 func (db *DB) GetAPIToken(ctx context.Context, hash string) (apitoken.Token, error) {
@@ -33,6 +42,11 @@ func (db *DB) GetAPIToken(ctx context.Context, hash string) (apitoken.Token, err
 	if err != nil {
 		return apitoken.Token{}, fmt.Errorf("get api token: %w", err)
 	}
+	verbs, err := db.listAPITokenVerbs(ctx, token.ID)
+	if err != nil {
+		return apitoken.Token{}, err
+	}
+	token.Verbs = verbs[token.ID]
 	return token, nil
 }
 
@@ -42,7 +56,41 @@ func (db *DB) ListAPITokens(ctx context.Context) ([]apitoken.Token, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list api tokens: %w", err)
 	}
-	return collect(rows, scanAPIToken)
+	tokens, err := collect(rows, scanAPIToken)
+	if err != nil {
+		return nil, err
+	}
+	verbs, err := db.listAPITokenVerbs(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	for i := range tokens {
+		tokens[i].Verbs = verbs[tokens[i].ID]
+	}
+	return tokens, nil
+}
+
+// listAPITokenVerbs rend les verbes par jeton, triés ; tokenID vide : de
+// tous les jetons.
+func (db *DB) listAPITokenVerbs(ctx context.Context, tokenID string) (map[string][]string, error) {
+	rows, err := db.sql.QueryContext(ctx,
+		`SELECT token_id, verb FROM api_token_verbs WHERE ? = '' OR token_id = ? ORDER BY token_id, verb`, tokenID, tokenID)
+	if err != nil {
+		return nil, fmt.Errorf("list api token verbs: %w", err)
+	}
+	defer rows.Close()
+	verbs := map[string][]string{}
+	for rows.Next() {
+		var id, verbID string
+		if err := rows.Scan(&id, &verbID); err != nil {
+			return nil, fmt.Errorf("scan api token verb: %w", err)
+		}
+		verbs[id] = append(verbs[id], verbID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list api token verbs: %w", err)
+	}
+	return verbs, nil
 }
 
 func (db *DB) TouchAPIToken(ctx context.Context, id string, at time.Time) error {

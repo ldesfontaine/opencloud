@@ -45,6 +45,8 @@ type updateOptions struct {
 	arch         string
 	// Les droits que l'agent dit ne pas pouvoir exercer (l'en-tête).
 	unavailable string
+	// L'agent ne rapporte pas de retour arrière (non migré).
+	noRollback bool
 }
 
 func newUpdateBench(t *testing.T, options updateOptions) *updateBench {
@@ -60,6 +62,13 @@ func newUpdateBench(t *testing.T, options updateOptions) *updateBench {
 	}
 	t.Cleanup(func() { b.machines.Disconnect(session) })
 	b.session = session
+	// Un agent migré dit à chaque ouverture de flux qu'il revient seul en
+	// arrière ; sans cela le serveur ne lui envoie aucune mise à jour.
+	if !options.noRollback {
+		if err := b.machines.NoteRollbackVersion(context.Background(), enrolled.Agent.ID, "1"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	b.key, b.private, err = release.GenerateKey()
 	if err != nil {
 		t.Fatal(err)

@@ -10,6 +10,7 @@ import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
+import { detectedProxmox, suggestedProxmoxURL } from "../lib/proxmox";
 import { NotFound } from "./NotFound";
 
 interface ProxmoxFormValues {
@@ -47,7 +48,10 @@ function ProxmoxForm({ machine }: { machine: Machine }) {
   const navigate = useNavigate();
   const declared = machine.proxmox.declared;
   const host = useMachineProxmox(machine.id, declared);
-  const form = useForm(emptyForm, declared ? { source: host.data, fill: formOf } : null);
+  // Un hôte reconnu par l'agent arrive avec l'adresse de la machine ; le jeton,
+  // lui, reste à l'opérateur.
+  const suggestedURL = detectedProxmox(machine) === null ? "" : suggestedProxmoxURL(machine);
+  const form = useForm({ ...emptyForm, apiURL: suggestedURL }, declared ? { source: host.data, fill: formOf } : null);
   const { values } = form;
   const action = useAction();
   const save = () => {

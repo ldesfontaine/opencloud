@@ -22,6 +22,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -187,6 +188,11 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	// déploiement la montre.
 	if err := h.machines.NoteRootDir(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentRoot)); err != nil {
 		h.logger.Warn("note root dir", "machine_id", authenticated.ID, "error", err)
+	}
+	// Le retour arrière que l'agent sait faire : sans lui, aucune mise à jour
+	// ne lui est envoyée.
+	if err := h.machines.NoteRollbackVersion(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentRollback)); err != nil {
+		h.logger.Warn("note rollback version", "machine_id", authenticated.ID, "error", err)
 	}
 	// Les droits que l'agent lit dans son fichier : stockés tels qu'il les
 	// dit, comparés à ce que son jeton demandait ; l'agent les applique, le
@@ -399,7 +405,19 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	if request.SSHKeys != nil {
 		keep(agentwire.SectionSSHKeys, h.recordSSHKeys(ctx, machineID, *request.SSHKeys), sshkeys.ErrReportInvalid)
 	}
+	if request.Roles != nil {
+		keep(agentwire.SectionRoles, h.recordRoles(ctx, machineID, *request.Roles), role.ErrReportInvalid)
+	}
 	return rejected, failed
+}
+
+// recordRoles écrit ce que l'agent reconnaît sur sa machine ; sans composant,
+// la section est refusée.
+func (h *Handler) recordRoles(ctx context.Context, machineID string, report role.Report) error {
+	if h.roles == nil {
+		return role.ErrReportInvalid
+	}
+	return h.roles.Record(ctx, machineID, report)
 }
 
 // recordSSHKeys écrit le relevé des clés SSH ; sans composant, la section est

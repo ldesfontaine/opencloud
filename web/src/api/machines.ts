@@ -17,6 +17,9 @@ export interface Machine {
   os: string;
   arch: string;
   online: boolean;
+  // À mettre à jour en dernier : la machine porte le chemin des ordres
+  // (proxy, VPN…). Réglé par l'opérateur seul.
+  update_last: boolean;
   last_seen_at: string | null;
   // L'agent courant : l'actif, sinon le dernier révoqué ; null tant
   // qu'aucun ne s'est enrôlé.
@@ -26,6 +29,16 @@ export interface Machine {
   lifecycle?: Lifecycle;
   // L'hôte Proxmox que la machine porte, ou la VM qu'elle est sur un hôte.
   proxmox: ProxmoxSummary;
+  // Ce que l'agent reconnaît sur la machine par ses signes locaux ; vide sans
+  // agent ou quand rien n'est reconnu. Un rôle ne donne aucun droit.
+  roles: MachineRole[];
+}
+
+// Un rôle de la liste fermée du serveur (« proxmox_ve »), avec la version
+// trouvée, vide si elle n'est pas lisible.
+export interface MachineRole {
+  name: string;
+  version: string;
 }
 
 // Un droit de l'agent et, pour un droit borné, ses chemins.
@@ -65,6 +78,9 @@ export interface Agent {
   // Le compte que l'agent a dit à l'ouverture de son flux ; null tant qu'il
   // n'a rien dit (un agent plus ancien).
   run_as: Account | null;
+  // L'agent revient seul à sa version d'avant si une mise à jour n'est pas
+  // confirmée ; sans cela, le serveur ne lui en envoie aucune.
+  rollback_capable: boolean;
 }
 
 export interface PendingToken {
@@ -86,6 +102,9 @@ export interface TokenResponse {
   command: string;
   // Les commandes à jouer une fois, en root, avant `command`.
   preparation: string;
+  // Les commandes à jouer en root sur l'hôte Proxmox, une par ligne, pour créer
+  // le jeton local des droits proxmox.* ; vide sans l'un de ces droits.
+  proxmox_commands: string;
   expires_at: string;
   url_local: boolean;
 }

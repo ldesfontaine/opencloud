@@ -21,6 +21,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
@@ -78,6 +79,8 @@ type MachineService interface {
 	NoteSystem(ctx context.Context, machineID, system string) error
 	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
 	NoteRootDir(ctx context.Context, agentID, root string) error
+	NoteRollbackVersion(ctx context.Context, agentID, reported string) error
+	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) (machine.Machine, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
 	SessionMachine(sessionToken string) (machineID string, err error)
@@ -269,6 +272,12 @@ type ActionService interface {
 	// fin de l'ordre au retour de l'agent (voir agentapi).
 	OfferUpdate(ctx context.Context, machineID string) (action.UpdateOffer, error)
 	UpdateAgent(ctx context.Context, machineID string) (action.Run, error)
+	RollbackAgent(ctx context.Context, machineID string) (action.Run, error)
+	// Le plan : où en est l'agent de chaque machine, dans quel ordre les mettre
+	// à jour, et ce qui est en vol. Rien ne s'exécute.
+	UpdatePlan(ctx context.Context) ([]action.PlanEntry, error)
+	UpdateInFlight(ctx context.Context) (action.Run, bool, error)
+	TargetVersion() string
 	ConfirmAgentUpdate(ctx context.Context, machineID, agentID, reported string) error
 }
 
@@ -285,6 +294,17 @@ type SSHKeysService interface {
 type ProxmoxService interface {
 	Declare(ctx context.Context, machineID string, definition proxmox.Definition) error
 	Remove(ctx context.Context, machineID string) error
+	// Act envoie à l'agent de l'hôte le geste sur un invité (démarrer, arrêter,
+	// instantané) et rend l'ordre écrit.
+	Act(ctx context.Context, machineID string, vmid int, verb proxmox.Verb, snapshot string) (action.Run, error)
+}
+
+// Ce que le serveur attend du composant firewall : déclarer, redéclarer et
+// retirer un pare-feu. Ce que la page lit passe par le Reader.
+type FirewallService interface {
+	Declare(ctx context.Context, definition firewall.Definition) (string, error)
+	Redeclare(ctx context.Context, id string, definition firewall.Definition) error
+	Remove(ctx context.Context, id string) error
 }
 
 // Ce que le serveur attend du composant backup : les gestes de la page
@@ -331,6 +351,7 @@ type Server struct {
 	actions    ActionService
 	sshKeys    SSHKeysService
 	proxmox    ProxmoxService
+	firewalls  FirewallService
 	backups    Backups
 	deploy     Deployer
 	live       Live
@@ -338,6 +359,10 @@ type Server struct {
 	// Le limiteur de la racine, par source : les essais d'identifiants Basic
 	// et de jetons d'API.
 	authLimit *ratelimit.BySource
+	// Le débit des gestes d'un jeton d'API, et celui de la trace de ses
+	// refus, par jeton (api_tokens.go).
+	verbLimit     *ratelimit.Limiter
+	verbDenyLimit *ratelimit.Limiter
 	// Les routes de l'agent, des pings et de la page publique, chacune dans
 	// son paquet avec ses seules dépendances et ses limiteurs ; montées par
 	// routes.go.
@@ -395,8 +420,12 @@ type Options struct {
 	Actions ActionService
 	// SSHKeys garde le relevé des clés SSH autorisées ; voir api_sshkeys.go.
 	SSHKeys SSHKeysService
+	// Roles garde ce que l'agent reconnaît sur sa machine ; le signal l'écrit.
+	Roles agentapi.RolesService
 	// Proxmox déclare l'hôte Proxmox d'une machine ; voir api_proxmox.go.
 	Proxmox ProxmoxService
+	// Firewalls déclare les pare-feu lus en lecture seule ; voir api_firewalls.go.
+	Firewalls FirewallService
 	// Backups pilote la page Sauvegardes ; voir api_backups.go.
 	Backups Backups
 	// Deploy déploie les services déclarés ; voir api_deploy.go.
@@ -459,10 +488,13 @@ func New(opts Options) (*Server, error) {
 		actions:        opts.Actions,
 		sshKeys:        opts.SSHKeys,
 		proxmox:        opts.Proxmox,
+		firewalls:      opts.Firewalls,
 		backups:        opts.Backups,
 		deploy:         opts.Deploy,
 		live:           opts.Live,
 		authLimit:      ratelimit.NewBySource(authAttemptRate, authAttemptBurst, authIdle),
+		verbLimit:      ratelimit.New(apiVerbRate, apiVerbBurst, apiVerbIdle),
+		verbDenyLimit:  ratelimit.New(apiVerbDenyRate, apiVerbDenyBurst, apiVerbIdle),
 		eventTabs:      ratelimit.NewSlots(maxEventSubscribers),
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
@@ -474,6 +506,8 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Clock != nil {
 		server.authLimit.SetClock(opts.Clock)
+		server.verbLimit.SetClock(opts.Clock)
+		server.verbDenyLimit.SetClock(opts.Clock)
 	}
 	server.agent = agentapi.New(agentapi.Options{
 		Logger:        opts.Logger,
@@ -484,6 +518,7 @@ func New(opts Options) (*Server, error) {
 		Updates:       opts.Updates,
 		Actions:       opts.Actions,
 		SSHKeys:       opts.SSHKeys,
+		Roles:         opts.Roles,
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})

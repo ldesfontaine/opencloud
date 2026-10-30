@@ -20,3 +20,35 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+// La ligne sous un invité : la confirmation d'un geste, puis son avancement.
+.guest-gesture > td {
+  background: var(--surface-2);
+  white-space: normal;
+}
+
+// La question dit une conséquence : elle prend la largeur qu'il lui faut.
+.guest-gesture .confirm-ask {
+  max-width: 640px;
+  justify-content: flex-start;
+}
+
+.gesture-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gesture-progress-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+// La sortie d'un geste échoué : elle passe à la ligne plutôt que d'élargir la carte.
+.gesture-output {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { ActionsResponse, ActionRun, AgentUpdateOffer, RunLine } from "./actions";
+import type { ActionsResponse, ActionRun, AgentMigration, AgentUpdateOffer, RunLine } from "./actions";
 import type { APITokensState } from "./apiTokens";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
@@ -8,10 +8,11 @@ import type { BackupDestination, BackupKeyring, BackupPlan, Backups } from "./ba
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
+import type { Firewall, FirewallCounts, FirewallDetail, FirewallInterfacesResponse, FirewallLeasesResponse, FirewallRulesResponse, FirewallsResponse } from "./firewalls";
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
-import type { Account, Agent, Capability, Machine, MachinesResponse, ReportedCapability } from "./machines";
+import type { Account, Agent, Capability, Machine, MachineRole, MachinesResponse, ReportedCapability } from "./machines";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
@@ -110,6 +111,7 @@ const machine = shape<Machine>("Machine", {
   os: value,
   arch: value,
   online: value,
+  update_last: value,
   last_seen_at: value,
   agent: shape<Agent>("Agent", {
     id: value,
@@ -122,8 +124,10 @@ const machine = shape<Machine>("Machine", {
     server_key_fingerprint: value,
     capabilities_differ: value,
     run_as: shape<Account>("Account", { uid: value, name: value }),
+    rollback_capable: value,
   }),
   lifecycle: optional(lifecycle),
+  roles: shape<MachineRole>("MachineRole", { name: value, version: value }),
   proxmox: shape<ProxmoxSummary>("ProxmoxSummary", {
     declared: value,
     guests: value,
@@ -294,6 +298,7 @@ const proxmoxHost = shape<ProxmoxHost>("ProxmoxHost", {
     linked_machine_id: value,
     last_backup_at: value,
     last_backup_bytes: value,
+    own_snapshots: value,
   }),
   storages: shape("ProxmoxStorage", { node: value, name: value, type: value, total: value, used: value, avail: value, content: value, active: value }),
 });
@@ -654,9 +659,10 @@ const apply = shape<Apply>("Apply", {
 });
 
 const apiTokens = shape<APITokensState>("APITokensState", {
-  tokens: shape("APIToken", { id: value, name: value, masked: value, scope: value, created_at: value, expires_at: value, last_used_at: value }),
+  tokens: shape("APIToken", { id: value, name: value, masked: value, scope: value, verbs: value, created_at: value, expires_at: value, last_used_at: value }),
   limit: value,
   lifetimes: shape("APITokensState.lifetimes", { days: value, default_days: value }),
+  verbs: shape("VerbOffer", { id: value, label: value, summary: value, reverse: value }),
   env: shape("APITokensState.env", { mcp_host: value, opencloud_url: value }),
 });
 
@@ -755,6 +761,7 @@ const audit = shape<AuditResponse>("AuditResponse", {
     at: value,
     actor_kind: value,
     actor_name: value,
+    actor_label: value,
     action: value,
     object_kind: value,
     object_id: value,
@@ -840,6 +847,58 @@ const backups = shape<Backups>("Backups", {
   }),
 });
 
+const firewallFields = {
+  id: value,
+  name: value,
+  kind: value,
+  api_url: value,
+  api_key: value,
+  pin: value,
+  is_pinned: value,
+  version: value,
+  verified_at: value,
+  last_read_at: value,
+  last_error: value,
+  counts: shape<FirewallCounts>("FirewallCounts", { interfaces: value, rules: value, leases: value, gateways: value }),
+} as const;
+
+const firewall = shape<Firewall>("Firewall", firewallFields);
+
+const firewallDetail = shape<FirewallDetail>("FirewallDetail", {
+  ...firewallFields,
+  gateways: shape("FirewallGateway", { name: value, address: value, status: value, delay_ms: value, loss_percent: value }),
+});
+
+const firewallReading = { id: value, name: value, last_read_at: value, last_error: value } as const;
+
+const firewallInterfaces = shape<FirewallInterfacesResponse>("FirewallInterfacesResponse", {
+  ...firewallReading,
+  interfaces: shape("FirewallInterface", { name: value, device: value, role: value, address: value, status: value }),
+});
+
+const firewallRules = shape<FirewallRulesResponse>("FirewallRulesResponse", {
+  ...firewallReading,
+  rules: shape("FirewallRule", {
+    interface: value,
+    action: value,
+    direction: value,
+    protocol: value,
+    source: value,
+    source_port: value,
+    destination: value,
+    destination_port: value,
+    description: value,
+    is_enabled: value,
+  }),
+});
+
+const firewallLeases = shape<FirewallLeasesResponse>("FirewallLeasesResponse", {
+  ...firewallReading,
+  leases: shape("FirewallLease", { address: value, mac: value, hostname: value, interface: value, server: value, is_static: value, expires_at: value }),
+});
+
+const firewalls = shape<FirewallsResponse>("FirewallsResponse", { firewalls: firewall, limit: value });
+
 const deletionCount = shape<DeletionCount>("DeletionCount", { kind: value, count: value });
 
 const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
@@ -853,6 +912,7 @@ const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
 const contract: Record<string, Shape<unknown>> = {
   "actions.golden.json": actions,
   "agent_update_offer.golden.json": agentUpdateOffer,
+  "agent_migration.golden.json": shape<AgentMigration>("AgentMigration", { version: value, commands: value }),
   "alert.golden.json": alertResponse,
   "alert_channels.golden.json": channels,
   "alert_mutes.golden.json": mutes,
@@ -876,6 +936,12 @@ const contract: Record<string, Shape<unknown>> = {
   "deploy_upgrade.golden.json": actionRun,
   "directory_gaps.golden.json": gaps,
   "directory_proposal.golden.json": proposal,
+  "firewall.golden.json": firewallDetail,
+  "firewall_interfaces.golden.json": firewallInterfaces,
+  "firewall_leases.golden.json": firewallLeases,
+  "firewall_rules.golden.json": firewallRules,
+  "firewalls.golden.json": firewalls,
+  "firewalls_empty.golden.json": firewalls,
   "history.golden.json": history,
   "history_hourly.golden.json": history,
   "job.golden.json": jobResponse,
@@ -892,6 +958,7 @@ const contract: Record<string, Shape<unknown>> = {
   "machine_probes.golden.json": probes,
   "machine_hosted.golden.json": machine,
   "machine_hosting_proxmox.golden.json": machine,
+  "machine_role.golden.json": machine,
   "machine_proxmox.golden.json": proxmoxHost,
   "machines.golden.json": machines,
   "manifest_applies.golden.json": shape<AppliesResponse>("AppliesResponse", { applies: apply }),
@@ -932,6 +999,7 @@ const contract: Record<string, Shape<unknown>> = {
 
 // Les autres goldens JSON que le front ne lit pas, chacun avec sa raison.
 const notReadByFront: Record<string, string> = {
+  "agent_updates.golden.json": "le plan des mises à jour se lit par un agent IA (jeton en lecture) ; la fiche d'une machine lit l'offre de sa machine",
   "manifest_plan.golden.json": "le plan se lit par la commande apply ; l'écran ne montre que les passages",
   "transitions.golden.json": "la fiche d'un conteneur reçoit ses transitions avec lui ; aucun module ne lit la route seule",
 };

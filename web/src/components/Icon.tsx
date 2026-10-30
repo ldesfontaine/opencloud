@@ -93,6 +93,12 @@ const paths: Record<string, ReactNode> = {
       <path d="m9 12 2 2 4-4" />
     </>
   ),
+  firewall: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9.5h18M3 14.5h18M9 4v5.5M15 9.5v5M9 14.5V20" />
+    </>
+  ),
   cpu: (
     <>
       <rect x="5" y="5" width="14" height="14" rx="2" />

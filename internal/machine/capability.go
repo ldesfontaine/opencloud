@@ -25,6 +25,11 @@ const (
 	CapabilityBackupReceive = "backup.receive"
 	CapabilityBackupProduce = "backup.produce"
 	CapabilityFilesWrite    = "files.write"
+	// Les gestes sur les invités Proxmox, par le jeton local de l'agent de
+	// l'hôte (décision 18) : démarrer et arrêter proprement ; créer et
+	// supprimer ses propres instantanés.
+	CapabilityProxmoxPower    = "proxmox.power"
+	CapabilityProxmoxSnapshot = "proxmox.snapshot"
 )
 
 // CapabilityNames rend la liste fermée, dans l'ordre où elle s'affiche :
@@ -33,6 +38,7 @@ func CapabilityNames() []string {
 	return []string{
 		CapabilityObserve, CapabilityProbeLAN, CapabilityAgentUpdate, CapabilityDockerDeploy,
 		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite,
+		CapabilityProxmoxPower, CapabilityProxmoxSnapshot,
 	}
 }
 

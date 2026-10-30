@@ -28,7 +28,7 @@
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
 | mcp-maison | Un serveur MCP à part, sur la machine openCloud, dans Docker (`network_mode: host`) | Il identifie chaque personne par l'IdP OIDC de l'opérateur, sert ses outils, et lit l'API d'openCloud en direct sur l'adresse de `listen` avec un **jeton d'API en lecture** (`Authorization: Bearer ock_…`), en posant `X-MCP-Maison-User` ; openCloud lit son `/health` à la demande (Paramètres) et marche sans lui |
-| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 25 lectures, secrets masqués ; jamais une écriture ni une action sur une machine ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
+| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 32 lectures, secrets masqués. Avec un jeton en lecture, jamais une écriture ; avec un jeton en écriture, seulement les verbes cochés (« Les verbes d'un jeton en écriture ») ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud fait tourner
 les deux : le serveur, et son agent, qui en fait une machine comme les autres
@@ -81,7 +81,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 
 | Flux | D'où à où | Chiffrement | Qui prouve quoi |
 | --- | --- | --- | --- |
-| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, avec le compte créé à la première configuration (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le SSO qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut), présent une seule fois, que d'un pair de `trusted_proxies` qui porte aussi le secret partagé quand il est configuré (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire (Traefik) d'écraser l'en-tête envoyé par le client. Une identité ainsi prouvée mais absente d'une liste `forward_users` non vide reçoit `403 auth.forward_forbidden`. Un jeton d'API (`Authorization: Bearer`) remplace l'un et l'autre mode, sur sa liste fermée de lectures (« Comment un agent IA lit openCloud »). Mode `none` (installation neuve, ou après `opencloud auth disable`) : aucun compte, le serveur ne sert que la première configuration et répond `401 auth.setup_required` au reste ; le premier qui atteint le port crée le compte (« Comment l'opérateur entre dans l'interface »). Le front charge la page, puis parle à `/api/…` en JSON |
+| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, avec le compte créé à la première configuration (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le SSO qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut), présent une seule fois, que d'un pair de `trusted_proxies` qui porte aussi le secret partagé quand il est configuré (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire (Traefik) d'écraser l'en-tête envoyé par le client. Une identité ainsi prouvée mais absente d'une liste `forward_users` non vide reçoit `403 auth.forward_forbidden`. Un jeton d'API (`Authorization: Bearer`) remplace l'un et l'autre mode, sur sa liste fermée de lectures, plus les verbes qu'il porte en écriture (« Comment un agent IA lit openCloud »). Mode `none` (installation neuve, ou après `opencloud auth disable`) : aucun compte, le serveur ne sert que la première configuration et répond `401 auth.setup_required` au reste ; le premier qui atteint le port crée le compte (« Comment l'opérateur entre dans l'interface »). Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie, mais le navigateur joint aussi les identifiants Basic à une requête partie d'une page tierce : c'est cette garde qui l'arrête |
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le SSO, comme l'interface ; refusé en mode `none` (`401 auth.setup_required`). Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un aléa qu'il tire, l'identifiant de sa machine et l'heure (protocole 2), openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré, dans un débit borné par machine ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
@@ -99,7 +99,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Statut | visiteur → Traefik → `/statut/<slug>`, `/statut/<slug>/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom de ses composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port, ni rien d'une autre page. Des tests le prouvent sur la réponse réelle |
 | Registre | agent → le registre de l'image | TLS, sauf vers la boucle locale (un registre sur `localhost:5000`, comme Docker le fait) | L'agent s'authentifie par un jeton anonyme, ou signé des identifiants en clair du `config.json` de Docker de la machine ; le registre ne prouve rien de plus que son certificat. Rien ne sort qu'un nom de dépôt et un tag ; l'agent ne tire jamais une image. Aucune redirection suivie |
 | Agent IA | client MCP → Traefik → mcp-maison | TLS de Traefik | OAuth de mcp-maison, délégué à l'IdP OIDC de l'opérateur (Authelia, Authentik, Keycloak, GitLab) : openCloud n'y voit rien et n'y prouve rien |
-| Agent IA | mcp-maison → openCloud, `/api/…` | En clair, sur l'adresse de `listen`, sans sortir de la machine | Un Bearer, jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Il est jugé **avant le mode** d'authentification de l'interface (ni Basic ni l'en-tête du mandataire), sauf en mode `none` où il est ignoré, et n'ouvre que 25 lectures (« Comment un agent IA lit openCloud »). Le jeton est haché avant d'être cherché, et son dernier usage noté au plus une fois par minute. Activer l'authentification de l'interface les révoque tous |
+| Agent IA | mcp-maison → openCloud, `/api/…` | En clair, sur l'adresse de `listen`, sans sortir de la machine | Un Bearer, jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Il est jugé **avant le mode** d'authentification de l'interface (ni Basic ni l'en-tête du mandataire), sauf en mode `none` où il est ignoré, et n'ouvre que 32 lectures, plus, pour un jeton en écriture, les routes des seuls verbes cochés, à débit borné par jeton (« Comment un agent IA lit openCloud »). Le jeton est haché avant d'être cherché, et son dernier usage noté au plus une fois par minute. Activer l'authentification de l'interface les révoque tous |
 | Vérification de mcp-maison | openCloud → `mcp_url`, `GET /health` | Celui de l'adresse réglée : en clair vers la machine ou un réseau privé, le lien-local est refusé | Personne : on lit un état, rien ne s'écrit. Trois secondes, une redirection n'est pas suivie, 64 Kio au plus ; déclenchée par la carte de Paramètres, jamais en fond |
 | Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
@@ -131,20 +131,23 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes par heure et par jour dans `machine_rollups` (une ligne par machine, granularité `hour` ou `day` et seau) | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services`, et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le journal des fichiers appliqués : la table `applies` (`id` en `apl_` et seize hexadécimaux, `at`, `finished_at`, `actor_kind` `cli` ou `operator`, `actor_name`, `file_hash`, `file_name`, `prune`, `plan_hash`, `state` `confirmed`, `applied` ou `failed`, les quatre compteurs, `done`, `error` et `error_object`, et `plan`, le JSON des changements dans l'ordre d'écriture). **Ni le fichier ni aucun secret** : le plan ne porte que des valeurs de l'annuaire, la cible d'une sonde y est masquée (`user:…@hôte`) et un jeton n'y est jamais ; une tâche créée y est notée `token_generated` sans le jeton. Pas de clé étrangère vers les objets touchés : le journal leur survit | Pas de purge : le journal est petit (une ligne par fichier appliqué) et c'est lui qui répond à « qui a changé ça ». Une ligne restée `confirmed` au démarrage est celle d'un arrêt brutal : `serve` la passe en `failed` (`manifest.interrupted`) |
-| Machine openCloud, `state_dir` | `opencloud.db` | Le journal d'audit : la table `audit_events`, une ligne par geste réussi qui écrit un objet déclaré ou une autorité : `at`, `actor_kind` et `actor_name`, `action`, `object_kind`, `object_id`, `object_name` recopié, `details` (JSON plat de textes) et `apply_id` quand un apply l'a écrit. **Aucun secret** : ni mot de passe, ni jeton, ni secret, ni URL de webhook (« Le journal d'audit ») | Ajout seul : un déclencheur refuse toute modification d'une ligne, hors la mise à nul du lien `apply_id` (`ON DELETE SET NULL`). Pas de clé étrangère vers l'objet : la ligne lui survit. Purgé après **un an** (`audit.Retention`), avec les alertes, au démarrage puis une fois par jour |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le journal d'audit : la table `audit_events`, une ligne par geste réussi qui écrit un objet déclaré ou une autorité : `at`, `actor_kind`, `actor_name` et `actor_label` (le nom que portait l'acteur à l'instant du geste, nullable : migration `017_audit_actor_label.sql`), `action`, `object_kind`, `object_id`, `object_name` recopié, `details` (JSON plat de textes) et `apply_id` quand un apply l'a écrit. **Aucun secret** : ni mot de passe, ni jeton, ni secret, ni URL de webhook (« Le journal d'audit ») | Ajout seul : un déclencheur refuse toute modification d'une ligne, hors la mise à nul du lien `apply_id` (`ON DELETE SET NULL`). Pas de clé étrangère vers l'objet : la ligne lui survit. Purgé après **un an** (`audit.Retention`), avec les alertes, au démarrage puis une fois par jour |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'envoi du journal : la table `audit_deliveries`, une ligne par (événement, canal qui reçoit le journal) : `status` (`pending`, `delivered`, `failed`), `attempts`, `reason` et `code` du dernier essai, `next_attempt_at`. Réservée dans la transaction de l'événement. **Aucun contenu** : le message se refait de l'événement, relu à l'envoi (« Le journal d'audit › Envoi aux canaux ») | Part avec son événement (la purge à un an) et avec son canal (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ordres envoyés aux agents : `action_runs` (identifiant, genre `action`, paramètres sans secret `params`, machine et agent en `set null` avec `machine_name` recopié, état, `refusal_reason`, `not_after`, rang `seq` unique par agent, `requested_by` recopié de l'acteur, `requested_at`, `finished_at`) et leur sortie, `run_logs` (rang, instant, flux, ligne ; 64 lignes au plus par run), partie avec son run (`cascade`). Écrit **avant** que l'ordre ne parte (« Comment un ordre part et revient ») | Un run survit à sa machine et à son agent : c'est une trace. Purgé à 90 jours (`action.Retention`) avec sa sortie, par la boucle des ordres. La sortie est ce que l'agent a écrit : rien n'y est masqué |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les rôles que l'agent reconnaît sur sa machine (migration `014_machine_roles.sql`) : `machine_roles` (machine, rôle de la liste fermée `proxmox_ve`, version trouvée ; aujourd'hui le seul rôle). **Aucun secret, aucun droit** : un rôle se montre, il n'ouvre rien | Un reflet du dernier rapport, remplacé en entier à chaque rapport retenu : un rôle que l'agent ne voit plus disparaît. Pas d'historique, pas de purge d'âge. La machine retirée l'emporte (`ON DELETE CASCADE`) |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le retour arrière des agents (migration `018_agent_rollback.sql`) : `agents.rollback_version` (la version du retour arrière que l'agent a dite à l'ouverture de son flux, 0 tant qu'il ne la dit pas) et `machines.update_last` (« à mettre à jour en dernier », 0 par défaut) | Aucun secret. `rollback_version` se réécrit à chaque ouverture de flux ; `update_last` ne change que par l'opérateur |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les pare-feu que l'opérateur déclare et ce que leur API en a dit (migration `015_firewalls.sql`) : `firewalls` (nom unique sans casse, connecteur `opnsense`, adresse de l'API, clé d'API, **secret d'API chiffré**, empreinte épinglée, version, instants de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `firewall_interfaces`, `firewall_rules` (dans l'ordre où le pare-feu les rend), `firewall_leases` et `firewall_gateways`. **Jamais le trafic, jamais un journal de filtrage** | Le secret est chiffré comme les autres (« Ce que le chiffrement couvre »), lié à sa ligne ; il ne sort jamais de l'API ni des journaux. Les quatre tables de relevé sont remplacées en entier à chaque relevé réussi, dans une transaction ; un relevé qui échoue garde le précédent. Une autre adresse d'API ou un autre connecteur à la redéclaration efface le relevé (il décrivait un autre appareil). Pas d'historique, pas de purge d'âge. Le pare-feu retiré emporte son relevé (`ON DELETE CASCADE`). Un pare-feu n'appartient à aucune machine : le plan de suppression d'une machine n'en compte aucun. Au plus 20 pare-feu |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pages de statut dans `status_pages` (adresse `slug` unique, titre, annonce en texte brut, langue, projet facultatif, une page par projet au plus, en `restrict` vers lui) ; les composants dans `status_components` (leur page, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), les objets qu'ils visent dans `incident_targets` (quatre clés étrangères, exactement une remplie, en `cascade` : un lien seul, l'incident reste), leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens ; la page supprimée emporte ses composants de même. Un incident ne vise pas un composant : il vise des objets, et l'objet supprimé détache l'incident (compté dans le plan), qui garde son texte et son fil. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ; `write` est dans le schéma, refusé par le code ; nom ; échéance de 30, 90 ou 365 jours ou aucune ; dernier usage) | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`) | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne et ses verbes ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le SSO n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
@@ -154,11 +157,14 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
 | Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` (au compte de l'agent, `opencloud-agent`, ou root s'il tourne en root ; `0700`, hors du dossier du serveur) | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main (la clé change seule pendant une rotation, par l'ordre `agent.server_key`) : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart. Le dossier est à root et **hors de `/var/lib/opencloud`**, que le compte du serveur possède sur la machine openCloud : ce compte ne peut ni remplacer le fichier ni renommer le dossier. L'agent juge sa chaîne de dossiers au démarrage (« Les droits d'un agent », état mal gardé) |
+| Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` | `bin/` et `update.json` | `bin/opencloud-<version>` (la courante et la précédente, rien d'autre), les liens `bin/current` (ce que le lanceur exécute) et `bin/previous` (la version d'avant la dernière bascule), et le **marqueur** `update.json` : une mise à jour (ou un retour arrière) en attente de confirmation, avec son échéance, ou ce que le lanceur en a fait (« Comment un agent se met à jour », décision 9). Aucun secret : états, numéros de version, identifiant d'ordre | `0600` au compte de l'agent. Le marqueur disparaît à la confirmation, ou une fois son rapport livré au serveur ; un marqueur illisible est écarté |
+| Toute machine, la machine openCloud comprise, `/usr/local/lib/opencloud-agent` | `opencloud-guard` | Le **lanceur stable** : une copie du binaire, posée une fois par root (`root:root`, `0755`), que l'unité systemd lance. L'agent, qui écrit son état et `bin/`, ne le remplace jamais | Se repose à la main si le lanceur change (`GuardVersion`) ; l'agent le sait par la variable `OPENCLOUD_AGENT_GUARD` |
+| Hôte Proxmox, `/var/lib/opencloud-agent` | `proxmox.json` | Le jeton Proxmox **local** de l'agent : identifiant, **secret** et empreinte du certificat (`token_id`, `secret`, `fingerprint`), posé à la main par l'opérateur, jamais envoyé ni stocké par le serveur | `0600`, au compte de l'agent ; sans lui les droits `proxmox.*` sont indisponibles (« Comment un hôte Proxmox agit »). Le secret est en clair dans ce fichier : le protège le compte, pas un chiffrement |
 | Un hôte Proxmox dont l'agent a `backup.produce`, `/var/lib/opencloud-agent/produce/` | `<préfixe>-AAAAMMJJ-HHMMSS.tar.age.raw`, puis `….tar.age` | Les archives en cours de production : le flux brut de `vzdump` (compressé `zstd`, **en clair**), puis le même emballé dans un `tar` et chiffré pour la clé publique du trousseau ; les deux coexistent avant l'envoi, d'où **deux fois** la plus grosse VM compressée. L'agent refuse de commencer sous 1 Gio libre (`disk_full`) | `0700` et `0600`, au compte de l'agent. Vidé à la fin de **chaque** ordre, réussi ou non, et au démarrage de l'agent (un arrêt en pleine production ne laisse rien). Posé par la préparation du droit, créé par l'agent s'il manque. Le clair de la VM ne quitte jamais cet hôte |
 
-**Ce que le chiffrement couvre.** Cinq colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
+**Ce que le chiffrement couvre.** Six colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
 `settings.mail_password`, `alert_channels.url`, `alert_channels.secret`,
-`heartbeats.token_sealed` et `machine_proxmox.token_secret`. Un secret vide reste vide. Un chiffré a la forme `v1:<8 hexadécimaux>:<base64>` ; une valeur non vide d'une autre forme n'est jamais rendue comme un secret, la lecture la refuse. Les jetons d'enrôlement, les jetons
+`heartbeats.token_sealed`, `machine_proxmox.token_secret` et `firewalls.api_secret`. Un secret vide reste vide. Un chiffré a la forme `v1:<8 hexadécimaux>:<base64>` ; une valeur non vide d'une autre forme n'est jamais rendue comme un secret, la lecture la refuse. Les jetons d'enrôlement, les jetons
 d'API et le mot de passe de l'interface sont hachés.
 
 **Ce qu'il ne couvre pas.** Les identifiants qu'une cible de sonde portait
@@ -313,12 +319,14 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
 | `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à **Changer les droits** (on ne coche rien à la place de l'opérateur) |
-| `agent.update` | — | L'ordre `agent.update`, mettre à jour l'agent depuis le serveur (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire |
+| `agent.update` | — | Les ordres `agent.update` (mettre à jour l'agent depuis le serveur) et `agent.rollback` (revenir à la version précédente) (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire, et ne le fait que sous le lanceur stable |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
 | `backup.produce` | un à quatre **producteurs** (aujourd'hui `proxmox-vzdump`) | Produire une sauvegarde sur cette machine avec ce producteur : `proxmox-vzdump` lance `vzdump` en root par une règle `sudo` étroite (voir plus bas). **Vaut root** pour un agent compromis. Le droit se pose et se juge ici ; l'ordre qui s'en sert est décrit dans « Comment une sauvegarde se fait » |
 | `files.write` | un à huit chemins | Écrire des fichiers, dans ces dossiers |
+| `proxmox.power` | — | Démarrer et arrêter proprement (ACPI) une VM ou un conteneur de l'hôte Proxmox, par le jeton local de l'agent (« Comment un hôte Proxmox agit »). Ne se propose que sur une machine où le rôle `proxmox_ve` est détecté |
+| `proxmox.snapshot` | — | Créer un instantané d'une VM de l'hôte et supprimer **ceux que l'agent a créés** (`oc-AAAAMMJJ-HHMMSS`), jamais ceux de l'opérateur. Même condition et même jeton |
 
 - **Forme texte**, la même dans la ligne d'installation, le fichier de
   l'agent, l'en-tête et la base : droits séparés par `,`, un droit borné
@@ -387,6 +395,9 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   | `sudo_missing` | pas de `sudo` sur le `PATH` de l'agent | `backup.produce` |
   | `producer_missing` | le script de root `/usr/local/sbin/opencloud-vzdump` ou `/usr/bin/vzdump` manque ou ne s'exécute pas | `backup.produce` |
   | `sudo_denied` | `sudo -n -l /usr/local/sbin/opencloud-vzdump` échoue : la règle manque, ou l'unité interdit `sudo` (`NoNewPrivileges=true`) | `backup.produce` |
+  | `proxmox_token_missing` | le fichier du jeton local manque, est illisible, mal formé ou porte un champ inconnu | `proxmox.power`, `proxmox.snapshot` |
+  | `proxmox_token_unsafe` | le fichier est lisible du groupe ou des autres, ou n'est pas au compte de l'agent | idem |
+  | `proxmox_pin_missing` | pas d'empreinte SHA-256 valide dans le fichier | idem |
 
   `agent.update` demande en plus que le compte écrive dans `<état>/bin/` : sinon
   `path_denied` avant de télécharger quoi que ce soit. `access(2)` juge l'uid
@@ -522,8 +533,9 @@ sur la fiche d'une machine, l'hôte Proxmox qu'elle porte ; openCloud interroge
 l'API de l'hyperviseur et montre ses VM et conteneurs, ses stockages et la
 dernière sauvegarde de chaque VM (onglet « Hyperviseur » de la machine), et, sur
 la fiche d'une machine qui est une de ces VM, l'encadré « Sur l'hôte Proxmox »
-(« VM 5012, 2 vCPU, 2 Gio, dernière sauvegarde le … (233 Mio) »). **Aucun ordre
-n'est donné à Proxmox** : ni démarrage, ni arrêt, ni sauvegarde lancée, ni
+(« VM 5012, 2 vCPU, 2 Gio, dernière sauvegarde le … (233 Mio) »). **Le
+serveur ne donne aucun ordre à Proxmox** (ses gestes passent par l'agent de
+l'hôte, « Comment un hôte Proxmox agit ») : ni démarrage, ni arrêt, ni sauvegarde lancée, ni
 fichier écrit. **Aucune alerte** ne naît d'un relevé : une VM arrêtée, un
 stockage plein ou une sauvegarde ancienne se lisent, rien ne sonne. Le droit
 d'agir ou d'alerter viendra, s'il vient, d'une décision à part.
@@ -606,6 +618,48 @@ fiche (`404` sans hôte). Chaque machine de `GET /api/machines` et
 `machine.proxmox_set` (hôte, identifiant du jeton, épinglé ou non ; **ni
 l'adresse complète ni le secret**) et `machine.proxmox_unset`.
 
+**Un hôte reconnu par l'agent.** L'opérateur n'a pas à savoir qu'une machine est un
+hôte Proxmox : son agent le voit. Toutes les dix minutes (et au démarrage), il
+lit deux fichiers du système, **sans droit particulier et sans lancer de
+commande** (`internal/role/detect.go`), et le serveur garde le résultat comme
+un **rôle détecté** de la machine (`roles` dans `GET /api/machines` et
+`GET /api/machines/{id}` : une liste, `proxmox_ve` et sa version aujourd'hui,
+d'autres rôles viendront).
+
+| Signe | Où | Ce qu'il prouve |
+| --- | --- | --- |
+| `pve-manager` installé | la base de dpkg, `/var/lib/dpkg/status` : un paquet à l'état « installed » | C'est le paquet qui fait un Proxmox VE ; il donne la version |
+| `/etc/pve` monté en `fuse` | la table des montages, `/proc/self/mountinfo` | Le système de fichiers du cluster (pmxcfs) tourne |
+
+**Les deux sont exigés.** Un faux positif demande d'écrire dans la base de dpkg
+et de monter un système de fichiers : **root**, que le compte de l'agent n'est
+pas. Le coût : tant que `pve-cluster` est arrêté (démarrage, arrêt à la main), le
+rôle n'est pas vu, et le relevé suivant le retrouve ; une VM ou un conteneur d'un
+hôte n'a ni l'un ni l'autre et n'est jamais pris pour un hôte. Une version qui
+n'a pas la forme d'une version de paquet n'est pas rapportée (le rôle l'est,
+sans version).
+
+Le rapport part dans le signal, section `roles`, **seulement s'il a changé** et
+une fois à chaque ouverture du flux, comme les clés SSH ; un rapport **vide**
+part aussi, c'est lui qui efface un rôle perdu. Le serveur borne tout (liste
+fermée des rôles, pas de doublon, huit au plus, version en caractères de
+paquet) et **refuse le rapport entier** s'il en sort (`bad_roles` dans l'en-tête
+des sections refusées ; le reste du signal passe, l'ancien reflet reste). Un
+changement prévient le direct (sujet `machines`), un rapport identique non.
+**La détection ne donne aucun droit, n'active aucun ordre et ne déclare rien** :
+elle ne demande pas de droit à l'agent, et l'hôte reste « non déclaré » tant que
+l'opérateur n'a pas fourni le jeton.
+
+Sur la fiche d'une machine où Proxmox est reconnu mais non déclaré, un encadré
+dit « {product} a reconnu un hôte Proxmox VE sur cette machine (version …) »,
+explique en une phrase le jeton à créer (rôle `PVEAuditor`, lecture seule) et
+propose « Déclarer un hôte Proxmox ». Le formulaire s'ouvre avec l'adresse de la
+machine sur le port 8006 déjà remplie ; l'identifiant du jeton, son secret et
+l'empreinte restent à l'opérateur. La déclaration est le formulaire de quatre
+champs décrit plus bas, pas l'assistant pas à pas : la direction artistique le
+réserve aux créations de plus de cinq champs. Une fois l'hôte déclaré, le
+relevé est celui d'avant.
+
 **Qui est quelle machine.** Une VM est rapprochée de la machine enrôlée dont le
 **nom d'hôte** (`hostname`, relevé par l'agent) est égal à son nom : l'égalité
 exacte d'abord, puis, à défaut, une casse différente **si une seule machine
@@ -615,20 +669,223 @@ recalculé à chaque relevé ; la machine openCloud elle-même (`local`) peut po
 un hôte comme toute autre. Si deux hôtes montrent une VM de même nom, la
 première (par nom de machine) décrit la machine.
 
-**Le jeton d'API.** `GET /api/machines/{id}/proxmox` est dans la liste fermée de
-« Comment un agent IA lit openCloud » : elle ne rend aucun secret. La
-déclaration et le retrait n'y sont pas.
+**Le jeton d'API.** `GET /api/machines/{id}/proxmox` (l'hôte, ses VM et ses
+stockages) est dans la liste fermée de « Comment un agent IA lit openCloud » :
+elle ne rend aucun secret, et un test le parcourt clé par clé. Les rôles
+détectés passent par `GET /api/machines` et `GET /api/machines/{id}`, déjà dans
+la liste. La déclaration et le retrait n'y sont pas : `403` à un Bearer.
 
 **La clé perdue.** `opencloud secrets forget` vide le secret de chaque hôte
 Proxmox (il ne se relit plus) et dit combien : les hôtes restent déclarés, leur
 dernier relevé reste affiché, le relevé suivant échoue en `proxmox.unauthorized`
 jusqu'à ce que l'opérateur ressaisisse le jeton.
 
-**Ce qui n'est pas fait.** Aucun ordre à Proxmox ; aucune alerte sur ses VM ou ses
+**Ce qui n'est pas fait.** Aucun ordre à Proxmox **depuis le serveur** (les gestes passent par l'agent de l'hôte, section suivante) ; aucune alerte sur ses VM ou ses
 stockages ; pas de consommation (CPU, mémoire, disque réellement utilisés) ; pas
 d'historique des relevés ; pas de découverte d'une grappe par ses nœuds (un hôte
 est déclaré par l'adresse d'un seul nœud, l'API de la grappe est la même) ; pas
 de Proxmox Backup Server.
+
+## Comment un hôte Proxmox agit
+
+Premiers gestes d'écriture sur Proxmox, tous **réversibles**, faits **par l'agent
+de l'hôte** et non par le serveur (décision 18, `23-direction.md`) : démarrer,
+arrêter proprement, prendre un instantané, supprimer un instantané qu'il a pris.
+Le jeton d'API Proxmox du serveur reste en lecture seule (`PVEAuditor`) : le
+serveur n'a **jamais** de jeton d'écriture.
+
+| Ordre | Droit | Ce que l'agent fait |
+| --- | --- | --- |
+| `proxmox.vm.start` | `proxmox.power` | `POST …/status/start` sur une VM arrêtée |
+| `proxmox.vm.shutdown` | `proxmox.power` | `POST …/status/shutdown` sur une VM en marche : arrêt ACPI, **sans** `forceStop` ni délai donné |
+| `proxmox.vm.snapshot` | `proxmox.snapshot` | `POST …/snapshot` avec le seul `snapname` `oc-AAAAMMJJ-HHMMSS` (UTC) tiré par l'agent : sans état de mémoire, sans description |
+| `proxmox.vm.snapshot_delete` | `proxmox.snapshot` | `DELETE …/snapshot/<nom>`, seulement si le nom est exactement de la forme ci-dessus et qu'il existe sur l'invité |
+
+Paramètres (`agentwire.ProxmoxGuestParams`) : `vmid` (100 à 999999999), `type`
+(`qemu` ou `lxc`), et `snapshot` pour la suppression seule. Lecture stricte : un
+champ inconnu, un numéro faux ou un nom d'instantané sur un autre ordre est
+`bad_order`. **Il n'existe aucun ordre** pour un arrêt forcé, un redémarrage, un
+retour en arrière ni la suppression d'une VM, et un test garde la liste des
+appels que l'agent fait à Proxmox (quatre gestes, jamais `stop`, `reset`,
+`rollback`, `vmstate`).
+
+**Le jeton local.** Un jeton d'API Proxmox que l'opérateur crée **sur l'hôte**,
+au rôle `OpenCloudAgent` (`VM.PowerMgmt`, `VM.Snapshot`, plus `VM.Audit`, que
+Proxmox exige pour lire l'état d'une VM). La page du jeton de l'agent donne les
+commandes (`pveum role add`, `user add`, `acl modify`, `user token add`, puis
+la pose du fichier) quand un droit `proxmox.*` est coché. Le secret :
+
+| Où | Règle |
+| --- | --- |
+| Fichier | `proxmox.json` dans l'état de l'agent, `0600`, au compte de l'agent : `{"token_id","secret","fingerprint"}`. Un champ inconnu, un fichier de plus de 4 Kio, lisible d'un autre compte ou qui est un lien sortant de l'état est refusé (`os.Root`) |
+| Pose | saisi sans écho (`read -rs`) et écrit par `printf`, un builtin : jamais en argument de commande, jamais dans l'historique |
+| Serveur | ne le voit jamais : ni dans un ordre, ni en base, ni dans l'API, le journal ou l'audit |
+| Agent | l'envoie dans l'en-tête `Authorization` seulement ; ni journal, ni résultat d'ordre, ni message d'erreur ne le portent (un test relit tout) |
+
+**Le certificat.** Celui de Proxmox est auto-signé : l'agent parle à
+`https://127.0.0.1:8006` et le juge **par l'empreinte SHA-256 du fichier, seule**
+(la même vérification que le relevé du serveur, `proxmox.PinnedTLSConfig`). Sans
+empreinte valide l'agent ne se connecte pas : il n'y a **aucun
+`InsecureSkipVerify` sans empreinte**. Une empreinte fausse arrête la connexion
+avant que le jeton ne parte. Aucune redirection n'est suivie, aucun mandataire
+d'environnement.
+
+**Ce que l'agent vérifie, dans l'ordre**, avec ses propres appels à l'API (le
+relevé du serveur peut dater de cinq minutes) : le droit du genre ; les
+paramètres ; le fichier du jeton (`proxmox_token_missing`, `_unsafe`,
+`proxmox_pin_missing`, refus avant tout appel) ; puis, une fois l'ordre accepté,
+l'invité existe et est de la sorte demandée (`proxmox_guest_missing`) ; ce n'est
+pas un modèle (`proxmox_template`) ; son état convient, démarrer demande
+`stopped`, arrêter `running` (`proxmox_state_mismatch`) ; pour la suppression,
+l'instantané est de ce produit (`proxmox_snapshot_not_ours`) et présent
+(`proxmox_snapshot_missing`). Chaque refus laisse Proxmox intact (état
+« refusé »). Puis la **tâche** : l'agent suit l'UPID jusqu'à son code de sortie
+(`OK` ou `WARNINGS…` : fait ; autre : `proxmox_task_failed` avec le code), borné
+à dix minutes (`proxmox_task_timeout` : la tâche peut courir encore, l'agent ne
+sait pas l'annuler et ne force rien). Le résultat dit l'issue réelle, pas
+« accepté ». Sortie : `task <UPID>` puis `started|shutdown qemu/105`, ou
+`snapshot qemu/105 oc-…`, `snapshot_deleted qemu/105 oc-…`. Un transport en échec
+est `proxmox_unreachable`, `proxmox_certificate` ou `proxmox_unauthorized` (401,
+403), tout autre statut `proxmox_bad_response`.
+
+**Ce que le serveur fait.** `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/{start|shutdown|snapshot|snapshot-delete}`
+(`{id}` : la machine qui porte l'hôte ; corps `{}`, ou `{"snapshot":"oc-…"}` pour
+la suppression). Ce sont **quatre routes explicites**, pas un joker : chacune
+est la route d'un verbe d'un jeton d'API (`proxmox.vm.start`, `.shutdown`,
+`.snapshot`, `.snapshot_delete`, « Les verbes d'un jeton en écriture »), et
+tout autre mot reste un `404`. Un jeton `write` qui porte le verbe passe par
+le même handler, les mêmes refus et le même audit ; sinon `403`. Il refuse
+**avant d'envoyer**, sans rien écrire :
+
+| Refus | Cause |
+| --- | --- |
+| `404` | hôte non déclaré, geste inconnu (`stop`, `reboot`… : aucune route), numéro illisible |
+| `409 machine.no_agent`, `action.machine_offline`, `action.right_missing` | comme tout ordre : pas d'agent actif, hors ligne, droit rapporté absent |
+| `409 proxmox.guest_unknown` | l'invité n'est pas dans le dernier relevé |
+| `409 proxmox.guest_template` | un modèle |
+| `409 proxmox.state_mismatch` | démarrer une VM qui n'est pas arrêtée, arrêter celle qui n'est pas en marche |
+| `409 proxmox.self_target` | **arrêter** l'invité rapproché de la machine `local`, celle qui porte ce serveur |
+| `422 proxmox.snapshot_invalid` | un nom d'instantané qui n'est pas `oc-AAAAMMJJ-HHMMSS` |
+| `422 proxmox.guest_invalid` | numéro hors de la plage de Proxmox |
+
+Sinon le run est écrit dans `action_runs` et l'événement `action.order` au
+journal d'audit **avant l'envoi** (« Comment un ordre part et revient »), puis
+`machine.proxmox_guest` (geste, numéro, sorte, run ; acteur : l'opérateur, ou
+`api:<id>` avec `on_behalf_of` pour un jeton) ;
+la réponse est le run (`201` ; un jeton reçoit le contrat des verbes, `200`). Quand le run réussit, le serveur relit l'hôte
+(le suivi vit avec `serve`). L'interface suit le run par le direct. Le serveur
+ne sait **pas** qu'une VM est la sienne si le nom d'hôte de l'invité n'est pas
+celui de la machine `local` (rapprochement, « Comment un hôte Proxmox se
+lit ») : `proxmox.self_target` ne couvre que ce cas.
+
+**Les instantanés à supprimer.** Le relevé ne liste pas les instantanés (le jeton
+du serveur ne fait que lire l'hôte). Chaque invité de `GET
+/api/machines/{id}/proxmox` porte `own_snapshots` : les noms créés par un ordre
+réussi, moins ceux qu'un ordre réussi a supprimés, lus dans les 500 derniers
+ordres de snapshot de l'hôte. Un instantané supprimé dans Proxmox reste proposé
+jusqu'à ce que l'agent le refuse (`proxmox_snapshot_missing`), un instantané pris
+hors de ce produit n'est jamais proposé.
+
+**Ce que ça coûte.** Le rôle limite le jeton aux privilèges `VM.PowerMgmt` et
+`VM.Snapshot`, **pas aux gestes** : Proxmox n'a pas de privilège « arrêter
+proprement seulement ». Un jeton volé, ou un agent compromis (le fichier est à
+son compte), peut **couper de force ou redémarrer** les VM de l'hôte et
+**supprimer n'importe quel instantané**, ceux de l'opérateur compris. C'est
+l'agent qui s'en abstient, pas Proxmox. La limite tient à la lisibilité du
+fichier (`0600`) et à l'agent qui n'obéit qu'à des ordres signés. `VM.Audit` est
+ajouté au rôle pour lire l'état d'une VM : lecture seule. Le droit ne se
+propose que si le rôle `proxmox_ve` est détecté (une machine neuve l'obtient
+par « Changer les droits » une fois enrôlée), et le serveur ne l'impose pas.
+
+**Ce qui n'est pas fait.** Pas de retour en arrière, de redémarrage, d'arrêt
+forcé, de suppression d'invité ni d'instantané qui garde la mémoire ; pas
+d'ouverture de ces ordres aux jetons d'API (chantier à part) ; commandes
+`pveum` non éprouvées sur un vrai Proxmox.
+
+## Comment un pare-feu se lit
+
+Un module **générique** : l'interface et l'API ne parlent d'aucune marque, seul
+le **connecteur** (`internal/firewall/opnsense`) connaît l'API d'OPNsense. Un
+autre pare-feu ajoute son genre (`firewall.Kind…`) et son connecteur, sans
+toucher à la page. L'opérateur déclare un pare-feu (page « Pare-feu » du menu) ;
+openCloud lit sa version, ses interfaces, ses règles, ses baux DHCP et ses
+passerelles, pour l'opérateur et pour les agents IA (jeton d'API, donc
+mcp-maison). **Lecture seule** : aucun ordre n'est donné au pare-feu, aucune
+alerte ne naît d'un relevé. Un pare-feu n'est lié à aucune machine.
+
+| Acteur | Ce qu'il fait |
+| --- | --- |
+| L'opérateur | Déclare, redéclare, retire (assistant en trois étapes ; retrait par confirmation en ligne). Seul à écrire : les routes d'écriture ne sont pas dans la liste fermée d'un jeton |
+| `firewall.Service` | Vérifie la paire de clés auprès du pare-feu **avant** d'écrire, journalise, relit toutes les cinq minutes (boucle de `serve`) |
+| Le connecteur | Parle à l'API, en `GET` seulement, et rend un `firewall.Snapshot` indépendant du constructeur |
+| Un agent IA | Lit les cinq `GET` par son jeton, sans clé ni empreinte |
+
+**Ce qui est lu (OPNsense).** Points d'accès retenus, tirés de la documentation
+(`docs.opnsense.org/development/api`) et des contrôleurs de `opnsense/core`, tous
+en `GET`, authentifiés par HTTP Basic (clé et secret de l'utilisateur d'API) :
+
+| Appel | Ce qu'on en garde | Privilège demandé (nom OPNsense, en anglais) |
+| --- | --- | --- |
+| `/api/diagnostics/system/system_information` | La version : `versions[0]` (« OPNsense 25.1.6-amd64 »). La plus petite lecture qui exige une paire valide : la déclaration s'en sert | `Lobby: Dashboard` |
+| `/api/interfaces/overview/interfacesInfo` | Par interface assignée : identifiant, carte, description (le **rôle** : WAN, LAN…), adresse IPv4 sinon IPv6, état | `Status: Interfaces` |
+| `/api/firewall/filter/searchRule` | Les règles écrites par l'opérateur : interface, action, sens, protocole, source, destination, ports, description, activée | `Firewall: Rules [new]` |
+| `/api/routes/gateway/status` | Par passerelle : nom, adresse, état (`none` = en ligne, `down` = hors ligne, `delay`/`loss` = dégradée), délai, perte ; `~` = non sondée | `System: Gateways` |
+| `/api/dnsmasq/leases/search`, `/api/kea/leases4/search`, `/api/dhcpv4/leases/searchLease` | Les baux DHCP du serveur que le pare-feu fait tourner (dnsmasq, Kea, ou le greffon ISC) : adresse, MAC, nom d'hôte, interface, réservé ou non, échéance | `Services: Dnsmasq DNS/DHCP: Settings`, `Services: DHCP: Kea(v4)` ou `Services: ISC DHCPv4: Leases` |
+
+Un serveur DHCP absent (`404`) ou non couvert par le privilège (`403`) n'a rien à
+dire ; si aucun ne répond et qu'un a refusé, le relevé est refusé
+(`firewall.unauthorized`). Aucun appel d'écriture n'existe : pas de `POST`, pas
+d'`add`, `del`, `set`, `toggle`, `apply`, `revert`, `reconfigure`. Un test le garantit
+(`TestSource_HasNoWritingCallToOPNsense`, `TestRead_OnlyEverSendsGETsToTheReadingEndpoints`),
+et l'interface `firewall.Connector` n'a aucune méthode d'écriture.
+
+**Le coût, dit franchement.** OPNsense n'a **pas de privilège en lecture seule**
+pour ces pages : celui qui ouvre `searchRule` ouvre aussi l'ajout et la
+suppression de règles. L'utilisateur d'API créé pour openCloud **pourrait donc
+écrire** si quelqu'un détenait sa clé. openCloud ne fait que lire, mais la clé
+se garde comme un secret (chiffrée dans la base, jamais rendue). Les noms de
+privilèges sont ceux d'OPNsense, **affichés en anglais même en interface
+française** (ils ne sont pas dans son catalogue de traduction). **Non vérifié sur
+un OPNsense réel** : les formes de réponse viennent de la documentation et des
+sources ; les tests jouent un faux serveur.
+
+**Le transport.** HTTPS seulement. Sans empreinte, le magasin du système juge le
+certificat ; avec une empreinte SHA-256 (la ligne d'openssl se colle telle
+quelle), **elle seule** juge (un OPNsense livre un certificat auto-signé). Aucune
+redirection n'est suivie (elle enverrait la paire ailleurs) ; pas de mandataire
+d'environnement ; le réseau local est admis, le lien-local non (garde `egress`).
+Chaque appel est borné à 20 s et 8 Mio, un relevé entier à 2 minutes, la
+déclaration à 30 s. Chaque texte est coupé à 256 octets ; plus de 500 interfaces,
+10 000 règles, 20 000 baux ou 200 passerelles est une réponse refusée.
+
+**Déclarer.** `POST /api/firewalls` crée, `PUT /api/firewalls/{id}` redéclare (le
+secret se ressaisit), `DELETE /api/firewalls/{id}` retire. Le serveur normalise
+(adresse `https://hôte[:port]`, empreinte en minuscules), puis interroge la
+version avec la paire : une paire fausse ou une adresse muette n'écrit rien. Un
+premier relevé part tout de suite ; s'il échoue, le pare-feu reste déclaré et sa
+fiche dit pourquoi. Refus à clé : `firewall.name_invalid`, `name_taken` (409),
+`kind_invalid`, `url_invalid`, `key_invalid`, `secret_invalid`, `pin_invalid`,
+`too_many` (409), et les quatre de l'API : `unreachable`, `certificate`,
+`unauthorized` (`401`/`403`), `bad_response` (statut inattendu, réponse qui n'est
+pas celle de l'API, plus de 8 Mio).
+
+**Lire.** `GET /api/firewalls` (liste et compteurs), `/{id}` (la fiche et ses
+passerelles), `/{id}/rules`, `/{id}/interfaces`, `/{id}/leases`. Chaque relevé
+rappelle `last_read_at` et `last_error`. Un relevé qui échoue **ne remplace
+rien** : la fiche garde le dernier relevé réussi et dit la raison (`last_error`) ;
+le suivant, réussi, l'efface. Un secret vidé par la perte de `secret.key`
+(`opencloud secrets forget`) est lu comme une paire refusée : le pare-feu reste
+déclaré, l'opérateur ressaisit le secret. Le direct publie le sujet `firewalls`.
+
+**Audit.** `firewall.create`, `firewall.update`, `firewall.delete` passent au
+journal, avec l'hôte de l'API, le connecteur et « empreinte épinglée oui/non » ;
+**ni la clé ni le secret**. Les relevés, réussis ou non, n'y sont pas (ils vont
+au journal du serveur, sans secret).
+
+**Ce qui n'est pas fait.** Aucun ordre au pare-feu ; aucune alerte ; pas de
+journal de filtrage ni de trafic ; pas d'historique des relevés ; pas de règles
+générées automatiquement par OPNsense ; pas de second connecteur ; le plan de
+suppression d'une machine ne compte pas les pare-feu (aucun lien).
 
 ## Comment un ordre part et revient
 
@@ -678,7 +935,9 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 6. **Il exécute** : `agent.ping` finit `succeeded`, sortie `pong <version>`.
    `agent.server_key` épingle la clé qu'il livre, sortie `pinned <empreinte>`.
    `agent.update` télécharge, vérifie, change son binaire et s'arrête (code 3) ;
-   le run reste « accepté » jusqu'à son retour (« Comment un agent se met à jour »).
+   `agent.rollback` rebascule sur la version d'avant et s'arrête de même ; le
+   run reste « accepté » jusqu'au retour de l'agent (« Comment un agent se met
+   à jour »).
 7. **Il répond par le signal**, section `actions`, sans attendre les 30 s :
    un résultat réveille la boucle du flux. Un signal raté remet les résultats
    en tampon (32 au plus). Le serveur fait avancer le run : `accepted`, puis
@@ -3044,6 +3303,7 @@ liste vit dans `internal/alert`.
 | Certificat expiré | `probe` | échéance passée | renouvelé | danger |
 | Certificat non vérifié | `probe` | agrafe « révoqué », nom qui ne correspond pas, ou chaîne refusée d'un certificat pas encore expiré | chaîne et nom valides | attention |
 | Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** par défaut, réglable ; aggravée à **95 %** par défaut, réglable | sous le seuil d'attention **moins 5 points** (80 % par défaut), ou volume disparu | attention → danger |
+| Agent revenu à la version précédente | `action`, au rapport de l'agent | la mise à jour n'a pas été confirmée à temps (`timeout`) ou a planté (`crash`) : l'agent est revenu seul à la précédente ; la remise en état qui échoue à son tour (`failed`) | une mise à jour ou un retour arrière confirmé sur cette machine | attention, danger si la remise en état a échoué |
 | Sauvegarde en échec | aucune | **aucune alerte** : l'échec se lit sur la page Sauvegardes (`last_error` du plan, ou l'état du dernier ordre `backup.receive`), aucun canal n'est prévenu | | |
 
 **L'anti-rebond des services.** Un conteneur en boucle de redémarrage
@@ -3363,17 +3623,19 @@ telle que la commande la lit, que `serve` ait été redémarré ou non).
 openCloud ne parle pas MCP. **mcp-maison**, un serveur MCP à part
 (`installation.md`, « Brancher un agent IA »), sert les outils à l'agent IA
 et lit l'API d'openCloud avec un **jeton d'API**. Ce qu'openCloud fournit :
-le jeton, l'admission de ce jeton sur une liste fermée de lectures, le
-masquage des secrets, l'acteur du journal, et un moyen de voir si mcp-maison
-répond.
+le jeton, l'admission de ce jeton sur une liste fermée de lectures et, pour un
+jeton en écriture, sur les seuls verbes qu'il porte, le masquage des secrets,
+l'acteur du journal, et un moyen de voir si mcp-maison répond.
 
 ### Le jeton
 
 1. L'opérateur en crée un sous Paramètres → Agent IA → **Jetons d'API** : un nom (80
    caractères au plus), une **échéance** de 30, 90 (défaut) ou 365 jours, ou
-   sans échéance si l'opérateur le choisit explicitement (`POST
-   /api/settings/api-tokens` `{name, expires_in_days}`, 0 pour sans échéance ;
-   une autre valeur : `api_token.lifetime_invalid`). La création est sous
+   sans échéance si l'opérateur le choisit explicitement, une **portée**
+   (lecture par défaut, ou écriture) et, pour l'écriture, les **verbes** cochés
+   (`POST /api/settings/api-tokens` `{name, expires_in_days, scope, verbs}`,
+   0 pour sans échéance ; une autre valeur : `api_token.lifetime_invalid`).
+   La création est sous
    `grantsAuthority`, comme tout geste qui accorde un accès durable.
 2. Le jeton s'écrit `ock_` suivi de 52 caractères tirés au hasard (256 bits).
    Il est montré **une seule fois**, avec les trois lignes du `.env` de
@@ -3381,9 +3643,15 @@ répond.
    l'adresse d'écoute. La base ne garde que son empreinte SHA-256 (sans sel :
    l'entrée est un aléa de 256 bits) et un préfixe pour le reconnaître dans la
    liste.
-3. 16 jetons au plus (`api_token.too_many`). La portée est `read` : `write` est
-   dans le schéma, mais la création le refuse (`api_token.scope_invalid`) tant
-   que l'API n'a pas d'actions (#153, étape 5).
+3. 16 jetons au plus (`api_token.too_many`), et **un nom par jeton vivant**
+   (`api_token.name_taken`, `409`, sans égard à la casse : à l'audit, deux
+   jetons au même nom ne se distinguent plus ; un nom libéré par une
+   révocation redevient disponible). La portée est `read` ou `write`
+   (une autre : `api_token.scope_invalid`). Un jeton `write` lit comme un
+   `read` et ne déclenche que ses verbes ; **sans verbe, il n'agit sur rien**.
+   Un verbe inconnu est refusé (`api_token.verb_unknown`), des verbes sur un
+   jeton `read` aussi (`api_token.verbs_need_write`). Les verbes ne se
+   changent pas après coup : on révoque et on recrée.
 4. **Révoquer efface la ligne** : présenté ensuite, le jeton est inconnu, comme
    un faux. Un jeton échu est refusé, sort de la liste, et la purge (toutes les
    15 minutes) l'efface.
@@ -3403,9 +3671,13 @@ configuration seule est servie.
 
 | Cas | Réponse |
 | --- | --- |
-| La route n'est pas dans la liste ci-dessous | `403 api_token.route_forbidden`, sans même regarder le jeton |
+| La route n'est ni dans la liste ci-dessous ni un verbe du registre | `403 api_token.route_forbidden`, sans même regarder le jeton |
 | Jeton inconnu, révoqué ou échu | `401 api_token.invalid`, `WWW-Authenticate: Bearer`. Les échecs comptent dans le limiteur des échecs Basic (rafale de 10, puis un essai toutes les 6 s par adresse ; `429` au-delà) ; le journal du processus dit la source et le chemin, jamais le jeton |
 | Jeton valide, route de la liste | La requête passe, avec le jeton dans son contexte ; l'acteur d'audit est `api:<identifiant du jeton>` |
+| Jeton `read`, route d'un verbe (un `POST`) | `403 api_token.route_forbidden` |
+| Jeton `write` qui ne porte pas le verbe de la route | `403 api_token.verb_forbidden`, journalisé (`api_token.deny`) |
+| Jeton `write` qui porte le verbe, trop vite | `429` avec `Retry-After` (« Le débit d'un jeton ») |
+| Jeton `write` qui porte le verbe | La route de l'opérateur s'exécute, telle quelle ; la réponse prend la forme du contrat des verbes |
 
 Le dernier usage du jeton est noté **au plus une fois par minute** : mcp-maison
 peut enchaîner les lectures. Le `Host` de la requête est jugé comme celui de
@@ -3413,10 +3685,11 @@ toute requête `/api/…` : mcp-maison joint openCloud par l'IP de `listen`
 (`OPENCLOUD_URL`), un hôte reconnu ; un nom que `public_url` ignore est refusé
 en `403 bad_host`.
 
-**La liste fermée** (`apiTokenRoutes`, `internal/server/routes.go`) : 26
-lectures, toutes en `GET`, figées par un test qui vérifie que chaque entrée
+**La liste fermée des lectures** (`apiTokenRoutes`, `internal/server/routes.go`) :
+32 lectures, toutes en `GET`, figées par un test qui vérifie que chaque entrée
 est une vraie route et que **toute autre route de l'API, y compris
-`POST /api/settings/api-tokens`, répond 403 à un jeton**.
+`POST /api/settings/api-tokens`, répond 403 à un jeton `read`**. C'est une
+liste blanche : une route ajoutée plus tard est fermée aux jetons par défaut.
 
 | Domaine | Routes |
 | --- | --- |
@@ -3428,15 +3701,138 @@ est une vraie route et que **toute autre route de l'API, y compris
 | Pages de statut | `/api/status/pages`, `/api/status/pages/{id}`, `/api/status/components`, `/api/status/incidents` |
 | Alertes | `/api/alerts`, `/api/alerts/{id}`, `/api/alerts/channels` |
 | Journal, ordres | `/api/audit`, `/api/actions` |
+| Le jeton lui-même | `/api/token/verbs` (« Les verbes d'un jeton en écriture ») |
 
 Exclus volontairement : les flux (`/api/events`, `…/logs/stream`), tout
 `/api/settings/*` et `/api/auth`, la clé du serveur, les plans de suppression,
-toute écriture.
+toute écriture qui n'est pas un verbe (section suivante).
+
+### Les verbes d'un jeton en écriture
+
+Un **verbe** est un geste que l'opérateur coche sur un jeton `write`
+(décision 19, `23-direction.md`). Le registre (`internal/verb`) est une liste
+fermée : chaque verbe a un identifiant stable, la **route d'opérateur** qu'il
+ouvre, un libellé et une phrase de catalogue (`fr` et `en`) et **son verbe
+inverse**. Un verbe sans inverse ne peut pas être enregistré (`verb.Register`
+le refuse, `Check` vérifie que chaque inverse existe, un test le tient) : pour
+l'instant, un jeton ne reçoit que des gestes qu'on peut défaire.
+
+| Verbe | Route d'opérateur | Inverse |
+| --- | --- | --- |
+| `agent.ping` | `POST /api/machines/{id}/actions/ping` | lui-même (idempotent) |
+| `probe.pause` | `POST /api/probes/{id}/actions/pause` | `probe.resume` |
+| `probe.resume` | `POST /api/probes/{id}/actions/resume` | `probe.pause` |
+| `job.pause` | `POST /api/jobs/{id}/actions/pause` | `job.resume` |
+| `job.resume` | `POST /api/jobs/{id}/actions/resume` | `job.pause` |
+| `agent.update` | `POST /api/machines/{id}/actions/update-agent` | `agent.rollback` |
+| `agent.rollback` | `POST /api/machines/{id}/actions/rollback-agent` | `agent.update` |
+| `proxmox.vm.start` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/start` | `proxmox.vm.shutdown` |
+| `proxmox.vm.shutdown` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown` | `proxmox.vm.start` |
+| `proxmox.vm.snapshot` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot` | `proxmox.vm.snapshot_delete` |
+| `proxmox.vm.snapshot_delete` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete` (corps `{"snapshot":"oc-…"}`) | `proxmox.vm.snapshot` |
+
+Les deux verbes d'agent (« Comment un agent se met à jour ») agissent aussi sur des machines : `agent.update` envoie à l'agent la version que le serveur a déjà importée et que la clé de l'opérateur a signée, **une machine à la fois** (`409 action.update_in_progress` pour une seconde), et seulement à un agent qui revient seul en arrière (`409 action.rollback_unavailable`). Ni l'un ni l'autre ne signe ni n'importe de version : `release import` reste une commande de l'opérateur. Coût : un agent IA qui met à jour une machine la redémarre, et une version défectueuse la ramène trois minutes plus tard à l'ancienne, avec une alerte.
+
+Les quatre verbes Proxmox agissent **sur des machines** : l'ordre part à
+l'agent de l'hôte, qui appelle l'API locale de Proxmox avec son jeton étroit
+(décision 18). L'arrêt est toujours propre, jamais forcé ; le serveur refuse
+d'arrêter la machine qui l'héberge (`proxmox.self_target`) ; la suppression ne
+touche qu'un instantané `oc-…` créé par ce produit. Coût : un agent qui éteint
+une VM la coupe pour ses utilisateurs jusqu'au `start` qui la rallume, et
+`snapshot_delete` retire pour de bon un point de retour que `snapshot` ne
+recrée pas à l'identique. Le débit du jeton borne la vitesse, pas ces effets.
+
+`alert.acknowledge` n'est **pas** offert : rien ne désacquitte une alerte, il
+reste réservé à l'opérateur. Contrepartie du choix : une reprise peut échouer
+là où la pause a réussi (`probe.resume` sur une sonde dont la cible porte un
+mot de passe : 409, comme pour l'opérateur), l'inverse est une intention, pas
+une garantie.
+
+**Une route, un seul code.** L'admission ne copie rien : elle ne fait que
+laisser passer la requête vers la route de l'opérateur (même handler, même
+composant, même `action_runs` et même audit pour `agent.ping`), puis lit sa
+réponse pour la mettre en forme. Un échec de cette route (404, 409, 422)
+passe tel quel. Ajouter un verbe, c'est appeler `verb.Default.MustRegister`
+pour une route existante : l'admission ne change pas. Toute route d'écriture
+qui n'est pas dans le registre reste fermée à un jeton, même `write` avec tous
+les verbes : un test de table parcourt chaque route non-`GET` de l'API et le
+vérifie (déploiement, révocation d'un agent, ré-enrôlement,
+suppressions, réglages, authentification, gestion des jetons, pare-feu,
+déclaration Proxmox, acquittement, drapeau « à mettre à jour en dernier »,
+migration d'un agent). La mise à jour et le retour arrière d'un agent sont
+désormais des verbes ; la signature et l'import d'une version n'ont aucune
+route.
+
+Comme toute écriture sous `/api`, un verbe exige `Content-Type:
+application/json`, corps vide compris (`requireSameOrigin`).
+
+**Le contrat de la réponse** (`200`, JSON ; mcp-maison s'en sert) :
+
+```json
+{"verb": "probe.pause", "run_id": null, "state": "done", "reverse_with": "probe.resume"}
+```
+
+| Champ | Sens |
+| --- | --- |
+| `verb` | Le verbe exécuté |
+| `run_id` | L'identifiant de l'ordre écrit (`action_runs`) quand le verbe en envoie un à un agent (`agent.ping`) ; `null` quand le geste se fait sur place (pause, reprise) : aucune exécution à suivre |
+| `state` | L'état du run (`agent.ping` : `sent`, puis l'agent le fait avancer, à relire par `GET /api/actions`) ; `done` quand il n'y a pas de run |
+| `reverse_with` | L'identifiant du verbe qui défait celui-ci |
+
+Rien d'autre : ni les paramètres ni la sortie du run, qui se lisent par
+`/api/actions`. Un échec garde la forme habituelle `{"error": "<clé>"}`. Les
+verbes Proxmox répondent ce contrat aussi : le run de l'ordre est lu dans la
+réponse `201` de la route (`run_id`, `state` : `sent`), la réponse du jeton est
+`200`.
+
+**Lire ses verbes.** `GET /api/token/verbs` (ouverte à tout jeton valide, en
+lecture) rend les verbes du jeton qui l'appelle, et eux seuls, dans l'ordre du
+registre, textes dans la langue du serveur. mcp-maison n'a ainsi aucune table
+de verbes écrite en dur :
+
+```json
+{"scope": "write", "verbs": [
+  {"id": "proxmox.vm.start", "method": "POST",
+   "path": "/api/machines/{id}/proxmox/guests/{vmid}/actions/start",
+   "params": ["id", "vmid"], "body": [], "reverse": "proxmox.vm.shutdown",
+   "label": "…", "summary": "…"}]}
+```
+
+| Champ | Sens |
+| --- | --- |
+| `scope` | `read` ou `write` |
+| `verbs` | `[]` pour un jeton `read`, ou `write` sans verbe |
+| `path`, `params` | Le motif de la route et ses segments `{…}`, dans l'ordre |
+| `body` | Les champs JSON attendus (`["snapshot"]` pour `proxmox.vm.snapshot_delete`, `[]` sinon) |
+| `reverse` | Le verbe qui défait celui-ci |
+| `label`, `summary` | Les textes du catalogue ; la phrase dit ce que le verbe fait et ce qu'il ne fait jamais |
+
+`params` et `body` sont des champs du verbe dans le registre, pas du texte
+parsé ; l'enregistrement refuse des `params` qui ne sont pas ceux du chemin
+(`verb.ErrParamsMismatch`). Pour l'opérateur (hors jeton) la route répond
+`403 api_token.token_only` : elle est enregistrée pour tous, plutôt que
+cachée, parce qu'un refus clair vaut mieux qu'un `404` qui laisse croire à une
+panne.
+
+**Le débit d'un jeton.** Un seau à jetons **par jeton**, distinct du limiteur
+des échecs d'authentification (par adresse) : `apiVerbBurst` = 10 gestes d'un
+coup, puis un toutes les deux secondes (`apiVerbRate` = 0,5/s) ; au-delà,
+`429` et `Retry-After`. Un geste admis compte, qu'il réussisse ou non. Les
+lectures ne le consomment pas. Coût : un agent légitime qui traite beaucoup de
+sondes à la suite attendra ; les valeurs sont deux constantes de
+`internal/server/api_tokens.go`.
+
+**Le refus est un signal.** Un jeton `write` qui tente un verbe qu'il ne porte
+pas reçoit `403 api_token.verb_forbidden`, et l'événement `api_token.deny` est
+écrit (acteur `api:<id>`, `on_behalf_of`, `details.verb`). Cette trace a sa
+propre limite par jeton (`apiVerbDenyBurst` = 5, puis une par minute) pour
+qu'une boucle ne remplisse pas le journal ; le refus lui-même n'est jamais
+limité.
 
 ### Ce qu'un jeton ne voit pas
 
 Les lectures de la liste rendent à un jeton ce qu'elles rendent à l'opérateur,
-**sauf** cinq secrets masqués (le masque ne touche que les requêtes par jeton ;
+**sauf** six secrets masqués (le masque ne touche que les requêtes par jeton ;
 les réponses de l'opérateur ne changent pas) :
 
 | Lecture | Pour un jeton |
@@ -3445,6 +3841,7 @@ les réponses de l'opérateur ne changent pas) :
 | `GET /api/jobs/{id}` | Ni l'URL de ping, qui est le secret de la tâche, ni les extraits de code qui la contiennent |
 | `GET /api/probes`, `GET /api/probes/{id}` | La cible sans son mot de passe (`https://user:…@hôte`), comme dans le plan d'apply et le journal |
 | `GET /api/alerts/channels` | L'adresse réduite à son schéma et son hôte (un webhook Discord porte son jeton dans son chemin), sans destinataire ni salon |
+| `GET /api/firewalls`, `GET /api/firewalls/{id}` | Ni la clé d'API ni l'empreinte du certificat (`api_key` et `pin` vides) ; le secret n'est jamais rendu à personne. `/rules`, `/interfaces` et `/leases` ne portent ni l'un ni l'autre |
 | `GET /api/manifest/export` | Le fichier de l'annuaire, le mot de passe d'une cible masqué ; il se lit, il ne se réapplique pas |
 
 Ce qu'un jeton lit n'est pas pour autant sans risque : les **journaux bruts
@@ -3456,8 +3853,16 @@ section Paramètres → Agent IA le dit.
 de journal, extraits d'un arrêt anormal, charges de ping, sujet d'un
 certificat, noms de conteneurs, de services et de sondes) peut viser le modèle
 qui le lit. C'est à mcp-maison et au client de le traiter comme de la donnée.
-Côté openCloud, la défense est qu'**un jeton n'écrit rien** : rien de ce qu'un
-modèle pourrait être poussé à faire ne passe par ce jeton.
+Côté openCloud, la défense est qu'**un jeton `read` n'écrit rien**, et qu'un
+jeton `write` ne fait que ce que l'opérateur a coché : des verbes réversibles,
+à débit borné, sans suppression de machine ni déploiement ni réglage. Un
+modèle poussé par un texte de tiers peut au pire mettre en pause une sonde ou,
+si l'opérateur a coché les verbes Proxmox, éteindre proprement une VM, ou, s'il
+a coché `agent.update`, redémarrer l'agent d'une machine sur la version du
+serveur : cela se défait (et se lit à l'audit), mais l'arrêt coupe le service
+entre-temps, et une mise à jour qui ne tient pas ramène l'agent à l'ancienne
+version trois minutes plus tard, avec une alerte. Aucun verbe ne signe ni
+n'importe de version.
 
 ### L'acteur d'audit et `on_behalf_of`
 
@@ -3472,9 +3877,10 @@ pose après le nettoyage des détails, et jamais ailleurs : un geste ne peut pas
 l'usurper. La page du journal l'affiche à côté de l'acteur (« Jeton d'API · id ·
 pour alice »).
 
-Aucune écriture n'est admise par jeton : rien ne s'écrit encore sous cet
-acteur ; `on_behalf_of` servira dès que des écritures s'ouvriront (#153,
-étape 5).
+Les écritures par jeton sont les verbes : chacune s'écrit sous cet acteur, avec
+son `on_behalf_of`, par le même composant et le même événement d'audit que
+l'opérateur (`probe.pause`, `heartbeat.pause`, `action.order`…). Le champ n'est
+jamais lu du corps de la requête : un test y met un `on_behalf_of` forgé.
 
 ### Vérifier mcp-maison
 
@@ -3829,7 +4235,7 @@ Basic, et vérifie que chacun porte l'opérateur et aucun secret.
 | `actor_kind` | `actor_name` | Posé par |
 | --- | --- | --- |
 | `operator` | L'identifiant Basic, ou l'identité transmise par le SSO en mode `forward` ; vide à la première configuration, seul geste admis sans compte (un en-tête Basic qu'aucun mode ne vérifie ne nomme personne ; le compte créé se lit dans les détails). Borné, sans caractère de contrôle | `server`, sur toute route de l'opérateur, juste après `requireOperator` (`withOperatorActor`) |
-| `api` | L'identifiant du jeton d'API ; la personne au nom de qui mcp-maison lit est dans `details.on_behalf_of` (en-tête `X-MCP-Maison-User`, bornée à 200 caractères), indicative, pas une preuve | `server`, sur une route admise par jeton. Aucune écriture n'est admise : rien ne s'écrit encore sous cet acteur, le chemin attend les actions de l'API (#153, étape 5) |
+| `api` | L'identifiant du jeton d'API ; la personne au nom de qui l'agent appelle est dans `details.on_behalf_of` (en-tête `X-MCP-Maison-User`, bornée à 200 caractères), indicative, pas une preuve. Le **nom du jeton**, recopié à l'écriture, est dans `actor_label` | `server`, sur une route admise par jeton (`admitAPIToken`), pour ses lectures, ses verbes et ses refus (`api_token.deny`) |
 | `cli` | Le compte système que la commande déclare : indicatif, pas une preuve | La socket de commande (`markControlSocket`), puis `apply` sous le nom qu'il porte déjà dans `applies` ; `opencloud auth disable` et `opencloud secrets forget`, qui écrivent sur la base |
 | `rule` | Vide | `serve`, sur son contexte racine : ses boucles de fond et ce qu'il fait au démarrage (une sonde qui porte des identifiants mise en pause, la fenêtre d'une maintenance qui s'ouvre ou se ferme) |
 | `agent` | L'identifiant de la machine que l'agent présente | `agentapi` : l'enrôlement, et les sections du signal : des observations, que rien ne journalise, et le refus d'un ordre (`action.refused`) |
@@ -3839,6 +4245,38 @@ L'acteur `mcp` (et les sortes d'objet `mcp`, `mcp_token`, `mcp_session`, les
 actions `mcp.*`, `mcp_token.*`, `mcp_session.*`) ne s'écrit plus depuis le
 21 octobre 2026, mais les lignes déjà écrites restent : le journal est en ajout
 seul, elles se lisent, sous un libellé « ancien ».
+
+**Le nom du jeton, instantané.** `actor_label` est écrit avec la ligne
+(`audit.API(id, nom, pour qui)`), jamais retrouvé par jointure : révoquer le
+jeton efface sa ligne `api_tokens`, et les gestes d'avant gardent son nom
+d'alors. Le `Recorder` le borne (80 caractères, sans caractère de contrôle) ;
+c'est le nom que l'opérateur a choisi, jamais un secret. Les lignes d'avant la
+`017` et les acteurs sans nom (personne, règle, agent, commande) n'en ont pas :
+elles se lisent comme avant, par `actor_name`. Les noms de deux jetons vivants
+ne se confondent pas : la création refuse un nom déjà porté
+(`api_token.name_taken`, `409`, sans égard à la casse) ; les jetons déjà créés
+ne sont pas touchés, et un nom d'un jeton révoqué redevient libre.
+
+**Ce que l'opérateur lit** (page **Journal**) : une pastille par genre, puis
+le nom.
+
+| Genre | Pastille | Suite |
+| --- | --- | --- |
+| `operator` | Personne (verte) | L'identité vue par l'authentification |
+| `api` | Jeton d'API (teinte d'accent) | Le nom du jeton, puis **pour : <qui>** en gras ; **pour : inconnu** en discret quand le jeton n'a pas dit pour qui (un jeton d'écriture sans identité d'appelant se voit) |
+| `agent`, `rule`, `cli` | Agent, Règle, CLI (neutres) | L'identifiant de la machine, de la règle, ou le compte système |
+| `unknown` | Acteur inconnu (rouge) | Rien : un oubli de câblage |
+
+Un filtre par genre et une recherche (nom du jeton, identifiant, « pour qui »,
+sans casse ASCII) s'appliquent côté serveur : `actor_kind=` et `actor=` sur
+`GET /api/audit`. Coût : la recherche lit `details` en JSON sans index, ce qui
+reste bon pour un journal d'un an et de cette taille, à revoir s'il grossit.
+Un jeton lit la même route (`GET /api/audit`) : il y voit `actor_label` en
+plus ; l'audit ne porte aucun secret, rien n'y est masqué. Un champ ajouté
+n'en retire ni n'en renomme aucun. Il n'y a pas de commande `opencloud audit` :
+la seule autre sortie texte de l'audit est la notification d'un canal, qui
+nomme le jeton par son nom (« Par Jeton d'API « nom », … ») et ajoute
+`actor_label` à son corps JSON.
 
 ### Ce qui est journalisé
 
@@ -3870,13 +4308,15 @@ l'acteur de l'apply et avec son `apply_id`.
 | Acquitter une alerte, une sélection | `alert.acknowledge` | L'alerte ; une sélection n'a pas d'objet | `kind`, `object_kind`, `object_id` ; pour une sélection `alert_ids` et `acknowledged` |
 | Réglage | `settings.update` | `language`, `mail_relay`, `disk` ou `lifecycle` | La valeur ; le relais sans son mot de passe, avec `password_changed` |
 | Accès à l'interface | `auth.enable`, `.disable`, `.change_password` | `interface` | `mode`, `username`, `header` ; jamais le mot de passe ni son empreinte |
-| Jeton d'API, tous les jetons | `api_token.create`, `.revoke` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `expires_at` ; pour tous `all`, `api_tokens` ; jamais le jeton ni son préfixe |
+| Jeton d'API, tous les jetons | `api_token.create`, `.revoke`, `.deny` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `verbs`, `expires_at` ; pour `.deny`, `verb` (l'identifiant du registre que le jeton a tenté sans le porter, jamais ce que le client a écrit) ; pour tous `all`, `api_tokens` ; jamais le jeton ni son préfixe |
 | Anciennes lignes du MCP, lues seulement | `mcp.*`, `mcp_token.*`, `mcp_session.*` | Le client OAuth, le jeton, la famille coupée | Ce qu'elles portaient ; plus aucune ne s'écrit |
 | Clé perdue, secrets oubliés | `secrets.forget` | — | `channels_disabled`, `ping_tokens_renewed` |
-| Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` |
+| Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` ; pour `agent.update`, `from` (version de l'agent) et `to` (version visée), pour `agent.rollback`, `from` |
 | Clé de sauvegarde créée, remplacée | `backup_keyring.create`, `.replace` | La clé | `fingerprint` ; jamais la phrase ni la clé privée scellée |
 | Destination de sauvegarde | `backup_destination.create`, `.delete` | La destination | `name`, `machine_id`, `path` |
 | Plan de sauvegarde | `backup_plan.update`, `.delete`, `.run` | Le plan (son sujet) | `source_kind`, `destination_id`, `keep` ; source machine : `source_machine_id`, `producer`, `selector` en plus ; `.run` : `run_id`, `destination_id` (sous `rule:backup` la nuit) |
+| Un agent revenu à la version précédente, seul, rapporté par son signal | `action.rolled_back` (acteur : l'agent de la machine ; une fois : un rapport rejoué ne s'écrit pas) | Le run de la mise à jour, nommé par sa machine | `kind`, `machine_id`, `agent_id`, `reason` (`rolled_back_timeout`, `rolled_back_crash`, `rollback_failed`), `target` (la version refusée), `version` (celle qui tourne) |
+| Le drapeau « à mettre à jour en dernier » | `machine.update_last` (une fois par changement) | La machine | `update_last` (`true` ou `false`) |
 | Un ordre refusé par l'agent, rapporté par son signal | `action.refused` (une fois : un rapport rejoué ne s'écrit pas) | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id`, `reason` (`right_missing:agent.update`, `bad_signature`…) |
 
 ### Ce qui ne l'est jamais
@@ -3902,10 +4342,10 @@ l'acteur de l'apply et avec son `apply_id`.
   suppression est la purge à l'âge.
 - **Un an** (`audit.Retention`), purgé par la boucle des alertes, au
   démarrage puis une fois par jour.
-- **Lire** : `GET /api/audit?limit=&before=&object_kind=&object_id=`, route de
-  l'opérateur, 50 par page, 200 au plus, du plus récent au plus ancien ;
+- **Lire** : `GET /api/audit?limit=&before=&object_kind=&object_id=&actor_kind=&actor=`,
+  lue par l'opérateur et par un jeton d'API, 50 par page, 200 au plus, du plus récent au plus ancien ;
   `next_before` donne la page suivante, `null` à la fin. Un nombre illisible
-  ou une sorte d'objet inconnue : `400 bad_query`. Dans l'interface, l'onglet **Journal** (`/journal`, sous
+  ou une sorte d'objet ou un genre d'acteur inconnu, ou une recherche de plus de 200 caractères : `400 bad_query`. Dans l'interface, l'onglet **Journal** (`/journal`, sous
   Administration) : date, acteur, action, objet, détail replié ; cliquer un
   objet ne montre que son histoire.
 
@@ -3948,7 +4388,7 @@ Le flux d'un geste :
 « Journal · <verbe> · <sorte d'objet> « <nom> » » ; corps : « Par <acteur>
 « <nom> », <instant UTC, RFC 3339>. » (sans le nom, « Par <acteur>, … »). En
 JSON, un corps à lui : `event: "audit"`, l'événement tel que la base le garde
-(`id`, `at`, `actor_kind`, `actor_name`, `action`, `object_kind`, `object_id`,
+(`id`, `at`, `actor_kind`, `actor_name`, `actor_label` s'il existe, `action`, `object_kind`, `object_id`,
 `object_name`, `details`), signé comme les alertes
 (`OpenCloud-Signature`), avec `OpenCloud-Event: audit`. ntfy : priorité
 `default`. Le lien mène à `<public_url>/journal` quand `public_url` est réglé.
@@ -4008,38 +4448,109 @@ d'une machine propose « Mettre à jour l'agent » quand la version de son agent
 n'est pas celle du serveur. L'agent ne croit pas le serveur sur parole : il
 revérifie la signature avec **sa** clé embarquée avant de toucher à son binaire.
 
+**Jamais de mise à jour sans retour arrière automatique** (décision 21,
+`23-direction.md`). Après la bascule, l'agent a trois minutes pour rejoindre le
+serveur et être acquitté ; sinon la machine revient **seule** à la version
+précédente, même si le nouveau binaire ne s'exécute pas. Le serveur refuse
+`agent.update` pour un agent qui ne rapporte pas ce filet.
+
 | Acteur | Ce qu'il fait |
 | --- | --- |
-| L'opérateur | `opencloud release import <dossier>` (le dossier d'une version publiée : `SHA256SUMS`, `SHA256SUMS.minisig`, les binaires), puis le bouton de la fiche |
+| L'opérateur | `opencloud release import <dossier>` (le dossier d'une version publiée : `SHA256SUMS`, `SHA256SUMS.minisig`, les binaires), puis le bouton de la fiche. **Il garde la clé de signature des versions** : importer ou signer une version n'est pas un verbe et ne le deviendra pas |
 | `release.Library` | Range la version sous `<état>/releases/<version>/` (binaires, signature, sommes) ; **revérifie à chaque envoi** la signature, la version du dossier et la somme du binaire |
-| `action.Service` | `OfferUpdate` juge l'offre, `UpdateAgent` prépare le colis et signe l'ordre, `ConfirmAgentUpdate` ferme le run au retour de l'agent |
-| L'agent (`internal/agent/update.go`) | Télécharge, vérifie, s'éprouve, bascule son lien, s'arrête avec le code 3 |
-| systemd | Relance l'agent (`Restart=on-failure` : le code 3 en est un) sur le lien `bin/current`, désormais le nouveau binaire |
+| `action.Service` | `OfferUpdate` juge l'offre, `UpdateAgent` prépare le colis et signe l'ordre, `RollbackAgent` signe le retour arrière, `ConfirmAgentUpdate` ferme le run au retour de l'agent, `UpdatePlan` lit le plan, `Record` écrit l'audit et l'alerte d'un retour en arrière |
+| L'agent (`internal/agent/update.go`, `outcome.go`) | Télécharge, vérifie, s'éprouve, **écrit le marqueur et le lien `previous`**, bascule son lien, s'arrête avec le code 3 ; au retour, **confirme** quand le serveur l'a acquitté, et rapporte ce que le lanceur a fait en son absence |
+| Le lanceur stable (`opencloud guard`, `internal/rollback`) | Une copie du binaire que **root** pose hors de `bin/` ; l'unité systemd le lance, **sous le compte de l'agent**, et lui lance `bin/current`. Il tient l'échéance et rebascule sur `previous` si rien n'a confirmé |
+| systemd | Relance le lanceur (`Restart=on-failure` : le code 3 en est un, pas le 2) |
 
 | # | Décision | Contrepartie |
 | --- | --- | --- |
-| 1 | **La version visée est celle du serveur** : il n'envoie que sa propre version, jamais une autre. La fiche ne propose rien quand l'agent est à la même version (`same_version`) ou plus récent (`newer_agent`) ; une version d'agent illisible compte comme plus ancienne | Pas de retour en arrière par l'interface ; il se fait à la main (installation.md) |
+| 1 | **La version visée est celle du serveur** : il n'envoie que sa propre version, jamais une autre. La fiche ne propose rien quand l'agent est à la même version (`same_version`) ou plus récent (`newer_agent`) ; une version d'agent illisible compte comme plus ancienne | Pas de version choisie par l'interface ; revenir à la précédente se fait par `agent.rollback` (plus bas) |
 | 2 | **Une bibliothèque**, `<état>/releases/<version>/` : `release import` vérifie le dossier entier (signature avec la clé embarquée, chaque binaire listé présent et de la somme signée, 256 Mio au plus), puis écrit les binaires, la signature, et **les sommes en dernier** : une coupure laisse une version absente, que l'import suivant complète. La même version importée avec d'autres sommes est refusée (`ErrVersionConflict`) | Une version se publie une fois ; importer deux fois le même dossier ne change rien |
 | 3 | **Double vérification.** Le serveur rouvre la version à chaque envoi (`Library.Artifact`) et compare la somme du fichier emprunté à celle qu'il vient de vérifier. L'agent vérifie ensuite lui-même : clé embarquée (`release_key_missing` sans elle), signature (`signature_invalid`), version signée = version demandée (`version_mismatch`), une version plus récente que la sienne, jamais la même ni une plus ancienne, et jamais par-dessus le binaire que `current` lance (`downgrade`), binaire listé dans les sommes signées et de la taille et de la somme que l'ordre a signées (`digest_mismatch`) | Un serveur compromis ne fait pas installer ce que la clé de version n'a pas signé |
 | 4 | **Le colis est celui des sauvegardes** : trois fichiers (binaire de l'architecture de la machine, `SHA256SUMS`, `SHA256SUMS.minisig`), empruntés à la bibliothèque (`ParcelWriter.Borrow`, ni copiés ni effacés), téléchargés sous le jeton de session | Un ordre qui ne part pas rend le colis (`Discard`) |
-| 5 | **Disposition de l'agent** : `<état>/bin/opencloud-<version>`, le lien `<état>/bin/current` que l'unité systemd exécute. Le nouveau binaire arrive en `.incoming-<version>`, prend ses droits d'exécution, **s'éprouve** (`<binaire> version` sous un environnement remplacé, 10 s, la sortie doit nommer la version) ; seulement ensuite `current.new` est créé puis **renommé** sur `current` (atomique, dossier synchronisé). La version courante et la précédente restent, les plus anciennes sont retirées | Un binaire qui ne s'éprouve pas est retiré, le lien ne bouge pas (`self_check_failed`) |
-| 6 | **Un agent qui ne vit pas dans `bin/`** refuse avant de lire l'ordre (`not_self_updatable`) : son exécutable, liens suivis, doit être directement dans `<état>/bin/`. Les agents déjà installés sont migrés une fois à la main (installation.md). **La machine openCloud n'est plus une exception** (22 octobre 2026) : son état, `/var/lib/opencloud-agent`, est hors du dossier du serveur, son agent lance `bin/current` et se met à jour depuis sa fiche. Seule différence : pas de lien `/usr/local/bin/opencloud` vers `bin/current` sur elle, car `/usr/local/bin/opencloud` y est le binaire du serveur, que rien ne met à jour seul | Une étape manuelle par machine, une seule (le déplacement de l'état, qui y met aussi `bin/`) |
-| 7 | **L'agent s'arrête avec le code 3** une fois le lien basculé, sans rapporter de résultat : le run reste « accepté ». systemd le relance, il annonce sa version à l'ouverture du flux (`OpenCloud-Agent-Version`) | Entre l'arrêt et le retour, la fiche montre l'ordre en cours |
+| 5 | **Disposition de l'agent** : `<état>/bin/opencloud-<version>`, le lien `<état>/bin/current` que le lanceur exécute, le lien `<état>/bin/previous`. Le nouveau binaire arrive en `.incoming-<version>`, prend ses droits d'exécution, **s'éprouve** (`<binaire> version` sous un environnement remplacé, 10 s, la sortie doit nommer la version) ; le lien `previous` et le marqueur sont écrits ; seulement ensuite `current.new` est créé puis **renommé** sur `current` (atomique, dossier synchronisé). La version courante et la précédente restent, **intactes** ; les plus anciennes sont retirées | Un binaire qui ne s'éprouve pas est retiré, le lien ne bouge pas (`self_check_failed`). Une version d'avant illisible (`current` ne vise pas `opencloud-vX.Y.Z`) refuse la mise à jour (`no_previous`) |
+| 6 | **Un agent qui ne vit pas dans `bin/`**, ou qui ne tourne pas sous le lanceur, refuse avant de lire l'ordre (`not_self_updatable`, `guard_missing`) : son exécutable, liens suivis, doit être directement dans `<état>/bin/`. **La machine openCloud n'est pas une exception** : son état, `/var/lib/opencloud-agent`, est hors du dossier du serveur, son agent lance `bin/current` et se met à jour depuis sa fiche. Seule différence : pas de lien `/usr/local/bin/opencloud` vers `bin/current` sur elle, car `/usr/local/bin/opencloud` y est le binaire du serveur, que rien ne met à jour seul | Une étape manuelle par machine, une seule : la migration (installation.md, « Migrer l'agent vers le retour arrière automatique ») |
+| 7 | **L'agent s'arrête avec le code 3** une fois le lien basculé, sans rapporter de résultat : le run reste « accepté ». systemd relance le lanceur, qui relance `bin/current` ; l'agent annonce sa version à l'ouverture du flux (`OpenCloud-Agent-Version`) | Entre l'arrêt et le retour, la fiche montre l'ordre en cours |
 | 8 | **Le succès se constate au retour** : `CompleteAgentUpdates` ferme les runs `agent.update` envoyés ou acceptés **de cet agent** dont la version visée est celle qu'il annonce, ligne de sortie `reconnected as <version>`. Une autre version annoncée ne ferme rien ; un agent qui ne revient pas laisse l'ordre expirer (`MaxRunDuration`, une heure) | Pas de « fait » sans l'avoir entendu |
+| 9 | **Le marqueur** `<état>/update.json` (`0600`, écrit en une fois : temporaire, `fsync`, `rename`) est écrit **avant** la bascule : l'état (`pending`, `confirmed`, `rolled_back`, `failed`), le genre (`update` ou `rollback`), l'ordre (`run_id`), la version visée, la précédente, l'instant et l'**échéance** (`GracePeriod` = 3 minutes, constante de `internal/rollback`, ni dans l'ordre ni réglable par le serveur). Un marqueur illisible, d'un autre état, ou dont une version n'est pas `vX.Y.Z` est écarté bruyamment : le lanceur et l'agent démarrent sans lui | Trois minutes laissent un redémarrage (10 s), une reconnexion et une machine lente ; une machine éteinte plus de trois minutes juste après la bascule revient en arrière à son démarrage, à tort mais sans danger |
+| 10 | **La confirmation réutilise le signal de la décision 8** : l'agent est confirmé quand le flux est ouvert **et** que le serveur a noté sa version (l'événement `session` arrive après `ConfirmAgentUpdate`) et que cette version est la visée. L'agent retire alors le marqueur. Un retour arrière manuel passe par `confirmed` (le serveur n'a pas de version à attendre) puis l'agent rapporte `succeeded` | Un agent coupé du serveur ne se confirme pas, c'est voulu : il revient à la version qui, elle, tenait |
+| 11 | **Le retour automatique** (le cœur). À chaque lancement, le lanceur juge le marqueur *avant* de lancer `bin/current` : échéance passée → il rebascule `current` sur `previous` (le binaire de la version d'avant, présent et exécutable, sinon `failed`), écrit `rolled_back` avec la cause (`timeout` : rien n'a confirmé ; `crash` : le binaire s'est arrêté ou n'a pas pu démarrer avant l'échéance), puis lance la version d'avant. Pendant que le binaire tourne, il tient l'échéance : si le marqueur est encore `pending` à l'échéance, il arrête le binaire (SIGTERM, puis SIGKILL après 10 s), rebascule et sort avec le code 3. Un binaire **mort-né** (qui ne s'exécute pas) est un plantage de plus : le lanceur, lui, n'est pas ce binaire | Le lanceur est **un second processus** par agent (quelques Mio) et une copie figée du binaire : un correctif du lanceur demande de la reposer à la main (`GuardVersion`) |
+| 12 | **Une seule remise en état par mise à jour** : si la version d'avant s'arrête de façon anormale dans la minute qui suit (`SettleAfter`), le marqueur passe à `failed` (cause `previous_crash`), le lanceur sort avec le code **2** (systemd ne relance pas) et la machine le dit haut et fort : journal local au niveau d'erreur, signal au serveur dès qu'un agent revient (`rollback_failed`, alerte danger). Jamais de boucle. Un retour arrière **manuel** non confirmé passe de même à `failed` (`unconfirmed`) sans rebasculer | Une machine dont les deux versions sont cassées reste sans agent jusqu'à une main humaine ; c'est la seule issue honnête |
+| 13 | **Le rapport au retour** : l'ancienne version, revenue, pousse dans sa section `actions` le résultat de l'ordre de la mise à jour : `failed`, raison `rolled_back_timeout`, `rolled_back_crash` ou `rollback_failed`, trois lignes de sortie (`target`, `previous`, `running`). Le marqueur n'est retiré que **quand le signal qui le porte a été écrit** par le serveur. Le run se ferme en **échec** (jamais en succès) ; `Record` écrit l'événement d'audit `action.rolled_back` (acteur : l'agent de la machine) et lève l'alerte `agent_rolled_back` (attention, danger si `rollback_failed`), refermée par la mise à jour confirmée suivante | Un rapport arrivé après l'expiration du run (une heure) n'est plus appliqué |
+| 14 | **La capacité** est la version du retour arrière que l'agent rapporte (`OpenCloud-Agent-Rollback: 1`, colonne `agents.rollback_version`). Il ne la dit **que** s'il tourne sous le lanceur (variable `OPENCLOUD_AGENT_GUARD` posée par le lanceur) : un agent d'avant, ou pas migré, ne la dit pas. **Le serveur refuse `agent.update` et `agent.rollback` pour un agent à 0** (`409 action.rollback_unavailable`) ; aucune option ne l'impose, et l'agent refuse de lui-même sans lanceur (`guard_missing`) | Les agents installés doivent migrer une fois à la main ; l'offre le dit (`rollback_unavailable`) et l'interface donne les lignes à coller |
+| 15 | **Une seule mise à jour d'agent en vol, tous agents confondus** : `agent.update` et `agent.rollback` sont refusés (`409 action.update_in_progress`) tant qu'un run de l'un ou de l'autre n'est ni confirmé, ni en échec, ni échu (`UpdateInFlightWindow` = 30 minutes : téléchargement, délai de confirmation, marge). Vaut pour l'opérateur comme pour un jeton ; le « rien en vol puis écrire le run » se fait sous un verrou | Un run qui ne finit jamais bloque les autres jusqu'à son échéance |
+| 16 | **Le plan** : `GET /api/agent-updates` (ouverte aux jetons en lecture) liste les machines (version de l'agent, version visée, `up_to_date`, `rollback_capable`, `online`, `update_last`, raison de blocage, `order`) et la mise à jour en vol (`in_progress`). L'ordre recommandé met d'abord les machines ordinaires, puis celles marquées `update_last`, chaque groupe par nom ; une machine à jour ou bloquée n'a pas de rang. **Le serveur ne met jamais plusieurs agents à jour d'un coup** : l'enchaînement est fait par l'opérateur ou par un agent IA, une machine à la fois, en s'arrêtant au premier échec | L'ordre est un conseil, pas une file : rien ne part sans un geste |
+| 17 | **`update_last`** : un drapeau par machine (colonne `machines.update_last`, migration `018`), réglé par l'opérateur seul (`PUT /api/machines/{id}/update-last`, jamais un verbe) depuis la fiche : « À mettre à jour en dernier : cette machine porte le chemin des ordres (proxy, VPN…) ». Journalisé (`machine.update_last`) | Le serveur ne devine pas quelle machine porte le chemin des ordres |
+| 18 | **L'audit nomme l'acteur et les versions** : `action.order` porte `from` (version de l'agent) et `to` (version visée) pour `agent.update`, `from` pour `agent.rollback` ; l'acteur est l'opérateur, ou le jeton avec « pour qui » (`on_behalf_of`). `action.rolled_back` porte `reason`, `target` et `version` (celle qui tourne) | `to` d'un retour arrière manuel n'est pas connu du serveur : il est dans la sortie du run |
+
+**Pourquoi un lanceur stable, et ce que ça coûte.** Un agent cassé ne peut pas
+se réparer lui-même : il faut que ce qui rebascule ne soit pas le binaire mis à
+jour. Trois pistes ont été pesées.
+
+| Piste | Pourquoi pas |
+| --- | --- |
+| Unité de remise en état déclenchée par `OnFailure=` / `StartLimit*` | Ne voit pas un agent qui tourne sans jamais rejoindre le serveur (pour systemd, il va bien) ; la remise en état doit redémarrer l'unité, ce qu'un compte sans privilège ne fait pas ; trois unités à poser et à tenir cohérentes |
+| Minuterie systemd qui lance la remise en état | Même limite de privilège (redémarrer l'agent), et un processus à chaque minute pour rien |
+| **Un lanceur stable** *(retenu)* | Une seule ligne d'unité change (`ExecStart=`). Il est le *parent* de l'agent : il l'arrête quand il ne confirme pas, sans privilège ; il voit un binaire mort-né ; il est testable avec des faux (pas de vrai systemd) |
+
+Le lanceur tourne sous le **compte de l'agent** : aucun root permanent, pas de
+`sudo`, pas de règle en plus. Il ne lance **aucun shell** : un chemin
+(`bin/current`) et les arguments de la ligne de l'unité, l'environnement hérité
+plus `OPENCLOUD_AGENT_GUARD=1`. Il ne lit **rien venu du réseau** : seulement le
+marqueur, que le compte de l'agent écrit. Contrepartie : un agent compromis,
+qui tourne sous ce compte, peut écrire un marqueur ou rebasculer `current` ;
+il peut déjà remplacer `bin/current`, le lanceur n'ajoute pas ce pouvoir. Ce
+que le lanceur ajoute, c'est qu'une copie à root, que l'agent ne peut pas
+modifier, reste lancée à la place de ce qu'il a pu casser.
+
+**L'ordre `agent.rollback`** (son échec : décision 12) :
+signé, sans paramètre (liste fermée `agentwire.OrderKinds`), même droit que
+`agent.update` (`action.RightOf`, pas de droit nouveau), mêmes refus d'agent
+(`not_self_updatable`, `guard_missing`). L'agent lit `previous` ; il refuse
+sans rien toucher s'il n'y en a pas (`no_previous`) ou s'il est la version qui
+tourne (`previous_identical`) ; il **éprouve** la version d'avant comme une
+neuve (`self_check_failed`), écrit le marqueur (genre `rollback`, cible = la
+version d'avant, `previous` = celle qu'on quitte), rebascule et redémarre. Il
+est confirmé ou annulé comme une mise à jour, mais **ne déclenche pas de
+seconde remise en état** : si la version d'avant ne revient pas, le marqueur
+passe à `failed` (`unconfirmed`) et l'agent le dit.
+
+**Les verbes pour jetons.** `agent.update` (`POST
+/api/machines/{id}/actions/update-agent`) et `agent.rollback` (`POST
+/api/machines/{id}/actions/rollback-agent`) sont inverses l'un de l'autre,
+`Params: id`, pas de corps. Leurs phrases disent qu'ils ne signent ni
+n'importent jamais une version. Un jeton qui porte `agent.update` met à jour
+un agent, **une machine à la fois** ; il ne peut pas importer ni signer une
+version (aucune route de l'API ne le fait, un test le garde).
 
 **Les raisons de la fiche** (`GET /api/machines/{id}/agent-update`, jugées dans
 cet ordre, la première qui tient est rendue) : `no_releases` (le serveur n'a
 pas de clé de version embarquée, ou une version illisible), `no_agent`,
 `offline`, `right_missing` (l'agent a rapporté ses droits sans `agent.update`),
-`arch_unknown`, `same_version`, `newer_agent`, `no_release` (rien d'importé pour
-cette version et cette architecture), `release_invalid` (importée mais qui ne se
-revérifie plus : l'import est à refaire). Sauf `same_version`, chaque raison a sa
-phrase (`machine.agent_update_reason_*`). Une offre **disponible** peut porter
-`right_unavailable` : l'agent a dit que son compte ne peut pas exercer
-`agent.update`, l'offre reste faite et c'est l'agent qui refusera. L'envoi,
-`POST /api/machines/{id}/actions/update-agent`, refuse avec les mêmes motifs :
-`404` machine inconnue, `409 machine.no_agent`, `409 action.machine_offline`,
-`409 action.right_missing`, sinon `409 action.update_unavailable`.
+`arch_unknown`, `same_version`, `newer_agent`, **`rollback_unavailable`**
+(l'agent ne rapporte pas de retour arrière : à migrer), `no_release` (rien
+d'importé pour cette version et cette architecture), `release_invalid`
+(importée mais qui ne se revérifie plus : l'import est à refaire). Sauf
+`same_version`, chaque raison a sa phrase (`machine.agent_update_reason_*`).
+Une offre **disponible** peut porter `right_unavailable` : l'agent a dit que
+son compte ne peut pas exercer `agent.update`, l'offre reste faite et c'est
+l'agent qui refusera. L'envoi, `POST /api/machines/{id}/actions/update-agent`,
+refuse avec les mêmes motifs : `404` machine inconnue, `409 machine.no_agent`,
+`409 action.machine_offline`, `409 action.right_missing`, `409
+action.rollback_unavailable`, `409 action.update_in_progress`, sinon `409
+action.update_unavailable`. `POST …/actions/rollback-agent` refuse de même
+(sans la version importée).
+
+**La fiche d'une machine** montre où en est la dernière mise à jour, lue dans
+ses derniers ordres : *en attente de confirmation*, *confirmée*, *revenue en
+arrière toute seule* (avec la version refusée et la cause), *retour arrière en
+échec* ; le bouton « Revenir à la version précédente » (confirmation en
+ligne) ; le drapeau « à mettre à jour en dernier » ; et, quand l'agent n'est
+pas migré, les lignes de migration que produit `GET /api/agent-migration`
+(opérateur seul : elles posent des fichiers à root). La vue d'ensemble pose une
+pastille « Agent revenu en arrière » sur la carte d'une machine dont l'alerte
+`agent_rolled_back` est ouverte.
 
 **Ce qui n'est pas journalisé.** `release import` n'ouvre pas la base : il ne
 laisse pas d'événement d'audit. L'ordre, lui, écrit `action.order` comme tous
@@ -4161,7 +4672,7 @@ sort pas de la machine et ne passe pas par Traefik.
 
 Un seul port derrière Traefik : les agents appellent `/agent/…`, les tâches
 `/ping/…`, les visiteurs `/statut`, l'opérateur le reste, et un jeton d'API les
-25 lectures de sa liste, sur le même port. mcp-maison, lui, écoute à part, sur
+32 lectures de sa liste, sur le même port. mcp-maison, lui, écoute à part, sur
 le port 3000 de l'hôte de `listen` : c'est son propre routeur Traefik qui le
 sert aux clients des agents IA, et openCloud ne le met pas derrière le sien.
 
@@ -4293,3 +4804,5 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Mise à jour des agents (#153, 07) | Le paquet `internal/release` étendu (`Library` : `Import`, `Artifact`, `releasetest`), la sous-commande `opencloud release import`, l'ordre `agent.update` (`agentwire.AgentUpdateParams` et six refus : `not_self_updatable`, `release_key_missing`, `signature_invalid`, `version_mismatch`, `downgrade`, `self_check_failed`), `action.Service` (`SetReleases`, `OfferUpdate`, `UpdateAgent`, `ConfirmAgentUpdate`), `store.CompleteAgentUpdates`, la confirmation à l'ouverture du flux (`agentapi`), l'exécuteur de l'agent (`internal/agent/update.go`, `ErrUpdated`, sortie de code 3), `Options.ReleaseKey`, les routes `GET /api/machines/{id}/agent-update` et `POST …/actions/update-agent`, le bouton « Mettre à jour l'agent » de la fiche, les clés `machine.agent_update*` et `action.reason_*`, le golden `agent_update_offer.golden.json`. Pas de migration |
 | Sortie du MCP (#224, #225) | La migration `008_api_tokens.sql` (`api_tokens` reconstruite à partir de `mcp_tokens`, `mcp_clients` et `mcp_codes` supprimées), les paquets `internal/apitoken` et `internal/mcpcheck`, `store/api_tokens.go`, la clé `mcp_url` de `config.toml`, `GET /api/settings/mcp`, `/api/settings/api-tokens`, l'admission d'un Bearer sur 25 routes en lecture (`admitAPIToken`), le masquage des secrets pour un jeton, l'acteur d'audit `api` et `details.on_behalf_of`, la carte « Agent IA » et la section « Jetons d'API » de Paramètres, `docs/installation/compose.mcp-maison.yml`. Retirés : `internal/mcp`, `/mcp`, `/oauth/…`, `opencloud mcp`, les 21 outils (les outils MCP cités dans les lignes plus haut sont de l'histoire), `go-sdk` |
 | Déploiement Docker Compose (06) | La migration `007_deploy.sql` (`service_units.data_path`, `action_runs.service_id` en `set null`), le paquet `internal/deploy` (le `compose.yml` généré, le plan, `Deploy`/`Redeploy`), les ordres `docker.deploy` et `docker.update` et leurs sept raisons (`agentwire`, `internal/agent/docker.go`), `action.SendForService`, `-root-dir` et l'en-tête `OpenCloud-Agent-Root` (`agents.root_dir`), `data_path` dans l'annuaire, le fichier d'`apply` et l'export, les trois routes `deploy-plan`, `actions/deploy` et `actions/redeploy`, `service_id` dans les ordres, la carte Déploiement et le champ « Dossier de données » du formulaire |
+| Retour arrière des mises à jour d'agent | La migration `018_agent_rollback.sql` (`agents.rollback_version`, `machines.update_last`), le paquet `internal/rollback` (le marqueur `update.json`, `Arm`, `SwitchLink`, `Guard` et son lanceur de processus), la sous-commande `opencloud guard`, l'ordre `agent.rollback` (`agentwire.KindAgentRollback`, droit `agent.update`), l'en-tête `OpenCloud-Agent-Rollback`, `internal/agent/outcome.go` (confirmer, rapporter), `action.RollbackAgent`/`UpdatePlan`/`refuseWhileUpdating`, les refus `action.rollback_unavailable` et `action.update_in_progress`, l'audit `action.rolled_back` et `machine.update_last`, l'alerte `agent_rolled_back`, les verbes `agent.update` et `agent.rollback`, `GET /api/agent-updates`, `GET /api/agent-migration`, `PUT /api/machines/{id}/update-last`, la fiche (état de la mise à jour, retour arrière, drapeau, migration) et la pastille de la vue d'ensemble, `docs/installation/opencloud-agent.service` (lanceur), « Migrer l'agent vers le retour arrière automatique » |
+| Gestes sur Proxmox (#266) | Les droits `proxmox.power` et `proxmox.snapshot`, quatre ordres `proxmox.vm.*`, le jeton local de l'agent, la route `POST …/proxmox/guests/{vmid}/actions/{geste}`, l'événement d'audit `machine.proxmox_guest` (« Comment un hôte Proxmox agit ») |

@@ -14,8 +14,9 @@ import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useNow } from "../../hooks/useNow";
 import { useT } from "../../i18n/context";
-import { emptyTokenForm, envBlock, expiryLabel, lifetimeLabel, tokenRequestOf } from "../../lib/apiTokens";
+import { emptyTokenForm, envBlock, expiryLabel, lifetimeLabel, scopeLabel, toggleVerb, tokenRequestOf } from "../../lib/apiTokens";
 import { ago, formatClock } from "../../lib/time";
+import { VerbChoices } from "./VerbChoices";
 
 // Les jetons d'API, sous le réglage de l'agent IA : la liste, où chaque
 // jeton se révoque sur sa ligne après une confirmation en ligne, puis le
@@ -50,6 +51,10 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
     revoking.run(perform, { onDone: reload });
   };
   const lines = created === null ? "" : envBlock(state.env, created.token);
+  const labelOfVerb = (id: string) => {
+    const offer = state.verbs.find((candidate) => candidate.id === id);
+    return offer === undefined ? id : t(offer.label);
+  };
   return (
     <>
       <div className="setting-subhead">
@@ -82,6 +87,7 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
           <thead>
             <tr>
               <th>{t("api_token.col_token")}</th>
+              <th>{t("api_token.col_scope")}</th>
               <th className="nowrap">{t("api_token.col_created")}</th>
               <th className="nowrap">{t("api_token.col_expires")}</th>
               <th className="nowrap">{t("api_token.col_last_used")}</th>
@@ -94,6 +100,7 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
                 <td>
                   {token.name} <span className="mono secondary">{token.masked}</span>
                 </td>
+                <td className="secondary">{scopeLabel(t, token, labelOfVerb)}</td>
                 <td className="secondary nowrap">{formatClock(token.created_at)}</td>
                 <td className="secondary nowrap">{expiryLabel(t, token.expires_at, formatClock)}</td>
                 <td className="secondary nowrap">{token.last_used_at === null ? t("api_token.never_used") : ago(t, token.last_used_at, now)}</td>
@@ -118,6 +125,23 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
           <SettingRow label={t("api_token.name_label")} description={t("api_token.name_help")} htmlFor="api-token-name" width="medium">
             <Input id="api-token-name" type="text" value={values.name} onChange={(event) => change("name", event.target.value)} maxLength={80} autoComplete="off" required />
           </SettingRow>
+          <SettingRow label={t("api_token.scope_label")} description={t("api_token.scope_help")} htmlFor="api-token-scope">
+            <Select
+              id="api-token-scope"
+              value={values.scope}
+              options={[
+                { value: "read", label: t("api_token.scope_read") },
+                { value: "write", label: t("api_token.scope_write") },
+              ]}
+              onChange={(chosen) => change("scope", chosen === "write" ? "write" : "read")}
+            />
+          </SettingRow>
+          {values.scope === "write" && (
+            <SettingBlock>
+              <Note tone="warn">{t("api_token.write_warn")}</Note>
+              <VerbChoices offers={state.verbs} chosen={values.verbs} onToggle={(id) => change("verbs", toggleVerb(values.verbs, id))} />
+            </SettingBlock>
+          )}
           <SettingRow label={t("api_token.lifetime_label")} description={t("api_token.lifetime_help")} htmlFor="api-token-lifetime">
             <Select
               id="api-token-lifetime"

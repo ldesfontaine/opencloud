@@ -15,6 +15,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/firewall"
+	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
@@ -25,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
@@ -42,7 +45,9 @@ type components struct {
 	db          *store.DB
 	actions     *action.Service
 	sshKeys     *sshkeys.Service
+	roles       *role.Service
 	proxmox     *proxmox.Service
+	firewalls   *firewall.Service
 	backups     *backup.Service
 	deployer    *deploy.Service
 	logger      *slog.Logger
@@ -128,6 +133,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// serveur, que serve seul charge (sans elle, rien ne part).
 	actions := action.New(db, machines, logger)
 	actions.SetAuditor(journal)
+	actions.SetAlerter(alerts)
 	// Les mises à jour des agents : la bibliothèque des versions importées, lue
 	// avec la clé de version embarquée. Sans clé (binaire de développement),
 	// rien ne se vérifie et la fiche ne propose rien.
@@ -138,10 +144,21 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	}
 	// Les clés SSH autorisées que les agents relèvent, en lecture seule.
 	sshKeys := sshkeys.New(db, logger)
+	roles := role.New(db, logger)
 	// Les hôtes Proxmox que des machines déclarent, lus en lecture seule ; la
 	// boucle de relevé est à serve seul.
 	hypervisors := proxmox.New(db, machines, logger)
 	hypervisors.SetAuditor(journal)
+	// Démarrer, arrêter proprement, prendre un instantané : des ordres à l'agent
+	// de l'hôte, qui a son propre jeton local. Le serveur n'écrit jamais dans
+	// Proxmox.
+	hypervisors.SetOrders(actions)
+	hypervisors.SetViewer(db)
+	// Les pare-feu que l'opérateur déclare, lus en lecture seule ; la boucle de
+	// relevé est à serve seul. Un autre constructeur ajoute ici son connecteur.
+	firewalls := firewall.New(db, logger)
+	firewalls.SetAuditor(journal)
+	firewalls.SetConnector(firewall.KindOPNsense, opnsense.New)
 	// La sauvegarde de la base part par ces ordres. Le dépôt des colis
 	// (SetParcels) et la boucle sont à serve seul.
 	backups := backup.New(db, machines, stateDir, logger)
@@ -168,7 +185,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator,
-		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, proxmox: hypervisors, backups: backups, deployer: deployer,
+		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, deployer: deployer,
 	}, nil
 }
 
@@ -196,7 +213,9 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		Auth:           c.operator,
 		Actions:        c.actions,
 		SSHKeys:        c.sshKeys,
+		Roles:          c.roles,
 		Proxmox:        c.proxmox,
+		Firewalls:      c.firewalls,
 		Backups:        c.backups,
 		Deploy:         c.deployer,
 		PublicURL:      cfg.PublicURL,

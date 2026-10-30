@@ -229,15 +229,24 @@ func (db *DB) PurgeRuns(ctx context.Context, before time.Time) error {
 	return nil
 }
 
-// ListActionRuns rend les runs, d'une machine ou de toutes, du plus récent
-// au plus ancien, avec leur sortie.
+// ListActionRuns rend les runs, d'une machine ou de toutes, de ces genres ou
+// de tous, du plus récent au plus ancien, avec leur sortie.
 func (db *DB) ListActionRuns(ctx context.Context, query action.Query) ([]action.Run, error) {
+	args := []any{query.MachineID, query.MachineID}
+	kindsFilter := ""
+	if len(query.Kinds) > 0 {
+		kindsFilter = " AND action IN (" + strings.TrimSuffix(strings.Repeat("?,", len(query.Kinds)), ",") + ")"
+		for _, kind := range query.Kinds {
+			args = append(args, string(kind))
+		}
+	}
+	args = append(args, query.Limit)
 	rows, err := db.sql.QueryContext(ctx, `
 		SELECT `+runColumns+`
 		FROM action_runs
-		WHERE (? = '' OR machine_id = ?)
+		WHERE (? = '' OR machine_id = ?)`+kindsFilter+`
 		ORDER BY requested_at DESC, id DESC
-		LIMIT ?`, query.MachineID, query.MachineID, query.Limit)
+		LIMIT ?`, args...) // #nosec G202 -- une condition fixe du code, les valeurs sont liées.
 	if err != nil {
 		return nil, fmt.Errorf("list runs: %w", err)
 	}
@@ -358,4 +367,21 @@ func attachRunLogs(ctx context.Context, q querier, runs []action.Run) error {
 		runs[index].Output = append(runs[index].Output, line)
 	}
 	return rows.Err()
+}
+
+// FindUpdateInFlight rend un ordre agent.update ou agent.rollback qui n'a pas
+// fini (écrit, envoyé, ou accepté par l'agent) et a été demandé depuis since.
+func (db *DB) FindUpdateInFlight(ctx context.Context, since time.Time) (action.Run, bool, error) {
+	run, err := scanActionRun(db.sql.QueryRowContext(ctx, `
+		SELECT `+runColumns+` FROM action_runs
+		WHERE action IN (?, ?) AND state IN ('queued', 'sent', 'accepted') AND requested_at >= ?
+		ORDER BY requested_at DESC, id DESC LIMIT 1`,
+		string(agentwire.KindAgentUpdate), string(agentwire.KindAgentRollback), since.Unix())) // #nosec G202 -- des genres fixes, les valeurs sont liées.
+	if errors.Is(err, sql.ErrNoRows) {
+		return action.Run{}, false, nil
+	}
+	if err != nil {
+		return action.Run{}, false, fmt.Errorf("find update in flight: %w", err)
+	}
+	return run, true, nil
 }

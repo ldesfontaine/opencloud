@@ -62,6 +62,8 @@ func (r *Recorder) Record(ctx context.Context, event Event) {
 	}
 	event.At = r.now()
 	event.Actor = ActorFrom(ctx)
+	// Un nom choisi par l'opérateur, mais écrit pour toujours : borné ici.
+	event.Actor.Label = cleanLabel(event.Actor.Label)
 	event.ApplyID = applyFrom(ctx)
 	event.ObjectKind = event.Action.ObjectKind()
 	event.Details = r.cleanDetails(event)

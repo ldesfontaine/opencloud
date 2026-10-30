@@ -54,9 +54,34 @@ const (
 	// /usr/local/bin/opencloud : ce lien, root le lancerait, et le compte de
 	// l'agent peut remplacer ce qu'il vise.
 	AgentCurrentPath = AgentStateDir + "/" + AgentBinDir + "/" + AgentCurrentLink
+	// Le lien vers le binaire d'avant la dernière bascule : ce à quoi l'agent
+	// revient, seul ou sur ordre, et l'état de la mise à jour en attente de
+	// confirmation (dans l'état de l'agent, à lui, 0600).
+	AgentPreviousLink = "previous"
+	AgentUpdateMarker = "update.json"
+	AgentGuardBinary  = ID + "-guard"
+	// Le lanceur stable : une copie du binaire posée une fois par root, hors
+	// de bin/, que l'agent ne se met jamais à jour lui-même. L'unité lance
+	// lui, et lui lance bin/current ; il dit à l'agent qu'il est là par cette
+	// variable d'environnement.
+	AgentGuardDir  = "/usr/local/lib/" + ID + "-agent"
+	AgentGuardPath = AgentGuardDir + "/" + AgentGuardBinary
+	AgentGuardEnv  = "OPENCLOUD_AGENT_GUARD"
 	// Là où l'agent range ce qu'il produit (backup.produce), dans son état : à
 	// lui, 0700.
 	AgentProduceDir = "produce"
+	// Le jeton Proxmox local de l'agent (proxmox.power, proxmox.snapshot), dans
+	// son état : posé par l'opérateur sur l'hôte, à l'agent seul, 0600. Il ne
+	// voyage jamais, le serveur ne le garde pas.
+	AgentProxmoxFile = "proxmox.json"
+	// Ce que l'opérateur crée dans Proxmox pour ce jeton : un rôle réduit, un
+	// compte qui ne sert qu'à cela, le nom du jeton.
+	ProxmoxRole      = "OpenCloudAgent"
+	ProxmoxUser      = ID + "-agent@pve"
+	ProxmoxTokenName = "agent"
+	// Les instantanés que l'agent crée portent ce préfixe : il ne supprime que
+	// ceux-là, jamais ceux de l'opérateur.
+	SnapshotPrefix = TokenPrefix + "-"
 	// Le script de root que la règle sudo de backup.produce nomme, seul : il
 	// lance vzdump hors du bac à sable de l'unité de l'agent.
 	VzdumpWrapperPath = "/usr/local/sbin/" + ID + "-vzdump"

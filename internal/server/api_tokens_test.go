@@ -307,7 +307,7 @@ func TestAPIToken_ActorIsAPI(t *testing.T) {
 			request.Header.Add(headers[i], headers[i+1])
 		}
 		recorder := httptest.NewRecorder()
-		server.admitAPIToken(recorder, request, cleartext, true, probe)
+		server.admitAPIToken(recorder, request, cleartext, tokenAccess{read: true}, probe)
 		if recorder.Code != http.StatusOK || !tokenSeen {
 			t.Fatalf("not admitted: %d", recorder.Code)
 		}
@@ -372,7 +372,7 @@ func TestAPITokensAPI_ListCreateRevoke(t *testing.T) {
 	if len(list.Tokens) != 1 || list.Limit != apitoken.MaxTokens || list.Env.OpenCloudURL != "http://example.com:80" {
 		t.Fatalf("list %+v", list)
 	}
-	for _, request := range []apiTokenRequest{{Name: ""}, {Name: "ok", Scope: "write"}, {Name: "ok", ExpiresInDays: ptr(7)}} {
+	for _, request := range []apiTokenRequest{{Name: ""}, {Name: "ok", Scope: "admin"}, {Name: "ok", ExpiresInDays: ptr(7)}} {
 		if got := callAPI(server.Server, http.MethodPost, "/api/settings/api-tokens", request); got.Code != http.StatusUnprocessableEntity {
 			t.Errorf("%+v: %d %s", request, got.Code, got.Body.String())
 		}

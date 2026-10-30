@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 )
@@ -33,6 +35,8 @@ type fakeProxmox struct {
 	*httptest.Server
 	mu     sync.Mutex
 	broken bool
+	// Le nom de la VM 5012, que le rapprochement lie à une machine du même nom d'hôte.
+	runningName string
 }
 
 func newFakeProxmox(t *testing.T) *fakeProxmox {
@@ -45,7 +49,11 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 		}
 		api.mu.Lock()
 		broken := api.broken
+		runningName := api.runningName
 		api.mu.Unlock()
+		if runningName == "" {
+			runningName = "docker1"
+		}
 		var body string
 		switch {
 		case r.URL.Path == "/api2/json/version":
@@ -55,7 +63,7 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 			return
 		case r.URL.Path == "/api2/json/cluster/resources" && r.URL.Query().Get("type") == "vm":
 			body = `{"data":[
-				{"type":"qemu","vmid":5012,"name":"docker1","node":"pve","status":"running","template":0,"maxcpu":2,"maxmem":2147483648,"maxdisk":34359738368},
+				{"type":"qemu","vmid":5012,"name":"` + runningName + `","node":"pve","status":"running","template":0,"maxcpu":2,"maxmem":2147483648,"maxdisk":34359738368},
 				{"type":"lxc","vmid":200,"name":"dns","node":"pve","status":"stopped","template":0,"maxcpu":1,"maxmem":536870912,"maxdisk":8589934592}]}`
 		case r.URL.Path == "/api2/json/cluster/resources" && r.URL.Query().Get("type") == "storage":
 			body = `{"data":[{"type":"storage","storage":"local","node":"pve","plugintype":"dir","status":"available","content":"iso,backup","maxdisk":1000,"disk":400}]}`
@@ -77,6 +85,12 @@ func (api *fakeProxmox) setBroken(broken bool) {
 	api.broken = broken
 }
 
+func (api *fakeProxmox) setGuestName(name string) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.runningName = name
+}
+
 func (api *fakeProxmox) pin() string {
 	sum := sha256.Sum256(api.Certificate().Raw)
 	return hex.EncodeToString(sum[:])
@@ -91,6 +105,14 @@ func (api *fakeProxmox) request(secret string) proxmoxRequest {
 // VM qui porte le nom d'hôte d'une des siennes.
 func proxmoxBench(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer) {
 	t.Helper()
+	server, api, journal, _ := proxmoxBenchWithKey(t)
+	return server, api, journal
+}
+
+// proxmoxBenchWithKey rend aussi la clé de l'agent de l'hôte, pour ouvrir son
+// flux : un ordre n'est écrit que pour une machine en ligne.
+func proxmoxBenchWithKey(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer, ed25519.PrivateKey) {
+	t.Helper()
 	server := newTestServer(t)
 	var journal bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&journal, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -99,10 +121,12 @@ func proxmoxBench(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer) {
 	component.SetClock(func() time.Time { return testNow })
 	component.SetWatcher(server.bus)
 	component.SetAuditor(server.journal)
+	component.SetOrders(server.actions)
+	component.SetViewer(server.db)
 	server.Server.proxmox = component
-	server.enroll(t, "pve", pveID)
+	_, hostKey := server.enroll(t, "pve", pveID)
 	server.enroll(t, "docker1", dockerVMID)
-	return server, newFakeProxmox(t), &journal
+	return server, newFakeProxmox(t), &journal, hostKey
 }
 
 func putProxmox(server *testServer, id string, request proxmoxRequest) *httptest.ResponseRecorder {
@@ -349,5 +373,50 @@ func TestProxmox_TheDeletePlanOfAMachineCountsTheHostAndTheLinks(t *testing.T) {
 	guest := callAPI(server.Server, http.MethodGet, "/api/machines/"+dockerVMID+"/delete-plan", nil)
 	if !strings.Contains(guest.Body.String(), `"kind":"proxmox_links","count":1`) {
 		t.Errorf("guest plan: %s", guest.Body.String())
+	}
+}
+
+func postGuestAction(server *testServer, id, vmid, verb, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, "/api/machines/"+id+"/proxmox/guests/"+vmid+"/actions/"+verb, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	return recorder
+}
+
+// Le serveur refuse avant d'envoyer, avec la clé du refus : un geste inconnu,
+// un hôte non déclaré, un invité absent du relevé, un état incohérent, un
+// instantané qui n'est pas de ce produit. Aucun run n'est écrit.
+func TestProxmox_GuestActionRefusesBeforeSending(t *testing.T) {
+	server, api, _ := proxmoxBench(t)
+	if got := postGuestAction(server, pveID, "5012", "shutdown", "{}"); got.Code != http.StatusNotFound {
+		t.Fatalf("undeclared host: %d %s", got.Code, got.Body.String())
+	}
+	if got := putProxmox(server, pveID, api.request(pveTokenSecret)); got.Code != http.StatusOK {
+		t.Fatalf("declare: %d %s", got.Code, got.Body.String())
+	}
+	cases := map[string]struct {
+		vmid, verb, body string
+		status           int
+		key              string
+	}{
+		"unknown verb":       {"5012", "reboot", "{}", http.StatusNotFound, "not_found"},
+		"forced stop":        {"5012", "stop", "{}", http.StatusNotFound, "not_found"},
+		"vmid not a number":  {"abc", "start", "{}", http.StatusNotFound, "not_found"},
+		"unknown guest":      {"9999", "start", "{}", http.StatusConflict, "proxmox.guest_unknown"},
+		"start a running":    {"5012", "start", "{}", http.StatusConflict, "proxmox.state_mismatch"},
+		"shutdown a stopped": {"200", "shutdown", "{}", http.StatusConflict, "proxmox.state_mismatch"},
+		"not our snapshot":   {"200", "snapshot-delete", `{"snapshot":"avant-migration"}`, http.StatusUnprocessableEntity, "proxmox.snapshot_invalid"},
+		"bad body":           {"200", "start", "{", http.StatusBadRequest, "bad_json"},
+	}
+	for name, c := range cases {
+		got := postGuestAction(server, pveID, c.vmid, c.verb, c.body)
+		if got.Code != c.status || errorCode(t, got) != c.key {
+			t.Errorf("%s: %d %s", name, got.Code, got.Body.String())
+		}
+	}
+	runs, err := server.db.ListActionRuns(context.Background(), action.Query{MachineID: pveID, Limit: 10})
+	if err != nil || len(runs) != 0 {
+		t.Fatalf("a refusal wrote runs: %v %v", runs, err)
 	}
 }

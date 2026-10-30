@@ -58,6 +58,10 @@ func (s *Service) Create(ctx context.Context, request Request) (string, Token, e
 	if err != nil {
 		return "", Token{}, err
 	}
+	verbs, err := verbsOf(scope, request.Verbs)
+	if err != nil {
+		return "", Token{}, err
+	}
 	now := s.now()
 	expiresAt, err := expiryOf(request.Days, now)
 	if err != nil {
@@ -70,11 +74,12 @@ func (s *Service) Create(ctx context.Context, request Request) (string, Token, e
 	token := Token{
 		ID: secret.id, Hash: secret.hash, Prefix: secret.prefix, Scope: scope,
 		Name: strings.TrimSpace(request.Name), CreatedAt: now, ExpiresAt: expiresAt,
+		Verbs: verbs,
 	}
 	if err := s.insertUnderCeiling(ctx, token); err != nil {
 		return "", Token{}, err
 	}
-	s.logger.Info("api token created", "token_id", token.ID, "name", token.Name, "scope", string(scope), "expires_at", expiresAt)
+	s.logger.Info("api token created", "token_id", token.ID, "name", token.Name, "scope", string(scope), "verbs", strings.Join(verbs, ","), "expires_at", expiresAt)
 	s.auditor.Record(ctx, createEvent(token))
 	return secret.cleartext, token, nil
 }
@@ -88,6 +93,10 @@ func (s *Service) insertUnderCeiling(ctx context.Context, token Token) error {
 	}
 	if len(existing) >= MaxTokens {
 		return ErrTooMany
+	}
+	// Deux jetons vivants au même nom ne se distinguent plus à l'audit.
+	if slices.ContainsFunc(existing, func(other Token) bool { return strings.EqualFold(other.Name, token.Name) }) {
+		return ErrNameTaken
 	}
 	return s.store.InsertAPIToken(ctx, token)
 }
@@ -181,6 +190,18 @@ func createEvent(created Token) audit.Event {
 	}
 	return audit.Event{
 		Action: audit.APITokenCreate, ObjectID: created.ID, ObjectName: created.Name,
-		Details: audit.Details{"scope": string(created.Scope), "expires_at": expires},
+		Details: audit.Details{"scope": string(created.Scope), "verbs": strings.Join(created.Verbs, ","), "expires_at": expires},
 	}
+}
+
+// RecordDenied journalise un jeton qui a tenté un verbe qu'il ne porte pas :
+// un agent essaie ce qu'il n'a pas le droit de faire, l'opérateur doit le
+// voir. Le verbe tenté est un identifiant du registre, jamais ce que le
+// client a écrit.
+func (s *Service) RecordDenied(ctx context.Context, token Token, verbID string) {
+	s.logger.Warn("api token verb refused", "token_id", token.ID, "verb", verbID)
+	s.auditor.Record(ctx, audit.Event{
+		Action: audit.APITokenDeny, ObjectID: token.ID, ObjectName: token.Name,
+		Details: audit.Details{"verb": verbID},
+	})
 }

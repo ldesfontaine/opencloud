@@ -124,7 +124,9 @@ func runServe(args []string) error {
 	parts.manifests.SetWatcher(bus)
 	parts.actions.SetWatcher(bus)
 	parts.sshKeys.SetWatcher(bus)
+	parts.roles.SetWatcher(bus)
 	parts.proxmox.SetWatcher(bus)
+	parts.firewalls.SetWatcher(bus)
 	parts.actions.SetKey(serverKey)
 	// Les colis des ordres longs (la sauvegarde) : un dossier vidé à chaque
 	// démarrage de serve.
@@ -138,6 +140,9 @@ func runServe(args []string) error {
 	// vie de serve.
 	parts.backups.SetLifetime(ctx)
 	parts.backups.SetWatcher(bus)
+	// Le suivi d'un geste sur un invité Proxmox (relire l'hôte quand il a
+	// réussi) vit avec serve.
+	parts.proxmox.SetLifetime(ctx)
 
 	// serve n'observe rien de sa propre machine : c'est l'agent installé sur
 	// elle, comme sur les autres. L'empreinte de la machine ne sert qu'à le
@@ -149,12 +154,12 @@ func runServe(args []string) error {
 
 	logInterfaceAccess(ctx, logger, parts.operator, cfg.Listen)
 	warnIfForwardUnproven(ctx, logger, parts.operator, cfg.TrustedPrefixes(), forwardSecret != "")
-	// Quatorze boucles de fond : les échéances, le rollup et la purge des
+	// Quinze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la purge des conteneurs, le rollup et la purge des sondes, la
 	// purge des constats d'images, la page de statut, les machines perdues,
 	// le moteur des alertes, le notifieur, la purge des jetons d'API, la fin
 	// de support, l'expiration et la purge des ordres, la sauvegarde de la
-	// base, le relevé des hôtes Proxmox. Elles finissent avant
+	// base, le relevé des hôtes Proxmox, le relevé des pare-feu. Elles finissent avant
 	// que la base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { parts.heartbeats.Watch(ctx) })
@@ -171,6 +176,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { parts.actions.Watch(ctx) })
 	runLoop(&loops, func() { parts.backups.Watch(ctx) })
 	runLoop(&loops, func() { parts.proxmox.Watch(ctx) })
+	runLoop(&loops, func() { parts.firewalls.Watch(ctx) })
 	defer func() { stop(); loops.Wait() }()
 	// Une sonde dont la cible porte des identifiants, d'avant leur refus, ne
 	// repart pas : elle attend que l'opérateur change sa cible.

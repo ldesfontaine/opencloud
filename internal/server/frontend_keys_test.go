@@ -20,10 +20,14 @@ var (
 // Les littéraux qui ont la forme d'une clé d'une section du catalogue sans
 // en être une, chacun avec sa raison.
 var literalsNotKeys = map[string]string{
-	"agent.update":   "un droit d'agent (machine.CapabilityAgentUpdate), que le front envoie au serveur",
-	"backup.produce": "un droit d'agent (machine.CapabilityBackupProduce), que le front envoie au serveur",
-	"backup.receive": "un droit d'agent (machine.CapabilityBackupReceive), que le front envoie au serveur",
-	"probe.lan":      "un droit d'agent (machine.CapabilityProbeLAN), que le front envoie au serveur",
+	"agent.update":     "un droit d'agent (machine.CapabilityAgentUpdate), que le front envoie au serveur",
+	"agent.rollback":   "un genre d'ordre (agentwire.KindAgentRollback), que le front lit dans un run",
+	"agent.ping":       "un genre d'ordre (agentwire.KindAgentPing), que le front lit dans un run",
+	"backup.produce":   "un droit d'agent (machine.CapabilityBackupProduce), que le front envoie au serveur",
+	"proxmox.power":    "un droit d'agent (machine.CapabilityProxmoxPower), que le front envoie au serveur",
+	"proxmox.snapshot": "un droit d'agent (machine.CapabilityProxmoxSnapshot), que le front envoie au serveur",
+	"backup.receive":   "un droit d'agent (machine.CapabilityBackupReceive), que le front envoie au serveur",
+	"probe.lan":        "un droit d'agent (machine.CapabilityProbeLAN), que le front envoie au serveur",
 }
 
 // frontKeys rend les clés que le texte d'un fichier du front demande en

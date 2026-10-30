@@ -198,7 +198,7 @@ func forgetSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, out io.
 	// journal d'audit le garde.
 	commandJournal(db).Record(ctx, audit.Event{Action: audit.SecretsForget, Details: audit.Details{
 		"channels_disabled": strconv.Itoa(forgotten.Channels), "ping_tokens_renewed": strconv.Itoa(forgotten.PingTokens),
-		"proxmox_hosts_cleared": strconv.Itoa(forgotten.ProxmoxHosts),
+		"proxmox_hosts_cleared": strconv.Itoa(forgotten.ProxmoxHosts), "firewalls_cleared": strconv.Itoa(forgotten.Firewalls),
 	}})
 	keyPath := filepath.Join(stateDir.Name(), brand.SecretKeyFile)
 	if _, err := fmt.Fprintf(out, "Nouvelle clé écrite : %s\n", keyPath); err != nil {
@@ -207,9 +207,9 @@ func forgetSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, out io.
 	if keptAs != "" {
 		fmt.Fprintf(out, "Ancienne clé gardée : %s (elle n'ouvre plus rien ici ; elle sert à relire une ancienne sauvegarde de la base)\n", filepath.Join(stateDir.Name(), keptAs))
 	}
-	_, err = fmt.Fprintf(out, "mot de passe du relais : effacé\ncanaux désactivés : %d\njetons de ping renouvelés : %d\njetons Proxmox effacés : %d\n"+
-		"Redémarrez le serveur, ressaisissez ces secrets sous Paramètres, mettez à jour les URL de ping des crons et redéclarez les hôtes Proxmox.\n",
-		forgotten.Channels, forgotten.PingTokens, forgotten.ProxmoxHosts)
+	_, err = fmt.Fprintf(out, "mot de passe du relais : effacé\ncanaux désactivés : %d\njetons de ping renouvelés : %d\njetons Proxmox effacés : %d\nsecrets de pare-feu effacés : %d\n"+
+		"Redémarrez le serveur, ressaisissez ces secrets sous Paramètres, mettez à jour les URL de ping des crons et redéclarez les hôtes Proxmox et les pare-feu.\n",
+		forgotten.Channels, forgotten.PingTokens, forgotten.ProxmoxHosts, forgotten.Firewalls)
 	return err
 }
 

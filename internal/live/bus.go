@@ -23,6 +23,8 @@ const (
 	TopicActions Topic = "actions"
 	// La clé, les destinations et le plan de sauvegarde de la base.
 	TopicBackups Topic = "backups"
+	// Les pare-feu déclarés et ce que leur dernier relevé en dit.
+	TopicFirewalls Topic = "firewalls"
 )
 
 // ResourcesEvery espace les publications des mesures : chaque machine en
@@ -167,6 +169,15 @@ func (b *Bus) SSHKeysChanged(string) {
 // Un relevé de l'hôte Proxmox d'une machine se lit avec les machines : même sujet.
 func (b *Bus) ProxmoxChanged(string) {
 	b.Publish(TopicMachines)
+}
+
+// Un rôle reconnu ou perdu se lit avec les machines : même sujet.
+func (b *Bus) RolesChanged(string) {
+	b.Publish(TopicMachines)
+}
+
+func (b *Bus) FirewallsChanged() {
+	b.Publish(TopicFirewalls)
 }
 
 func (b *Bus) BackupsChanged() {

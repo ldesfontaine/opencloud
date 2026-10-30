@@ -4,6 +4,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -50,7 +51,16 @@ const (
 	// jugés avant chaque ouverture du flux. Absent quand tout est réalisable,
 	// et chez un agent plus vieux.
 	HeaderAgentUnavailable = brand.HeaderPrefix + "Agent-Unavailable"
+	// La version du retour arrière que l'agent sait faire, un entier : posée
+	// seulement s'il tourne sous le lanceur stable (brand.AgentGuardEnv). Absent
+	// chez un agent plus vieux ou qui n'est pas migré : le serveur refuse
+	// alors agent.update, jamais sans retour arrière.
+	HeaderAgentRollback = brand.HeaderPrefix + "Agent-Rollback"
 )
+
+// RollbackVersion est la version du retour arrière que ce binaire sait faire
+// avec le lanceur stable (le marqueur, le délai, le lien previous).
+const RollbackVersion = 1
 
 // ProtocolVersion est la seule que ce serveur et cet agent parlent. Le 1
 // avait un défi émis par le serveur (/agent/challenge) ; le 2 le retire.
@@ -124,6 +134,9 @@ type SignalRequest struct {
 	// Les clés SSH autorisées de la machine, relevées en lecture seule : le
 	// dernier relevé, envoyé quand il change et à chaque ouverture du flux.
 	SSHKeys *sshkeys.Report `json:"ssh_keys,omitempty"`
+	// Ce que l'agent reconnaît sur sa machine (un hôte Proxmox VE) : le
+	// dernier rapport, envoyé quand il change et à chaque ouverture du flux.
+	Roles *role.Report `json:"roles,omitempty"`
 }
 
 // Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
@@ -136,11 +149,12 @@ const (
 	SectionImages   = "images"
 	SectionActions  = "actions"
 	SectionSSHKeys  = "ssh_keys"
+	SectionRoles    = "roles"
 )
 
 // SignalSections rend les sections dans l'ordre où le serveur les écrit.
 func SignalSections() []string {
-	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys}
+	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles}
 }
 
 // SectionRefusal rend la clé d'erreur d'une section refusée.

@@ -58,7 +58,8 @@ export function MachineNew() {
             required
           />
         </Field>
-        <RightsFields values={values} update={form.update} />
+        {/* Une machine pas encore enrôlée n'a aucun rôle reconnu : pas de droit Proxmox. */}
+        <RightsFields values={values} update={form.update} proxmoxDetected={false} />
       </FormCard>
     </FormPage>
   );

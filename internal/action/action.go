@@ -132,7 +132,7 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 	switch kind {
 	case agentwire.KindLogs, agentwire.KindLogsStop, agentwire.KindProbes, agentwire.KindImages, agentwire.KindAgentPing, agentwire.KindServerKey:
 		return machine.CapabilityObserve, true
-	case agentwire.KindAgentUpdate:
+	case agentwire.KindAgentUpdate, agentwire.KindAgentRollback:
 		return machine.CapabilityAgentUpdate, true
 	case agentwire.KindBackupReceive, agentwire.KindBackupPrune:
 		return machine.CapabilityBackupReceive, true
@@ -142,6 +142,10 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 		return machine.CapabilityDockerDeploy, true
 	case agentwire.KindDockerUpdate:
 		return machine.CapabilityDockerUpdate, true
+	case agentwire.KindProxmoxStart, agentwire.KindProxmoxShutdown:
+		return machine.CapabilityProxmoxPower, true
+	case agentwire.KindProxmoxSnapshot, agentwire.KindProxmoxSnapshotDelete:
+		return machine.CapabilityProxmoxSnapshot, true
 	}
 	return "", false
 }
@@ -168,7 +172,9 @@ func coversOrder(capabilities []machine.Capability, kind agentwire.Kind, params 
 // Query choisit les runs d'une liste, du plus récent au plus ancien.
 type Query struct {
 	MachineID string
-	Limit     int
+	// Vide : tous les genres.
+	Kinds []agentwire.Kind
+	Limit int
 }
 
 var (

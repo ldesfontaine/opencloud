@@ -79,6 +79,9 @@ func SignedStreamRequest(t *testing.T, url, machineID string, private ed25519.Pr
 	request.Header.Set(agentwire.HeaderTimestamp, strconv.FormatInt(Now().Unix(), 10))
 	request.Header.Set(agentwire.HeaderSignature, base64.StdEncoding.EncodeToString(machine.Sign(private, payload)))
 	request.Header.Set(agentwire.HeaderAgentVersion, "v0.0.2")
+	// Le banc modèle un agent migré : il dit revenir seul en arrière. Un test
+	// d'agent non migré retire l'en-tête.
+	request.Header.Set(agentwire.HeaderAgentRollback, "1")
 	return request
 }
 
@@ -88,6 +91,27 @@ func SignedStreamRequest(t *testing.T, url, machineID string, private ed25519.Pr
 func OpenStream(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
 	t.Helper()
 	return OpenStreamPinned(t, handler, machineID, private, "")
+}
+
+// OpenStreamWithoutRollback ouvre le flux d'un agent qui ne dit pas revenir
+// seul en arrière : un agent installé avant le retour arrière, ou pas migré.
+func OpenStreamWithoutRollback(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey) (*http.Response, context.CancelFunc) {
+	t.Helper()
+	live := httptest.NewServer(handler)
+	t.Cleanup(live.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	request := SignedStreamRequest(t, live.URL, machineID, private, NewNonce(t)).WithContext(ctx)
+	request.Header.Del(agentwire.HeaderAgentRollback)
+	resp, err := live.Client().Do(request)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		cancel()
+		t.Fatalf("stream: %d", resp.StatusCode)
+	}
+	return resp, cancel
 }
 
 // OpenStreamPinned fait de même pour un agent qui dit avoir épinglé cette

@@ -1,23 +1,47 @@
+import { useRef, useState } from "react";
 import { Link } from "react-router";
 
-import { removeMachineProxmox, useMachineProxmox, type ProxmoxGuest, type ProxmoxHost, type ProxmoxHosted, type ProxmoxStorage } from "../api/proxmox";
+import { useMachineActions, type ActionRun } from "../api/actions";
+import { actOnGuest, removeMachineProxmox, useMachineProxmox, type ProxmoxGuest, type ProxmoxHost, type ProxmoxHosted, type ProxmoxStorage } from "../api/proxmox";
 import type { Machine } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useI18n, useT } from "../i18n/context";
-import { backupLabel, guestStatusLabel, guestTone, kindLabel, readErrorLabel, resourcesLabel, sortedGuests, sortedStorages, storagePercent } from "../lib/proxmox";
+import {
+  backupLabel,
+  detectedProxmox,
+  gestureBlockText,
+  gestureLabel,
+  gestureQuestion,
+  gestureStep,
+  gestureStepTones,
+  guestGestures,
+  guestStatusLabel,
+  guestTone,
+  kindLabel,
+  readErrorLabel,
+  resourcesLabel,
+  sortedGuests,
+  sortedStorages,
+  storagePercent,
+  type GuestGesture,
+} from "../lib/proxmox";
 import { formatWhen } from "../lib/time";
 import { formatBytes, formatDecimal, meterTone } from "../lib/units";
+import { reasonText } from "./ActionsCard";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Meter, Note } from "./Card";
+import { ConfirmInline } from "./ConfirmInline";
 import { Failure } from "./Failure";
+import { MoreMenu, type MenuAction } from "./MoreMenu";
 import { Pill } from "./Pill";
 import { Subject, Table } from "./Table";
 import "./MachineHypervisor.scss";
 
 // L'onglet « Hyperviseur » d'une machine : l'hôte Proxmox qu'elle porte, ses VM
-// et conteneurs, ses stockages. Lecture seule : rien n'est écrit dans Proxmox.
-// Sans hôte déclaré, l'adresse de l'onglet mène à la déclaration.
+// et conteneurs, ses stockages. Le serveur n'écrit rien dans Proxmox : les
+// gestes sur un invité (démarrer, arrêter, instantanés) sont des ordres à
+// l'agent de l'hôte, sous ses droits proxmox.*. Sans hôte déclaré, l'adresse de l'onglet mène à la déclaration.
 export function MachineHypervisor({ machine }: { machine: Machine }) {
   const t = useT();
   const declared = machine.proxmox.declared;
@@ -45,7 +69,7 @@ export function MachineHypervisor({ machine }: { machine: Machine }) {
     <div className="hypervisor">
       {host.error && <Failure error={host.error} />}
       <HostCard machine={machine} host={host.data} />
-      <GuestsCard host={host.data} />
+      <GuestsCard machine={machine} host={host.data} />
       <StoragesCard storages={host.data.storages} />
     </div>
   );
@@ -92,9 +116,12 @@ function HostCard({ machine, host }: { machine: Machine; host: ProxmoxHost }) {
   );
 }
 
-function GuestsCard({ host }: { host: ProxmoxHost }) {
+// Les invités de l'hôte, chacun avec son menu de gestes. Les ordres de la
+// machine se lisent une fois pour la carte : chaque ligne y suit le sien.
+function GuestsCard({ machine, host }: { machine: Machine; host: ProxmoxHost }) {
   const t = useT();
   const guests = sortedGuests(host.guests);
+  const runs = useMachineActions(machine.id);
   return (
     <Card className="scroll-x">
       <CardHeader title={t("machine.proxmox_guests_title")} aside={guests.length} />
@@ -115,7 +142,7 @@ function GuestsCard({ host }: { host: ProxmoxHost }) {
           </thead>
           <tbody>
             {guests.map((guest) => (
-              <GuestRow key={guest.vmid} guest={guest} />
+              <GuestRow key={guest.vmid} machine={machine} guest={guest} runs={runs.data?.runs ?? []} />
             ))}
           </tbody>
         </Table>
@@ -124,31 +151,113 @@ function GuestsCard({ host }: { host: ProxmoxHost }) {
   );
 }
 
-function GuestRow({ guest }: { guest: ProxmoxGuest }) {
+// Le nombre de colonnes du tableau des invités : la ligne du geste les couvre.
+const guestColumns = 7;
+
+function GuestRow({ machine, guest, runs }: { machine: Machine; guest: ProxmoxGuest; runs: ActionRun[] }) {
   const t = useT();
   const { language } = useI18n();
   const now = useNow();
+  const sending = useAction();
+  const menu = useRef<HTMLSpanElement>(null);
+  // Le geste choisi au menu, en attente de confirmation ; puis le run envoyé.
+  const [chosen, setChosen] = useState<GuestGesture | null>(null);
+  const [sent, setSent] = useState<{ gesture: GuestGesture; run: ActionRun } | null>(null);
+  const name = guest.name === "" ? String(guest.vmid) : guest.name;
+  const gestures = guestGestures(guest, machine);
+
+  const choose = (gesture: GuestGesture) => {
+    setSent(null);
+    setChosen(gesture);
+  };
+  const cancel = () => {
+    setChosen(null);
+    menu.current?.querySelector("button")?.focus();
+  };
+  const send = (gesture: GuestGesture) => {
+    sending.run(() => actOnGuest(machine.id, guest.vmid, gesture.verb, gesture.snapshot), {
+      topic: "actions",
+      onDone: (run) => setSent({ gesture, run }),
+      onSettled: () => setChosen(null),
+    });
+  };
+
+  const actions: MenuAction[] = gestures.map((gesture) => ({
+    label: gestureLabel(t, gesture),
+    danger: gesture.verb === "snapshot-delete",
+    disabled: gesture.blocked !== null,
+    ...(gesture.blocked !== null && { hint: gestureBlockText(t, gesture.blocked, machine.agent) }),
+    onSelect: () => choose(gesture),
+  }));
+  // Un droit qui manque se change d'ici : la page des droits ré-enrôle l'agent.
+  if (gestures.some((gesture) => gesture.blocked?.kind === "right_missing")) {
+    actions.push({ label: t("machine.change_rights"), to: `/machines/${machine.id}/droits` });
+  }
+  const panelOpen = chosen !== null || sent !== null || sending.error !== null;
+
   return (
-    <tr>
-      <td>
-        <Subject icon="server">
-          <span className="svc-name">
-            <span className="proxmox-name">
-              {guest.name === "" ? guest.vmid : guest.name} <span className="secondary mono">{guest.vmid}</span>
-            </span>
-            {guest.template && <Pill tone="neutral">{t("machine.proxmox_template")}</Pill>}
+    <>
+      <tr>
+        <td>
+          <span className="row-name" ref={menu}>
+            <Subject icon="server">
+              <span className="svc-name">
+                <span className="proxmox-name">
+                  {name} <span className="secondary mono">{guest.vmid}</span>
+                </span>
+                {guest.template && <Pill tone="neutral">{t("machine.proxmox_template")}</Pill>}
+              </span>
+            </Subject>
+            {actions.length > 0 && <MoreMenu actions={actions} label={t("entity.more", name)} />}
           </span>
-        </Subject>
-      </td>
-      <td className="wide-only">{kindLabel(t, guest.kind)}</td>
-      <td>
-        <Pill tone={guestTone(guest.status)}>{guestStatusLabel(t, guest.status)}</Pill>
-      </td>
-      <td className="num wide-only">{formatDecimal(language, guest.cpus, Number.isInteger(guest.cpus) ? 0 : 1)}</td>
-      <td className="num wide-only">{formatBytes(t, language, guest.max_memory)}</td>
-      <td className="wide-only">{guest.linked_machine_id === null ? "—" : <Link to={`/machines/${guest.linked_machine_id}`}>{guest.name}</Link>}</td>
-      <td className="wide-only">{backupLabel(t, language, guest.last_backup_at, guest.last_backup_bytes, now)}</td>
-    </tr>
+        </td>
+        <td className="wide-only">{kindLabel(t, guest.kind)}</td>
+        <td>
+          <Pill tone={guestTone(guest.status)}>{guestStatusLabel(t, guest.status)}</Pill>
+        </td>
+        <td className="num wide-only">{formatDecimal(language, guest.cpus, Number.isInteger(guest.cpus) ? 0 : 1)}</td>
+        <td className="num wide-only">{formatBytes(t, language, guest.max_memory)}</td>
+        <td className="wide-only">{guest.linked_machine_id === null ? "—" : <Link to={`/machines/${guest.linked_machine_id}`}>{guest.name}</Link>}</td>
+        <td className="wide-only">{backupLabel(t, language, guest.last_backup_at, guest.last_backup_bytes, now)}</td>
+      </tr>
+      {panelOpen && (
+        <tr className="guest-gesture">
+          <td colSpan={guestColumns}>
+            <Failure error={sending.error} />
+            {chosen !== null && (
+              <ConfirmInline asking question={gestureQuestion(t, chosen, name)} onConfirm={() => send(chosen)} onCancel={cancel} disabled={sending.busy}>
+                {gestureLabel(t, chosen)}
+              </ConfirmInline>
+            )}
+            {sent !== null && <GestureProgress label={gestureLabel(t, sent.gesture)} run={runs.find((run) => run.id === sent.run.id) ?? sent.run} onDismiss={() => setSent(null)} />}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// Où en est le geste envoyé, relu par le direct (« actions ») : envoyé, accepté
+// par l'agent, fait ou échoué, avec la raison et la sortie de l'échec.
+function GestureProgress({ label, run, onDismiss }: { label: string; run: ActionRun; onDismiss: () => void }) {
+  const t = useT();
+  const step = gestureStep(run.state);
+  const finished = step === "done" || step === "failed";
+  const output = run.output.map((line) => line.line).join("\n");
+  return (
+    <div className="gesture-progress" role="status">
+      <div className="gesture-progress-head">
+        <span>{label}</span>
+        <Pill tone={gestureStepTones[step]}>{t(`machine.proxmox_progress_${step}`)}</Pill>
+        {finished && (
+          <Button small variant="ghost" onClick={onDismiss}>
+            {t("machine.proxmox_progress_dismiss")}
+          </Button>
+        )}
+      </div>
+      {step === "failed" && run.reason !== "" && <p className="secondary">{reasonText(t, run.reason)}</p>}
+      {step === "failed" && output !== "" && <pre className="secondary mono gesture-output">{output}</pre>}
+    </div>
   );
 }
 
@@ -222,6 +331,23 @@ export function ProxmoxCard({ machine }: { machine: Machine }) {
   // encadré « Sur l'hôte Proxmox » suffit (l'adresse du formulaire reste servie).
   if (!summary.declared && summary.hosted !== null) {
     return null;
+  }
+  const detected = detectedProxmox(machine);
+  if (!summary.declared && detected !== null) {
+    return (
+      <Card>
+        <CardHeader title={t("machine.proxmox_title")} />
+        <CardBody gap={10}>
+          <p>{detected.version === "" ? t("machine.proxmox_detected_unversioned") : t("machine.proxmox_detected", detected.version)}</p>
+          <p className="secondary">{t("machine.proxmox_detected_token")}</p>
+          <div>
+            <Button small icon="plus" to={`/machines/${machine.id}/proxmox`}>
+              {t("machine.proxmox_declare")}
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
+    );
   }
   if (!summary.declared) {
     return (

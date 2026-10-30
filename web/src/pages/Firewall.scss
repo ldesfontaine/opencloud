@@ -1,0 +1,30 @@
+// La fiche d'un pare-feu : ses cartes s'empilent, sans plus.
+.firewall {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+// Le mot qui explique le filtre, et le filtre, au-dessus de la table des règles.
+.firewall-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+
+  p {
+    margin: 0;
+  }
+}
+
+// Une règle désactivée reste lisible mais s'efface.
+.firewall-off td {
+  opacity: 0.6;
+}
+
+.firewall-disabled {
+  margin-left: 8px;
+}

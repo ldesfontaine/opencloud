@@ -54,6 +54,8 @@ const (
 	ObjectBackupKeyring     ObjectKind = "backup_keyring"
 	ObjectBackupDestination ObjectKind = "backup_destination"
 	ObjectBackupPlan        ObjectKind = "backup_plan"
+	// Un pare-feu déclaré, lu en lecture seule.
+	ObjectFirewall ObjectKind = "firewall"
 )
 
 func ObjectKinds() []ObjectKind {
@@ -63,6 +65,7 @@ func ObjectKinds() []ObjectKind {
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectAPIToken, ObjectSecrets, ObjectAction,
 		ObjectBackupKeyring, ObjectBackupDestination, ObjectBackupPlan,
+		ObjectFirewall,
 	}
 }
 
@@ -84,6 +87,11 @@ const (
 	// jeton n'y figure pas : seulement son identifiant.
 	MachineProxmoxSet   Action = "machine.proxmox_set"
 	MachineProxmoxUnset Action = "machine.proxmox_unset"
+	// Un geste demandé sur un invité de l'hôte (démarrer, arrêter, instantané) :
+	// le numéro, le geste et le run. Aucun secret : le jeton ne quitte pas l'hôte.
+	MachineProxmoxGuest Action = "machine.proxmox_guest"
+	// Le drapeau « à mettre à jour en dernier », posé ou retiré par l'opérateur.
+	MachineUpdateLast Action = "machine.update_last"
 
 	// L'agent est enrôlé (la machine créée ou retrouvée) ou révoqué : l'objet
 	// est l'agent, nommé par sa machine. Avant la table agents, l'enrôlement
@@ -150,6 +158,8 @@ const (
 
 	APITokenCreate Action = "api_token.create" // #nosec G101 -- un nom, pas un secret.
 	APITokenRevoke Action = "api_token.revoke" // #nosec G101 -- un nom, pas un secret.
+	// Un jeton qui a tenté un verbe qu'il ne porte pas.
+	APITokenDeny Action = "api_token.deny" // #nosec G101 -- un nom, pas un secret.
 
 	SecretsForget Action = "secrets.forget" // #nosec G101 -- un nom, pas un secret.
 	// La clé de chiffrement changée, chaque secret rescellé ; la clé qui
@@ -162,6 +172,10 @@ const (
 	// l'agent, avec sa raison.
 	ActionOrder   Action = "action.order"
 	ActionRefused Action = "action.refused"
+	// L'agent est revenu à sa version d'avant, seul, parce que la nouvelle
+	// n'a pas confirmé : l'acteur est l'agent de la machine. Aussi quand la
+	// remise en état a échoué à son tour.
+	ActionRolledBack Action = "action.rolled_back"
 
 	// La phrase de passe n'est jamais écrite ici : seulement l'empreinte de
 	// la clé qu'elle scelle.
@@ -173,11 +187,17 @@ const (
 	BackupPlanDelete        Action = "backup_plan.delete"
 	// Une sauvegarde lancée, par l'opérateur ou par la règle de la nuit.
 	BackupPlanRun Action = "backup_plan.run"
+
+	// Un pare-feu déclaré, redéclaré ou retiré. Ni la clé ni le secret n'y
+	// figurent : seulement l'hôte de l'API et si l'empreinte est épinglée.
+	FirewallCreate Action = "firewall.create"
+	FirewallUpdate Action = "firewall.update"
+	FirewallDelete Action = "firewall.delete"
 )
 
 func Actions() []Action {
 	return []Action{
-		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset,
+		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset, MachineProxmoxGuest, MachineUpdateLast,
 		AgentEnroll, AgentRevoke,
 		EnrollmentTokenCreate, EnrollmentTokenCancel,
 		ProjectCreate, ProjectUpdate, ProjectDelete,
@@ -194,11 +214,12 @@ func Actions() []Action {
 		AlertAcknowledge,
 		SettingsUpdate,
 		AuthEnable, AuthDisable, AuthChangePassword,
-		APITokenCreate, APITokenRevoke,
+		APITokenCreate, APITokenRevoke, APITokenDeny,
 		SecretsForget, SecretsRotate, SecretsRotateServerKey, SecretsFinishServerKey,
-		ActionOrder, ActionRefused,
+		ActionOrder, ActionRefused, ActionRolledBack,
 		BackupKeyringCreate, BackupKeyringReplace, BackupDestinationCreate, BackupDestinationDelete,
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
+		FirewallCreate, FirewallUpdate, FirewallDelete,
 	}
 }
 
@@ -247,6 +268,12 @@ type Query struct {
 	Before     int64
 	ObjectKind ObjectKind
 	ObjectID   string
+	// ActorKind ne garde que ce genre d'acteur ; vide : tous.
+	ActorKind ActorKind
+	// Actor cherche un morceau de texte, sans casse ASCII, dans le nom du
+	// jeton (actor_label), l'identifiant (actor_name) ou « pour qui »
+	// (on_behalf_of) ; vide : tous.
+	Actor string
 }
 
 // isForbiddenDetail dit si un nom de détail porte un secret. Un nom qui finit

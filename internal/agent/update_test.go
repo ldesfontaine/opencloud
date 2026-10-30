@@ -21,6 +21,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/release/releasetest"
+	"github.com/ldesfontaine/opencloud/internal/rollback"
 )
 
 const archBinary = brand.ReleaseBinaryPrefix + "amd64"
@@ -72,6 +73,7 @@ func newUpdateBench(t *testing.T, ownVersion string) *updateBench {
 		return b.checkErr
 	}
 	b.updater.restart = func() { b.restarted++ }
+	b.updater.guarded = true
 	return b
 }
 
@@ -102,7 +104,7 @@ func (b *updateBench) publish(t *testing.T, version, signedVersion string, signe
 
 func (b *updateBench) update(t *testing.T, p published) error {
 	t.Helper()
-	return b.updater.update(context.Background(), sourceFor(t, p.server), p.params)
+	return b.updater.update(context.Background(), sourceFor(t, p.server), p.params, "run1")
 }
 
 func (b *updateBench) current(t *testing.T) string {
@@ -557,6 +559,9 @@ func TestRun_UpdatesItselfAndTheServerSeesItComeBack(t *testing.T) {
 	}
 	options.Rights = []machine.Capability{{Name: machine.CapabilityAgentUpdate}}
 	options.ReleaseKey, options.HasReleaseKey = public, true
+	// Sous le lanceur stable : sans lui, l'agent ne rapporte pas de retour
+	// arrière et refuse de basculer son lien.
+	options.GuardVersion = 1
 	options.executable = func() (string, error) { return filepath.Join(b.stateDir.Name(), "bin", "opencloud-v0.0.1"), nil }
 
 	runCtx, cancel := context.WithCancel(ctx)
@@ -584,6 +589,15 @@ func TestRun_UpdatesItselfAndTheServerSeesItComeBack(t *testing.T) {
 	if target, err := b.stateDir.Readlink("bin/current"); err != nil || target != "opencloud-v0.0.2" {
 		t.Fatalf("current points to %q (%v)", target, err)
 	}
+	// La bascule a écrit l'attente de confirmation, avec le lien previous : de
+	// quoi revenir si la nouvelle version ne se confirme pas.
+	marker, err := rollback.Load(b.stateDir)
+	if err != nil || marker.State != rollback.StatePending || marker.Target != "v0.0.2" || marker.Previous != "v0.0.1" || marker.RunID != sent.ID {
+		t.Fatalf("marker %+v %v", marker, err)
+	}
+	if target, err := b.stateDir.Readlink("bin/previous"); err != nil || target != "opencloud-v0.0.1" {
+		t.Fatalf("previous points to %q (%v)", target, err)
+	}
 	// Tant que l'agent n'est pas revenu, l'ordre n'est pas fait.
 	if run, err := b.db.GetActionRun(ctx, sent.ID); err != nil || run.State == action.StateSucceeded || run.State == action.StateFailed {
 		t.Fatalf("before the agent came back: %+v %v", run, err)
@@ -595,6 +609,12 @@ func TestRun_UpdatesItselfAndTheServerSeesItComeBack(t *testing.T) {
 	relaunch.executable = func() (string, error) { return filepath.Join(b.stateDir.Name(), "bin", "opencloud-v0.0.2"), nil }
 	go func() { done <- Run(runCtx, relaunch) }()
 	finished := b.waitForRun(t, sent.ID, action.StateSucceeded)
+	// Acquittée par le serveur, la nouvelle version a confirmé : plus rien
+	// n'attend.
+	waitUntil(t, "the marker is removed once the server acknowledged", func() bool {
+		_, err := rollback.Load(b.stateDir)
+		return errors.Is(err, rollback.ErrNoMarker)
+	})
 	if len(finished.Output) != 1 || finished.Output[0].Line != "reconnected as v0.0.2" {
 		t.Fatalf("output %+v", finished.Output)
 	}

@@ -27,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -80,6 +81,13 @@ type Options struct {
 	// lecture de la vraie machine. Non exporté : seuls les tests du paquet le
 	// remplacent (ils ne lisent pas les comptes de l'hôte).
 	readSSHKeys func() (sshkeys.Report, bool)
+	// detectRoles reconnaît ce que la machine est ; nil vaut la lecture de la
+	// vraie machine. Non exporté, pour la même raison que readSSHKeys.
+	detectRoles func() role.Report
+	// GuardVersion est la version du lanceur stable sous lequel l'agent tourne
+	// (GuardVersionFromEnv), 0 s'il n'en a pas : l'agent ne rapporte alors pas
+	// de retour arrière, et refuse de basculer son lien.
+	GuardVersion int
 	// RootDir est la racine des services déployés (-root-dir), pour le premier
 	// lancement ; l'identité la garde ensuite. Vide : brand.WorkspaceRoot.
 	RootDir string
@@ -127,6 +135,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	client.SetCapabilities(identity.Capabilities())
 	client.SetRoot(identity.Root())
+	client.SetRollbackVersion(opts.GuardVersion)
 	// Le compte est dit à chaque ouverture du flux, et une fois au journal :
 	// c'est lui qui décide de ce que la machine laisse faire.
 	account := CurrentAccount()
@@ -172,6 +181,11 @@ func Run(ctx context.Context, opts Options) error {
 	// les interrompt pas, seul leur téléchargement échoue.
 	orders.fetch.use(client)
 	orders.updater.key, orders.updater.hasKey = opts.ReleaseKey, opts.HasReleaseKey
+	orders.updater.guarded = opts.GuardVersion > 0
+	// Ce que le lanceur a fait en notre absence se dit au journal et au
+	// serveur ; la mise à jour en attente se confirme à l'ouverture du flux.
+	outcome := newUpdateOutcome(opts.StateDir, opts.Version, actions, opts.Logger)
+	outcome.announce()
 	if opts.executable != nil {
 		orders.updater.executable = opts.executable
 	}
@@ -191,9 +205,16 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	sshReported := &sshReports{}
 	go sshKeysLoop(ctx, collectSSHKeys, sshReported, sshKeysPeriod, opts.Logger)
+	// Ce que la machine est : lu en lecture seule, à part du flux.
+	detectMachineRoles := opts.detectRoles
+	if detectMachineRoles == nil {
+		detectMachineRoles = detectRoles
+	}
+	roleReported := &roleReports{}
+	go rolesLoop(ctx, detectMachineRoles, roleReported, rolesPeriod, opts.Logger)
 	err = keepConnected(ctx, client, identity, &pending{
-		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported,
-		logs: watcher, probes: prober, updates: updater, orders: orders,
+		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported,
+		logs: watcher, probes: prober, updates: updater, orders: orders, outcome: outcome,
 	}, catalogs.For(identity.Language), opts)
 	if updated.Load() {
 		return ErrUpdated
@@ -211,10 +232,14 @@ type pending struct {
 	images   *images
 	actions  *actionResults
 	sshKeys  *sshReports
+	roles    *roleReports
 	logs     container.LogSource
 	probes   probe.Assignable
 	updates  update.Assignable
 	orders   *orderRunner
+	// La mise à jour en attente de confirmation et ce que le lanceur a fait ;
+	// nil tolérée.
+	outcome *updateOutcome
 	// Les droits que le compte ne peut pas exercer, tels que le dernier flux
 	// les a dits : le journal ne parle que d'un changement.
 	unavailable map[string]string
@@ -370,10 +395,14 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	pending.orders.fetch.setSession(stream.Session)
 	defer pending.orders.fetch.setSession("")
 	opts.Logger.Info("connected", "server", identity.Server)
+	// Le flux s'ouvre après que le serveur a noté la version de l'agent : une
+	// mise à jour en attente est confirmée ici, et pas avant.
+	pending.outcome.confirm()
 	pending.reports.markReplayed()
 	pending.results.markReplayed()
 	pending.images.markReplayed()
 	pending.sshKeys.markReplayed()
+	pending.roles.markReplayed()
 
 	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, pending.orders, opts.Logger)
 	lost := make(chan error, 1)
@@ -416,6 +445,7 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 			images:     pending.images.take(),
 			actions:    pending.actions.take(),
 			sshKeys:    pending.sshKeys.take(),
+			roles:      pending.roles.take(),
 		}
 		rejected, err := client.Signal(ctx, session, sent.request())
 		var refused *ServerError
@@ -439,6 +469,9 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 		for section, code := range rejected {
 			logger.Warn("signal section refused", "section", section, "code", code)
 		}
+		if _, refusedActions := rejected[agentwire.SectionActions]; err == nil && !refusedActions {
+			pending.outcome.delivered(sent.actions)
+		}
 		if len(sent.readings) < resource.MaxReadingsPerSignal {
 			return nil
 		}
@@ -453,10 +486,11 @@ type signalBatch struct {
 	images     *update.Report
 	actions    *agentwire.ActionReport
 	sshKeys    *sshkeys.Report
+	roles      *role.Report
 }
 
 func (b signalBatch) request() agentwire.SignalRequest {
-	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys}
+	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys, Roles: b.roles}
 }
 
 // restoreAfter remet dans le tampon les sections qui suivent celle
@@ -491,6 +525,8 @@ func (b signalBatch) restore(pending *pending, section string) {
 		pending.actions.restore(b.actions)
 	case agentwire.SectionSSHKeys:
 		pending.sshKeys.restore(b.sshKeys)
+	case agentwire.SectionRoles:
+		pending.roles.restore(b.roles)
 	}
 }
 

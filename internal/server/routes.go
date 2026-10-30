@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/proxmox"
+	"github.com/ldesfontaine/opencloud/internal/verb"
 )
 
 // La méthode « * » : toutes, pour un fourre-tout.
@@ -44,6 +47,10 @@ func (s *Server) routes() []route {
 		{"POST", "/api/machines/{id}/actions/ping", s.pingAgent},
 		{"GET", "/api/machines/{id}/agent-update", s.getAgentUpdate},
 		{"POST", "/api/machines/{id}/actions/update-agent", s.updateAgent},
+		{"POST", "/api/machines/{id}/actions/rollback-agent", s.rollbackAgent},
+		{"GET", "/api/agent-updates", s.listAgentUpdates},
+		{"GET", "/api/agent-migration", s.getAgentMigration},
+		{"PUT", "/api/machines/{id}/update-last", s.setUpdateLast},
 		{"POST", "/api/machines/{id}/actions/check-updates", s.checkUpdates},
 		{"GET", "/api/machines/{id}/resources", s.getMachineResources},
 		{"GET", "/api/machines/{id}/resources/history", s.getMachineHistory},
@@ -58,6 +65,20 @@ func (s *Server) routes() []route {
 		// motif recoupe DELETE /api/machines/tokens/{id} (tokens/proxmox), et le
 		// multiplexeur de Go refuse deux motifs dont aucun n'est plus précis.
 		{"POST", "/api/machines/{id}/actions/remove-proxmox", s.removeMachineProxmox},
+		// Une route par geste et non un joker : le registre des verbes associe un
+		// verbe à une route, un joker rendrait la liste blanche d'un jeton floue.
+		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/start", s.actOnProxmoxGuest(proxmox.VerbStart)},
+		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown", s.actOnProxmoxGuest(proxmox.VerbShutdown)},
+		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot", s.actOnProxmoxGuest(proxmox.VerbSnapshot)},
+		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete", s.actOnProxmoxGuest(proxmox.VerbSnapshotDelete)},
+		{"GET", "/api/firewalls", s.listFirewalls},
+		{"POST", "/api/firewalls", s.createFirewall},
+		{"GET", "/api/firewalls/{id}", s.getFirewall},
+		{"PUT", "/api/firewalls/{id}", s.updateFirewall},
+		{"DELETE", "/api/firewalls/{id}", s.deleteFirewall},
+		{"GET", "/api/firewalls/{id}/rules", s.listFirewallRules},
+		{"GET", "/api/firewalls/{id}/interfaces", s.listFirewallInterfaces},
+		{"GET", "/api/firewalls/{id}/leases", s.listFirewallLeases},
 		{"GET", "/api/ssh-keys", s.getSSHKeyMatrix},
 		{"GET", "/api/network", s.listNetworks},
 		{"GET", "/api/containers", s.listContainers},
@@ -139,6 +160,7 @@ func (s *Server) routes() []route {
 		{"POST", "/api/alerts/actions/acknowledge", s.acknowledgeAlerts},
 		{"GET", "/api/alerts/{id}", s.getAlert},
 		{"POST", "/api/alerts/{id}/actions/acknowledge", s.acknowledgeAlert},
+		{"GET", "/api/token/verbs", s.listTokenVerbs},
 		{"GET", "/api/settings/api-tokens", s.listAPITokens},
 		{"POST", "/api/settings/api-tokens", s.grantsAuthority(s.createAPIToken)},
 		{"DELETE", "/api/settings/api-tokens/{id}", s.revokeAPIToken},
@@ -177,24 +199,46 @@ func (s *Server) routes() []route {
 }
 
 // Les lectures qu'un jeton d'API ouvre : ce que mcp-maison sert à un agent
-// IA. Toute autre route, écriture ou réglage, lui répond 403 ; les secrets
-// des réponses sont masqués pour lui (apiTokenFrom).
+// IA. Toute autre route lui répond 403, sauf l'action d'un verbe du
+// registre (internal/verb) que le jeton porte ; les secrets des réponses
+// sont masqués pour lui (apiTokenFrom).
 var apiTokenRoutes = []string{
 	"GET /api/session", "GET /api/counts",
 	"GET /api/machines", "GET /api/machines/{id}", "GET /api/machines/{id}/network", "GET /api/machines/{id}/resources",
 	"GET /api/machines/{id}/proxmox",
+	"GET /api/firewalls", "GET /api/firewalls/{id}", "GET /api/firewalls/{id}/rules",
+	"GET /api/firewalls/{id}/interfaces", "GET /api/firewalls/{id}/leases",
 	"GET /api/containers", "GET /api/containers/{id}", "GET /api/containers/{id}/logs",
 	"GET /api/directory/services", "GET /api/directory/gaps", "GET /api/manifest/export",
 	"GET /api/jobs", "GET /api/jobs/{id}",
 	"GET /api/probes", "GET /api/probes/{id}",
 	"GET /api/status/pages", "GET /api/status/pages/{id}", "GET /api/status/components", "GET /api/status/incidents",
 	"GET /api/alerts", "GET /api/alerts/{id}", "GET /api/alerts/channels",
-	"GET /api/audit", "GET /api/actions",
+	"GET /api/audit", "GET /api/actions", "GET /api/agent-updates",
+	"GET /api/token/verbs",
 }
 
 // isAPITokenRoute dit si un jeton d'API ouvre la route.
 func isAPITokenRoute(method, pattern string) bool {
 	return slices.Contains(apiTokenRoutes, method+" "+pattern)
+}
+
+// tokenAccess dit ce qu'un jeton d'API peut faire d'une route : la lire
+// (liste fermée apiTokenRoutes), ou la déclencher par un verbe du registre.
+// Une route qui n'est ni l'un ni l'autre lui est fermée, quelle que soit sa
+// portée : c'est la liste blanche, une route ajoutée plus tard l'est par
+// défaut.
+type tokenAccess struct {
+	read bool
+	verb string
+}
+
+func tokenAccessOf(method, pattern string) tokenAccess {
+	access := tokenAccess{read: isAPITokenRoute(method, pattern)}
+	if found, ok := verb.Default.ByRoute(method + " " + pattern); ok {
+		access.verb = found.ID
+	}
+	return access
 }
 
 // Toute écriture sous /api passe par la garde même-origine ; les lectures
@@ -207,11 +251,15 @@ func (s *Server) mux() *http.ServeMux {
 	for _, route := range s.routes() {
 		handler := route.handler
 		isAPI := strings.HasPrefix(route.pattern, "/api/")
+		access := tokenAccessOf(route.method, route.pattern)
+		if access.verb != "" {
+			handler = s.shapeVerbReply(access.verb, handler)
+		}
 		if isAPI && route.method != http.MethodGet {
 			handler = s.requireSameOrigin(handler)
 		}
 		if isOperatorRoute(route.pattern) {
-			handler = s.requireOperator(s.withOperatorActor(handler), isFirstSetupRoute(route.method, route.pattern), isAPITokenRoute(route.method, route.pattern))
+			handler = s.requireOperator(s.withOperatorActor(handler), isFirstSetupRoute(route.method, route.pattern), access)
 		}
 		if isAPI {
 			handler = s.requireKnownHost(handler)

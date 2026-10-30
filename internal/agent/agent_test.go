@@ -22,6 +22,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
@@ -40,6 +41,7 @@ type bench struct {
 	resources *resource.Service
 	probes    *probe.Service
 	sshKeys   *sshkeys.Service
+	roles     *role.Service
 	stateDir  *os.Root
 	logger    *slog.Logger
 }
@@ -63,7 +65,8 @@ func newBench(t *testing.T) *bench {
 	actions.SetKey(serverKey)
 	actions.SetAuditor(audit.New(db, logger))
 	sshKeys := sshkeys.New(db, logger)
-	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates, Actions: actions, SSHKeys: sshKeys})
+	roles := role.New(db, logger)
+	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates, Actions: actions, SSHKeys: sshKeys, Roles: roles})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +79,7 @@ func newBench(t *testing.T) *bench {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { agentRoot.Close() })
-	return &bench{url: server.URL, machines: machines, actions: actions, serverKey: serverKey, db: db, resources: resources, probes: probes, sshKeys: sshKeys, stateDir: agentRoot, logger: logger}
+	return &bench{url: server.URL, machines: machines, actions: actions, serverKey: serverKey, db: db, resources: resources, probes: probes, sshKeys: sshKeys, roles: roles, stateDir: agentRoot, logger: logger}
 }
 
 // Une borne large : elle ne sert qu'à ne pas bloquer la CI si le code est
@@ -84,13 +87,18 @@ func newBench(t *testing.T) *bench {
 const benchTimeout = 30 * time.Second
 
 func (b *bench) options(token string) Options {
-	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, SampleInterval: 20 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys}
+	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, SampleInterval: 20 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles}
 }
 
 // benchSSHKeys est le relevé des bancs : les tests ne lisent pas les comptes
 // de l'hôte.
 func benchSSHKeys() (sshkeys.Report, bool) {
 	return sshkeys.Report{Accounts: []sshkeys.Account{{Name: "root", State: sshkeys.StateNone, Keys: []sshkeys.Key{}}}}, true
+}
+
+// benchRoles : les tests ne lisent pas la machine qui les joue.
+func benchRoles() role.Report {
+	return role.Report{Roles: []role.Role{}}
 }
 
 func (b *bench) waitFor(t *testing.T, name string, want func(machine.Status) bool) machine.Status {
@@ -149,7 +157,7 @@ func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	// Second démarrage : plus de jeton, l'identité suffit.
 	ctx, cancel = context.WithCancel(context.Background())
 	go func() {
-		done <- Run(ctx, Options{StateDir: b.stateDir, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys})
+		done <- Run(ctx, Options{StateDir: b.stateDir, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles})
 	}()
 	b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return s.Online })
 	cancel()

@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/refusal"
+	"github.com/ldesfontaine/opencloud/internal/verb"
 )
 
 const (
@@ -30,14 +31,14 @@ type Scope string
 
 const (
 	ScopeRead Scope = "read"
-	// Dans le schéma, refusé à la création jusqu'aux actions de l'API
-	// (#153, étape 5) : la table n'aura pas à être reconstruite.
+	// Lit comme read, et ne déclenche que les verbes que le jeton porte
+	// (internal/verb) : sans verbe, il n'agit sur rien.
 	ScopeWrite Scope = "write"
 )
 
-// CreatableScopes sont les portées que la création accepte aujourd'hui.
+// CreatableScopes sont les portées que la création accepte.
 func CreatableScopes() []Scope {
-	return []Scope{ScopeRead}
+	return []Scope{ScopeRead, ScopeWrite}
 }
 
 // Token est un jeton stocké haché. ExpiresAt est zéro pour un jeton créé
@@ -51,6 +52,14 @@ type Token struct {
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
 	LastUsedAt time.Time
+	// Les verbes que le jeton peut déclencher, triés ; vide pour un jeton
+	// read, et pour un jeton write que l'opérateur n'a rien coché.
+	Verbs []string
+}
+
+// CanDo dit si le jeton porte ce verbe. Seule une portée write en porte.
+func (t Token) CanDo(verbID string) bool {
+	return t.Scope == ScopeWrite && slices.Contains(t.Verbs, verbID)
 }
 
 func (t Token) IsExpired(now time.Time) bool {
@@ -68,6 +77,9 @@ type Request struct {
 	Name  string
 	Scope Scope
 	Days  *int
+	// Les verbes cochés : réservés à la portée write, tous connus du
+	// registre.
+	Verbs []string
 }
 
 var (
@@ -77,9 +89,34 @@ var (
 	ErrInvalid         = errors.New("api token: invalid")
 	ErrNameInvalid     = refusal.Invalid("api_token.name_invalid", "api token: name invalid")
 	ErrTooMany         = refusal.Invalid("api_token.too_many", "api token: too many tokens")
+	ErrNameTaken       = refusal.Conflict("api_token.name_taken", "api token: name already used by a live token")
 	ErrScopeInvalid    = refusal.Invalid("api_token.scope_invalid", "api token: scope invalid")
 	ErrLifetimeInvalid = refusal.Invalid("api_token.lifetime_invalid", "api token: lifetime invalid")
+	ErrVerbUnknown     = refusal.Invalid("api_token.verb_unknown", "api token: verb unknown")
+	ErrVerbsNeedWrite  = refusal.Invalid("api_token.verbs_need_write", "api token: verbs need the write scope")
 )
+
+// verbsOf juge les verbes cochés : connus, sans doublon, triés. Une portée
+// read n'en porte aucun, et le dit plutôt que de les ignorer en silence.
+func verbsOf(scope Scope, requested []string) ([]string, error) {
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	if scope != ScopeWrite {
+		return nil, ErrVerbsNeedWrite
+	}
+	verbs := make([]string, 0, len(requested))
+	for _, id := range requested {
+		if _, known := verb.Default.Lookup(id); !known {
+			return nil, ErrVerbUnknown
+		}
+		if !slices.Contains(verbs, id) {
+			verbs = append(verbs, id)
+		}
+	}
+	slices.Sort(verbs)
+	return verbs, nil
+}
 
 // scopeOf lit la portée demandée : vide vaut lecture seule.
 func scopeOf(requested Scope) (Scope, error) {

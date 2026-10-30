@@ -28,6 +28,9 @@ type Machine struct {
 	// aucun.
 	LastSeenAt time.Time
 	CreatedAt  time.Time
+	// À mettre à jour en dernier : la machine porte le chemin des ordres. Réglé
+	// par l'opérateur seul.
+	UpdateLast bool
 	// L'agent courant : l'actif, sinon le dernier révoqué ; vide sans agent.
 	Agent Agent
 }

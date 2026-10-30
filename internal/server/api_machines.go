@@ -11,6 +11,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
+	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
@@ -18,21 +19,31 @@ import (
 // Une machine telle que le front la lit : des faits et des instants, pas
 // de texte formaté ; « vu il y a » se calcule dans le navigateur.
 type machineJSON struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Hostname   string     `json:"hostname"`
-	Address    string     `json:"address"`
-	OS         string     `json:"os"`
-	Arch       string     `json:"arch"`
-	Online     bool       `json:"online"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Hostname string `json:"hostname"`
+	Address  string `json:"address"`
+	OS       string `json:"os"`
+	Arch     string `json:"arch"`
+	Online   bool   `json:"online"`
+	// À mettre à jour en dernier : la machine porte le chemin des ordres.
+	UpdateLast bool       `json:"update_last"`
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	// L'agent courant, null tant qu'aucun ne s'est enrôlé.
 	Agent *agentJSON `json:"agent"`
 	// Ce que la machine porte, ou est, pour Proxmox : voir api_proxmox.go.
 	Proxmox proxmoxSummaryJSON `json:"proxmox"`
+	// Ce que l'agent reconnaît sur la machine, par ses signes locaux ; vide
+	// sans agent, ou quand rien n'est reconnu. Un rôle ne donne aucun droit.
+	Roles []roleJSON `json:"roles"`
 	// Le support du système, seulement quand l'opérateur a activé la fin
 	// de support.
 	Lifecycle *lifecycleJSON `json:"lifecycle,omitempty"`
+}
+
+type roleJSON struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 // L'agent d'une machine : ce qu'il rapporte de son fichier, ce que son
@@ -54,6 +65,9 @@ type agentJSON struct {
 	// Le compte sous lequel l'agent dit tourner ; null tant qu'il ne l'a pas
 	// dit (un agent d'avant).
 	RunAs *accountJSON `json:"run_as"`
+	// L'agent revient seul à sa version d'avant si une mise à jour n'est pas
+	// confirmée ; sans cela, le serveur ne lui en envoie aucune.
+	RollbackCapable bool `json:"rollback_capable"`
 }
 
 type capabilityJSON struct {
@@ -107,9 +121,13 @@ type tokenResponse struct {
 	Command string `json:"command"`
 	// Les commandes à jouer une fois en root avant Command : le compte de
 	// l'agent, son dossier, son binaire, les dossiers où ses droits écrivent.
-	Preparation string    `json:"preparation"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	URLLocal    bool      `json:"url_local"`
+	Preparation string `json:"preparation"`
+	// Les commandes à jouer en root sur l'hôte Proxmox pour créer le jeton local
+	// des droits proxmox.* ; vide sans l'un de ces droits. Aucune ne porte de
+	// secret : il se saisit sur l'hôte, sans écho.
+	ProxmoxCommands string    `json:"proxmox_commands"`
+	ExpiresAt       time.Time `json:"expires_at"`
+	URLLocal        bool      `json:"url_local"`
 }
 
 func machineToJSON(machineStatus machine.Status) machineJSON {
@@ -121,6 +139,7 @@ func machineToJSON(machineStatus machine.Status) machineJSON {
 		OS:         machineStatus.OS,
 		Arch:       machineStatus.Arch,
 		Online:     machineStatus.Online,
+		UpdateLast: machineStatus.UpdateLast,
 		LastSeenAt: httpx.TimeOrNil(machineStatus.LastSeenAt),
 		Agent:      agentToJSON(machineStatus.Agent),
 	}
@@ -142,6 +161,7 @@ func agentToJSON(agent machine.Agent) *agentJSON {
 
 		ServerKeyFingerprint: agent.ServerKeyFingerprint,
 		RunAs:                accountToJSON(agent.RunAs),
+		RollbackCapable:      agent.CanRollBack(),
 	}
 }
 
@@ -170,11 +190,17 @@ func capabilityFromJSON(capability capabilityJSON) machine.Capability {
 	return machine.Capability{Name: capability.Name, Paths: capability.Paths}
 }
 
-// machineJSONOf ajoute aux faits de la machine ce qu'elle est pour Proxmox et
-// le support de son système, quand la fin de support est activée.
-func (s *Server) machineJSONOf(machineStatus machine.Status, summary proxmox.Summary, withLifecycle bool) machineJSON {
+func roleToJSON(detected role.Role) roleJSON {
+	return roleJSON{Name: string(detected.Name), Version: detected.Version}
+}
+
+// machineJSONOf ajoute aux faits de la machine ce qu'elle est pour Proxmox, ses
+// rôles reconnus et le support de son système, quand la fin de support est
+// activée.
+func (s *Server) machineJSONOf(machineStatus machine.Status, summary proxmox.Summary, roles []role.Role, withLifecycle bool) machineJSON {
 	converted := machineToJSON(machineStatus)
 	converted.Proxmox = proxmoxSummaryToJSON(summary)
+	converted.Roles = httpx.ConvertAll(roles, roleToJSON)
 	if withLifecycle {
 		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(machineStatus.OS))
 	}
@@ -203,9 +229,13 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
+	roles, err := s.reader.MachineRoles(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
 	response := machinesResponse{
 		Machines: httpx.ConvertAll(statuses, func(machineStatus machine.Status) machineJSON {
-			return s.machineJSONOf(machineStatus, summaries[machineStatus.ID], withLifecycle)
+			return s.machineJSONOf(machineStatus, summaries[machineStatus.ID], roles[machineStatus.ID], withLifecycle)
 		}),
 		Pending: make([]pendingTokenJSON, 0, len(pending)),
 	}
@@ -234,7 +264,60 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, summaries[found.ID], withLifecycle))
+	roles, err := s.reader.MachineRoles(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, summaries[found.ID], roles[found.ID], withLifecycle))
+}
+
+// La migration d'un agent installé avant le retour arrière automatique : les
+// lignes à coller, avec sudo, sur la machine. Les mêmes pour toutes ; la
+// version est celle de ce serveur, dont l'opérateur copie le binaire.
+type agentMigrationJSON struct {
+	Version  string `json:"version"`
+	Commands string `json:"commands"`
+}
+
+func (s *Server) getAgentMigration(w http.ResponseWriter, _ *http.Request) {
+	number := version.Number()
+	s.writeAPI(w, http.StatusOK, agentMigrationJSON{
+		Version: number, Commands: machine.GuardMigrationText("/tmp/"+brand.Command, number),
+	})
+}
+
+type updateLastRequest struct {
+	UpdateLast bool `json:"update_last"`
+}
+
+// setUpdateLast pose ou retire « à mettre à jour en dernier ». Réservé à
+// l'opérateur : la route n'est ni un verbe ni une lecture de jeton.
+func (s *Server) setUpdateLast(w http.ResponseWriter, r *http.Request) {
+	var request updateLastRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	updated, err := s.machines.SetUpdateLast(r.Context(), r.PathValue("id"), request.UpdateLast)
+	if s.failed(w, r, err, machine.ErrNotFound) {
+		return
+	}
+	found, err := s.machines.Get(r.Context(), updated.ID)
+	if s.failed(w, r, err, machine.ErrNotFound) {
+		return
+	}
+	withLifecycle, err := s.lifecycleEnabled(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	summaries, err := s.reader.ProxmoxSummaries(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	roles, err := s.reader.MachineRoles(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, summaries[found.ID], roles[found.ID], withLifecycle))
 }
 
 // L'opérateur nomme la machine ; le jeton naît et se montre une seule fois.
@@ -260,12 +343,13 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, tokenResponse{
-		Name:        token.Name,
-		Token:       cleartext,
-		Command:     installCommand(url, cleartext, language, token.Capabilities),
-		Preparation: installPreparation(token.Capabilities, version.Number(), local),
-		ExpiresAt:   token.ExpiresAt.UTC(),
-		URLLocal:    isLocal,
+		Name:            token.Name,
+		Token:           cleartext,
+		Command:         installCommand(url, cleartext, language, token.Capabilities),
+		Preparation:     installPreparation(token.Capabilities, version.Number(), local),
+		ProxmoxCommands: proxmoxCommands(token.Capabilities),
+		ExpiresAt:       token.ExpiresAt.UTC(),
+		URLLocal:        isLocal,
 	})
 }
 
@@ -328,6 +412,9 @@ func installPreparation(capabilities []machine.Capability, number string, local 
 		asAccount + "install -m 0755 " + source + " " + binDir + "/" + binaryName +
 			" && " + asAccount + "ln -sfn " + binaryName + " " + binDir + "/" + brand.AgentCurrentLink,
 	}
+	// Le lanceur stable, que l'unité lance : sans lui, l'agent ne rapporte pas
+	// de retour arrière et le serveur ne lui envoie aucune mise à jour.
+	lines = append(lines, machine.GuardInstallLines(source)...)
 	lines = append(lines, producePreparation(capabilities, asAccount)...)
 	folders := writtenFolders(capabilities)
 	accountFolders := []string{brand.AgentStateDir}
@@ -378,6 +465,15 @@ func sudoersPreparation() string {
 	return printfLines(machine.SudoersRuleLines()) + " | install -m 0440 -o root -g root /dev/stdin " + temp +
 		" && visudo -cf " + temp + " && mv " + temp + " " + machine.SudoersFile +
 		" || { rm -f " + temp + "; false; }"
+}
+
+// proxmoxCommands : ce que l'opérateur joue lui-même sur l'hôte Proxmox pour les
+// droits proxmox.* (machine.ProxmoxTokenCommands), une commande par ligne.
+func proxmoxCommands(capabilities []machine.Capability) string {
+	if !machine.ProxmoxRights(capabilities) {
+		return ""
+	}
+	return strings.Join(machine.ProxmoxTokenCommands(), "\n")
 }
 
 // printfLines écrit des lignes de texte en une commande : printf, un builtin,
