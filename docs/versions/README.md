@@ -1,8 +1,10 @@
 # Notes de version
 
 Une page par version, pour l'opérateur qui met à jour : l'essentiel, ce qu'il
-faut faire en mettant à jour, ce qui casse, ce qui touche à la sécurité. Le
-workflow `release` la place dans le texte de la version publiée.
+faut faire en mettant à jour, ce qui casse, ce qui touche à la sécurité. Les
+notes ne sont pas publiées automatiquement sur la page de la version GitHub :
+elles vivent dans ce dossier (lien depuis la page de la version :
+`docs/versions/<tag>.md`).
 
 | Version | Notes |
 | --- | --- |
