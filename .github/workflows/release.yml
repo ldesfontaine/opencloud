@@ -168,17 +168,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           notes="Binaires statiques Linux, signés. Vérifier : opencloud release verify <binaire>, ou minisign -Vm SHA256SUMS -P <clé de docs/installation.md>, puis sha256sum -c --ignore-missing SHA256SUMS. Installation : docs/installation.md."
-          # Les notes de la version (docs/versions/$TAG.md), si le tag en porte,
-          # sous le texte fixe ci-dessus.
-          if [ -f "docs/versions/$TAG.md" ]; then
-            notes_file="$RUNNER_TEMP/notes.md"
-            { printf '%s\n\n' "$notes"; cat "docs/versions/$TAG.md"; } > "$notes_file"
-            notes_args=(--notes-file "$notes_file")
-          else
-            notes_args=(--notes "$notes")
-          fi
           if [ "${TAG#v0.}" != "$TAG" ]; then
-            gh release create "$TAG" dist-release/* --verify-tag --title "$TAG" --prerelease "${notes_args[@]}"
+            gh release create "$TAG" dist-release/* --verify-tag --title "$TAG" --prerelease --notes "$notes"
           else
-            gh release create "$TAG" dist-release/* --verify-tag --title "$TAG" "${notes_args[@]}"
+            gh release create "$TAG" dist-release/* --verify-tag --title "$TAG" --notes "$notes"
           fi
