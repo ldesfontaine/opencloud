@@ -44,7 +44,9 @@ func TestPrune_UnlistedIgnoredKeyIsNamedInThePlanBeforeTheProposalComesBack(t *t
 	if slices.Contains(changeLabels(plan), named) {
 		t.Fatalf("no prune, no deletion: %v", changeLabels(plan))
 	}
-	if !slices.ContainsFunc(plan.Unmanaged, func(ref manifest.Ref) bool { return ref.Kind == manifest.KindIgnored && ref.Name == "opencloud/container_name:portainer" }) {
+	if !slices.ContainsFunc(plan.Unmanaged, func(ref manifest.Ref) bool {
+		return ref.Kind == manifest.KindIgnored && ref.Name == "opencloud/container_name:portainer"
+	}) {
 		t.Fatalf("the key is said outside the file: %+v", plan.Unmanaged)
 	}
 	if _, _, err := b.tryApply(data, false); err != manifest.ErrNothingToApply {
