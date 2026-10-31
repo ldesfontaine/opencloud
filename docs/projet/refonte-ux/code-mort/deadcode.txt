@@ -1,0 +1,2 @@
+# deadcode -test ./...  (golang.org/x/tools/cmd/deadcode@latest), lancé le 31/10/2026 sur origin/dev 095ff98
+internal/agentwire/command.go:69:6: unreachable func: ObservationKinds
