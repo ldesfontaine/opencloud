@@ -1,0 +1,25 @@
+# C7 : code mort avant / après (#412)
+
+Avant = 3485282 (dev après C6), après = fin de la branche orca/ux-c7.
+
+deadcode -test ./... avant : 0 résultat ; après : 0
+deadcode ./... (ce que seuls les tests appellent) avant : 79 ; après : 79 (les mêmes lignes, aux numéros près : bancs de test et listes fermées déjà classés faux positifs au cadrage §2.1). Aucun fichier Go ne change dans ce chantier.
+knip 6.44.1, `npx knip` sans option dans web/ (après `npm ci`) avant : 10 types exportés non utilisés ; après : les mêmes 10, rapport identique octet pour octet (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup : hors périmètre C7, relevés au cadrage et aux chantiers précédents, aucun ajouté ici).
+
+Supprimé dans ce chantier
+- Pages : `pages/DeclaredServiceForm.tsx`, `pages/ProbeForm.tsx`, `pages/JobForm.tsx` (remplacées par `pages/services/ServiceWizard.tsx`, `pages/probes/ProbeWizard.tsx`, `pages/jobs/JobWizard.tsx`, même adresses, en fenêtre). Les routes `…/nouveau`, `…/nouvelle` et `…/modifier` ne sont plus des pages : elles sont filles de leur liste ou de leur fiche, qui rendent l'`Outlet`.
+- L'onglet Conteneurs de Services : `ContainersTab` (pages/Services.tsx), la valeur `tab="conteneurs"`, l'entrée de `ServicesTabs`, la route `services/conteneurs` comme page (elle redirige vers `/services`), le filtre par machine et la note « Docker absent » de cet onglet.
+- `ContainerTable` : le paramètre `withMachine` et la colonne Machine (plus aucun appelant ne la demande : la fiche d'une machine et la ligne d'un service disent déjà la machine).
+- `servicesSubtitle` (lib/containers.ts) et ses deux tests : le sous-titre de Services est celui de l'annuaire.
+- `attentionHref` (lib/modules.ts, `MenuEntry`, `NavItem` de Layout) et son test : son seul usage menait le compteur de Services à l'onglet Conteneurs ; le compteur mène à `/services`, où les conteneurs sont dépliables.
+- `FormPage`/`FormCard`/`FormActions` ne servent plus à ces trois formulaires ; ils restent pour les formulaires que C9 à C11 reprennent (knip les voit encore utilisés).
+- Catalogues fr et en : `services.tab_containers`, `services.subtitle_none`, `subtitle_one`, `subtitle_one_attention`, `subtitle_ok`, `subtitle_attention`, `subtitle_one_unknown`, `subtitle_unknown`, `subtitle_attention_unknown`, `services.col_machine`, `services.empty_text`, `directory.cancel`, `directory.units_label`, `probe.cancel`, `job.cancel`.
+- Clés ajoutées : `directory.step_*` (3), `probe.step_*` (2), `job.step_job`, `wizard.advanced`, `services.col_containers`, `containers_one`, `containers_count`, `containers_attention`, `containers_expand`, `containers_collapse`. `services.machine_subtitle` est gardée (lue par la fiche d'une machine).
+- Aucune route d'API, aucun verbe, aucune table, aucune migration ne change : `GET /api/containers` reste (lue par la liste dépliée, la fiche d'une machine et la vue d'ensemble).
+
+Gardé, avec sa raison
+- `ContainerFilter`, `filterContainers`, `matchesFilter`, `Filter`, `engineNote` (lib/containers.ts, ContainerTable.tsx) : lus par la fiche d'une machine (onglet Conteneurs, que C7 garde) et par la vue Réseau.
+- `UndeclaredList` : section « Non déclarés » de la liste, reprise par C8 (Propositions). Elle reste le seul endroit qui montre un conteneur qu'aucun service ne porte.
+- `services.empty_title`, `services.engine_*`, `services.filter_*`, `services.col_container`, `col_image`, `col_state`, `col_exposure`, `col_cpu`, `col_memory` : lus par `ContainerTable`, la fiche d'une machine et le réseau.
+- `lib/probes.ts` `newProbePath`, `editProbePath`, `probePath`, `probeListPath` : les boutons Modifier, l'ajout depuis un conteneur et les liens des alertes y mènent.
+- Les 10 types knip ci-dessus : exports d'autres domaines (alertes, sauvegardes, Proxmox, graphes), non touchés ici ; les retirer sortirait du périmètre C7.

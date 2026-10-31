@@ -66,11 +66,6 @@ test("les compteurs : machines en rouge dès qu'une est hors ligne, tâches à t
   expect(byKey.get("overview")).toBeNull();
 });
 
-test("les conteneurs qui vont mal mènent à la liste des conteneurs, pas à la première page de Services", () => {
-  const services = menuEntries(countsWith([])).find((entry) => entry.key === "services");
-  expect(services?.attentionHref).toBe("/services/conteneurs");
-});
-
 test("les onglets d'une machine : les fixes, puis ceux des modules qu'elle porte, dans l'ordre", () => {
   const slugs = (carried: ModuleID[]) => machineTabsOf(carried).map((tab) => tab.slug);
   expect(slugs([])).toEqual(["", "reseau", "journaux", "agent"]);

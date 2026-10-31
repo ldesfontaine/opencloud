@@ -222,7 +222,7 @@ export function lastSuccessText(t: Translate, runs: Run[], now: number): string 
 
 // Le formulaire d'une tâche, tel que l'opérateur le tape : le serveur parle
 // en secondes, le formulaire en minutes.
-interface JobFormValues {
+export interface JobFormValues {
   name: string;
   machineID: string;
   interval: string;

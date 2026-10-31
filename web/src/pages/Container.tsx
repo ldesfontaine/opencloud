@@ -44,7 +44,7 @@ function ContainerNotFound() {
         icon="search"
         title={t("container.not_found_title")}
         text={t("container.not_found_text")}
-        action={<Button to="/services/conteneurs">{t("services.tab_containers")}</Button>}
+        action={<Button to="/services">{t("nav.services")}</Button>}
       />
     </>
   );

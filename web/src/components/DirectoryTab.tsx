@@ -1,11 +1,15 @@
 import { useState } from "react";
+import { Outlet } from "react-router";
 
+import { useContainers } from "../api/containers";
 import { useDeclaredServices, useGaps, useProjects } from "../api/directory";
 import { useMachines } from "../api/machines";
 import { manifestExportPath } from "../api/manifest";
 import { useT } from "../i18n/context";
 import { directorySubtitle } from "../lib/directory";
+import { containersByService } from "../lib/containers";
 import { gapsByService } from "../lib/gaps";
+import { ActionButton } from "./ActionButton";
 import { Button } from "./Button";
 import { Card, Empty, EmptyCard } from "./Card";
 import { DeclaredServiceTable } from "./DeclaredServiceTable";
@@ -17,8 +21,9 @@ import { PageHead } from "./PageHead";
 import { ServicesTabs } from "./ServicesTabs";
 
 // L'onglet Annuaire : ce que l'opérateur déclare, filtré par machine et par
-// projet, avec l'écart avec ce que les machines montrent, puis ce qui
-// tourne sans être déclaré. La liste se relit en entier et se filtre ici,
+// projet, avec l'écart avec ce que les machines montrent et, dépliés sous
+// chaque service, les conteneurs qui le portent, puis ce qui tourne sans
+// être déclaré. La liste se relit en entier et se filtre ici,
 // pour que le sous-titre compte tout ce qui est déclaré ; l'écart, lui, se
 // lit avec le même filtre, le serveur sachant quels conteneurs un projet
 // exclut.
@@ -30,6 +35,7 @@ export function DirectoryTab() {
   const [machineID, setMachineID] = useState("");
   const [projectID, setProjectID] = useState("");
   const gaps = useGaps({ machineID, projectID });
+  const containers = useContainers();
   const all = services.data?.services ?? [];
   const shown = all.filter(
     (service) => (machineID === "" || service.machine_id === machineID) && (projectID === "" || service.project_ids.includes(projectID)),
@@ -47,14 +53,15 @@ export function DirectoryTab() {
             <Button icon="file" href={manifestExportPath} download="">
               {t("manifest.export")}
             </Button>
-            <Button variant="primary" icon="plus" to="/services/annuaire/nouveau">
+            <ActionButton route="POST /api/directory/services" icon="plus" to="/services/annuaire/nouveau">
               {t("directory.add")}
-            </Button>
+            </ActionButton>
           </>
         }
       />
       <ServicesTabs />
       {services.error && <Failure error={services.error} />}
+      {containers.error && <Failure error={containers.error} />}
       {services.data && all.length === 0 && (
         <EmptyCard icon="box" title={t("directory.empty_title")} text={t("directory.empty_text")} />
       )}
@@ -79,7 +86,7 @@ export function DirectoryTab() {
             </span>
           </div>
           {shown.length > 0 ? (
-            <DeclaredServiceTable services={shown} projects={projects.data?.projects ?? []} gaps={gapsByService(gaps.data)} />
+            <DeclaredServiceTable services={shown} projects={projects.data?.projects ?? []} gaps={gapsByService(gaps.data)} containers={containersByService(containers.data?.containers ?? [])} />
           ) : (
             <Empty text={t("directory.empty_filtered")} />
           )}
@@ -88,6 +95,8 @@ export function DirectoryTab() {
       {gaps.error && <Failure error={gaps.error} />}
       {/* Un projet ne regroupe que du déclaré : il n'a pas de non-déclarés à dire. */}
       {gaps.data && projectID === "" && <UndeclaredList groups={gaps.data.undeclared} declared={all} />}
+      {/* La fenêtre de l'adresse : déclarer un service. */}
+      <Outlet />
     </>
   );
 }

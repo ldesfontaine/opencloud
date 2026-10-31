@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { DeclaredService, Project, ProposalResponse } from "../api/directory";
 import {
   emptyServiceForm,
+  emptyUnitForm,
   formatUnitPorts,
+  hasAdvancedUnitValues,
   hasLinks,
   parsePorts,
   projectFormOf,
@@ -14,6 +16,7 @@ import {
   serviceRequestOf,
   toggled,
   unitKeyOf,
+  unitSummary,
 } from "./directory";
 
 function nextcloud(): DeclaredService {
@@ -254,5 +257,32 @@ describe("hasLinks", () => {
   it("dit si quelque chose lie le service", () => {
     expect(hasLinks({ probes: [{ id: "p1", name: "site" }], components: [] })).toBe(true);
     expect(hasLinks({ probes: [], components: [] })).toBe(false);
+  });
+});
+
+describe("unitSummary", () => {
+  const unit = { ...emptyUnitForm(), name: "app", image: "nextcloud:29", containerName: "nc-app", systemdUnit: "nc.service", version: "29.0.4" };
+
+  it("dit ce qui retrouve l'unité selon l'origine, puis l'image et la version", () => {
+    expect(unitSummary(unit, "compose")).toBe("app · nextcloud:29 · 29.0.4");
+    expect(unitSummary(unit, "container")).toBe("nc-app · nextcloud:29 · 29.0.4");
+  });
+
+  it("n'a pas d'image pour un binaire et saute ce qui est vide", () => {
+    expect(unitSummary(unit, "binary")).toBe("nc.service · 29.0.4");
+    expect(unitSummary({ ...unit, version: " " }, "binary")).toBe("nc.service");
+  });
+});
+
+describe("hasAdvancedUnitValues", () => {
+  it("est faux pour une unité neuve ou à peine nommée", () => {
+    expect(hasAdvancedUnitValues(emptyUnitForm())).toBe(false);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), name: "app", image: "x" })).toBe(false);
+  });
+
+  it("est vrai dès qu'un réglage technique est rempli", () => {
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), ports: "80" })).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), dataPath: "/data" })).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), updatePolicy: "hold" })).toBe(true);
   });
 });
