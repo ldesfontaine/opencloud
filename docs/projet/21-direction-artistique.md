@@ -192,10 +192,24 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
     replie en « question [Confirmer] [Annuler] » à sa place, le focus sur
     « Annuler », Échap annule et rend le focus au bouton. Employée sous
     Paramètres (désactiver l'accès, révoquer un jeton), sur la fiche
-    d'un pare-feu et dans le bloc Proxmox d'une machine (gestes sur une VM) ;
-    les autres pages passent encore par `window.confirm`
-    (`useAction({ confirm })`). La boîte `DeletePlanDialog` reste pour un
-    plan de suppression, qu'il faut lire avant de confirmer.
+    d'un pare-feu, dans le bloc Proxmox d'une machine (gestes sur une VM) et
+    pour lever un silence. Réservée aux gestes qui se défont, avec une question
+    d'une phrase courte : plus longue, elle déborde de la ligne.
+  - **`Modal`** : la fenêtre modale, un `<dialog>` natif. Le voile est
+    `--scrim` avec un flou léger (`--scrim-blur`) ; un clic sur le voile ne
+    ferme rien, Échap, la croix et « Annuler » ferment, et si la saisie a
+    changé la question « Abandonner la saisie ? » passe d'abord. Chaque
+    fenêtre garde son adresse : c'est une route fille de la page qui reste en
+    fond (`/machines/nouvelle` sur la liste des machines).
+  - **`ConfirmModal`** (et `ConfirmDialog`, sa fenêtre seule) : la confirmation
+    d'un geste qui ne se défait pas, ou dont la question demande plus qu'une
+    phrase (supprimer, régénérer un jeton, remplacer une clé, révoquer un
+    agent). La boîte `DeletePlanDialog` en est la forme pour un plan de
+    suppression, qu'il faut lire avant de confirmer. Plus aucune confirmation
+    ne passe par `window.confirm`.
+  - **`ActionButton`** : le bouton principal d'une page, un par en-tête. Il
+    nomme la route d'API qu'il appelle ; si c'est un verbe du registre, la
+    puce `MCP` le dit.
 - **Menu « … »** (`MoreMenu`) : les actions secondaires d'un objet, hors de la
   ligne. Une action impossible **reste au menu, grisée, avec sa raison**
   (`hint`, en dessous) : elle ne se cache jamais, et choisir une entrée grisée
@@ -203,7 +217,7 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
 - **Formulaire** (`FormPage`) : l'en-tête de page et la carte dans une
   colonne de 560 px au plus, centrée comme Paramètres ; sur un téléphone,
   pleine largeur dans les marges de page. Toute page de formulaire
-  (création, modification, jeton d'une machine) y passe. Un formulaire logé
+  (création, modification) y passe. Un formulaire logé
   dans une carte partagée ou une grille (Paramètres, Sauvegardes, la mise à
   jour d'un incident) garde sa place ; ouvert sous la fiche d'un objet (la
   correction d'un incident), il en prend la largeur.

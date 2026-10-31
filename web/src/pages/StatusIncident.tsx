@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router";
 
 import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, useStatusPages, type Incident } from "../api/status";
 import { Button } from "../components/Button";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
@@ -54,7 +55,6 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
 
   const remove = () => {
     action.run(() => deleteIncident(incident.id), {
-      confirm: t("incident.delete_confirm", incident.title),
       topic: "status",
       onDone: () => void navigate("/page-statut/incidents"),
     });
@@ -71,9 +71,16 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
                 {t("incident.edit")}
               </Button>
             )}
-            <Button variant="danger" icon="x" onClick={remove}>
+            <ConfirmModal
+              title={t("incident.delete")}
+              question={t("incident.delete_confirm", incident.title)}
+              confirmLabel={t("incident.delete")}
+              onConfirm={remove}
+              variant="danger"
+              icon="x"
+            >
               {t("incident.delete")}
-            </Button>
+            </ConfirmModal>
           </>
         }
       />

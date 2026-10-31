@@ -4,7 +4,7 @@ import type { Translate } from "../i18n/context";
 // Un groupe de la liste des alertes : une machine, ou rien pour ce qui
 // n'en a pas (tâche, sonde sans machine). L'ordre des alertes reçu du
 // serveur, les plus graves en tête, est gardé dans chaque groupe.
-export interface AlertGroup {
+interface AlertGroup {
   machineID: string;
   machineName: string;
   alerts: Alert[];

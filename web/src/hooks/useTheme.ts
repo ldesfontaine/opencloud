@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-export type Theme = "light" | "dark";
+type Theme = "light" | "dark";
 
 function currentTheme(): Theme {
   return document.documentElement.dataset.theme === "dark" ? "dark" : "light";

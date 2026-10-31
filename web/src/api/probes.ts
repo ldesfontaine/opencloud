@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import { route } from "./routes";
 import type { DeletionPlan } from "./deletion";
 
 // Les sondes : ce que l'API en rend, et tout ce que le front lui demande.
@@ -148,11 +149,11 @@ export function useMachineProbes(machineID: string): Resource<ProbesResponse> {
 
 // Sans id, une création ; avec, le remplacement de cette sonde.
 export async function saveProbe(id: string | undefined, body: ProbeRequest): Promise<Probe> {
-  return id === undefined ? api.post<Probe>(probesPath, body) : api.put<Probe>(probePath(id), body);
+  return id === undefined ? api.send<Probe>(route("POST /api/probes"), body) : api.send<Probe>(route("PUT /api/probes/{id}", { id }), body);
 }
 
 export async function deleteProbe(id: string): Promise<void> {
-  return api.delete(probePath(id));
+  return api.send(route("DELETE /api/probes/{id}", { id }));
 }
 
 export async function fetchProbeDeletePlan(id: string): Promise<DeletionPlan> {
@@ -160,9 +161,9 @@ export async function fetchProbeDeletePlan(id: string): Promise<DeletionPlan> {
 }
 
 export async function pauseProbe(id: string): Promise<void> {
-  return api.post(`${probePath(id)}/actions/pause`);
+  return api.send(route("POST /api/probes/{id}/actions/pause", { id }));
 }
 
 export async function resumeProbe(id: string): Promise<void> {
-  return api.post(`${probePath(id)}/actions/resume`);
+  return api.send(route("POST /api/probes/{id}/actions/resume", { id }));
 }

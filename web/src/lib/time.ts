@@ -7,7 +7,7 @@ const day = 24 * hour;
 
 // Un temps écoulé se tronque (« il y a 12 s »), un temps restant s'arrondit
 // vers le haut (« expire dans 24 h », pas 23 h une seconde après l'émission).
-export type Rounding = "elapsed" | "remaining";
+type Rounding = "elapsed" | "remaining";
 
 // Arrondit à l'unité qui se lit : ms, s, min, h, j. Les libellés viennent
 // du catalogue, comme côté serveur avant.

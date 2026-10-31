@@ -91,7 +91,7 @@ export const runsShownFirst = 5;
 // d'échecs ne compte que les échecs et les dépassements (un « missed » n'est
 // pas une exécution) et s'arrête à tout autre. L'exécution en cours ne compte
 // pas.
-export interface Streak {
+interface Streak {
   succeeded: boolean;
   count: number;
   isOpenEnded: boolean;
@@ -222,7 +222,7 @@ export function lastSuccessText(t: Translate, runs: Run[], now: number): string 
 
 // Le formulaire d'une tâche, tel que l'opérateur le tape : le serveur parle
 // en secondes, le formulaire en minutes.
-export interface JobFormValues {
+interface JobFormValues {
   name: string;
   machineID: string;
   interval: string;

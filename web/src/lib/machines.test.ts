@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { backupProducer, capabilitiesOf, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
+import { backupProducer, capabilitiesOf, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -129,4 +129,12 @@ test("les droits Proxmox se rangent en fin de liste, sans chemin, et ne se propo
   // Déjà coché, il reste visible pour être décoché, même si le rôle a disparu.
   expect(offeredCapabilities(false, ["proxmox.snapshot"])).toEqual([...capabilityNames.filter((name) => name !== "proxmox.power")]);
   expect(capabilityLabelKey("proxmox.power")).toBe("machine.capability_proxmox_power");
+});
+
+test("isMachineFormModified : le formulaire neuf est propre, un nom ou un droit changé ne l'est plus", () => {
+  expect(isMachineFormModified(emptyMachineForm)).toBe(false);
+  expect(isMachineFormModified({ ...emptyMachineForm, name: "  " })).toBe(false);
+  expect(isMachineFormModified({ ...emptyMachineForm, name: "vps-1" })).toBe(true);
+  expect(isMachineFormModified({ ...emptyMachineForm, rights: ["probe.lan", "docker.deploy"] })).toBe(true);
+  expect(isMachineFormModified({ ...emptyMachineForm, rights: [] })).toBe(true);
 });

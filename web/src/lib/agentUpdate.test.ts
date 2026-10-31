@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 
 import type { ActionRun } from "../api/actions";
-import { agentUpdateState } from "./agentUpdate";
+import { agentBehindServer, agentUpdateState } from "./agentUpdate";
 
 function run(overrides: Partial<ActionRun>): ActionRun {
   return {
@@ -54,5 +54,30 @@ describe("agentUpdateState", () => {
     expect(agentUpdateState([run({ state: "refused", reason: "guard_missing" })])).toBeNull();
     const runs = [run({ id: "new", state: "succeeded" }), run({ id: "old", state: "failed", reason: "rolled_back_crash" })];
     expect(agentUpdateState(runs)).toEqual({ kind: "confirmed" });
+  });
+});
+
+describe("agentBehindServer", () => {
+  test("une version plus ancienne est en retard, sur chaque composante", () => {
+    expect(agentBehindServer("v0.2.0", "v0.4.1")).toBe(true);
+    expect(agentBehindServer("v0.4.0", "v0.4.1")).toBe(true);
+    expect(agentBehindServer("v0.9.9", "v1.0.0")).toBe(true);
+  });
+
+  test("la même version, ou une plus récente, n'est pas en retard", () => {
+    expect(agentBehindServer("v0.4.1", "v0.4.1")).toBe(false);
+    expect(agentBehindServer("v0.5.0", "v0.4.1")).toBe(false);
+    expect(agentBehindServer("v1.0.0", "v0.9.9")).toBe(false);
+  });
+
+  test("la comparaison est numérique, pas alphabétique", () => {
+    expect(agentBehindServer("v0.9.0", "v0.10.0")).toBe(true);
+    expect(agentBehindServer("v0.10.0", "v0.9.0")).toBe(false);
+  });
+
+  test("une version qui n'est pas vX.Y.Z ne se compare pas", () => {
+    expect(agentBehindServer("dev", "v0.4.1")).toBe(false);
+    expect(agentBehindServer("v0.2.0", "")).toBe(false);
+    expect(agentBehindServer("v0.2.0-rc1", "v0.4.1")).toBe(false);
   });
 });

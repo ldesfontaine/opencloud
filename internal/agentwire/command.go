@@ -65,11 +65,6 @@ type ServerKeyParams struct {
 	PublicKey string `json:"public_key"`
 }
 
-// ObservationKinds rend les genres qui ne font que lire.
-func ObservationKinds() []Kind {
-	return []Kind{KindLogs, KindLogsStop, KindProbes, KindImages}
-}
-
 // OrderKinds rend les genres d'ordres, signés et journalisés.
 func OrderKinds() []Kind {
 	return []Kind{KindAgentPing, KindAgentUpdate, KindAgentRollback, KindServerKey, KindBackupReceive, KindBackupPrune, KindBackupProduce, KindDockerDeploy, KindDockerUpdate,

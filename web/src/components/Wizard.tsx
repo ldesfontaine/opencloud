@@ -164,7 +164,7 @@ export function Wizard({
 // La barre d'étapes : numéro et nom, la courante marquée. En modification,
 // chaque étape y mène. Sous 860 px, elle se réduit à « Étape 2 sur 4 » : le
 // nom est juste dessous, en tête de carte.
-function WizardBar({
+export function WizardBar({
   titles,
   position,
   reached,

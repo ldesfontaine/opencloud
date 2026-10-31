@@ -10,12 +10,15 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
+	"github.com/ldesfontaine/opencloud/internal/verb"
 )
 
 // Ce que le front lit au démarrage : la version, la langue réglée et les
 // seuils du produit.
 type sessionResponse struct {
-	Version   string   `json:"version"`
+	Version string `json:"version"`
+	// Le commit du binaire ; vide quand il n'est pas construit par make.
+	Commit    string   `json:"commit"`
 	Language  string   `json:"language"`
 	Languages []string `json:"languages"`
 	// Les jours à partir desquels un certificat se signale. Servis ici
@@ -26,6 +29,14 @@ type sessionResponse struct {
 	// tels que réglés sous Paramètres : les jauges basculent sur le même
 	// chiffre que l'alerte.
 	Disks diskThresholds `json:"disk_thresholds"`
+	// Les routes d'écriture que le registre des verbes ouvre aux jetons : le
+	// front y reconnaît les boutons qui portent la puce « MCP ».
+	Verbs []sessionVerb `json:"verbs"`
+}
+
+type sessionVerb struct {
+	ID    string `json:"id"`
+	Route string `json:"route"`
 }
 
 type diskThresholds struct {
@@ -108,10 +119,14 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	languages := httpx.ConvertAll(lang.Codes(), func(code lang.Code) string { return string(code) })
 	s.writeAPI(w, http.StatusOK, sessionResponse{
 		Version:      s.version,
+		Commit:       s.commit,
 		Language:     string(language),
 		Languages:    languages,
 		Certificates: certificateThresholds{Warning: probe.CertificateWarning, Danger: probe.CertificateDanger},
 		Disks:        diskThresholdsToJSON(disks),
+		Verbs: httpx.ConvertAll(verb.Default.All(), func(offered verb.Verb) sessionVerb {
+			return sessionVerb{ID: offered.ID, Route: offered.Route}
+		}),
 	})
 }
 

@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api } from "./client";
+import { route } from "./routes";
 
 // L'accès de l'opérateur à l'interface. Chemin sans sujet du direct : relu
 // à la reconnexion, quand tout se relit, jamais à chaque sujet.
@@ -26,7 +27,7 @@ export interface AuthState {
 }
 
 // Un compte et son mot de passe, ou l'en-tête d'un mandataire.
-export type AuthEnableRequest = { username: string; password: string } | { mode: "forward"; header: string };
+type AuthEnableRequest = { username: string; password: string } | { mode: "forward"; header: string };
 
 const authPath = "/api/auth";
 
@@ -38,7 +39,7 @@ export function useAuth(): Resource<AuthState> {
 // combien de jetons d'API sont tombés : l'écran n'en dit rien, il n'y en a qu'après
 // une commande de secours, et la documentation le dit.
 export async function enableAuth(body: AuthEnableRequest): Promise<void> {
-  await api.post(`${authPath}/actions/enable`, body);
+  await api.send(route("POST /api/auth/actions/enable"), body);
 }
 
 // Confie au navigateur les identifiants que l'opérateur vient de choisir :
@@ -56,9 +57,9 @@ export function signIn(username: string, password: string): Promise<void> {
 }
 
 export async function disableAuth(): Promise<void> {
-  return api.post(`${authPath}/actions/disable`);
+  return api.send(route("POST /api/auth/actions/disable"));
 }
 
 export async function changePassword(password: string): Promise<void> {
-  return api.put(`${authPath}/password`, { password });
+  return api.send(route("PUT /api/auth/password"), { password });
 }

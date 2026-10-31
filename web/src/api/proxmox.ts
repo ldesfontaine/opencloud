@@ -1,6 +1,7 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import type { ActionRun } from "./actions";
 import { api, segment } from "./client";
+import { route } from "./routes";
 
 // L'hôte Proxmox qu'une machine porte et ce que son API en dit. Sujet du
 // direct : « machines », que topicsOf devine du chemin. Le secret du jeton
@@ -80,7 +81,7 @@ export interface ProxmoxSummary {
   hosted: ProxmoxHosted | null;
 }
 
-export interface ProxmoxDefinition {
+interface ProxmoxDefinition {
   api_url: string;
   token_id: string;
   token_secret: string;
@@ -94,11 +95,11 @@ export function useMachineProxmox(machineID: string, wanted: boolean): Resource<
 }
 
 export function setMachineProxmox(machineID: string, definition: ProxmoxDefinition): Promise<ProxmoxHost> {
-  return api.put<ProxmoxHost>(`/api/machines/${segment(machineID)}/proxmox`, definition);
+  return api.send<ProxmoxHost>(route("PUT /api/machines/{id}/proxmox", { id: machineID }), definition);
 }
 
 export async function removeMachineProxmox(machineID: string): Promise<void> {
-  return api.post(`/api/machines/${segment(machineID)}/actions/remove-proxmox`);
+  return api.send(route("POST /api/machines/{id}/actions/remove-proxmox", { id: machineID }));
 }
 
 // Un geste sur un invité, fait par l'agent de l'hôte : démarrer, arrêter
@@ -110,5 +111,19 @@ export type GuestVerb = "start" | "shutdown" | "snapshot" | "snapshot-delete";
 // suppression : le nom d'un instantané créé n'est jamais saisi.
 export function actOnGuest(machineID: string, vmid: number, verb: GuestVerb, snapshot: string): Promise<ActionRun> {
   const body = verb === "snapshot-delete" ? { snapshot } : {};
-  return api.post<ActionRun>(`/api/machines/${segment(machineID)}/proxmox/guests/${vmid}/actions/${verb}`, body);
+  const params = { id: machineID, vmid: String(vmid) };
+  return api.send<ActionRun>(guestRoute(verb, params), body);
+}
+
+function guestRoute(verb: GuestVerb, params: { id: string; vmid: string }) {
+  switch (verb) {
+    case "start":
+      return route("POST /api/machines/{id}/proxmox/guests/{vmid}/actions/start", params);
+    case "shutdown":
+      return route("POST /api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown", params);
+    case "snapshot":
+      return route("POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot", params);
+    case "snapshot-delete":
+      return route("POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete", params);
+  }
 }

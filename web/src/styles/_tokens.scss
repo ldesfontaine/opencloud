@@ -26,6 +26,8 @@
   --shadow-1: 0 1px 2px rgba(16, 18, 22, 0.05);
   --shadow-2: 0 1px 2px rgba(16, 18, 22, 0.05), 0 8px 24px rgba(16, 18, 22, 0.08);
   --scrim: rgba(16, 18, 22, 0.4);
+  // Le flou léger de la vue sous une fenêtre modale : même valeur dans les deux thèmes.
+  --scrim-blur: 4px;
   --sans: "Geist", "Segoe UI", system-ui, -apple-system, sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --side-width: 232px;

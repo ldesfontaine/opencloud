@@ -6,9 +6,9 @@ import { formatDuration, since } from "./time";
 // Les pastilles de la direction artistique, dérivées des faits : l'état
 // Docker, le code de sortie, la santé. La même règle que le serveur pour
 // « demande attention ».
-export type PillKey = "active" | "starting" | "failing" | "out_of_memory" | "killed" | "restarting" | "paused" | "stopped" | "created" | "unknown";
+type PillKey = "active" | "starting" | "failing" | "out_of_memory" | "killed" | "restarting" | "paused" | "stopped" | "created" | "unknown";
 
-export interface ContainerPillInfo {
+interface ContainerPillInfo {
   key: PillKey;
   tone: Tone;
 }
@@ -242,7 +242,7 @@ export function engineNote(t: Translate, engine: Engine | undefined): string | n
 
 // Une transition se lit comme un fait : l'action, puis l'état ou la santé
 // qu'elle a donnés.
-export function transitionTitle(t: Translate, transition: Transition): string {
+function transitionTitle(t: Translate, transition: Transition): string {
   if (transition.action === "inventory" && transition.previous_state === "") {
     return t("container.transition_seen");
   }

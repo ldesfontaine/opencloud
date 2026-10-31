@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { reasonText, stateTones } from "./ActionsCard";
 import { inFlightStates } from "../api/actions";
@@ -12,6 +12,7 @@ import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
 import { Textarea, Field } from "./Field";
+import { Modal, ModalCancel } from "./Modal";
 import { Pill } from "./Pill";
 import "./DeployCard.scss";
 
@@ -96,28 +97,35 @@ function PlanBody({ plan }: { plan: DeployPlan }) {
   );
 }
 
-// La confirmation : l'.env facultatif, puis l'ordre. La boîte est montée
+// La confirmation : l'.env facultatif, puis l'ordre. La fenêtre est montée
 // pour un geste et démontée à sa fermeture : l'.env tapé ne survit pas à
-// l'ordre, il n'est jamais écrit dans le navigateur.
+// l'ordre, il n'est jamais écrit dans le navigateur. Fermer avec une saisie
+// demande d'abord s'il faut l'abandonner.
 function DeployDialog({ plan, onClose }: { plan: DeployPlan; onClose: () => void }) {
   const t = useT();
-  const dialog = useRef<HTMLDialogElement>(null);
   const action = useAction();
   const [env, setEnv] = useState("");
-  useEffect(() => {
-    if (dialog.current !== null && !dialog.current.open) {
-      dialog.current.showModal();
-    }
-  }, []);
   const send = () => {
     action.run(() => deployService(plan.service_id, plan.deployed, env === "" ? null : env), {
       topic: "actions",
-      onDone: () => dialog.current?.close(),
+      onDone: onClose,
     });
   };
   return (
-    <dialog ref={dialog} className="deploy-dialog" onClose={onClose}>
-      <p className="deploy-dialog-question">{t(plan.deployed ? "deploy.confirm_redeploy" : "deploy.confirm")}</p>
+    <Modal
+      title={t(plan.deployed ? "deploy.confirm_redeploy" : "deploy.confirm")}
+      onClose={onClose}
+      dirty={env !== ""}
+      wide
+      actions={
+        <>
+          <ModalCancel />
+          <Button variant="primary" icon="box" onClick={send} disabled={action.busy}>
+            {t(plan.deployed ? "deploy.redeploy" : "deploy.deploy")}
+          </Button>
+        </>
+      }
+    >
       <p className="mono deploy-dialog-path">
         {plan.machine_name} · {plan.path}
       </p>
@@ -134,12 +142,6 @@ function DeployDialog({ plan, onClose }: { plan: DeployPlan; onClose: () => void
           spellCheck={false}
         />
       </Field>
-      <div className="deploy-dialog-actions">
-        <Button onClick={() => dialog.current?.close()}>{t("deploy.cancel")}</Button>
-        <Button variant="primary" icon="box" onClick={send} disabled={action.busy}>
-          {t(plan.deployed ? "deploy.redeploy" : "deploy.deploy")}
-        </Button>
-      </div>
-    </dialog>
+    </Modal>
   );
 }

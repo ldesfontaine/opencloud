@@ -24,7 +24,7 @@ export function recipientsOf(destination: string): string[] {
 // Le relais tel que l'opérateur le tape. Le mot de passe ne revient jamais
 // du serveur : le champ part vide, et vide il garde celui qui est
 // enregistré ; clearPassword le retire.
-export interface MailFormValues {
+interface MailFormValues {
   host: string;
   port: string;
   mode: MailTLSMode;

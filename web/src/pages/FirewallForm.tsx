@@ -1,7 +1,8 @@
 import { useNavigate, useParams } from "react-router";
 
 import { declareFirewall, firewallKinds, redeclareFirewall, useFirewall, type FirewallDetail, type FirewallKind } from "../api/firewalls";
-import { EnumSelect, Field, Input } from "../components/Field";
+import { Field, Input } from "../components/Field";
+import { Select } from "../components/Select";
 import { Failure } from "../components/Failure";
 import { FormPage } from "../components/FormPage";
 import { PageHead } from "../components/PageHead";
@@ -104,7 +105,17 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<FirewallFormValue
             <Input id="firewall-name" value={values.name} maxLength={80} onChange={(event) => form.change("name", event.target.value)} autoComplete="off" />
           </Field>
           <Field label={t("firewall.connector_label")} htmlFor="firewall-kind" help={t("firewall.connector_help")}>
-            <EnumSelect id="firewall-kind" value={values.kind} values={firewallKinds} labelKey="firewall.kind_" onChange={(kind) => form.change("kind", kind)} />
+            <Select
+              id="firewall-kind"
+              value={values.kind}
+              options={firewallKinds.map((kind) => ({ value: kind, label: t(`firewall.kind_${kind}`) }))}
+              onChange={(chosen) => {
+                const kind = firewallKinds.find((candidate) => candidate === chosen);
+                if (kind !== undefined) {
+                  form.change("kind", kind);
+                }
+              }}
+            />
           </Field>
         </>
       ),

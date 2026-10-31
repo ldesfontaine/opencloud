@@ -105,6 +105,29 @@ func TestSchema_MatchesTheLegacyMigrationsAndTheTrim(t *testing.T) {
 	}
 }
 
+// Deux branches qui réservent le même numéro ne se heurtent pas dans git
+// (les noms diffèrent) : sur une base neuve la seconde échoue, sur une base
+// existante elle est sautée sans erreur. Le test le voit avant la fusion.
+func TestMigrations_NumbersAreWellFormedAndUnique(t *testing.T) {
+	names, err := migrationFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pattern := regexp.MustCompile(`^(\d{3})_[a-z0-9_]+\.sql$`)
+	seen := map[int]string{}
+	for _, name := range names {
+		if !pattern.MatchString(name) {
+			t.Errorf("%s : le nom doit être NNN_sujet.sql", name)
+			continue
+		}
+		version := migrationVersion(name)
+		if other, taken := seen[version]; taken {
+			t.Errorf("le numéro %03d est pris deux fois : %s et %s", version, other, name)
+		}
+		seen[version] = name
+	}
+}
+
 // Une clé étrangère qui vise une colonne qui n'est ni la clé primaire ni une
 // clé unique de son parent fait échouer chaque écriture (« foreign key
 // mismatch ») ; SQLite ne le dit qu'à l'usage.

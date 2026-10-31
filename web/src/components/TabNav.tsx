@@ -5,7 +5,7 @@ import { useSize } from "../hooks/useSize";
 import { useT } from "../i18n/context";
 import { edgesOf, type TabEdges } from "../lib/tabs";
 
-export interface Tab {
+interface Tab {
   to: string;
   // La clé du catalogue de l'intitulé.
   key: string;

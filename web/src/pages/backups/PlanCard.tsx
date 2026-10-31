@@ -1,6 +1,7 @@
 import { deleteBackupPlan, runBackupNow, type BackupPlan, type Backups } from "../../api/backups";
 import { reasonText } from "../../components/ActionsCard";
 import { Button } from "../../components/Button";
+import { ConfirmModal } from "../../components/ConfirmModal";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "../../components/Card";
 import { Failure } from "../../components/Failure";
 import { Pill } from "../../components/Pill";
@@ -28,7 +29,7 @@ export function PlanCard({ plan, overview, onEdit }: { plan: BackupPlan; overvie
   const title = planTitle(plan, t("backup.source_kind_database"));
   const pass = passSummary(t, plan);
   const stop = () => {
-    action.run(() => deleteBackupPlan(plan.subject), { confirm: t("backup.plan_delete_confirm", title), topic: "backups" });
+    action.run(() => deleteBackupPlan(plan.subject), { topic: "backups" });
   };
   return (
     <Card>
@@ -62,9 +63,18 @@ export function PlanCard({ plan, overview, onEdit }: { plan: BackupPlan; overvie
           <Button small variant="ghost" disabled={action.busy} onClick={() => onEdit(plan)}>
             {t("backup.plan_edit")}
           </Button>
-          <Button small variant="ghost" icon="x" disabled={action.busy} onClick={stop}>
+          <ConfirmModal
+            title={t("backup.plan_delete")}
+            question={t("backup.plan_delete_confirm", title)}
+            confirmLabel={t("backup.plan_delete")}
+            onConfirm={stop}
+            variant="ghost"
+            small
+            icon="x"
+            disabled={action.busy}
+          >
             {t("backup.plan_delete")}
-          </Button>
+          </ConfirmModal>
         </div>
       </CardBody>
     </Card>

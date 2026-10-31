@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { deleteChannel, saveChannel, testChannel, useChannel, type ChannelTest } from "../api/alerts";
 import { useMailSettings } from "../api/settings";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmModal";
 import { Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Checkbox, Checks, Field, Input } from "../components/Field";
@@ -41,6 +42,7 @@ export function AlertChannelForm() {
   const { values, change } = form;
   const action = useAction();
   const [test, setTest] = useState<ChannelTest | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   if (id !== undefined && existing.error?.status === 404) {
     return <NotFound />;
@@ -72,7 +74,6 @@ export function AlertChannelForm() {
       return;
     }
     action.run(() => deleteChannel(id), {
-      confirm: t("channel.delete_confirm", existing.data.name),
       topic: "alerts",
       onDone: () => void navigate("/alertes/canaux"),
     });
@@ -97,7 +98,7 @@ export function AlertChannelForm() {
               cancelLabel={t("channel.cancel")}
               cancelTo="/alertes/canaux"
               deleteLabel={t("channel.delete")}
-              onDelete={id !== undefined ? remove : undefined}
+              onDelete={id !== undefined ? () => setRemoving(true) : undefined}
             >
               {id !== undefined && (
                 <Button icon="refresh" onClick={runTest} disabled={action.busy}>
@@ -170,6 +171,15 @@ export function AlertChannelForm() {
         </Checks>
         <p className="field-help">{t("channel.receives_audit_help")}</p>
       </FormCard>
+      {removing && existing.data && (
+        <ConfirmDialog
+          title={t("channel.delete")}
+          question={t("channel.delete_confirm", existing.data.name)}
+          confirmLabel={t("channel.delete")}
+          onConfirm={remove}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </FormPage>
   );
 }

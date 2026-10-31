@@ -10,6 +10,11 @@ func Number() string {
 	return number
 }
 
+// Commit est le commit du binaire ; vide hors d'un binaire construit par make.
+func Commit() string {
+	return commit
+}
+
 func String() string {
 	if commit == "" {
 		return number

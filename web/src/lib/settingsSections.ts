@@ -6,6 +6,7 @@ export const settingsSections = [
   { id: "e-mails", titleKey: "settings.section_mail" },
   { id: "fin-de-support", titleKey: "settings.section_lifecycle" },
   { id: "agent-ia", titleKey: "settings.section_ai" },
+  { id: "a-propos", titleKey: "settings.section_about" },
 ] as const;
 
 export type SettingsSectionId = (typeof settingsSections)[number]["id"];

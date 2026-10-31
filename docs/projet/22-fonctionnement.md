@@ -4099,6 +4099,56 @@ tables `mcp_clients` et `mcp_codes`. Les jetons d'API vivants ont été repris
 tels quels par la migration `008_api_tokens.sql`, en lecture : celui que
 mcp-maison porte déjà continue de servir.
 
+## Comment l'écran et l'API restent d'accord
+
+Toute écriture de l'écran est une route de l'API, et tout verbe offert aux
+jetons a son geste d'écran. Trois pièces le tiennent :
+
+| Pièce | Rôle |
+| --- | --- |
+| `web/src/api/routes.ts` | La liste des écritures du front, chacune écrite comme dans `testdata/routes.txt` (`"POST /api/probes/{id}/actions/pause"`). `route(motif, paramètres)` rend le verbe HTTP et le chemin ; `api.send` n'accepte que cela. Aucune écriture ne part d'un chemin écrit à la main. Les lectures gardent leur chemin |
+| `internal/server/testdata/verbs.golden.json` | Le registre `internal/verb` (`id`, `route`, `reverse`), écrit par `TestVerbs_RegistryMatchesGoldenFile` |
+| Les tests | Front (`api/parity.test.ts`) : chaque écriture déclarée est une route du serveur et a un appelant dans `api/`, chaque verbe du golden est une écriture déclarée. Go (`internal/server/parity_test.go`) : chaque route d'écriture est déclarée par `routes.ts` ou listée « sans écran » avec sa raison (`apply` par la socket, agent, pings) |
+
+Coût : une écriture neuve se déclare à un endroit de plus (`routes.ts`) ; en
+échange, une route sans appelant, un geste vers une route disparue ou un verbe
+sans geste cassent un test au lieu de s'installer.
+
+Les numéros de migration sont uniques (`TestMigrations_NumbersAreWellFormedAndUnique`),
+et le nom du produit n'est écrit ni dans une chaîne ni dans le texte d'un
+composant `.tsx` (`TestNameOnlyInBrand`) : le mot-symbole se lit dans la page
+(`Wordmark`, la balise `application-name` que le serveur remplit).
+
+## Comment l'interface demande confirmation
+
+Aucune écriture ne part sans que l'opérateur l'ait voulue, et aucune saisie ne
+se perd d'un clic à côté.
+
+| Cas | Ce qui s'ouvre | Où |
+| --- | --- | --- |
+| Un geste qui se défait, question courte (lever un silence) | La question prend la place du bouton : « Confirmer », « Annuler » | `ConfirmInline` |
+| Un geste qui ne se défait pas, ou dont la question est longue (régénérer un jeton, remplacer la clé de sauvegarde, révoquer un agent, mettre un agent à jour, supprimer un canal, un incident, un plan) | Une fenêtre qui nomme la conséquence | `ConfirmModal`, `ConfirmDialog` |
+| Une suppression qui peut en emporter d'autres | La fenêtre lit le plan avant de laisser confirmer ; un refus tardif le remplace | `DeletePlanDialog` |
+| Une saisie à plusieurs champs (« Ajouter une machine », l'ordre de déploiement) | Une fenêtre à son adresse ; fermer avec une saisie modifiée demande « Abandonner la saisie ? » | `Modal`, `lib/modal.ts` |
+
+La règle de `Modal` : un clic sur le voile ne ferme rien ; Échap, la croix et
+« Annuler » posent la même demande ; une saisie propre ferme, une saisie
+modifiée demande d'abord. `window.confirm` n'existe plus : `useAction` ne
+confirme pas, c'est la fenêtre qui précède l'écriture.
+
+**Une fenêtre garde son adresse.** C'est une route fille de la page qui reste
+en fond : `/machines/nouvelle` s'ouvre sur la liste des machines, aussi au
+rechargement, et la fermer y ramène (la navigation est remplacée : le retour
+arrière ne rouvre pas la fenêtre). « Ajouter une machine » est la première :
+deux étapes (nommer, droits sous « Avancé » ; la commande à coller). Le jeton
+vit dans la fenêtre seule, jamais dans l'adresse ni dans l'historique ; le
+ré-enrôlement d'une fiche l'affiche à `/machines/jeton`, par l'état de
+navigation, qui en sort aussitôt.
+
+Coût : une fenêtre à plusieurs champs se perd d'un rechargement (aucun
+brouillon n'est gardé) ; le flou du voile demande un navigateur récent
+(`backdrop-filter`), sans lui le voile reste uni.
+
 ## Comment l'interface se met à jour sans recharger
 
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur

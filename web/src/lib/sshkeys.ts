@@ -18,7 +18,7 @@ export function shortFingerprint(fingerprint: string): string {
 // Une cellule de la matrice : ce que cette machine dit d'une clé.
 export type Cell = { kind: "accounts"; accounts: string[] } | { kind: "none" } | { kind: "unknown" };
 
-export interface MatrixRow {
+interface MatrixRow {
   fingerprint: string;
   type: string;
   bits: number;

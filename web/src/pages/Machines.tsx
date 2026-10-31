@@ -1,6 +1,7 @@
-import { Link } from "react-router";
+import { Link, Outlet } from "react-router";
 
 import { deleteMachineToken, useMachines, type PendingToken } from "../api/machines";
+import { ActionButton } from "../components/ActionButton";
 import { Button } from "../components/Button";
 import { Card, CardHeader } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -25,9 +26,9 @@ export function Machines() {
         title={t("nav.machines")}
         subtitle={machines.data ? machinesSubtitle(t, list.length, online) : ""}
         actions={
-          <Button variant="primary" icon="plus" to="/machines/nouvelle">
+          <ActionButton route="POST /api/machines/tokens" icon="plus" to="/machines/nouvelle">
             {t("machine.add")}
-          </Button>
+          </ActionButton>
         }
       />
       {machines.error && <Failure error={machines.error} />}
@@ -76,6 +77,8 @@ export function Machines() {
           {machines.data.pending.length > 0 && <Pending tokens={machines.data.pending} now={now} onChange={machines.reload} />}
         </>
       )}
+      {/* La fenêtre de l'adresse : « Ajouter une machine », ou le jeton d'un ré-enrôlement. */}
+      <Outlet />
     </>
   );
 }

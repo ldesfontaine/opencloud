@@ -14,6 +14,7 @@ import { useMachines } from "../api/machines";
 import { reasonText } from "../components/ActionsCard";
 import { Button } from "../components/Button";
 import { CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
+import { ConfirmDialog } from "../components/ConfirmModal";
 import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
 import { Loaded } from "../components/Loaded";
@@ -86,6 +87,7 @@ function KeyringCard({ overview }: { overview: BackupsOverview }) {
   const { values, change, update } = form;
   const action = useAction();
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [confirmingReplace, setConfirmingReplace] = useState(false);
   const replacing = keyring !== null;
   const save = () => {
     const problem = passphraseProblem(values.first, values.second);
@@ -95,35 +97,52 @@ function KeyringCard({ overview }: { overview: BackupsOverview }) {
     }
     // Remplacer demande confirmation : les anciennes sauvegardes gardent
     // l'ancienne clé, et il faut garder l'ancienne phrase.
+    if (replacing) {
+      setConfirmingReplace(true);
+      return;
+    }
+    createNow();
+  };
+  const createNow = () => {
     action.run(() => createKeyring(values.first, replacing), {
-      ...(replacing && { confirm: t("backup.keyring_replace_confirm") }),
       topic: "backups",
       onDone: () => update({ first: "", second: "" }),
     });
   };
   return (
-    <FormCard
-      width="fill"
-      onSubmit={save}
-      error={refusal ?? action.error}
-      header={<CardHeader title={t("backup.keyring_title")} />}
-      actions={<FormActions submitLabel={replacing ? t("backup.keyring_replace") : t("backup.keyring_create")} submitIcon="shield" busy={action.busy} />}
-    >
-      {keyring === null ? (
-        <p className="secondary">{t("backup.keyring_none")}</p>
-      ) : (
-        <>
-          <KeyValue label={t("backup.fingerprint")} value={keyring.fingerprint} mono />
-          <KeyValue label={t("backup.created")} value={formatWhen(keyring.created_at, now)} />
-        </>
+    <>
+      <FormCard
+        width="fill"
+        onSubmit={save}
+        error={refusal ?? action.error}
+        header={<CardHeader title={t("backup.keyring_title")} />}
+        actions={<FormActions submitLabel={replacing ? t("backup.keyring_replace") : t("backup.keyring_create")} submitIcon="shield" busy={action.busy} />}
+      >
+        {keyring === null ? (
+          <p className="secondary">{t("backup.keyring_none")}</p>
+        ) : (
+          <>
+            <KeyValue label={t("backup.fingerprint")} value={keyring.fingerprint} mono />
+            <KeyValue label={t("backup.created")} value={formatWhen(keyring.created_at, now)} />
+          </>
+        )}
+        <Field label={t("backup.passphrase_label")} htmlFor="backup-passphrase" help={t("backup.passphrase_help")}>
+          <Input id="backup-passphrase" type="password" autoComplete="new-password" maxLength={1024} value={values.first} onChange={(event) => change("first", event.target.value)} required />
+        </Field>
+        <Field label={t("backup.passphrase_confirm_label")} htmlFor="backup-passphrase-confirm">
+          <Input id="backup-passphrase-confirm" type="password" autoComplete="new-password" maxLength={1024} value={values.second} onChange={(event) => change("second", event.target.value)} required />
+        </Field>
+      </FormCard>
+      {confirmingReplace && (
+        <ConfirmDialog
+          title={t("backup.keyring_replace")}
+          question={t("backup.keyring_replace_confirm")}
+          confirmLabel={t("backup.keyring_replace")}
+          onConfirm={createNow}
+          onClose={() => setConfirmingReplace(false)}
+        />
       )}
-      <Field label={t("backup.passphrase_label")} htmlFor="backup-passphrase" help={t("backup.passphrase_help")}>
-        <Input id="backup-passphrase" type="password" autoComplete="new-password" maxLength={1024} value={values.first} onChange={(event) => change("first", event.target.value)} required />
-      </Field>
-      <Field label={t("backup.passphrase_confirm_label")} htmlFor="backup-passphrase-confirm">
-        <Input id="backup-passphrase-confirm" type="password" autoComplete="new-password" maxLength={1024} value={values.second} onChange={(event) => change("second", event.target.value)} required />
-      </Field>
-    </FormCard>
+    </>
   );
 }
 

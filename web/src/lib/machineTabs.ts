@@ -1,4 +1,4 @@
-export interface Tab {
+interface Tab {
   slug: string;
   key: string;
 }
@@ -17,7 +17,7 @@ export const machineTabs: Tab[] = [
 // L'onglet de l'hyperviseur : il ne s'affiche que sur une machine qui porte un
 // hôte Proxmox déclaré. Son adresse reste servie sans hôte (une carte y mène à
 // la déclaration), pour qu'un lien gardé ne tombe pas sur une page introuvable.
-export const hypervisorTab: Tab = { slug: "hyperviseur", key: "tab.hypervisor" };
+const hypervisorTab: Tab = { slug: "hyperviseur", key: "tab.hypervisor" };
 
 // Les onglets affichés pour une machine : les onglets fixes, puis
 // l'hyperviseur quand un hôte est déclaré, avant les journaux.

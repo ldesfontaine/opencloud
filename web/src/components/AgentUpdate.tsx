@@ -6,6 +6,7 @@ import { agentUpdateState, type AgentUpdateState } from "../lib/agentUpdate";
 import { Button } from "./Button";
 import { KeyValue, Note } from "./Card";
 import { ConfirmInline } from "./ConfirmInline";
+import { ConfirmModal } from "./ConfirmModal";
 import { Failure } from "./Failure";
 
 // La mise à jour de l'agent : où en est la dernière (en attente de
@@ -24,10 +25,7 @@ export function AgentUpdate({ machineID, agent, updateLast, online }: { machineI
     return offer.error ? <Failure error={offer.error} /> : null;
   }
   const update = () => {
-    action.run(() => updateAgent(machineID), {
-      confirm: t("machine.agent_update_confirm", current.current, current.target),
-      topic: "actions",
-    });
+    action.run(() => updateAgent(machineID), { topic: "actions" });
   };
   const rollback = () => {
     action.run(() => rollbackAgent(machineID), { topic: "actions" });
@@ -46,9 +44,17 @@ export function AgentUpdate({ machineID, agent, updateLast, online }: { machineI
       {current.available && (
         <>
           <div>
-            <Button small icon="refresh" onClick={update} disabled={action.busy}>
+            <ConfirmModal
+              title={t("machine.agent_update", current.target)}
+              question={t("machine.agent_update_confirm", current.current, current.target)}
+              confirmLabel={t("machine.agent_update", current.target)}
+              onConfirm={update}
+              small
+              icon="refresh"
+              disabled={action.busy}
+            >
               {t("machine.agent_update", current.target)}
-            </Button>
+            </ConfirmModal>
           </div>
           {current.reason === "right_unavailable" && <p className="secondary">{t("machine.agent_update_reason_right_unavailable")}</p>}
         </>

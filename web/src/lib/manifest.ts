@@ -2,10 +2,6 @@ import type { Apply, ApplyState, ManifestCarry, ManifestChange, ManifestFieldCha
 import type { Translate } from "../i18n/context";
 import type { Tone } from "./tone";
 
-// Les états d'un passage, tels que le serveur les écrit ; un test Go vérifie
-// que chacun a son libellé dans les deux langues.
-export const applyStates: readonly ApplyState[] = ["confirmed", "applied", "failed"];
-
 // La pastille d'un passage : appliqué ok, arrêté en échec, en cours à surveiller.
 export function stateTone(state: ApplyState): Tone {
   switch (state) {

@@ -9,7 +9,7 @@ import { formatClock, formatDuration, since } from "./time";
 
 // Ce qu'une alerte dit : le fait, la cause, puis ce qu'on peut faire. Les
 // mêmes clés que le canal, remplies ici avec les faits de l'API.
-export interface AlertText {
+interface AlertText {
   fact: string;
   cause: string;
   action: string;
@@ -119,7 +119,7 @@ function urgencyOf(alert: Alert): number {
 }
 
 // L'état d'une alerte tel que la pastille le dit.
-export type AlertState = "open" | "acknowledged" | "resolved";
+type AlertState = "open" | "acknowledged" | "resolved";
 
 export function stateOf(alert: Pick<Alert, "status" | "acknowledged_at">): AlertState {
   if (alert.status === "resolved") {
@@ -239,7 +239,7 @@ export const silenceDurations: readonly { key: string; minutes: number }[] = [
 // targetName ne sert qu'à montrer un conteneur non déclaré, qu'aucune liste
 // ne propose. startsAt est la valeur d'un champ datetime-local ; vide : tout
 // de suite.
-export interface MuteFormValues {
+interface MuteFormValues {
   kind: AlertKind | "";
   targetKind: MuteTargetKind;
   targetID: string;
@@ -291,7 +291,7 @@ export function muteRequestOf(values: MuteFormValues): MuteRequest {
 // Ce qu'on fait taire depuis une alerte : son objet, ou ce qui le porte. Un
 // volume se tait par le disque de sa machine, un conteneur par son service
 // déclaré quand il en a un.
-export function muteTargetOf(alert: Pick<Alert, "kind" | "object" | "machine_id" | "machine_name" | "service_id">): { kind: AlertKind | ""; targetKind: MuteTargetKind; targetID: string; targetName: string } {
+function muteTargetOf(alert: Pick<Alert, "kind" | "object" | "machine_id" | "machine_name" | "service_id">): { kind: AlertKind | ""; targetKind: MuteTargetKind; targetID: string; targetName: string } {
   switch (alert.object.kind) {
     case "volume":
       return { kind: alert.kind, targetKind: "machine", targetID: alert.machine_id, targetName: alert.machine_name };
@@ -318,7 +318,7 @@ export const alertSeverities: readonly AlertSeverity[] = ["attention", "danger"]
 // Le formulaire d'un canal. Le secret (ou le jeton d'un bot Matrix) ne
 // revient jamais du serveur : le champ part vide, et vide il garde celui
 // qui est enregistré ; clearSecret le retire.
-export interface ChannelFormValues {
+interface ChannelFormValues {
   name: string;
   url: string;
   format: ChannelFormat;
