@@ -320,7 +320,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | Droit | Portée | Ce qu'il permet |
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
-| `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à **Changer les droits** (on ne coche rien à la place de l'opérateur) |
+| `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à un ré-enrôlement qui coche le droit (on ne coche rien à la place de l'opérateur) |
 | `agent.update` | — | Les ordres `agent.update` (mettre à jour l'agent depuis le serveur) et `agent.rollback` (revenir à la version précédente) (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire, et ne le fait que sous le lanceur stable |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
@@ -481,10 +481,11 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   `409 action.right_missing`, sans run ni journal. Tant que l'agent n'a rien
   rapporté, l'ordre part et l'agent juge.
 - **Les changer, c'est ré-enrôler** (décision 10, prise le 21 octobre 2026) :
-  fiche › Agent › **Changer les droits**, qui ouvre les droits cochés du jeton
-  courant ; « Créer le jeton » émet un jeton de ré-enrôlement avec les
+  fiche › **Ré-enrôler**, dont la première étape montre les droits cochés du
+  jeton courant ; « Créer le jeton » émet un jeton de ré-enrôlement avec les
   nouveaux (`POST /api/machines/{id}/actions/reenroll`, corps
-  `{capabilities}` ; sans corps, ceux d'avant), et sa ligne porte `-rights`.
+  `{capabilities}` ; sans corps, ceux d'avant : l'écran envoie toujours les
+  droits cochés), et sa ligne porte `-rights`.
   Jouée sur la machine (`identity.json` supprimé), elle installe un nouvel
   agent, l'ancien est révoqué ; la machine et son historique restent. Pas de
   changement signé par une clé de l'opérateur : modifier le fichier à la main
@@ -846,7 +847,7 @@ l'agent qui s'en abstient, pas Proxmox. La limite tient à la lisibilité du
 fichier (`0600`) et à l'agent qui n'obéit qu'à des ordres signés. `VM.Audit` est
 ajouté au rôle pour lire l'état d'une VM : lecture seule. Le droit ne se
 propose que si le rôle `proxmox_ve` est détecté (une machine neuve l'obtient
-par « Changer les droits » une fois enrôlée), et le serveur ne l'impose pas.
+en ré-enrôlant la machine une fois enrôlée), et le serveur ne l'impose pas.
 
 **Ce qui n'est pas fait.** Pas de retour en arrière, de redémarrage, d'arrêt
 forcé, de suppression d'invité ni d'instantané qui garde la mémoire ; pas
@@ -4187,13 +4188,22 @@ modifiée demande d'abord. `window.confirm` n'existe plus : `useAction` ne
 confirme pas, c'est la fenêtre qui précède l'écriture.
 
 **Une fenêtre garde son adresse.** C'est une route fille de la page qui reste
-en fond : `/machines/nouvelle` s'ouvre sur la liste des machines, aussi au
-rechargement, et la fermer y ramène (la navigation est remplacée : le retour
-arrière ne rouvre pas la fenêtre). « Ajouter une machine » est la première :
-deux étapes (nommer, droits sous « Avancé » ; la commande à coller). Le jeton
-vit dans la fenêtre seule, jamais dans l'adresse ni dans l'historique ; le
-ré-enrôlement d'une fiche l'affiche à `/machines/jeton`, par l'état de
-navigation, qui en sort aussitôt.
+en fond, et la fermer y ramène (la navigation est remplacée : le retour
+arrière ne rouvre pas la fenêtre). Les fenêtres des machines :
+
+| Adresse | Fond | Fenêtre |
+| --- | --- | --- |
+| `/machines/nouvelle` | la liste | Ajouter une machine : trois étapes (nommer et choisir le rôle, droits sous « Avancé » ; la commande à coller ; l'attente de l'agent) |
+| `/machines/{id}/reenroller` | la fiche | Ré-enrôler, aussi pour changer les droits : trois étapes (les droits, cochés comme le jeton de l'agent courant les demandait ; la commande ; l'attente du nouvel agent) |
+| `/machines/{id}/proxmox` | la fiche | Déclarer (ou modifier) l'hôte Proxmox : un `Wizard` dans la fenêtre, deux étapes (l'accès ; le certificat) puis le récapitulatif |
+
+Le jeton vit dans la fenêtre seule, jamais dans l'adresse ni dans l'historique :
+rechargée, la fenêtre repart de sa première étape. **L'attente de l'agent est en
+direct** : la dernière étape lit `GET /api/machines`, que le sujet `machines`
+du direct relit à chaque enrôlement (`lib/enrollWait.ts`). Une machine neuve est
+« connectée » quand une machine de ce nom, absente avant le jeton, a un agent
+actif ; un ré-enrôlement, quand la machine a un agent actif autre que celui
+d'avant. Un jeton expiré sans agent le dit, au lieu d'attendre.
 
 Coût : une fenêtre à plusieurs champs se perd d'un rechargement (aucun
 brouillon n'est gardé) ; le flou du voile demande un navigateur récent

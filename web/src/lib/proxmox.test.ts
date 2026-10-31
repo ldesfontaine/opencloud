@@ -6,6 +6,7 @@ import type { Translate } from "../i18n/context";
 import {
   backupLabel,
   detectedProxmox,
+  emptyProxmoxForm,
   gestureBlockText,
   gestureLabel,
   gestureQuestion,
@@ -14,6 +15,10 @@ import {
   guestGestures,
   guestStatusLabel,
   guestTone,
+  isProxmoxFormModified,
+  proxmoxAccessMissing,
+  proxmoxDefinitionOf,
+  proxmoxFormOf,
   readErrorLabel,
   resourcesLabel,
   sortedGuests,
@@ -184,4 +189,25 @@ test("l'avancement d'un geste : envoyé, accepté par l'agent, fait, ou échoué
   expect(gestureStep("refused")).toBe("failed");
   expect(gestureStep("failed")).toBe("failed");
   expect(gestureStep("expired")).toBe("failed");
+});
+
+test("formulaire de l'hôte : neuf avec l'adresse proposée, ou rempli sans le secret", () => {
+  expect(emptyProxmoxForm("https://10.0.0.2:8006")).toEqual({ apiURL: "https://10.0.0.2:8006", tokenID: "", tokenSecret: "", pin: "" });
+  expect(proxmoxFormOf({ api_url: "https://pve:8006", token_id: "lecteur@pve!lecture", pin: "AB:CD" })).toEqual({ apiURL: "https://pve:8006", tokenID: "lecteur@pve!lecture", tokenSecret: "", pin: "AB:CD" });
+});
+
+test("isProxmoxFormModified : l'adresse proposée seule n'est pas une saisie", () => {
+  const initial = emptyProxmoxForm("https://10.0.0.2:8006");
+  expect(isProxmoxFormModified(initial, initial)).toBe(false);
+  expect(isProxmoxFormModified({ ...initial, tokenID: " " }, initial)).toBe(false);
+  expect(isProxmoxFormModified({ ...initial, tokenSecret: "s" }, initial)).toBe(true);
+  expect(isProxmoxFormModified({ ...initial, apiURL: "https://autre:8006" }, initial)).toBe(true);
+});
+
+test("l'étape Accès exige l'adresse, l'identifiant et le secret ; le corps est nettoyé", () => {
+  const values = { apiURL: " https://pve:8006 ", tokenID: " lecteur@pve!lecture ", tokenSecret: "secret", pin: " AB " };
+  expect(proxmoxAccessMissing(values)).toBe(false);
+  expect(proxmoxAccessMissing({ ...values, tokenSecret: "" })).toBe(true);
+  expect(proxmoxAccessMissing({ ...values, apiURL: "  " })).toBe(true);
+  expect(proxmoxDefinitionOf(values)).toEqual({ api_url: "https://pve:8006", token_id: "lecteur@pve!lecture", token_secret: "secret", pin: "AB" });
 });

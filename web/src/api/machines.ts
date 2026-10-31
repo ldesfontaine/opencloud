@@ -150,10 +150,10 @@ export async function offerLocalEnrollment(): Promise<TokenResponse> {
   return api.send<TokenResponse>(route("POST /api/machines/local-enrollment"));
 }
 
-// Un nouveau jeton pour le même identifiant de machine. Avec des droits,
-// c'est changer ceux de son agent ; sans, il garde ceux d'avant.
-export async function reenrollMachine(id: string, capabilities?: Capability[]): Promise<TokenResponse> {
-  return api.send<TokenResponse>(route("POST /api/machines/{id}/actions/reenroll", { id }), capabilities === undefined ? {} : { capabilities });
+// Un nouveau jeton pour le même identifiant de machine, avec les droits de son
+// nouvel agent : c'est ainsi qu'on change ceux d'un agent.
+export async function reenrollMachine(id: string, capabilities: Capability[]): Promise<TokenResponse> {
+  return api.send<TokenResponse>(route("POST /api/machines/{id}/actions/reenroll", { id }), { capabilities });
 }
 
 // L'agent est refusé et s'arrête ; la machine et son historique restent.

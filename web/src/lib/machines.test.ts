@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { backupProducer, capabilitiesOf, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, machineSeen, machinesSubtitle, rightsFormOf, rolePatch, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
+import { backupProducer, capabilitiesOf, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, isRightsModified, machineSeen, machinesSubtitle, rightsFormOf, rolePatch, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -157,4 +157,13 @@ test("rolePatch : un rôle que la session ne connaît pas ne coche rien", () => 
 
 test("isMachineFormModified : changer de rôle est une saisie", () => {
   expect(isMachineFormModified({ ...emptyMachineForm, role: "docker" })).toBe(true);
+});
+
+test("isRightsModified : l'ordre des cases ne compte pas, un droit ou un chemin changé si", () => {
+  const initial = rightsFormOf([{ name: "agent.update", paths: [] }, { name: "files.write", paths: ["/srv/a"] }]);
+  expect(isRightsModified({ ...initial, rights: [...initial.rights].reverse() }, initial)).toBe(false);
+  expect(isRightsModified({ ...initial, writePaths: " /srv/a " }, initial)).toBe(false);
+  expect(isRightsModified({ ...initial, rights: ["agent.update"] }, initial)).toBe(true);
+  expect(isRightsModified({ ...initial, writePaths: "/srv/b" }, initial)).toBe(true);
+  expect(isRightsModified({ ...initial, rights: [...initial.rights, "docker.update"] }, initial)).toBe(true);
 });
