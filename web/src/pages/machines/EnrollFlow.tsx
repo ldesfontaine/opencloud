@@ -80,13 +80,17 @@ function AgentWait({ name, progress, remaining }: { name: string; progress: Enro
     <div className="modal-form" role="status" aria-live="polite">
       {progress.state === "waiting" && (
         <>
-          <Pill tone="neutral">{t("machine.wait_pending", name)}</Pill>
+          <div>
+            <Pill tone="neutral">{t("machine.wait_pending", name)}</Pill>
+          </div>
           <p className="secondary">{t("machine.wait_help", formatRemaining(t, remaining))}</p>
         </>
       )}
       {progress.state === "connected" && (
         <>
-          <Pill tone="ok">{t("machine.wait_connected", progress.machine.name)}</Pill>
+          <div>
+            <Pill tone="ok">{t("machine.wait_connected", progress.machine.name)}</Pill>
+          </div>
           <p className="secondary">{t("machine.wait_connected_help")}</p>
         </>
       )}
