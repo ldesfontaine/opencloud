@@ -147,7 +147,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pages de statut dans `status_pages` (adresse `slug` unique, titre, annonce en texte brut, langue, projet facultatif, une page par projet au plus, en `restrict` vers lui) ; les composants dans `status_components` (leur page, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), les objets qu'ils visent dans `incident_targets` (quatre clés étrangères, exactement une remplie, en `cascade` : un lien seul, l'incident reste), leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens ; la page supprimée emporte ses composants de même. Un incident ne vise pas un composant : il vise des objets, et l'objet supprimé détache l'incident (compté dans le plan), qui garde son texte et son fil. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`), leur portée dans `api_tokens.machines_limited` et `guests_limited` et les tables `api_token_machines` et `api_token_guests` (migration `023_api_token_reach.sql` : « La portée d'un jeton ») | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne, ses verbes et sa portée ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`), leur portée dans `api_tokens.machines_limited` et `guests_limited` et les tables `api_token_machines` et `api_token_guests` (migration `023_api_token_reach.sql` : « La portée d'un jeton »), et les demandes de verbe à confirmation que ces jetons déposent dans `verb_requests` (migration `025_verb_requests.sql` : « Les verbes à confirmation ») | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne, ses verbes, sa portée et ses demandes en attente ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le SSO n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
@@ -3839,6 +3839,7 @@ configuration seule est servie.
 | Jeton `write` qui ne porte pas le verbe de la route | `403 api_token.verb_forbidden`, journalisé (`api_token.deny`) |
 | Jeton `write` qui porte le verbe, trop vite | `429` avec `Retry-After` (« Le débit d'un jeton ») |
 | Jeton `write` qui porte le verbe | La route de l'opérateur s'exécute, telle quelle ; la réponse prend la forme du contrat des verbes |
+| Jeton `write` qui porte un verbe **à confirmation** | Rien ne s'exécute : une demande est déposée, `202` (« Les verbes à confirmation ») |
 
 Le dernier usage du jeton est noté **au plus une fois par minute** : mcp-maison
 peut enchaîner les lectures. Le `Host` de la requête est jugé comme celui de
@@ -3875,8 +3876,10 @@ Un **verbe** est un geste que l'opérateur coche sur un jeton `write`
 fermée : chaque verbe a un identifiant stable, la **route d'opérateur** qu'il
 ouvre, un libellé et une phrase de catalogue (`fr` et `en`) et **son verbe
 inverse**. Un verbe sans inverse ne peut pas être enregistré (`verb.Register`
-le refuse, `Check` vérifie que chaque inverse existe, un test le tient) : pour
-l'instant, un jeton ne reçoit que des gestes qu'on peut défaire.
+le refuse, `Check` vérifie que chaque inverse existe, un test le tient), à une
+exception : le **verbe à confirmation** (`Verb.Confirm`), qui n'a pas d'inverse
+parce qu'il n'agit jamais seul. Il remplace l'inverse par la confirmation de
+l'opérateur (« Les verbes à confirmation »).
 
 | Verbe | Route d'opérateur | Inverse |
 | --- | --- | --- |
@@ -3891,6 +3894,7 @@ l'instant, un jeton ne reçoit que des gestes qu'on peut défaire.
 | `proxmox.vm.shutdown` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown` | `proxmox.vm.start` |
 | `proxmox.vm.snapshot` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot` | `proxmox.vm.snapshot_delete` |
 | `proxmox.vm.snapshot_delete` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete` (corps `{"snapshot":"oc-…"}`) | `proxmox.vm.snapshot` |
+| `machine.delete` | `DELETE /api/machines/{id}` | aucun : **à confirmation** |
 
 Les deux verbes d'agent (« Comment un agent se met à jour ») agissent aussi sur des machines : `agent.update` envoie à l'agent la version que le serveur a déjà importée et que la clé de l'opérateur a signée, **une machine à la fois** (`409 action.update_in_progress` pour une seconde), et seulement à un agent qui revient seul en arrière (`409 action.rollback_unavailable`). Ni l'un ni l'autre ne signe ni n'importe de version : `release import` reste une commande de l'opérateur. Coût : un agent IA qui met à jour une machine la redémarre, et une version défectueuse la ramène trois minutes plus tard à l'ancienne, avec une alerte.
 
@@ -3918,7 +3922,7 @@ pour une route existante : l'admission ne change pas. Toute route d'écriture
 qui n'est pas dans le registre reste fermée à un jeton, même `write` avec tous
 les verbes : un test de table parcourt chaque route non-`GET` de l'API et le
 vérifie (déploiement, révocation d'un agent, ré-enrôlement,
-suppressions, réglages, authentification, gestion des jetons, pare-feu,
+suppressions autres que celle d'une machine, réglages, authentification, gestion des jetons, pare-feu,
 déclaration Proxmox, acquittement, drapeau « à mettre à jour en dernier »,
 migration d'un agent). La mise à jour et le retour arrière d'un agent sont
 désormais des verbes ; la signature et l'import d'une version n'ont aucune
@@ -3956,7 +3960,7 @@ de verbes écrite en dur :
   {"id": "proxmox.vm.start", "method": "POST",
    "path": "/api/machines/{id}/proxmox/guests/{vmid}/actions/start",
    "params": ["id", "vmid"], "body": [], "reverse": "proxmox.vm.shutdown",
-   "label": "…", "summary": "…"}]}
+   "confirm": false, "label": "…", "summary": "…"}]}
 ```
 
 | Champ | Sens |
@@ -3966,7 +3970,8 @@ de verbes écrite en dur :
 | `reach` | `{"machines": …, "guests": …}` : `null` pour toutes, une liste sinon (« La portée d'un jeton ») |
 | `path`, `params` | Le motif de la route et ses segments `{…}`, dans l'ordre |
 | `body` | Les champs JSON attendus (`["snapshot"]` pour `proxmox.vm.snapshot_delete`, `[]` sinon) |
-| `reverse` | Le verbe qui défait celui-ci |
+| `reverse` | Le verbe qui défait celui-ci ; vide pour un verbe à confirmation |
+| `confirm` | `true` : le verbe ne s'exécute pas, il dépose une demande (`202`) que l'opérateur confirme |
 | `label`, `summary` | Les textes du catalogue ; la phrase dit ce que le verbe fait et ce qu'il ne fait jamais |
 
 `params` et `body` sont des champs du verbe dans le registre, pas du texte
@@ -4069,6 +4074,34 @@ vide comprise : celles-là).
   rien ; mais « Toutes les machines » reste le choix par défaut, par
   compatibilité avec les jetons d'avant.
 
+### Les verbes à confirmation
+
+Un geste qui ne se défait pas (supprimer une machine) est **aussi un verbe**,
+mais un jeton ne l'exécute jamais : il demande, l'opérateur décide dans
+l'interface (décision Q1 de la refonte). `ErrNoReverse` ne vaut plus que pour
+les verbes ordinaires ; la confirmation remplace l'inverse comme garde-fou.
+
+| Règle | Comment |
+| --- | --- |
+| Le registre | `verb.Verb.Confirm` : pas d'inverse (`ErrConfirmReverse` sinon), une route `POST`, `PUT` ou `DELETE` sous `/api/`, et une machine pour cible (`ErrConfirmTarget` : le serveur ne sait nommer que la machine dans la demande) |
+| Le premier verbe | `machine.delete`, `DELETE /api/machines/{id}`, aucun corps |
+| La demande | Un jeton qui porte le verbe, admis comme pour tout verbe (portée, débit), ne fait rien : `internal/server/api_verb_requests.go` (`askConfirmation`) écrit une ligne `verb_requests` et répond `202 {verb, request_id, state: "awaiting_confirmation", expires_at}`. L'opérateur qui appelle la même route par son bouton passe, lui, par le handler tel quel |
+| Le corps | Vide, ou un objet JSON dont les champs sont ceux que le verbe déclare ; sinon `400 bad_json`. Gardé tel quel, clés triées |
+| Une machine inconnue | `404`, aucune demande |
+| La même demande deux fois | Le même jeton qui redemande la même chose pendant qu'elle attend retrouve la même demande : pas de doublon, pas de second événement d'audit |
+| Le plafond | 10 demandes en attente par jeton (`409 verb_request.too_many`) : un agent qui boucle ne noie pas l'écran |
+| L'échéance | 15 minutes (`verbrequest.TTL`). Le passage de fond (`Watch`, toutes les minutes) échoit les demandes ; toute lecture ou décision échoit d'abord celles dont le délai est passé, la boucle n'est pas la seule garde. Une demande échue ne se confirme plus (`409 verb_request.expired`) ; terminée, la ligne est purgée après 30 jours |
+| La lecture | `GET /api/verb-requests` rend les demandes en attente, les plus anciennes d'abord : `{id, verb, object: {id, name}, token_name, on_behalf_of, created_at, expires_at}`. Le nom de l'objet est celui de l'instant de la demande |
+| La confirmation | `POST /api/verb-requests/{id}/actions/confirm`, **par l'opérateur seulement** : un jeton, même celui qui a déposé la demande, reçoit `403 api_token.route_forbidden`, comme pour la lecture et le refus. La demande passe à `confirmed` d'un seul geste (deux confirmations simultanées : une gagne, l'autre reçoit `409 verb_request.already_decided`), puis la route d'opérateur du verbe est **rejouée** avec les paramètres et le corps gardés : même handler, même code, même réponse que le bouton. Si le geste échoue (409 avec son plan, 404), l'opérateur reçoit cet échec ; la demande reste `confirmed` et ne se rejoue pas, un nouvel appel du jeton en dépose une neuve |
+| Le refus | `POST /api/verb-requests/{id}/actions/reject` : rien n'est exécuté, la demande passe à `rejected` |
+| L'écran | La carte « Gestes à confirmer » de la vue d'ensemble (`VerbRequestsCard`), lue sur le sujet du direct `verb_requests`. « Confirmer… » ouvre la même fenêtre que le geste d'écran (`DeletePlanDialog` : le plan de la suppression avant d'écrire), « Refuser » écrit le refus |
+| Les états | `awaiting_confirmation`, `confirmed`, `rejected`, `expired` (`verbrequest.States()`, contrainte `CHECK` de la migration) |
+| Révoquer le jeton | Emporte ses demandes (`ON DELETE CASCADE`) : un jeton volé puis révoqué ne laisse rien à confirmer |
+
+**L'audit** garde les deux acteurs. `verb.request` (acteur `api`, le jeton, `on_behalf_of`) quand la demande est déposée ; `verb.reject` (acteur de l'opérateur) au refus ; `verb.expire` (acteur `rule:verb_requests`) à l'échéance. Le geste confirmé s'écrit sous l'**opérateur** par son composant (`machine.delete`), avec `details.request_id` (posé par le `Recorder` depuis le contexte, jamais par le geste) et `details.on_behalf_of` de la demande. La confirmation n'a pas de ligne à elle : `request_id` relie le geste à sa demande, et la demande au jeton. Les détails des trois lignes `verb.*` : `verb` et `object_id`, jamais le corps.
+
+Coût : un agent qui demande ne sait pas, par la réponse `202`, si l'opérateur a confirmé ; il ne peut pas non plus relire sa demande (`GET /api/verb-requests` est une route d'opérateur, absente de `apiTokenRoutes`). L'opérateur qui ne regarde pas la vue d'ensemble laisse la demande échoir. Les demandes survivent à un redémarrage (elles sont en base) mais pas à la révocation du jeton.
+
 ### Ce qu'un jeton ne voit pas
 
 Les lectures de la liste rendent à un jeton ce qu'elles rendent à l'opérateur,
@@ -4095,7 +4128,8 @@ certificat, noms de conteneurs, de services et de sondes) peut viser le modèle
 qui le lit. C'est à mcp-maison et au client de le traiter comme de la donnée.
 Côté openCloud, la défense est qu'**un jeton `read` n'écrit rien**, et qu'un
 jeton `write` ne fait que ce que l'opérateur a coché : des verbes réversibles,
-à débit borné, sans suppression de machine ni déploiement ni réglage. Un
+à débit borné, sans déploiement ni réglage, et où la suppression d'une machine
+n'est qu'une demande que l'opérateur doit confirmer. Un
 modèle poussé par un texte de tiers peut au pire mettre en pause une sonde ou,
 si l'opérateur a coché les verbes Proxmox, éteindre proprement une VM, ou, s'il
 a coché `agent.update`, redémarrer l'agent d'une machine sur la version du
@@ -4205,7 +4239,7 @@ brouillon n'est gardé) ; le flou du voile demande un navigateur récent
    répond `connected`, puis un commentaire toutes les 15 s pour tenir la
    connexion derrière Traefik.
 2. Les composants publient sur le bus interne (`internal/live`), par leur
-   `Watcher`, **seulement ce que l'écran montre** ; dix sujets, rien
+   `Watcher`, **seulement ce que l'écran montre** ; onze sujets, rien
    d'autre :
 
    | Sujet | Publié par | Quand |
@@ -4220,6 +4254,7 @@ brouillon n'est gardé) ; le flou du voile demande un navigateur récent
    | `directory` | `directory`, `manifest` | service ou projet déclaré créé, modifié, supprimé ; fichier de l'annuaire appliqué |
    | `actions` | `action` | ordre écrit, envoyé, répondu, expiré |
    | `backups` | `backup` | clé, destination ou plan écrit ; tentative notée |
+   | `verb_requests` | `verbrequest` | demande de verbe à confirmation déposée, confirmée, refusée ou échue |
 
 3. Chaque onglet reçoit le sujet, et le front relit les ressources dont le
    chemin porte ce sujet (`topicsOf`, `web/src/api/refresh.tsx`). Rien
@@ -4228,6 +4263,7 @@ brouillon n'est gardé) ; le flou du voile demande un navigateur récent
    | Ce que l'onglet lit | Relu sur |
    | --- | --- |
    | `/api/counts` (barre latérale, vue d'ensemble) | `machines`, `jobs`, `containers`, `probes`, `status` (incidents ouverts), `alerts`, `directory` (politique de mise à jour des unités), `firewalls` et `backups` (les modules configurés) ; **jamais** `resources` |
+   | `/api/verb-requests` (carte « Gestes à confirmer ») | `verb_requests` |
    | `/api/resources`, `…/resources…` | `resources` |
    | `/api/machines…` | `machines` |
    | une liste ou une fiche d'un autre domaine | son sujet (l'écart et la fiche d'un conteneur suivent aussi `directory`) |
@@ -4600,6 +4636,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Réglage | `settings.update` | `language`, `mail_relay`, `disk` ou `lifecycle` | La valeur ; le relais sans son mot de passe, avec `password_changed` |
 | Accès à l'interface | `auth.enable`, `.disable`, `.change_password` | `interface` | `mode`, `username`, `header` ; jamais le mot de passe ni son empreinte |
 | Jeton d'API, tous les jetons | `api_token.create`, `.revoke`, `.deny` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `verbs`, `expires_at` ; pour `.deny`, `verb` (l'identifiant du registre que le jeton a tenté sans le porter, jamais ce que le client a écrit) ; pour tous `all`, `api_tokens` ; jamais le jeton ni son préfixe |
+| Demande d'un verbe à confirmation | `verb.request` (acteur `api`), `verb.reject` (opérateur), `verb.expire` (acteur `rule:verb_requests`) | La demande, nommée par l'objet visé | `verb`, `object_id` ; le geste confirmé porte `request_id` (« Les verbes à confirmation ») |
 | Anciennes lignes du MCP, lues seulement | `mcp.*`, `mcp_token.*`, `mcp_session.*` | Le client OAuth, le jeton, la famille coupée | Ce qu'elles portaient ; plus aucune ne s'écrit |
 | Clé perdue, secrets oubliés | `secrets.forget` | — | `channels_disabled`, `ping_tokens_renewed` |
 | Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` ; pour `agent.update`, `from` (version de l'agent) et `to` (version visée), pour `agent.rollback`, `from` |
