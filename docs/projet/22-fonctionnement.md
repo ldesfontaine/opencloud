@@ -28,7 +28,7 @@
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
 | mcp-maison | Un serveur MCP à part, sur la machine openCloud, dans Docker (`network_mode: host`) | Il identifie chaque personne par l'IdP OIDC de l'opérateur, sert ses outils, et lit l'API d'openCloud en direct sur l'adresse de `listen` avec un **jeton d'API en lecture** (`Authorization: Bearer ock_…`), en posant `X-MCP-Maison-User` ; openCloud lit son `/health` à la demande (Paramètres) et marche sans lui |
-| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 32 lectures, secrets masqués. Avec un jeton en lecture, jamais une écriture ; avec un jeton en écriture, seulement les verbes cochés (« Les verbes d'un jeton en écriture ») ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
+| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 32 lectures, secrets masqués. Avec un jeton en lecture, jamais une écriture ; avec un jeton en écriture, seulement les verbes cochés, sur les machines et les invités que sa portée admet (« Les verbes d'un jeton en écriture », « La portée d'un jeton ») ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud fait tourner
 les deux : le serveur, et son agent, qui en fait une machine comme les autres
@@ -147,7 +147,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pages de statut dans `status_pages` (adresse `slug` unique, titre, annonce en texte brut, langue, projet facultatif, une page par projet au plus, en `restrict` vers lui) ; les composants dans `status_components` (leur page, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), les objets qu'ils visent dans `incident_targets` (quatre clés étrangères, exactement une remplie, en `cascade` : un lien seul, l'incident reste), leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens ; la page supprimée emporte ses composants de même. Un incident ne vise pas un composant : il vise des objets, et l'objet supprimé détache l'incident (compté dans le plan), qui garde son texte et son fil. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`) | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne et ses verbes ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`), leur portée dans `api_tokens.machines_limited` et `guests_limited` et les tables `api_token_machines` et `api_token_guests` (migration `022_api_token_reach.sql` : « La portée d'un jeton ») | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne, ses verbes et sa portée ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le SSO n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
@@ -3903,6 +3903,7 @@ de verbes écrite en dur :
 | --- | --- |
 | `scope` | `read` ou `write` |
 | `verbs` | `[]` pour un jeton `read`, ou `write` sans verbe |
+| `reach` | `{"machines": …, "guests": …}` : `null` pour toutes, une liste sinon (« La portée d'un jeton ») |
 | `path`, `params` | Le motif de la route et ses segments `{…}`, dans l'ordre |
 | `body` | Les champs JSON attendus (`["snapshot"]` pour `proxmox.vm.snapshot_delete`, `[]` sinon) |
 | `reverse` | Le verbe qui défait celui-ci |
@@ -3929,6 +3930,84 @@ pas reçoit `403 api_token.verb_forbidden`, et l'événement `api_token.deny` es
 propre limite par jeton (`apiVerbDenyBurst` = 5, puis une par minute) pour
 qu'une boucle ne remplisse pas le journal ; le refus lui-même n'est jamais
 limité.
+
+### La portée d'un jeton : quelles machines, quels invités
+
+Un jeton `write` porte ses verbes sur **toutes** les machines, sauf si
+l'opérateur le limite (issue #382). Deux listes, indépendantes, choisies à la
+création et modifiables ensuite :
+
+| Liste | Sens | Valeurs |
+| --- | --- | --- |
+| Machines | Les machines dont l'agent peut recevoir un geste du jeton | Absente : toutes (le cas de tout jeton créé avant la migration `022`). Une liste : celles-là. **Une liste vide : aucune** |
+| Invités | Les numéros (VMID) des VM et conteneurs Proxmox visés, pour les quatre verbes `proxmox.vm.*` | Même règle. Sans verbe Proxmox, la liste ne sert à rien et l'interface ne la propose pas |
+
+**Ce que chaque verbe vise.**
+
+| Verbe | Machine jugée |
+| --- | --- |
+| `agent.ping`, `agent.update`, `agent.rollback` | La machine du chemin (`{id}`) : celle dont l'agent reçoit l'ordre |
+| `probe.pause`, `probe.resume` | La machine **de la sonde** : celle qui sonde (`probes.machine_id`), pas la cible sondée |
+| `job.pause`, `job.resume` | La machine de la tâche. Une tâche **sans machine** n'est dans aucune liste : un jeton limité aux machines est refusé |
+| `proxmox.vm.*` | L'hôte du chemin (`{id}`) jugé par la liste des **machines**, **et** l'invité (`{vmid}`) jugé par la liste des **invités**. Les deux doivent passer |
+
+Le registre porte cette règle : chaque verbe déclare ce que son `{id}`
+désigne (`verb.Target` : `machine`, `probe` ou `job`) et l'enregistrement
+refuse un verbe qui ne le dit pas. Le contrôle est **côté serveur**, dans
+l'admission des jetons (`admitReach`, `internal/server/api_tokens.go`), juste
+après le contrôle du verbe et avant le débit : un refus ne consomme rien. Une
+route d'action ajoutée plus tard est jugée sans autre code, ou n'est pas
+enregistrable.
+
+**Le refus.** `403 api_token.out_of_scope`. L'événement `api_token.deny` est
+écrit, avec l'acteur `api:<id>`, `on_behalf_of`, et `details` : `verb`,
+`reason` = `out_of_scope`, `machine` (l'identifiant visé : celui du chemin, ou
+la machine que la base donne à la sonde ou à la tâche, bornés à 64
+caractères) et `guest` (le numéro, pour un geste Proxmox). La trace a la même
+limite par jeton que les refus de verbe (5 puis une par minute) ; le refus
+lui-même n'est jamais limité. Le contrôle passe **avant** que le serveur
+cherche l'objet visé pour le verbe : une sonde ou une tâche inconnue d'un jeton
+limité répond aussi `403`, jamais `404`, pour qu'un jeton limité n'apprenne pas
+qu'un objet existe sur une machine hors de sa portée. Un jeton sans limite garde
+le `404` d'avant, et ne coûte aucune lecture de plus.
+
+**La modifier.** `PUT /api/settings/api-tokens/{id}/reach`, corps
+`{"machines": […], "guests": […]}` : il **remplace** la portée, une clé absente
+ou `null` redevient « toutes ». Route d'opérateur : un jeton, même `write` avec
+tous les verbes, la reçoit en `403 api_token.route_forbidden`, pour le sien
+comme pour un autre ; il ne peut donc ni élargir sa portée ni créer un jeton
+plus large. Elle vaut à la requête suivante du jeton, est journalisée
+(`api_token.update`, `details.reach`) et exige que le jeton soit `write`
+(`422 api_token.reach_needs_write`), que les machines existent
+(`422 api_token.machine_unknown`) et que les numéros soient des entiers de 1 à
+999999999 (`422 api_token.guest_invalid`). La création accepte les mêmes clés
+`machines` et `guests`.
+
+**Stockage.** Migration `022_api_token_reach.sql` : les colonnes
+`api_tokens.machines_limited` et `guests_limited` (0 par défaut : les jetons
+existants gardent « toutes »), et les tables `api_token_machines`
+(clé étrangère vers `machines`) et `api_token_guests`, vidées avec le jeton
+(`ON DELETE CASCADE`). Le drapeau dit « limité » ; sans lui, la liste ne compte
+pas, ce qui distingue « aucune » (drapeau, liste vide) de « toutes ».
+
+**`GET /api/token/verbs`** rend aussi la portée du jeton qui l'appelle, pour
+que l'outil MCP n'offre pas à l'agent ce qui sera refusé :
+`"reach": {"machines": null, "guests": null}` (`null` : toutes ; une liste,
+vide comprise : celles-là).
+
+**Ce que la portée ne couvre pas, et ce qu'elle coûte.**
+
+- Les **lectures** n'ont pas de portée dans ce chantier : un jeton limité à une
+  machine lit encore toutes les autres. La limite ne vaut que pour les gestes.
+- Un numéro d'invité vaut sur **chaque hôte** admis par la liste des machines :
+  deux hôtes Proxmox qui portent le même VMID ne se distinguent pas. Pour les
+  séparer, un jeton par hôte.
+- Retirer une machine la retire des listes qui la nomment, **sans élargir** :
+  un jeton limité à une seule machine retirée n'agit plus sur rien.
+- Une portée qui ne dit rien est « toutes ». L'interface ne coche rien d'avance
+  une fois « Certaines machines » choisi, et dit qu'une liste vide n'agit sur
+  rien ; mais « Toutes les machines » reste le choix par défaut, par
+  compatibilité avec les jetons d'avant.
 
 ### Ce qu'un jeton ne voit pas
 
