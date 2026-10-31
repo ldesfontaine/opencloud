@@ -89,6 +89,11 @@ export function topicsOf(path: string): readonly Topic[] {
   }
   // L'état d'une sauvegarde est celui de son dernier ordre : la page suit
   // les deux sujets.
+  // L'inventaire croise les plans, les hôtes Proxmox et les volumes Docker des
+  // machines : il se relit quand l'un d'eux change.
+  if (path.startsWith("/api/backups/inventory")) {
+    return ["backups", "actions", "machines", "containers"];
+  }
   if (path.startsWith("/api/backups")) {
     return ["backups", "actions"];
   }

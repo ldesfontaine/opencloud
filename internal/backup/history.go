@@ -15,6 +15,11 @@ const (
 	ResultRefused Result = "refused"
 )
 
+// Results rend la liste fermée des issues d'une cible.
+func Results() []Result {
+	return []Result{ResultOK, ResultFailed, ResultRefused}
+}
+
 const (
 	// MaxRunsPerPlan borne l'historique d'un plan : au-delà, les lignes les
 	// plus anciennes partent à l'écriture de la suivante.

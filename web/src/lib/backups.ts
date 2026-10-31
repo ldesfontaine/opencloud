@@ -1,4 +1,4 @@
-import type { BackupPlan, BackupSourceKind, Backups, PlanRequest } from "../api/backups";
+import type { BackupObserved, BackupPlan, BackupRun, BackupSource, BackupSourceKind, Backups, PlanRequest } from "../api/backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 import type { Translate } from "../i18n/context";
 
@@ -186,4 +186,63 @@ export function planRequestOf(values: PlanFormValues, destination: string): { su
       keep: Number(values.keep),
     },
   };
+}
+
+// À quel point une source est protégée : rien ne la sauvegarde, Proxmox seul en
+// garde des archives, ou un plan du serveur la couvre. L'inventaire montre
+// d'abord celles dont rien ne répond.
+export type Protection = "none" | "observed" | "covered";
+
+export function protectionOf(source: BackupSource): Protection {
+  if (source.covered_by.length > 0) {
+    return "covered";
+  }
+  return source.observed === null ? "none" : "observed";
+}
+
+// La dernière sauvegarde d'une source : la plus récente entre la dernière
+// exécution réussie d'un plan et la plus récente archive vue sur un stockage
+// Proxmox. null quand ni l'une ni l'autre n'existe.
+export interface LastBackup {
+  at: string;
+  bytes: number | null;
+  // La cible : la destination du plan, ou le stockage Proxmox.
+  target: string;
+  origin: "plan" | "observed";
+}
+
+export function lastBackupOf(source: BackupSource): LastBackup | null {
+  const planned = source.last_ok === null ? null : plannedBackup(source.last_ok);
+  const observed = source.observed === null ? null : observedBackup(source.observed);
+  if (planned === null || observed === null) {
+    return planned ?? observed;
+  }
+  return Date.parse(observed.at) > Date.parse(planned.at) ? observed : planned;
+}
+
+function plannedBackup(run: BackupRun): LastBackup {
+  return { at: run.finished_at, bytes: run.size_bytes, target: run.destination_name, origin: "plan" };
+}
+
+function observedBackup(observed: BackupObserved): LastBackup {
+  return { at: observed.last_at, bytes: observed.last_bytes, target: observed.storage, origin: "observed" };
+}
+
+// Le dernier essai d'un plan quand il n'a pas réussi : plus récent que la
+// dernière réussite, ou sans réussite. null quand tout va bien (ou rien tenté).
+export function failedAttemptOf(source: BackupSource): BackupRun | null {
+  const last = source.last_run;
+  if (last === null || last.result === "ok") {
+    return null;
+  }
+  return source.last_ok === null || Date.parse(last.finished_at) > Date.parse(source.last_ok.finished_at) ? last : null;
+}
+
+// La raison d'une ligne de l'historique : la clé d'un refus se traduit telle
+// quelle, un mot fermé passe par le décodeur des ordres.
+export function runReasonText(t: Translate, reason: string, describeReason: (reason: string) => string): string {
+  if (reason === "") {
+    return "";
+  }
+  return reason.startsWith("backup.") ? t(reason) : describeReason(reason);
 }

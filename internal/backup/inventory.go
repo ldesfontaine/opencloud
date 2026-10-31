@@ -25,6 +25,16 @@ const (
 	TargetStorage     = "storage"
 )
 
+// SourceKinds rend la liste fermée des genres de source.
+func SourceKinds() []string {
+	return []string{KindDatabase, KindVM, KindLXC, KindVolume}
+}
+
+// TargetKinds rend la liste fermée des genres de cible.
+func TargetKinds() []string {
+	return []string{TargetDestination, TargetStorage}
+}
+
 // ObservedGuest est une VM ou un conteneur LXC d'un hôte Proxmox, tel que son
 // dernier relevé l'a vu, avec ce que les stockages gardent de lui. Les modèles
 // n'y sont pas : vzdump n'en sauvegarde pas.
