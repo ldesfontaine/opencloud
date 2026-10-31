@@ -323,6 +323,26 @@ func (b *bench) waitForRun(t *testing.T, runID string, want action.State) action
 	return action.Run{}
 }
 
+// waitForActionAudit attend la première entrée d'audit d'un ordre : le serveur
+// l'écrit après avoir fermé le run, donc un run refusé ne prouve pas qu'elle
+// existe déjà.
+func (b *bench) waitForActionAudit(t *testing.T) []audit.Event {
+	t.Helper()
+	deadline := time.Now().Add(benchTimeout)
+	for time.Now().Before(deadline) {
+		events, err := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 1, ObjectKind: audit.ObjectAction})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) > 0 {
+			return events
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("no audit entry for the order")
+	return nil
+}
+
 // De bout en bout : l'agent épingle la clé du serveur à l'enrôlement, la
 // redit à l'ouverture du flux ; un ping signé part, l'agent le vérifie,
 // l'exécute, garde son rang et répond par le signal.
@@ -449,9 +469,9 @@ func TestRun_AppliesItsRightsAndItsRefusalIsJournaled(t *testing.T) {
 	if refused.Reason != agentwire.ReasonNotSelfUpdatable {
 		t.Fatalf("refused %+v", refused)
 	}
-	events, err := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 1, ObjectKind: audit.ObjectAction})
-	if err != nil || len(events) != 1 || events[0].Action != audit.ActionRefused || events[0].Actor.Kind != audit.ActorAgent {
-		t.Fatalf("audit %+v %v", events, err)
+	events := b.waitForActionAudit(t)
+	if len(events) != 1 || events[0].Action != audit.ActionRefused || events[0].Actor.Kind != audit.ActorAgent {
+		t.Fatalf("audit %+v", events)
 	}
 	cancel()
 	<-done

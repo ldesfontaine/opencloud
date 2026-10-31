@@ -123,6 +123,14 @@ func proxmoxBenchWithKey(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer
 	component.SetAuditor(server.journal)
 	component.SetOrders(server.actions)
 	component.SetViewer(server.db)
+	// Le suivi d'un ordre suit la vie du serveur : on l'arrête et on l'attend
+	// avant que l'état de test soit effacé.
+	lifetime, stopServer := context.WithCancel(context.Background())
+	component.SetLifetime(lifetime)
+	t.Cleanup(func() {
+		stopServer()
+		component.WaitBackground()
+	})
 	server.Server.proxmox = component
 	_, hostKey := server.enroll(t, "pve", pveID)
 	server.enroll(t, "docker1", dockerVMID)
