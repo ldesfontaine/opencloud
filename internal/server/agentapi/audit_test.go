@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // L'enrôlement est le seul geste d'un agent qui écrit un objet déclaré : il
@@ -16,7 +17,7 @@ import (
 func TestAgentEnroll_IsJournaledUnderTheAgent(t *testing.T) {
 	server := newBench(t)
 	server.machines.SetAuditor(audit.New(server.db, server.logger))
-	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1", nil)
+	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1", machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

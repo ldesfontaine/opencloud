@@ -92,6 +92,8 @@ const (
 	MachineProxmoxGuest Action = "machine.proxmox_guest"
 	// Le drapeau « à mettre à jour en dernier », posé ou retiré par l'opérateur.
 	MachineUpdateLast Action = "machine.update_last"
+	// Le rôle de la machine, changé par l'opérateur.
+	MachineRole Action = "machine.role"
 
 	// L'agent est enrôlé (la machine créée ou retrouvée) ou révoqué : l'objet
 	// est l'agent, nommé par sa machine. Avant la table agents, l'enrôlement
@@ -199,7 +201,7 @@ const (
 
 func Actions() []Action {
 	return []Action{
-		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset, MachineProxmoxGuest, MachineUpdateLast,
+		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset, MachineProxmoxGuest, MachineUpdateLast, MachineRole,
 		AgentEnroll, AgentRevoke,
 		EnrollmentTokenCreate, EnrollmentTokenCancel,
 		ProjectCreate, ProjectUpdate, ProjectDelete,

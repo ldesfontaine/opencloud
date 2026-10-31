@@ -125,7 +125,7 @@ dit comment. Une migration de plus part de `002`.
 
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq`, le compte sous lequel il tourne `run_as_uid` et `run_as_name` (nuls tant qu'il ne l'a pas dit) ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport, et `unavailable`, la raison pour laquelle son compte ne peut pas l'exercer, vide s'il le peut), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système, rôle choisi), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq`, le compte sous lequel il tourne `run_as_uid` et `run_as_name` (nuls tant qu'il ne l'a pas dit) ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport, et `unavailable`, la raison pour laquelle son compte ne peut pas l'exercer, vide s'il le peut), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_lookup` garde son SHA-256 ; le chiffré est dans `token_sealed` | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche. La machine d'une tâche, facultative, est en `restrict` : une machine à laquelle une tâche est rattachée ne se retire pas (409 `machine.has_heartbeats`), on détache la tâche d'abord |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code, issue dont « manquée » : un retard sans exécution) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes par heure et par jour dans `machine_rollups` (une ligne par machine, granularité `hour` ou `day` et seau) | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
@@ -189,8 +189,9 @@ qu'à l'écran qui le montre une fois, puis chez le client qui le garde
 
 ## Comment une machine entre
 
-1. L'opérateur nomme la machine et coche les droits de son agent
-   (« Les droits d'un agent », plus bas). openCloud tire un jeton, en garde
+1. L'opérateur nomme la machine, choisit son rôle (qui coche d'avance les droits
+   de son agent et décide de ses modules) et ajuste les droits (« Les droits
+   d'un agent », plus bas). openCloud tire un jeton, en garde
    l'empreinte et les droits demandés, affiche le clair une seule fois avec la
    commande à coller.
 2. Sur la machine, en deux temps. D'abord la **préparation**, que le serveur
@@ -524,6 +525,55 @@ toujours eue : c'est par lui qu'elle garde son historique.
 | Hors ligne | Sans le flux de son agent, la machine openCloud est hors ligne, comme les autres ; tant qu'elle n'a pas d'agent actif, elle n'est jamais déclarée **perdue** |
 | Retrait | Comme les autres, par son plan : elle emporte son agent. Au démarrage suivant, sans ligne `local`, le jeton est de nouveau offert |
 
+## Comment les modules et le rôle d'une machine décident de l'écran
+
+Le menu, les onglets d'une fiche, Paramètres › Modules et la carte « à
+configurer » de la vue d'ensemble ne devinent plus chacun leur condition : ils
+lisent un registre de modules.
+
+| Pièce | Rôle | Où |
+| --- | --- | --- |
+| Liste fermée | `module.ID` (`containers`, `hypervisor`, `guest`, `ssh_keys`, `probes`, `firewall`, `backups`, `jobs`, `status`) et sa portée (`machine`, `installation` ; les sondes vivent dans les deux). Libellé et phrase : clés `module.<id>` et `module.<id>_text` des catalogues | `internal/module` |
+| Rôle d'une machine | `machines.role`, liste fermée `machine.Roles()` : `generic`, `docker`, `proxmox`. **Choisi à l'ajout** : le jeton d'enrôlement le porte (`enrollment_tokens.role`), l'enrôlement l'inscrit sur la machine, un ré-enrôlement garde celui de la machine. Il se change sur la fiche (`PUT /api/machines/{id}/role`, carte « Rôle de la machine ») ; l'opérateur seul, aucun jeton d'API ; journal `machine.role` (rôle, rôle d'avant) | `internal/machine/role.go`, migration `024_machine_role.sql` |
+| Préréglage des droits | `machine.RolePreset(rôle)` : `generic` coche `probe.lan` ; `docker` y ajoute `docker.deploy` et `docker.update` ; `proxmox` y ajoute `proxmox.power` et `proxmox.snapshot`. Écrit **une fois**, en Go, et servi par `GET /api/session` (`roles: [{id, capabilities}]`) : l'ajout d'une machine coche ces droits d'avance, l'opérateur les ajuste sous « Avancé ». Le serveur n'ajoute rien de lui-même à ce que la demande porte | `internal/machine/role.go`, `api_session.go` |
+| Présence d'un module de machine | Une règle SQL par module, lue pour toutes les machines à la fois : `containers` = rôle `docker` **ou** un conteneur observé ; `hypervisor` = rôle `proxmox` **ou** un hôte Proxmox déclaré (un hôte déclaré ne perd jamais son onglet) ; `guest` = un invité d'hôte lui est lié ; `ssh_keys` = l'agent a rapporté ses clés ; `probes` = une sonde la vise. Rendue par `GET /api/machines` et `/{id}` (`role`, `modules`) | `internal/store/modules.go` (`MachineModules`) |
+| Configuré (module de l'installation) | Au moins un objet du module existe : un pare-feu, un trousseau ou un plan de sauvegarde, une tâche, une sonde, une page de statut. Rendu par `GET /api/counts` (`modules: [{id, configured}]`), **pas** par la session : la session se lit une fois, et le menu doit suivre le premier objet créé (le compteur est relu sur les sujets `machines`, `jobs`, `probes`, `status`, `alerts`, `directory`, `firewalls`, `backups`) | `internal/store/modules.go` (`InstallationModules`) |
+
+Ce que l'écran en fait (`web/src/lib/modules.ts`, le seul lieu qui sait qu'un
+module a une entrée de menu, un onglet ou un premier geste) :
+
+- **Le menu** : Vue d'ensemble, Machines, Clés SSH (entrée fixe tant que sa vue
+  globale n'est pas un onglet de Machines), Pare-feu, Sauvegardes, Services,
+  Disponibilité, Pages de statut, Tâches planifiées, Alertes, Journal ; en bas,
+  Paramètres, la langue et le thème. Un module de l'installation n'y est que
+  **configuré**. Plus de section « Administration ». Avant la première lecture
+  des compteurs, seules les entrées fixes s'affichent, sans chiffre inventé.
+- **Les onglets d'une fiche** : Résumé, Réseau, Journaux, et ceux des modules
+  que la machine porte (Conteneurs, Disponibilité, Clés SSH, Hyperviseur).
+  L'adresse d'un onglet reste servie sans son module : un lien gardé ne tombe
+  pas sur une page introuvable.
+- **Paramètres › Modules** (`/parametres#modules`) : les modules de
+  l'installation, configuré ou « à configurer », avec un bouton vers leur page
+  ou vers leur premier geste. C'est ici qu'un module sans objet se configure :
+  il n'a pas d'entrée de menu avant son premier objet.
+- **La carte « À configurer »** de la vue d'ensemble : les modules de
+  l'installation sans objet, et l'hôte Proxmox d'une machine au rôle Proxmox
+  tant qu'il n'est pas déclaré. Sans rien à faire, elle n'est pas là.
+
+Un rôle ne donne aucun droit et ne déclare rien : il décide de ce que l'écran
+montre. À ne pas confondre avec les `roles` d'une machine (`proxmox_ve`), que
+l'agent reconnaît de lui-même et que l'écran **propose** en bloc « Proxmox
+reconnu » : celui-là se constate, celui-ci se choisit.
+
+**Migration `024`.** `machines.role` et `enrollment_tokens.role`
+(`CHECK (role IN ('generic', 'docker', 'proxmox'))`, défaut `generic`). Les
+machines déjà enrôlées reçoivent leur rôle des faits : `proxmox` si un hôte est
+déclaré (`machine_proxmox`) ou si l'agent a reconnu Proxmox VE
+(`machine_roles`), `docker` sinon si l'agent a trouvé Docker
+(`machine_engines.present`), `generic` sinon. Proxmox l'emporte sur Docker :
+un hôte Proxmox fait souvent tourner Docker aussi. Le test
+`TestMigration024_DeducesTheRoleFromTheFacts` la joue sur une base d'avant.
+
 ## Comment un hôte Proxmox se lit
 
 C'est la première étape de #266 : **lire**, jamais écrire (la sauvegarde d'une
@@ -808,7 +858,7 @@ d'ouverture de ces ordres aux jetons d'API (chantier à part) ; commandes
 Un module **générique** : l'interface et l'API ne parlent d'aucune marque, seul
 le **connecteur** (`internal/firewall/opnsense`) connaît l'API d'OPNsense. Un
 autre pare-feu ajoute son genre (`firewall.Kind…`) et son connecteur, sans
-toucher à la page. L'opérateur déclare un pare-feu (page « Pare-feu » du menu) ;
+toucher à la page. L'opérateur déclare un pare-feu (Paramètres › Modules, puis la page « Pare-feu » qui entre au menu avec le premier) ;
 openCloud lit sa version, ses interfaces, ses règles, ses baux DHCP et ses
 passerelles, pour l'opérateur et pour les agents IA (jeton d'API, donc
 mcp-maison). **Lecture seule** : aucun ordre n'est donné au pare-feu, aucune
@@ -1293,8 +1343,8 @@ backup.source_offline`, `backup.source_right_missing`, `backup.selector_needs_li
 `backup.destination_agent_outdated` et `backup.run_in_progress` (« Une source
 produite par un agent »).
 
-**L'interface** : la page **Sauvegardes** (`/sauvegardes`, sous
-« Administration ») : la clé, les destinations (avec la pastille du droit de
+**L'interface** : la page **Sauvegardes** (`/sauvegardes`, au menu une fois
+le module configuré) : la clé, les destinations (avec la pastille du droit de
 leur agent), puis la liste des plans, chacun avec son état, « Sauvegarder
 maintenant », « Modifier » et « Supprimer le plan », et le formulaire
 d'ajout ou de modification (le sujet et le type de source ne changent plus une
@@ -4177,7 +4227,7 @@ brouillon n'est gardé) ; le flou du voile demande un navigateur récent
 
    | Ce que l'onglet lit | Relu sur |
    | --- | --- |
-   | `/api/counts` (barre latérale, vue d'ensemble) | `machines`, `jobs`, `containers`, `probes`, `status` (incidents ouverts), `alerts`, `directory` (politique de mise à jour des unités) ; **jamais** `resources` |
+   | `/api/counts` (barre latérale, vue d'ensemble) | `machines`, `jobs`, `containers`, `probes`, `status` (incidents ouverts), `alerts`, `directory` (politique de mise à jour des unités), `firewalls` et `backups` (les modules configurés) ; **jamais** `resources` |
    | `/api/resources`, `…/resources…` | `resources` |
    | `/api/machines…` | `machines` |
    | une liste ou une fiche d'un autre domaine | son sujet (l'écart et la fiche d'un conteneur suivent aussi `directory`) |
@@ -4236,7 +4286,8 @@ jamais un bouton bloqué.
 ### Ce qui n'est pas encore livré ne s'affiche pas
 
 La barre latérale et les onglets d'une machine ne montrent que des écrans
-qui marchent : ni page « Bientôt », ni onglet vide. Les adresses déjà
+qui marchent : ni page « Bientôt », ni onglet vide. Les modules décident du
+reste (« Comment les modules et le rôle d'une machine décident de l'écran »). Les adresses déjà
 connues restent valides et renvoient au parent : `/machines/{id}/sauvegardes`
 et `/reglages` au résumé de la machine. (`/sauvegardes` est livrée : la page
 Sauvegardes.) L'onglet Journaux est un raccourci : les services de la machine
@@ -4317,7 +4368,7 @@ seau.
 C'est la première étape de #152 : **lire**, jamais écrire. L'agent inventorie
 les fichiers `authorized_keys` et `authorized_keys2` de chaque compte de sa
 machine ; openCloud les affiche, par machine (onglet « Clés SSH » de la fiche)
-et toutes ensemble (page « Clés SSH » sous Administration, une ligne par
+et toutes ensemble (page « Clés SSH » du menu, une ligne par
 empreinte, une colonne par machine). **Aucune écriture** sur une machine : ni
 fichier, ni dossier, ni ordre. Le droit est `observe`, toujours acquis ; aucun
 droit nouveau.
@@ -4585,8 +4636,7 @@ l'acteur de l'apply et avec son `apply_id`.
 - **Lire** : `GET /api/audit?limit=&before=&object_kind=&object_id=&actor_kind=&actor=`,
   lue par l'opérateur et par un jeton d'API, 50 par page, 200 au plus, du plus récent au plus ancien ;
   `next_before` donne la page suivante, `null` à la fin. Un nombre illisible
-  ou une sorte d'objet ou un genre d'acteur inconnu, ou une recherche de plus de 200 caractères : `400 bad_query`. Dans l'interface, l'onglet **Journal** (`/journal`, sous
-  Administration) : date, acteur, action, objet, détail replié ; cliquer un
+  ou une sorte d'objet ou un genre d'acteur inconnu, ou une recherche de plus de 200 caractères : `400 bad_query`. Dans l'interface, l'onglet **Journal** (`/journal`, au menu) : date, acteur, action, objet, détail replié ; cliquer un
   objet ne montre que son histoire.
 
 ### Envoi aux canaux
@@ -4974,7 +5024,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Pas d'incident automatique | Une sonde qui tombe change l'état du composant et ouvre une alerte ; personne n'ouvre l'incident public ni ne le résout | À décider, retouche après la 11 : ouvrir un incident public demande une règle, et une erreur se lit en public |
 | Constats d'exposition non alertés | Un port de base publié se voit sur le graphe, personne n'est prévenu | À décider |
 | Une sauvegarde en échec n'alerte pas | Elle se lit sur la page Sauvegardes (état du dernier ordre, `last_error`) ; aucune alerte ne s'ouvre, aucun canal n'est prévenu | À décider |
-| Pas d'onglets machine Sauvegardes, Réglages | Onglets masqués tant qu'ils ne sont pas livrés ; leurs adresses mènent au résumé de la machine. La page Sauvegardes existe, sous Administration, mais pas rangée par machine. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
+| Pas d'onglets machine Sauvegardes, Réglages | Onglets masqués tant qu'ils ne sont pas livrés ; leurs adresses mènent au résumé de la machine. La page Sauvegardes existe, au menu, mais pas rangée par machine. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
 | Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
 | Appliquer une mise à jour : ce qui reste | Pour un service **déployé par openCloud**, le tag plus récent se prend d'un geste (« Passer à »). Restent : **aucun retour arrière** si le service ne redevient pas sain ; une **empreinte changée sous le même tag** (aucun bouton : `--pull missing` ne la tirerait pas) ; une **autre version** que celle proposée (modifier le service, puis « Redéployer ») ; un service dont une unité épingle une empreinte (à retirer à la main). Pour les services **qu'openCloud n'a pas déployés**, il montre la ligne `image:` à changer et fabrique la commande ; l'opérateur les applique, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien (décidé le 12 octobre 2026, issue #125) | Le retour arrière : à décider (issue à part) |
 | Une image en retard se voit jusqu'à 24 h après | La cadence tient le quota du Hub ; « Vérifier maintenant » raccourcit à la demande | À décider, avec un écran de réglages |
@@ -5047,3 +5097,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Retour arrière des mises à jour d'agent | La migration `018_agent_rollback.sql` (`agents.rollback_version`, `machines.update_last`), le paquet `internal/rollback` (le marqueur `update.json`, `Arm`, `SwitchLink`, `Guard` et son lanceur de processus), la sous-commande `opencloud guard`, l'ordre `agent.rollback` (`agentwire.KindAgentRollback`, droit `agent.update`), l'en-tête `OpenCloud-Agent-Rollback`, `internal/agent/outcome.go` (confirmer, rapporter), `action.RollbackAgent`/`UpdatePlan`/`refuseWhileUpdating`, les refus `action.rollback_unavailable` et `action.update_in_progress`, l'audit `action.rolled_back` et `machine.update_last`, l'alerte `agent_rolled_back`, les verbes `agent.update` et `agent.rollback`, `GET /api/agent-updates`, `GET /api/agent-migration`, `PUT /api/machines/{id}/update-last`, la fiche (état de la mise à jour, retour arrière, drapeau, migration) et la pastille de la vue d'ensemble, `docs/installation/opencloud-agent.service` (lanceur), « Migrer l'agent vers le retour arrière automatique » |
 | Gestes sur Proxmox (#266) | Les droits `proxmox.power` et `proxmox.snapshot`, quatre ordres `proxmox.vm.*`, le jeton local de l'agent, la route `POST …/proxmox/guests/{vmid}/actions/{geste}`, l'événement d'audit `machine.proxmox_guest` (« Comment un hôte Proxmox agit ») |
 | Inventaire et historique des sauvegardes (#368) | Les migrations `019_backup_runs.sql` (`backup_runs`), `020_proxmox_backup_observed.sql` (archives vues par invité) et `021_machine_volumes.sql` (`machine_volumes`), `internal/backup/history.go` et `inventory.go` (`Inventory`, `Runs`, les clés de source), `store/backup_runs.go` et `backup_inventory.go`, la purge à 400 lignes par plan, `dockerapi.ListVolumes` et `Mounts`, `container.VolumeReport` (`volumes_complete`, `volumes`), `deletion.KindMachineVolumes`, `GET /api/backups/inventory` et `/runs` (ouvertes aux jetons en lecture), les goldens `backups_inventory` et `backups_runs`, la section Inventaire de la page Sauvegardes. `last_targets_ok` et `last_targets_failed` ne sont plus en mémoire |
+| Registre de modules et rôle de machine (#407) | Le paquet `internal/module`, `machine.Roles()` et `RolePreset`, la migration `024_machine_role.sql`, `store/modules.go`, `PUT /api/machines/{id}/role`, `role` et `modules` dans les machines, `modules` dans les compteurs, `roles` dans la session, `web/src/lib/modules.ts` (menu, onglets, carte « à configurer »), Paramètres › Modules, la carte « Rôle de la machine » (« Comment les modules et le rôle d'une machine décident de l'écran ») |

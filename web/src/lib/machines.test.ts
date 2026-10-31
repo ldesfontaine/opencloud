@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { backupProducer, capabilitiesOf, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
+import { backupProducer, capabilitiesOf, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, machineSeen, machinesSubtitle, rightsFormOf, rolePatch, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -137,4 +137,24 @@ test("isMachineFormModified : le formulaire neuf est propre, un nom ou un droit 
   expect(isMachineFormModified({ ...emptyMachineForm, name: "vps-1" })).toBe(true);
   expect(isMachineFormModified({ ...emptyMachineForm, rights: ["probe.lan", "docker.deploy"] })).toBe(true);
   expect(isMachineFormModified({ ...emptyMachineForm, rights: [] })).toBe(true);
+});
+
+const sessionRoles = [
+  { id: "generic" as const, capabilities: ["probe.lan"] },
+  { id: "docker" as const, capabilities: ["probe.lan", "docker.deploy", "docker.update"] },
+  { id: "proxmox" as const, capabilities: ["probe.lan", "proxmox.power", "proxmox.snapshot"] },
+];
+
+test("rolePatch : choisir un rôle coche ses droits d'avance, tels que le serveur les dit", () => {
+  expect(rolePatch("docker", sessionRoles)).toEqual({ role: "docker", rights: ["probe.lan", "docker.deploy", "docker.update"] });
+  expect(rolePatch("generic", sessionRoles)).toEqual({ role: "generic", rights: ["probe.lan"] });
+  expect(capabilitiesOf({ ...emptyMachineForm, ...rolePatch("proxmox", sessionRoles) }).map((right) => right.name)).toEqual(["probe.lan", "proxmox.power", "proxmox.snapshot"]);
+});
+
+test("rolePatch : un rôle que la session ne connaît pas ne coche rien", () => {
+  expect(rolePatch("docker", [])).toEqual({ role: "docker", rights: [] });
+});
+
+test("isMachineFormModified : changer de rôle est une saisie", () => {
+  expect(isMachineFormModified({ ...emptyMachineForm, role: "docker" })).toBe(true);
 });

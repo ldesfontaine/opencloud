@@ -7,3 +7,12 @@
   gap: 16px;
   min-width: 0;
 }
+
+// Le rôle : son menu et son bouton sur une ligne, qui passe à la ligne sur
+// téléphone.
+.role-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +42,7 @@ type Store interface {
 	RecordRootDir(ctx context.Context, agentID, root string) error
 	RecordRollbackVersion(ctx context.Context, agentID string, version int) error
 	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) error
+	SetRole(ctx context.Context, machineID string, role Role) error
 	InsertToken(ctx context.Context, token Token) error
 	ListPendingTokens(ctx context.Context, now time.Time) ([]Token, error)
 	DeleteToken(ctx context.Context, id string) error
@@ -185,16 +187,20 @@ func (s *Service) Count(ctx context.Context) (total, online int, err error) {
 }
 
 // CreateToken émet le jeton d'une nouvelle machine, nommée par l'opérateur,
-// avec les droits qu'il a cochés ; observe s'y ajoute toujours.
-func (s *Service) CreateToken(ctx context.Context, name string, capabilities []Capability) (string, Token, error) {
+// avec le rôle qu'il lui donne et les droits qu'il a cochés ; observe s'y
+// ajoute toujours.
+func (s *Service) CreateToken(ctx context.Context, name string, role Role, capabilities []Capability) (string, Token, error) {
 	if err := ValidateName(name); err != nil {
 		return "", Token{}, err
+	}
+	if !slices.Contains(Roles(), role) {
+		return "", Token{}, ErrRoleUnknown
 	}
 	normalized, err := NormalizeCapabilities(capabilities)
 	if err != nil {
 		return "", Token{}, err
 	}
-	return s.issueToken(ctx, name, "", normalized)
+	return s.issueToken(ctx, name, "", role, normalized)
 }
 
 // CreateReenrollToken émet un jeton qui installe un nouvel agent sur une
@@ -215,14 +221,15 @@ func (s *Service) CreateReenrollToken(ctx context.Context, machineID string, cap
 	if err != nil {
 		return "", Token{}, err
 	}
-	return s.issueToken(ctx, machine.Name, machine.ID, normalized)
+	return s.issueToken(ctx, machine.Name, machine.ID, machine.Role, normalized)
 }
 
-func (s *Service) issueToken(ctx context.Context, name, machineID string, capabilities []Capability) (string, Token, error) {
+func (s *Service) issueToken(ctx context.Context, name, machineID string, role Role, capabilities []Capability) (string, Token, error) {
 	cleartext, token, err := NewToken(name, machineID)
 	if err != nil {
 		return "", Token{}, fmt.Errorf("generate token: %w", err)
 	}
+	token.Role = role
 	token.Capabilities = capabilities
 	now := s.now()
 	token.CreatedAt = now
@@ -541,6 +548,34 @@ func (s *Service) SetUpdateLast(ctx context.Context, machineID string, updateLas
 	s.auditor.Record(ctx, audit.Event{
 		Action: audit.MachineUpdateLast, ObjectID: target.ID, ObjectName: target.Name,
 		Details: audit.Details{"update_last": strconv.FormatBool(updateLast)},
+	})
+	s.changed(machineID)
+	return target, nil
+}
+
+// SetRole change le rôle de la machine. Il ne touche ni aux droits de
+// l'agent ni à ses objets : il change les modules que la machine porte. Les
+// droits que le nouveau rôle préréglerait, c'est le ré-enrôlement qui les
+// donne. Réservé à l'opérateur, comme SetUpdateLast.
+func (s *Service) SetRole(ctx context.Context, machineID string, role Role) (Machine, error) {
+	if !slices.Contains(Roles(), role) {
+		return Machine{}, ErrRoleUnknown
+	}
+	target, err := s.store.GetMachine(ctx, machineID)
+	if err != nil {
+		return Machine{}, err
+	}
+	if target.Role == role {
+		return target, nil
+	}
+	if err := s.store.SetRole(ctx, machineID, role); err != nil {
+		return Machine{}, err
+	}
+	previous := target.Role
+	target.Role = role
+	s.auditor.Record(ctx, audit.Event{
+		Action: audit.MachineRole, ObjectID: target.ID, ObjectName: target.Name,
+		Details: audit.Details{"role": string(role), "previous": string(previous)},
 	})
 	s.changed(machineID)
 	return target, nil

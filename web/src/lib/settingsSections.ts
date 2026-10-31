@@ -2,6 +2,7 @@
 // (sans accent, elle se tape dans une adresse) et la clé de son intitulé.
 export const settingsSections = [
   { id: "acces", titleKey: "settings.section_access" },
+  { id: "modules", titleKey: "settings.section_modules" },
   { id: "alertes", titleKey: "settings.section_alerts" },
   { id: "e-mails", titleKey: "settings.section_mail" },
   { id: "fin-de-support", titleKey: "settings.section_lifecycle" },

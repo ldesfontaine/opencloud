@@ -252,6 +252,7 @@ func TestVerbs_EveryOtherWriteRouteIsRefusedToAFullWriteToken(t *testing.T) {
 		{http.MethodPost, "/api/machines/x/actions/revoke"},
 		{http.MethodPost, "/api/machines/x/actions/reenroll"},
 		{http.MethodPut, "/api/machines/x/update-last"},
+		{http.MethodPut, "/api/machines/x/role"},
 		{http.MethodGet, "/api/agent-migration"},
 		{http.MethodPost, "/api/directory/services/x/actions/deploy"},
 		{http.MethodPut, "/api/firewalls/x"},

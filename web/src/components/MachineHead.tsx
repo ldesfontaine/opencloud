@@ -4,8 +4,8 @@ import type { Machine } from "../api/machines";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { agentBehindServer } from "../lib/agentUpdate";
-import { visibleMachineTabs } from "../lib/machineTabs";
 import { machineSeen } from "../lib/machines";
+import { machineTabsOf, type ModuleID } from "../lib/modules";
 import { MachineSelect } from "./MachineSelect";
 import { OnlinePill } from "./Pill";
 import { SupportLine } from "./SupportBlock";
@@ -52,7 +52,7 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
   );
 }
 
-export function Tabs({ machineID, hostsProxmox }: { machineID: string; hostsProxmox: boolean }) {
-  const tabs = visibleMachineTabs(hostsProxmox).map((tab) => ({ to: tab.slug === "" ? `/machines/${machineID}` : `/machines/${machineID}/${tab.slug}`, key: tab.key }));
+export function Tabs({ machineID, modules }: { machineID: string; modules: readonly ModuleID[] }) {
+  const tabs = machineTabsOf(modules).map((tab) => ({ to: tab.slug === "" ? `/machines/${machineID}` : `/machines/${machineID}/${tab.slug}`, key: tab.label }));
   return <TabNav tabs={tabs} />;
 }

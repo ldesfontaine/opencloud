@@ -1,4 +1,5 @@
 import { api, segment } from "./client";
+import type { RoleID } from "./machines";
 import { route } from "./routes";
 
 // La session du navigateur : version, langue, et les seuils que le serveur
@@ -30,6 +31,14 @@ export interface Session {
   // Les écritures que le registre des verbes ouvre aux jetons d'API : un
   // bouton qui appelle l'une d'elles porte la puce « MCP ».
   verbs: SessionVerb[];
+  // Les rôles qu'une machine peut recevoir, avec les droits qu'ils cochent
+  // d'avance : le serveur seul écrit ce préréglage.
+  roles: SessionRole[];
+}
+
+export interface SessionRole {
+  id: RoleID;
+  capabilities: string[];
 }
 
 interface SessionVerb {

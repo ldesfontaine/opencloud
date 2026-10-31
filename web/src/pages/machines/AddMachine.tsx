@@ -1,27 +1,30 @@
 import { useId, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 
-import { createMachineToken } from "../../api/machines";
+import { createMachineToken, type RoleID } from "../../api/machines";
 import { Button } from "../../components/Button";
 import { Fold } from "../../components/Disclosure";
 import { Failure } from "../../components/Failure";
 import { Field, Input } from "../../components/Field";
+import { Select } from "../../components/Select";
 import { Modal, ModalCancel } from "../../components/Modal";
 import { RightsFields } from "../../components/RightsFields";
 import { WizardBar } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
-import { useT } from "../../i18n/context";
-import { capabilitiesOf, emptyMachineForm, isMachineFormModified, tokenPageState, type TokenPageState } from "../../lib/machines";
+import { useRoles, useT } from "../../i18n/context";
+import { capabilitiesOf, emptyMachineForm, isMachineFormModified, rolePatch, tokenPageState, type TokenPageState } from "../../lib/machines";
 import { EnrollmentToken } from "./EnrollmentToken";
 
 // « Ajouter une machine » : une fenêtre à deux étapes sur la liste des
 // machines, à l'adresse /machines/nouvelle (la liste est le fond, comme au
-// rechargement). 1. nommer la machine, droits de l'agent sous « Avancé » ;
+// rechargement). 1. nommer la machine et choisir son rôle, qui coche d'avance
+// les droits de l'agent (sous « Avancé ») ;
 // 2. la commande à coller dessus. Le jeton naît à la fin de la première
 // étape et ne vit que dans cette fenêtre.
 export function AddMachine() {
   const t = useT();
+  const roles = useRoles();
   const navigate = useNavigate();
   const form = useForm(emptyMachineForm);
   const { values, change } = form;
@@ -33,7 +36,7 @@ export function AddMachine() {
   const create = (event: FormEvent) => {
     event.preventDefault();
     const rights = capabilitiesOf(values);
-    action.run(() => createMachineToken(values.name, rights), {
+    action.run(() => createMachineToken(values.name, values.role, rights), {
       topic: "all",
       onDone: (created) => setToken(tokenPageState(created, rights)),
     });
@@ -89,9 +92,17 @@ export function AddMachine() {
             required
           />
         </Field>
+        <Field label={t("machine.role_label")} htmlFor="machine-role" help={t("machine.role_help")}>
+          <Select
+            id="machine-role"
+            value={values.role}
+            options={roles.map((offered) => ({ value: offered.id, label: t(`role.${offered.id}`) }))}
+            onChange={(role) => form.update(rolePatch(role as RoleID, roles))}
+          />
+        </Field>
         <Fold label={t("machine.rights_advanced")} initiallyOpen={false}>
-          {/* Une machine pas encore enrôlée n'a aucun rôle reconnu : pas de droit Proxmox. */}
-          <RightsFields values={values} update={form.update} proxmoxDetected={false} />
+          {/* Le rôle Proxmox propose les droits proxmox.* : l'hôte n'est pas encore enrôlé, rien n'est détecté. */}
+          <RightsFields values={values} update={form.update} proxmoxDetected={values.role === "proxmox"} />
         </Fold>
         <Failure error={action.error} />
       </form>

@@ -470,7 +470,7 @@ func TestDeleteMachine_TakesItsContainersAlong(t *testing.T) {
 	b := newBench(t)
 	remote := machine.Machine{ID: "11111111-1111-4111-8111-111111111111", Name: "vps", CreatedAt: testNow}
 	agent := machine.Agent{ID: "agt_0123456789abcdef", PublicKey: make([]byte, 32), EnrolledAt: testNow}
-	if err := b.db.InsertToken(context.Background(), machine.Token{ID: "t1", Hash: "h", Prefix: "p", Name: "vps", CreatedAt: testNow, ExpiresAt: testNow.Add(time.Hour)}); err != nil {
+	if err := b.db.InsertToken(context.Background(), machine.Token{ID: "t1", Hash: "h", Prefix: "p", Name: "vps", Role: machine.RoleGeneric, CreatedAt: testNow, ExpiresAt: testNow.Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.db.Enroll(context.Background(), "h", remote, agent, testNow); err != nil {

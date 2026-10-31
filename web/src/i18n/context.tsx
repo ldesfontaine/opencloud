@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { fetchCatalog, fetchSession, saveLanguage, type Catalog, type CertificateThresholds, type DiskThresholds, type Session } from "../api/session";
+import { fetchCatalog, fetchSession, saveLanguage, type Catalog, type CertificateThresholds, type DiskThresholds, type Session, type SessionRole } from "../api/session";
 import { productName } from "../lib/product";
 import { format } from "./format";
 
@@ -18,6 +18,8 @@ interface I18n {
   disks: DiskThresholds;
   // Les routes d'écriture qui sont aussi des verbes d'API (puce « MCP »).
   verbRoutes: ReadonlySet<string>;
+  // Les rôles d'une machine et les droits qu'ils cochent d'avance.
+  roles: SessionRole[];
   t: Translate;
   setLanguage: (code: string) => Promise<void>;
   // Relit la session : après un réglage de seuil, les jauges suivent sans
@@ -75,6 +77,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       certificates: session.certificate_thresholds,
       disks: session.disk_thresholds,
       verbRoutes: new Set(session.verbs.map((verb) => verb.route)),
+      roles: session.roles,
       t,
       setLanguage,
       reloadSession: load,
@@ -115,6 +118,11 @@ export function useCertificateThresholds(): CertificateThresholds {
 
 export function useDiskThresholds(): DiskThresholds {
   return useI18n().disks;
+}
+
+// Les rôles qu'une machine peut recevoir, avec leur préréglage de droits.
+export function useRoles(): SessionRole[] {
+  return useI18n().roles;
 }
 
 // Dit si une écriture est aussi un verbe d'API que les jetons peuvent porter.

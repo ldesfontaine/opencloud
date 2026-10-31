@@ -45,7 +45,7 @@ func TestAgentEnroll_FromTheServerMachine_TakesTheStableID(t *testing.T) {
 	}
 	server.machines.SetServerHost("f00d", "oc-host")
 	enroll := func(name, fingerprint string) *httptest.ResponseRecorder {
-		cleartext, _, err := server.machines.CreateToken(context.Background(), name, nil)
+		cleartext, _, err := server.machines.CreateToken(context.Background(), name, machine.RoleGeneric, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,7 +70,7 @@ func TestAgentEnroll_FromTheServerMachine_TakesTheStableID(t *testing.T) {
 
 func TestAgentEnroll_CreatesTheMachineAndMapsRefusals(t *testing.T) {
 	server := newBench(t)
-	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1", nil)
+	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1", machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

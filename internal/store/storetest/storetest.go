@@ -122,7 +122,7 @@ func EnsureLocalMachine(t testing.TB, machines *machine.Service) machine.Machine
 	t.Helper()
 	ctx := context.Background()
 	machines.SetServerHost(LocalFingerprint, localHostname)
-	cleartext, _, err := machines.CreateToken(ctx, brand.LocalMachineName, nil)
+	cleartext, _, err := machines.CreateToken(ctx, brand.LocalMachineName, machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func EnrollMachine(t testing.TB, machines *machine.Service, id, name string) mac
 func EnrollMachineWithKey(t testing.TB, machines *machine.Service, id, name string) (machine.Machine, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
-	cleartext, _, err := machines.CreateToken(ctx, name, nil)
+	cleartext, _, err := machines.CreateToken(ctx, name, machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

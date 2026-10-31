@@ -13,7 +13,7 @@ import (
 
 // Une machine se lit avec son agent courant : l'actif, sinon le dernier
 // révoqué ; et ce que le jeton qui l'a enrôlé demandait.
-const machineSelect = `SELECT m.id, m.name, m.hostname, m.address, m.os, m.arch, m.created_at, m.update_last,
+const machineSelect = `SELECT m.id, m.name, m.hostname, m.address, m.os, m.arch, m.created_at, m.update_last, m.role,
 		a.id, a.public_key, a.version, a.root_dir, a.enrolled_at, a.last_seen_at, a.revoked_at,
 		a.server_key_fingerprint, a.run_as_uid, a.run_as_name, t.requested_capabilities, a.rollback_version
 	FROM machines m
@@ -127,6 +127,15 @@ func (db *DB) SetUpdateLast(ctx context.Context, machineID string, updateLast bo
 	return notFoundIfNoRow(result, machine.ErrNotFound)
 }
 
+// SetRole change le rôle de la machine.
+func (db *DB) SetRole(ctx context.Context, machineID string, role machine.Role) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE machines SET role = ? WHERE id = ?`, string(role), machineID)
+	if err != nil {
+		return fmt.Errorf("set machine role: %w", err)
+	}
+	return notFoundIfNoRow(result, machine.ErrNotFound)
+}
+
 // RecordRootDir note la racine des services que l'agent dit à l'ouverture du
 // flux.
 func (db *DB) RecordRootDir(ctx context.Context, agentID, root string) error {
@@ -224,14 +233,15 @@ func (db *DB) Enroll(ctx context.Context, tokenHash string, candidate machine.Ma
 			return classifyTokenFailure(ctx, tx, tokenHash, now)
 		}
 
-		var name string
+		var name, role string
 		var existingID sql.NullString
 		if err := tx.QueryRowContext(ctx,
-			`SELECT name, machine_id FROM enrollment_tokens WHERE token_hash = ?`, tokenHash,
-		).Scan(&name, &existingID); err != nil {
+			`SELECT name, machine_id, role FROM enrollment_tokens WHERE token_hash = ?`, tokenHash,
+		).Scan(&name, &existingID, &role); err != nil {
 			return fmt.Errorf("read token: %w", err)
 		}
 		candidate.Name = name
+		candidate.Role = machine.Role(role)
 		switch {
 		case existingID.Valid:
 			candidate.ID = existingID.String
@@ -262,9 +272,9 @@ func (db *DB) Enroll(ctx context.Context, tokenHash string, candidate machine.Ma
 
 func insertMachine(ctx context.Context, tx *sql.Tx, m machine.Machine) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO machines (id, name, hostname, address, os, arch, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.Name, m.Hostname, m.Address, m.OS, m.Arch, m.CreatedAt.Unix())
+		INSERT INTO machines (id, name, hostname, address, os, arch, role, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.Name, m.Hostname, m.Address, m.OS, m.Arch, string(m.Role), m.CreatedAt.Unix())
 	if isUniqueViolation(err) {
 		return machine.ErrNameTaken
 	}
@@ -378,16 +388,18 @@ func classifyTokenFailure(ctx context.Context, tx *sql.Tx, tokenHash string, now
 func scanMachine(row scanner) (machine.Machine, error) {
 	var m machine.Machine
 	var createdAt int64
+	var role string
 	var agentID, version, rootDir, serverKey, runAsName, requested sql.NullString
 	var publicKey []byte
 	var enrolledAt, lastSeenAt, revokedAt, runAsUID sql.NullInt64
 	var rollbackVersion sql.NullInt64
-	err := row.Scan(&m.ID, &m.Name, &m.Hostname, &m.Address, &m.OS, &m.Arch, &createdAt, &m.UpdateLast,
+	err := row.Scan(&m.ID, &m.Name, &m.Hostname, &m.Address, &m.OS, &m.Arch, &createdAt, &m.UpdateLast, &role,
 		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &serverKey, &runAsUID, &runAsName, &requested, &rollbackVersion)
 	if err != nil {
 		return machine.Machine{}, err
 	}
 	m.CreatedAt = time.Unix(createdAt, 0)
+	m.Role = machine.Role(role)
 	if !agentID.Valid {
 		return m, nil
 	}

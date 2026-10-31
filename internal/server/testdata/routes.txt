@@ -19,6 +19,7 @@ POST /api/machines/{id}/actions/rollback-agent
 GET /api/agent-updates
 GET /api/agent-migration
 PUT /api/machines/{id}/update-last
+PUT /api/machines/{id}/role
 POST /api/machines/{id}/actions/check-updates
 GET /api/machines/{id}/resources
 GET /api/machines/{id}/resources/history

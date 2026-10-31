@@ -1,4 +1,5 @@
-import type { Account, Agent, Capability, Machine, ReportedCapability, TokenResponse } from "../api/machines";
+import type { Account, Agent, Capability, Machine, ReportedCapability, RoleID, TokenResponse } from "../api/machines";
+import type { SessionRole } from "../api/session";
 import type { Translate } from "../i18n/context";
 import { seenAgo } from "./time";
 
@@ -29,17 +30,26 @@ export interface RightsValues {
 // d'installation qui les porte.
 interface MachineFormValues extends RightsValues {
   name: string;
+  role: RoleID;
 }
 
-// probe.lan est coché d'emblée : les sondes d'une machine visent d'abord son
-// réseau local ; l'opérateur le décoche s'il veut les en empêcher.
-export const emptyMachineForm: MachineFormValues = { name: "", rights: ["probe.lan"], backupPath: "", writePaths: "" };
+// Le rôle générique d'abord, et probe.lan coché d'emblée : les sondes d'une
+// machine visent d'abord son réseau local ; l'opérateur le décoche s'il veut
+// les en empêcher. C'est le préréglage de ce rôle (machine.RolePreset).
+export const emptyMachineForm: MachineFormValues = { name: "", role: "generic", rights: ["probe.lan"], backupPath: "", writePaths: "" };
+
+// Choisir un rôle coche d'avance ses droits, tels que le serveur les dit à la
+// session ; l'opérateur les ajuste ensuite sous « Avancé ».
+export function rolePatch(role: RoleID, roles: readonly SessionRole[]): Pick<MachineFormValues, "role" | "rights"> {
+  const preset = roles.find((offered) => offered.id === role)?.capabilities ?? [];
+  return { role, rights: preset.filter((name) => name !== alwaysGranted) };
+}
 
 // La saisie a changé depuis le formulaire neuf : fermer la fenêtre de l'ajout
 // demande alors s'il faut l'abandonner.
 export function isMachineFormModified(values: MachineFormValues): boolean {
   const sameRights = values.rights.length === emptyMachineForm.rights.length && values.rights.every((right) => emptyMachineForm.rights.includes(right));
-  return values.name.trim() !== "" || values.backupPath.trim() !== "" || values.writePaths.trim() !== "" || !sameRights;
+  return values.name.trim() !== "" || values.role !== emptyMachineForm.role || values.backupPath.trim() !== "" || values.writePaths.trim() !== "" || !sameRights;
 }
 
 // Les droits d'un agent en valeurs du formulaire : ce que son jeton

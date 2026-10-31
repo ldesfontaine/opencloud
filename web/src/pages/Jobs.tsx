@@ -21,7 +21,7 @@ export function Jobs() {
   return (
     <>
       <PageHead
-        title={t("nav.jobs")}
+        title={t("module.jobs")}
         subtitle={jobs.data ? jobsSubtitle(t, list.length, attention) : ""}
         actions={
           <Button variant="primary" icon="plus" to="/taches/nouvelle">

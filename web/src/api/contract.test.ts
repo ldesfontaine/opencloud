@@ -128,6 +128,8 @@ const machine = shape<Machine>("Machine", {
   }),
   lifecycle: optional(lifecycle),
   roles: shape<MachineRole>("MachineRole", { name: value, version: value }),
+  role: value,
+  modules: value,
   proxmox: shape<ProxmoxSummary>("ProxmoxSummary", {
     declared: value,
     guests: value,
@@ -504,6 +506,7 @@ const counts = shape<Counts>("Counts", {
   certificates: shape("CertificateCounts", { total: value, expiring: value, expired: value, soonest_expires_at: value }),
   status: shape("Counts.status", { open_incidents: value }),
   alerts: alertCounts,
+  modules: shape("ModuleState", { id: value, configured: value }),
 });
 
 type DeclaredServiceJSON = DeclaredServicesResponse["services"][number];
@@ -696,6 +699,7 @@ const session = shape<Session>("Session", {
   certificate_thresholds: shape("CertificateThresholds", { warning: value, danger: value }),
   disk_thresholds: shape("DiskThresholds", { attention: value, danger: value }),
   verbs: shape("SessionVerb", { id: value, route: value }),
+  roles: shape("SessionRole", { id: value, capabilities: value }),
 });
 
 type IncidentUpdateJSON = Incident["updates"][number];

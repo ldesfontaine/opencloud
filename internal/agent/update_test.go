@@ -553,7 +553,7 @@ func TestRun_UpdatesItselfAndTheServerSeesItComeBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	options := b.options("")
-	options.Token, _, err = b.machines.CreateToken(ctx, "vps-paris-1", []machine.Capability{{Name: machine.CapabilityAgentUpdate}})
+	options.Token, _, err = b.machines.CreateToken(ctx, "vps-paris-1", machine.RoleGeneric, []machine.Capability{{Name: machine.CapabilityAgentUpdate}})
 	if err != nil {
 		t.Fatal(err)
 	}

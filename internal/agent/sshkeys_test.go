@@ -190,7 +190,7 @@ func TestSSHKeysLoop_ReadsAtStartAndEveryPeriodAndStopsWithTheAgent(t *testing.T
 // l'hôte ne sont pas lus (banc).
 func TestRun_ReportsItsSSHKeysToTheServer(t *testing.T) {
 	b := newBench(t)
-	token, _, err := b.machines.CreateToken(context.Background(), "vps-nice-1", nil)
+	token, _, err := b.machines.CreateToken(context.Background(), "vps-nice-1", machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
