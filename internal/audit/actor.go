@@ -92,6 +92,8 @@ type actorKey struct{}
 
 type applyKey struct{}
 
+type verbRequestKey struct{}
+
 // WithActor pose l'acteur dans le contexte : les composants le lisent sans
 // que la signature de chaque geste ait à le porter.
 func WithActor(ctx context.Context, actor Actor) context.Context {
@@ -116,4 +118,15 @@ func WithApply(ctx context.Context, applyID string) context.Context {
 func applyFrom(ctx context.Context) string {
 	applyID, _ := ctx.Value(applyKey{}).(string)
 	return applyID
+}
+
+// WithVerbRequest pose la demande de verbe que l'opérateur vient de confirmer :
+// chaque événement du geste rejoué porte son identifiant (request_id).
+func WithVerbRequest(ctx context.Context, requestID string) context.Context {
+	return context.WithValue(ctx, verbRequestKey{}, requestID)
+}
+
+func verbRequestFrom(ctx context.Context) string {
+	requestID, _ := ctx.Value(verbRequestKey{}).(string)
+	return requestID
 }
