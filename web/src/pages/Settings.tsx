@@ -7,6 +7,7 @@ import { useDiskSettings, useLifecycleSettings, useMailSettings } from "../api/s
 import { PageHead } from "../components/PageHead";
 import { useT } from "../i18n/context";
 import { currentSection, type SettingsSectionId } from "../lib/settingsSections";
+import { AboutSection } from "./settings/AboutSection";
 import { AccessSection } from "./settings/AccessSection";
 import { AIAgentSection } from "./settings/AIAgentSection";
 import { DiskSection } from "./settings/DiskSection";
@@ -15,9 +16,9 @@ import { MailSection } from "./settings/MailSection";
 import { SettingsNav } from "./settings/SettingsNav";
 import "./Settings.scss";
 
-// Paramètres : cinq sections ancrées (l'accès à l'interface, les alertes du
+// Paramètres : six sections ancrées (l'accès à l'interface, les alertes du
 // disque, l'envoi d'e-mails, la fin de support, l'agent IA et ses jetons
-// d'API), toutes dans la page, avec leur navigation. Chaque section lit la
+// d'API, la version), toutes dans la page, avec leur navigation. Chaque section lit la
 // sienne : l'une qui échoue ne retient pas les autres, et sort de la
 // navigation avec elle. Un jeton ne s'affiche qu'une fois, à sa création,
 // dans l'état de sa section ; rechargée, elle ne le montre plus.
@@ -46,6 +47,7 @@ export function Settings() {
   if (aiAgent.data !== null || tokens.data !== null) {
     present.push("agent-ia");
   }
+  present.push("a-propos");
   const [current, pick] = useVisibleSection(present);
   useScrollToHash(present.length > 0);
 
@@ -62,6 +64,7 @@ export function Settings() {
           {(aiAgent.data !== null || tokens.data !== null) && (
             <AIAgentSection check={aiAgent.data} reloadCheck={aiAgent.reload} tokens={tokens.data} reloadTokens={tokens.reload} />
           )}
+          <AboutSection />
         </div>
       </div>
     </div>

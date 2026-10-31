@@ -40,3 +40,23 @@ export function agentUpdateState(runs: ActionRun[]): AgentUpdateState | null {
   }
   return null;
 }
+
+const releaseVersion = /^v(\d+)\.(\d+)\.(\d+)$/;
+
+// L'agent est en retard quand sa version est strictement plus ancienne que
+// celle du serveur. Une version qui n'a pas la forme vX.Y.Z (build de
+// développement) ne se compare pas : pas de repère.
+export function agentBehindServer(agentVersion: string, serverVersion: string): boolean {
+  const agent = releaseVersion.exec(agentVersion);
+  const server = releaseVersion.exec(serverVersion);
+  if (agent === null || server === null) {
+    return false;
+  }
+  for (let part = 1; part <= 3; part++) {
+    const difference = Number(agent[part]) - Number(server[part]);
+    if (difference !== 0) {
+      return difference < 0;
+    }
+  }
+  return false;
+}

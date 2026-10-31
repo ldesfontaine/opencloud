@@ -2,7 +2,8 @@ import { useNavigate, useParams } from "react-router";
 
 import type { Machine } from "../api/machines";
 import { useNow } from "../hooks/useNow";
-import { useT } from "../i18n/context";
+import { useI18n } from "../i18n/context";
+import { agentBehindServer } from "../lib/agentUpdate";
 import { visibleMachineTabs } from "../lib/machineTabs";
 import { machineSeen } from "../lib/machines";
 import { MachineSelect } from "./MachineSelect";
@@ -15,7 +16,7 @@ import "./MachineHead.scss";
 // des points ; « vu il y a » avance tout seul. Dessous, sur une ligne, la fin
 // de support du système quand elle est activée (le détail est sous l'historique).
 export function MachineHead({ current, all }: { current: Machine; all: Machine[] }) {
-  const t = useT();
+  const { t, version } = useI18n();
   const navigate = useNavigate();
   const { tab = "" } = useParams();
   const now = useNow();
@@ -38,6 +39,9 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
           <span className="sep" />
           <span>
             {t("machine.agent")} <span className="mono">{current.agent?.version ?? "—"}</span>
+            {current.agent !== null && current.agent.revoked_at === null && agentBehindServer(current.agent.version, version) && (
+              <> · {t("machine.agent_behind", version)}</>
+            )}
           </span>
           <span className="sep" />
           <span>{machineSeen(t, current, now)}</span>

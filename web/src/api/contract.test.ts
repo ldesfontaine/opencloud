@@ -690,6 +690,7 @@ const auth = shape<AuthState>("AuthState", {
 
 const session = shape<Session>("Session", {
   version: value,
+  commit: value,
   language: value,
   languages: value,
   certificate_thresholds: shape("CertificateThresholds", { warning: value, danger: value }),
