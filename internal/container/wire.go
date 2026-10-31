@@ -93,10 +93,14 @@ type Event struct {
 	ExitCode    *int      `json:"exit_code,omitempty"`
 	// Tué en SIGKILL sans arrêt demandé juste avant ; un agent plus vieux
 	// ne le dit pas, et 137 reste alors un arrêt propre.
-	Killed    bool      `json:"killed,omitempty"`
-	Replayed  bool      `json:"replayed,omitempty"`
-	Snippet   string    `json:"snippet,omitempty"`
-	Container *Observed `json:"container,omitempty"`
+	Killed bool `json:"killed,omitempty"`
+	// Un arrêt a été demandé juste avant (signal d'arrêt, docker stop) : quel
+	// que soit le code de sortie, ce n'est pas un plantage. Un agent plus
+	// vieux ne le dit pas, et le code décide seul.
+	StopRequested bool      `json:"stop_requested,omitempty"`
+	Replayed      bool      `json:"replayed,omitempty"`
+	Snippet       string    `json:"snippet,omitempty"`
+	Container     *Observed `json:"container,omitempty"`
 }
 
 // ActionDestroy est la seule action qui ferme une fiche. Les actions de

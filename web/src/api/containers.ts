@@ -89,6 +89,8 @@ export interface Container {
   oom_killed: boolean;
   // Tué en SIGKILL sans arrêt demandé : 137 aussi, mais à signaler.
   killed: boolean;
+  // Arrêt demandé avant la sortie : le code, même non nul, n'est pas un plantage.
+  stop_requested: boolean;
   health: ContainerHealth;
   restart_count: number;
   ports: Port[];
@@ -151,6 +153,7 @@ export interface Transition {
   exit_code: number | null;
   oom_killed: boolean;
   killed: boolean;
+  stop_requested: boolean;
   replayed: boolean;
   snippet: string;
 }

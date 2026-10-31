@@ -693,3 +693,76 @@ func TestToContainer_BoundsOwnLabels(t *testing.T) {
 		}
 	})
 }
+
+// Ce que Docker émet pour un arrêt demandé (docker stop, restart, compose) :
+// « kill » avec le signal d'arrêt, « die », puis « stop » et « start ». Un
+// service qui dépasse son propre délai d'arrêt sort en 1 : l'arrêt est demandé
+// quand même, quel que soit le code. Sans « kill » avant, c'est un plantage.
+func TestHandleEvent_AStopRequestMakesAnyExitCodeRequested(t *testing.T) {
+	start := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	const oomID = "oom0000000000000000000000000000000000000000000000000000000000001"
+	termSignal := map[string]string{"signal": "15"}
+	killSignal := map[string]string{"signal": "9"}
+	cases := []struct {
+		name          string
+		id            string
+		events        []dockerapi.Event
+		stopRequested bool
+		killed        bool
+	}{
+		{"kill SIGTERM, die 1, start", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "kill", start, termSignal),
+			dockerEvent(fixtureID, "die", start.Add(12*time.Second), map[string]string{"exitCode": "1"}),
+			dockerEvent(fixtureID, "stop", start.Add(12*time.Second), nil),
+		}, true, false},
+		{"kill SIGINT, die 2", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "kill", start, map[string]string{"signal": "2"}),
+			dockerEvent(fixtureID, "die", start.Add(time.Second), map[string]string{"exitCode": "2"}),
+		}, true, false},
+		{"die 1 without any kill", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "die", start, map[string]string{"exitCode": "1"}),
+		}, false, false},
+		{"kill SIGKILL then die 137", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "kill", start, killSignal),
+			dockerEvent(fixtureID, "die", start, map[string]string{"exitCode": "137"}),
+		}, false, true},
+		{"kill SIGTERM, then die out of the window", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "kill", start, termSignal),
+			dockerEvent(fixtureID, "die", start.Add(2*time.Hour), map[string]string{"exitCode": "1"}),
+		}, false, false},
+		{"a start cancels the earlier request", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "kill", start, termSignal),
+			dockerEvent(fixtureID, "start", start, nil),
+			dockerEvent(fixtureID, "die", start.Add(time.Second), map[string]string{"exitCode": "1"}),
+		}, false, false},
+		{"out of memory comes first", oomID, []dockerapi.Event{
+			dockerEvent(oomID, "kill", start, termSignal),
+			dockerEvent(oomID, "die", start.Add(time.Second), map[string]string{"exitCode": "137"}),
+		}, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := newSink()
+			daemon := newDaemon(t, false)
+			daemon.mux.HandleFunc("GET /v1.41/containers/"+oomID+"/json", func(w http.ResponseWriter, r *http.Request) {
+				var inspected map[string]any
+				_ = json.Unmarshal(fixture(t, "inspect_running.json"), &inspected)
+				inspected["Id"] = oomID
+				inspected["State"].(map[string]any)["OOMKilled"] = true
+				_ = json.NewEncoder(w).Encode(inspected)
+			})
+			watcher := newWatcher(serve(t, daemon.mux), sink)
+			for _, raw := range tc.events {
+				watcher.handleEvent(context.Background(), raw)
+			}
+			die := sink.waitFor(t, "die", func(r container.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == "die" })
+			event := die.Events[0]
+			if event.StopRequested != tc.stopRequested || event.Killed != tc.killed {
+				t.Fatalf("stop_requested = %v killed = %v, want %v %v", event.StopRequested, event.Killed, tc.stopRequested, tc.killed)
+			}
+			if tc.id == oomID && (event.Container == nil || !event.Container.OOMKilled) {
+				t.Fatalf("the out-of-memory fact is lost: %+v", event.Container)
+			}
+		})
+	}
+}

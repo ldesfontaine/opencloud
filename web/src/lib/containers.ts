@@ -18,10 +18,10 @@ export function isCleanExit(code: number): boolean {
   return code === 0 || code === 137 || code === 143;
 }
 
-// Les faits dont la pastille dépend ; oom_killed et killed manquent sur
+// Les faits dont la pastille dépend ; oom_killed, killed et stop_requested manquent sur
 // une fiche d'avant leur correctif. observed manque sur une transition, qui
 // est un fait passé : elle se lit toujours.
-export type PillFacts = Pick<Container, "state" | "exit_code" | "health"> & { oom_killed?: boolean; killed?: boolean; observed?: boolean };
+export type PillFacts = Pick<Container, "state" | "exit_code" | "health"> & { oom_killed?: boolean; killed?: boolean; stop_requested?: boolean; observed?: boolean };
 
 // L'état que l'interface montre d'un conteneur : « Inconnu » dès que sa
 // machine ne signale plus (observed faux, décidé par le serveur), l'état
@@ -63,7 +63,8 @@ export function containerPill(container: PillFacts): ContainerPillInfo {
       if (container.killed === true) {
         return { key: "killed", tone: "danger" };
       }
-      return isCleanExit(container.exit_code) ? { key: "stopped", tone: "neutral" } : { key: "failing", tone: "danger" };
+      // Un arrêt demandé est propre quel que soit le code (arrêt trop lent).
+      return container.stop_requested === true || isCleanExit(container.exit_code) ? { key: "stopped", tone: "neutral" } : { key: "failing", tone: "danger" };
     default:
       return { key: "created", tone: "neutral" };
   }
@@ -255,7 +256,7 @@ export function transitionTitle(t: Translate, transition: Transition): string {
   if (transition.action === "health_status" || (transition.new_state === transition.previous_state && transition.new_health !== transition.previous_health)) {
     return t(`container.health_${transition.new_health || "healthy"}`);
   }
-  return t(`container.state_${containerPill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed }).key}`);
+  return t(`container.state_${containerPill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed, stop_requested: transition.stop_requested }).key}`);
 }
 
 // Le passage d'une transition : « Arrêté → Actif », « en bonne santé → en
@@ -271,7 +272,7 @@ export function transitionPassage(t: Translate, transition: Transition): string 
   let after = "";
   if (transition.previous_state !== "" && transition.previous_state !== transition.new_state) {
     before = t(`container.state_${containerPill({ state: transition.previous_state, exit_code: 0, health: transition.previous_health }).key}`);
-    after = t(`container.state_${containerPill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed }).key}`);
+    after = t(`container.state_${containerPill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed, stop_requested: transition.stop_requested }).key}`);
   } else if (transition.previous_health !== "" && transition.previous_health !== transition.new_health) {
     before = t(`container.health_${transition.previous_health}`);
     after = t(`container.health_${transition.new_health || "healthy"}`);

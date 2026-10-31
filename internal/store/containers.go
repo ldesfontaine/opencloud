@@ -14,7 +14,7 @@ import (
 
 const containerColumns = `id, machine_id, name, group_name, container_id, image, image_id, state, exit_code,
 	health, restart_count, ports, network_mode, privileged, depends_on, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at,
-	compose_service, compose_dir, compose_file, oom_killed, killed, label_service, label_unit, label_invalid`
+	compose_service, compose_dir, compose_file, oom_killed, killed, stop_requested, label_service, label_unit, label_invalid`
 
 // Le rattachement à l'annuaire se lit avec la fiche. Il ne s'écrit pas
 // comme le reste, l'unité est vérifiée à l'écriture : voir upsertContainer.
@@ -72,7 +72,7 @@ const containerNeedsAttention = `CASE state
 	WHEN 'running' THEN health = 'unhealthy'
 	WHEN 'restarting' THEN 1
 	WHEN 'dead' THEN 1
-	WHEN 'exited' THEN NOT (oom_killed = 0 AND killed = 0 AND exit_code IN (0, 137, 143))
+	WHEN 'exited' THEN NOT (oom_killed = 0 AND killed = 0 AND (stop_requested = 1 OR exit_code IN (0, 137, 143)))
 	ELSE 0 END`
 
 // containerObserved est machine.Observed écrit en SQL : l'agent actif de la
@@ -203,12 +203,12 @@ func upsertContainer(ctx context.Context, tx *sql.Tx, item container.Container) 
 	// plutôt que de faire échouer la clé étrangère et perdre le rapport.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO containers (`+containerColumns+`, unit_id, match_level)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 			(SELECT id FROM service_units WHERE id = ?),
 			CASE WHEN EXISTS (SELECT 1 FROM service_units WHERE id = ?) THEN ? ELSE '' END)
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name, group_name = excluded.group_name, image = excluded.image,
-			image_id = excluded.image_id, state = excluded.state, exit_code = excluded.exit_code, oom_killed = excluded.oom_killed, killed = excluded.killed,
+			image_id = excluded.image_id, state = excluded.state, exit_code = excluded.exit_code, oom_killed = excluded.oom_killed, killed = excluded.killed, stop_requested = excluded.stop_requested,
 			health = excluded.health, restart_count = excluded.restart_count, ports = excluded.ports,
 			network_mode = excluded.network_mode, privileged = excluded.privileged, depends_on = excluded.depends_on,
 			created_at = excluded.created_at, started_at = excluded.started_at, finished_at = excluded.finished_at,
@@ -221,7 +221,7 @@ func upsertContainer(ctx context.Context, tx *sql.Tx, item container.Container) 
 		item.NetworkMode, boolToInt(item.Privileged), dependsOn,
 		item.CreatedAt.Unix(), nullableTime(item.StartedAt), nullableTime(item.FinishedAt),
 		item.FirstSeenAt.Unix(), item.LastSeenAt.Unix(), nullableTime(item.ArchivedAt),
-		item.ComposeService, item.ComposeDir, item.ComposeFile, boolToInt(item.OOMKilled), boolToInt(item.Killed),
+		item.ComposeService, item.ComposeDir, item.ComposeFile, boolToInt(item.OOMKilled), boolToInt(item.Killed), boolToInt(item.StopRequested),
 		item.Labels.Service, item.Labels.Unit, boolToInt(item.Labels.Invalid),
 		item.UnitID, item.UnitID, string(item.MatchLevel))
 	if err != nil {
@@ -430,10 +430,10 @@ func capTransitions(ctx context.Context, tx *sql.Tx, machineID string, keep int)
 
 func insertTransition(ctx context.Context, tx *sql.Tx, t container.Transition) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO container_events (container_id, at, action, previous_state, new_state, previous_health, new_health, exit_code, oom_killed, killed, replayed, snippet)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO container_events (container_id, at, action, previous_state, new_state, previous_health, new_health, exit_code, oom_killed, killed, stop_requested, replayed, snippet)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ContainerID, t.At.Unix(), t.Action, string(t.PreviousState), string(t.NewState),
-		string(t.PreviousHealth), string(t.NewHealth), nullableInt(t.ExitCode), boolToInt(t.OOMKilled), boolToInt(t.Killed), boolToInt(t.Replayed), t.Snippet)
+		string(t.PreviousHealth), string(t.NewHealth), nullableInt(t.ExitCode), boolToInt(t.OOMKilled), boolToInt(t.Killed), boolToInt(t.StopRequested), boolToInt(t.Replayed), t.Snippet)
 	if err != nil {
 		return fmt.Errorf("insert transition: %w", err)
 	}
@@ -474,7 +474,7 @@ func saveEngine(ctx context.Context, tx *sql.Tx, engine container.Engine) error 
 // ListTransitions rend les plus récentes d'abord.
 func (db *DB) ListTransitions(ctx context.Context, containerID string, limit int) ([]container.Transition, error) {
 	rows, err := db.sql.QueryContext(ctx, `
-		SELECT id, container_id, at, action, previous_state, new_state, previous_health, new_health, exit_code, oom_killed, killed, replayed, snippet
+		SELECT id, container_id, at, action, previous_state, new_state, previous_health, new_health, exit_code, oom_killed, killed, stop_requested, replayed, snippet
 		FROM container_events WHERE container_id = ? ORDER BY at DESC, id DESC LIMIT ?`, containerID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list transitions: %w", err)
@@ -486,14 +486,15 @@ func scanTransition(row scanner) (container.Transition, error) {
 	var transition container.Transition
 	var at int64
 	var exitCode sql.NullInt64
-	var oomKilled, killed, replayed int
-	if err := row.Scan(&transition.ID, &transition.ContainerID, &at, &transition.Action, &transition.PreviousState, &transition.NewState, &transition.PreviousHealth, &transition.NewHealth, &exitCode, &oomKilled, &killed, &replayed, &transition.Snippet); err != nil {
+	var oomKilled, killed, stopRequested, replayed int
+	if err := row.Scan(&transition.ID, &transition.ContainerID, &at, &transition.Action, &transition.PreviousState, &transition.NewState, &transition.PreviousHealth, &transition.NewHealth, &exitCode, &oomKilled, &killed, &stopRequested, &replayed, &transition.Snippet); err != nil {
 		return container.Transition{}, err
 	}
 	transition.At = time.Unix(at, 0).UTC()
 	transition.ExitCode = intPointer(exitCode)
 	transition.OOMKilled = oomKilled != 0
 	transition.Killed = killed != 0
+	transition.StopRequested = stopRequested != 0
 	transition.Replayed = replayed != 0
 	return transition, nil
 }
@@ -562,13 +563,13 @@ func scanContainer(row scanner) (container.Container, error) {
 	var item container.Container
 	var state, health, ports, dependsOn, matchLevel, policy string
 	var unitID sql.NullString
-	var privileged, oomKilled, killed, labelInvalid int
+	var privileged, oomKilled, killed, stopRequested, labelInvalid int
 	var createdAt, firstSeen, lastSeen int64
 	var startedAt, finishedAt, archivedAt sql.NullInt64
 	err := row.Scan(&item.ID, &item.MachineID, &item.Name, &item.Group, &item.ContainerID, &item.Image, &item.ImageID,
 		&state, &item.ExitCode, &health, &item.RestartCount, &ports, &item.NetworkMode, &privileged, &dependsOn,
 		&createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt,
-		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &oomKilled, &killed, &item.Labels.Service, &item.Labels.Unit, &labelInvalid,
+		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &oomKilled, &killed, &stopRequested, &item.Labels.Service, &item.Labels.Unit, &labelInvalid,
 		&unitID, &matchLevel, &policy, &item.DeclaredServiceID)
 	if err != nil {
 		return container.Container{}, err
@@ -580,6 +581,7 @@ func scanContainer(row scanner) (container.Container, error) {
 	}
 	item.OOMKilled = oomKilled != 0
 	item.Killed = killed != 0
+	item.StopRequested = stopRequested != 0
 	item.Labels.Invalid = labelInvalid != 0
 	// Un seul genre de conteneur : la base ne le garde pas.
 	item.Kind, item.State, item.Health = container.KindContainer, container.State(state), container.Health(health)

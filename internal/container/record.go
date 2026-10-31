@@ -235,7 +235,7 @@ func (p *planner) applyEvent(event Event) {
 	// quitté, et il ne compte pas comme un redémarrage de plus.
 	if event.Container != nil && event.State != "" && isSuperseded(event, next, p.now) {
 		transition.Replayed = true
-		event.State, event.ExitCode, event.Killed = "", nil, false
+		event.State, event.ExitCode, event.Killed, event.StopRequested = "", nil, false, false
 	}
 	if event.State != "" {
 		next.State = event.State
@@ -249,10 +249,14 @@ func (p *planner) applyEvent(event Event) {
 	if event.Killed {
 		next.Killed = true
 	}
+	if event.StopRequested {
+		next.StopRequested = true
+	}
 	if next.State == StateRunning {
 		// Docker oublie le manque de mémoire au redémarrage.
 		next.OOMKilled = false
 		next.Killed = false
+		next.StopRequested = false
 	}
 	next.ArchivedAt = time.Time{}
 	next.LastSeenAt = p.now
@@ -332,7 +336,9 @@ func (p *planner) fromContainer(observed Observed, previous Container, existed b
 	if existed {
 		// Docker ne sait pas qu'un arrêt était brutal : l'inventaire le
 		// garde tant que c'est le même arrêt.
-		container.Killed = previous.Killed && container.State == previous.State && container.FinishedAt.Equal(previous.FinishedAt)
+		sameStop := container.State == previous.State && container.FinishedAt.Equal(previous.FinishedAt)
+		container.Killed = previous.Killed && sameStop
+		container.StopRequested = previous.StopRequested && sameStop
 		container.FirstSeenAt = previous.FirstSeenAt
 		// L'inventaire ne dit rien de l'annuaire : le rattachement survit.
 		container.UnitID = previous.UnitID
@@ -360,6 +366,7 @@ func (p *planner) record(next, previous Container, existed bool, transition Tran
 		transition.NewHealth = next.Health
 		transition.OOMKilled = next.OOMKilled && (next.State == StateExited || next.State == StateDead)
 		transition.Killed = next.Killed && next.State == StateExited
+		transition.StopRequested = next.StopRequested && next.State == StateExited
 		if existed {
 			transition.PreviousState = previous.State
 			transition.PreviousHealth = previous.Health
