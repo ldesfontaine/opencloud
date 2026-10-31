@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/apitoken"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/verbrequest"
 )
@@ -347,5 +348,26 @@ func TestVerbRequests_TheTokenReadsThatTheVerbNeedsAConfirmation(t *testing.T) {
 	}
 	if found["probe.pause"].Confirm {
 		t.Fatal("probe.pause asks for a confirmation")
+	}
+}
+
+// La portée d'un jeton vaut aussi pour la demande : un jeton limité à une
+// autre machine n'en dépose aucune sur celle-ci.
+func TestVerbRequests_AReachLimitedTokenCannotAskForAnotherMachine(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	cleartext, _, err := server.apiTokens.Create(context.Background(), apitoken.Request{
+		Name: "limité", Scope: apitoken.ScopeWrite, Verbs: []string{"machine.delete"},
+		Reach: apitoken.Reach{OnlyMachines: true, Machines: []string{"local"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := callBearerBody(server.Server, http.MethodDelete, "/api/machines/"+remoteID, cleartext, "")
+	if got.Code != http.StatusForbidden || errorCode(t, got) != codeAPITokenOutOfScope {
+		t.Fatalf("%d %s", got.Code, got.Body.String())
+	}
+	if len(server.pendingRequests(t)) != 0 {
+		t.Fatal("a request was filed out of scope")
 	}
 }
