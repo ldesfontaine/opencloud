@@ -4099,6 +4099,26 @@ tables `mcp_clients` et `mcp_codes`. Les jetons d'API vivants ont été repris
 tels quels par la migration `008_api_tokens.sql`, en lecture : celui que
 mcp-maison porte déjà continue de servir.
 
+## Comment l'écran et l'API restent d'accord
+
+Toute écriture de l'écran est une route de l'API, et tout verbe offert aux
+jetons a son geste d'écran. Trois pièces le tiennent :
+
+| Pièce | Rôle |
+| --- | --- |
+| `web/src/api/routes.ts` | La liste des écritures du front, chacune écrite comme dans `testdata/routes.txt` (`"POST /api/probes/{id}/actions/pause"`). `route(motif, paramètres)` rend le verbe HTTP et le chemin ; `api.send` n'accepte que cela. Aucune écriture ne part d'un chemin écrit à la main. Les lectures gardent leur chemin |
+| `internal/server/testdata/verbs.golden.json` | Le registre `internal/verb` (`id`, `route`, `reverse`), écrit par `TestVerbs_RegistryMatchesGoldenFile` |
+| Les tests | Front (`api/parity.test.ts`) : chaque écriture déclarée est une route du serveur et a un appelant dans `api/`, chaque verbe du golden est une écriture déclarée. Go (`internal/server/parity_test.go`) : chaque route d'écriture est déclarée par `routes.ts` ou listée « sans écran » avec sa raison (`apply` par la socket, agent, pings) |
+
+Coût : une écriture neuve se déclare à un endroit de plus (`routes.ts`) ; en
+échange, une route sans appelant, un geste vers une route disparue ou un verbe
+sans geste cassent un test au lieu de s'installer.
+
+Les numéros de migration sont uniques (`TestMigrations_NumbersAreWellFormedAndUnique`),
+et le nom du produit n'est écrit ni dans une chaîne ni dans le texte d'un
+composant `.tsx` (`TestNameOnlyInBrand`) : le mot-symbole se lit dans la page
+(`Wordmark`, la balise `application-name` que le serveur remplit).
+
 ## Comment l'interface se met à jour sans recharger
 
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur

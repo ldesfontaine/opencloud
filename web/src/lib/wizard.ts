@@ -4,11 +4,11 @@
 export type WizardMode = "create" | "edit";
 
 // La marque d'une étape dans la barre : faite, courante, à venir.
-export type StepMark = "done" | "current" | "todo";
+type StepMark = "done" | "current" | "todo";
 
 // Ce qu'un déplacement rend : la position atteinte, et la clé de l'erreur de
 // l'étape qui l'a arrêté (null quand il est allé au bout).
-export interface WizardMove {
+interface WizardMove {
   position: number;
   error: string | null;
 }

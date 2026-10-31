@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import { route } from "./routes";
 import type { ContainerState } from "./containers";
 import type { ActionRun } from "./actions";
 import type { DeletionPlan } from "./deletion";
@@ -224,7 +225,6 @@ export interface IgnoreKey {
 const directoryPath = "/api/directory";
 const servicesPath = `${directoryPath}/services`;
 const projectsPath = `${directoryPath}/projects`;
-const ignoredPath = `${directoryPath}/ignored`;
 
 function servicePath(id: string): string {
   return `${servicesPath}/${segment(id)}`;
@@ -250,9 +250,8 @@ export function gapsPath(machineID: string, projectID: string): string {
 
 // La clé passe en paramètres de requête : sa valeur est un nom de projet ou
 // de conteneur, pas un identifiant, URLSearchParams l'encode.
-export function unignorePath(key: IgnoreKey): string {
-  const query = new URLSearchParams({ machine: key.machine_id, kind: key.kind, value: key.value });
-  return `${ignoredPath}?${query.toString()}`;
+function unignoreQuery(key: IgnoreKey): URLSearchParams {
+  return new URLSearchParams({ machine: key.machine_id, kind: key.kind, value: key.value });
 }
 
 // wanted faux : rien à lire (le sélecteur d'un silence, tant qu'un autre genre est choisi).
@@ -297,13 +296,15 @@ export function useGaps(filter: GapsFilter | null): Resource<GapsResponse> {
 
 // Sans id, une création ; avec, le remplacement de ce service.
 export async function saveDeclaredService(id: string | undefined, body: ServiceRequest): Promise<DeclaredService> {
-  return id === undefined ? api.post<DeclaredService>(servicesPath, body) : api.put<DeclaredService>(servicePath(id), body);
+  return id === undefined
+    ? api.send<DeclaredService>(route("POST /api/directory/services"), body)
+    : api.send<DeclaredService>(route("PUT /api/directory/services/{id}", { id }), body);
 }
 
 // Les projets restent, seul le lien s'efface. Un service lié est refusé
 // en 409, avec le plan qui dit ce qui le lie.
 export async function deleteDeclaredService(id: string): Promise<void> {
-  return api.delete(servicePath(id));
+  return api.send(route("DELETE /api/directory/services/{id}", { id }));
 }
 
 export async function fetchDeclaredServiceDeletePlan(id: string): Promise<DeletionPlan> {
@@ -312,12 +313,12 @@ export async function fetchDeclaredServiceDeletePlan(id: string): Promise<Deleti
 
 // Sans id, une création ; avec, le remplacement de ce projet.
 export async function saveProject(id: string | undefined, body: ProjectRequest): Promise<Project> {
-  return id === undefined ? api.post<Project>(projectsPath, body) : api.put<Project>(projectPath(id), body);
+  return id === undefined ? api.send<Project>(route("POST /api/directory/projects"), body) : api.send<Project>(route("PUT /api/directory/projects/{id}", { id }), body);
 }
 
 // Les services du projet gardent leur déclaration.
 export async function deleteProject(id: string): Promise<void> {
-  return api.delete(projectPath(id));
+  return api.send(route("DELETE /api/directory/projects/{id}", { id }));
 }
 
 export async function fetchProjectDeletePlan(id: string): Promise<DeletionPlan> {
@@ -359,25 +360,28 @@ export function useDeployPlan(id: string | null): Resource<DeployPlan> {
 // Le .env part dans ce corps et nulle part ailleurs ; null : aucun. L'ordre
 // rendu avance ensuite par le direct.
 export async function deployService(id: string, redeploy: boolean, env: string | null): Promise<ActionRun> {
-  return api.post<ActionRun>(`${servicePath(id)}/actions/${redeploy ? "redeploy" : "deploy"}`, { env });
+  return api.send<ActionRun>(
+    redeploy ? route("POST /api/directory/services/{id}/actions/redeploy", { id }) : route("POST /api/directory/services/{id}/actions/deploy", { id }),
+    { env },
+  );
 }
 
 // Change la version déclarée de l'unité, puis redéploie son service : un
 // geste. La version est celle que l'agent propose, rien d'autre.
 export async function upgradeUnit(unitID: string, version: string): Promise<ActionRun> {
-  return api.post<ActionRun>(`${directoryPath}/units/${segment(unitID)}/actions/upgrade`, { version });
+  return api.send<ActionRun>(route("POST /api/directory/units/{id}/actions/upgrade", { id: unitID }), { version });
 }
 
 export async function ignoreObservation(key: IgnoreKey): Promise<void> {
-  return api.post(ignoredPath, key);
+  return api.send(route("POST /api/directory/ignored"), key);
 }
 
 export async function unignoreObservation(key: IgnoreKey): Promise<void> {
-  return api.delete(unignorePath(key));
+  return api.send(route("DELETE /api/directory/ignored", unignoreQuery(key)));
 }
 
 // La politique vit sur l'unité de l'annuaire, pas sur le conteneur : elle
 // survit à sa recréation.
 export async function saveUpdatePolicy(unitID: string, policy: UpdatePolicy): Promise<void> {
-  return api.put(`${directoryPath}/units/${segment(unitID)}/update-policy`, { policy });
+  return api.send(route("PUT /api/directory/units/{id}/update-policy", { id: unitID }), { policy });
 }

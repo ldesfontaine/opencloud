@@ -28,7 +28,7 @@ export function emptyReachForm(): ReachFormValues {
 
 // Le formulaire d'un jeton : son nom, son échéance en jours, sa portée,
 // pour l'écriture les verbes cochés, et jusqu'où ils portent.
-export interface TokenFormValues extends ReachFormValues {
+interface TokenFormValues extends ReachFormValues {
   name: string;
   days: number;
   scope: APITokenScope;

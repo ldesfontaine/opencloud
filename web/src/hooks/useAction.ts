@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { ApiError, failureOf } from "../api/client";
 import { useRefresh, type Topic } from "../api/refresh";
 
-export interface RunOptions<Result> {
+interface RunOptions<Result> {
   // Le texte à confirmer avant d'écrire ; sans lui, on écrit sans demander.
   confirm?: string;
   // Ce que l'écriture change, à relire après elle : un sujet du direct, ou tout.
@@ -16,7 +16,7 @@ export interface RunOptions<Result> {
   onSettled?: () => void;
 }
 
-export interface Action {
+interface Action {
   run: <Result>(perform: () => Promise<Result>, options?: RunOptions<Result>) => void;
   // Pour l'affichage seulement : la garde contre le double clic est dans run.
   busy: boolean;
@@ -64,7 +64,7 @@ export function useAction(): Action {
 }
 
 // Ce que l'écriture a rendu : sa réponse, ou rien si elle a été refusée.
-export type Outcome<Result> = { done: true; result: Result } | { done: false };
+type Outcome<Result> = { done: true; result: Result } | { done: false };
 
 // Ce qui suit l'écriture, dans l'ordre : la relecture du sujet et onDone
 // seulement si elle a réussi, onSettled dans tous les cas.

@@ -4,7 +4,7 @@ import type { Translate } from "../i18n/context";
 
 // La longueur minimale d'une phrase, en caractères (le serveur compte des
 // runes, espaces de bord retirés).
-export const minPassphrase = 16;
+const minPassphrase = 16;
 
 // Pourquoi les deux saisies de la phrase ne passent pas, en clé du
 // catalogue ; null si elles passent. Le serveur ne reçoit qu'une phrase :
@@ -21,7 +21,7 @@ export function passphraseProblem(first: string, second: string): string | null 
 
 // Le sujet de la base, et ce qu'un agent sait produire (la liste du serveur,
 // machine.Producers).
-export const databaseSubject = "database";
+const databaseSubject = "database";
 export const sourceKinds: readonly BackupSourceKind[] = ["database", "agent"];
 export const producers = ["proxmox-vzdump"] as const;
 
@@ -114,7 +114,7 @@ export function toggleSelectorId(selector: string, vmid: number, checked: boolea
 }
 
 // Ce que le formulaire d'un plan tient : tout en texte, comme les champs.
-export interface PlanFormValues {
+interface PlanFormValues {
   subject: string;
   name: string;
   kind: BackupSourceKind;
@@ -191,7 +191,7 @@ export function planRequestOf(values: PlanFormValues, destination: string): { su
 // À quel point une source est protégée : rien ne la sauvegarde, Proxmox seul en
 // garde des archives, ou un plan du serveur la couvre. L'inventaire montre
 // d'abord celles dont rien ne répond.
-export type Protection = "none" | "observed" | "covered";
+type Protection = "none" | "observed" | "covered";
 
 export function protectionOf(source: BackupSource): Protection {
   if (source.covered_by.length > 0) {
@@ -203,7 +203,7 @@ export function protectionOf(source: BackupSource): Protection {
 // La dernière sauvegarde d'une source : la plus récente entre la dernière
 // exécution réussie d'un plan et la plus récente archive vue sur un stockage
 // Proxmox. null quand ni l'une ni l'autre n'existe.
-export interface LastBackup {
+interface LastBackup {
   at: string;
   bytes: number | null;
   // La cible : la destination du plan, ou le stockage Proxmox.

@@ -1,4 +1,5 @@
 import { api, segment } from "./client";
+import { route } from "./routes";
 
 // La session du navigateur : version, langue, et les seuils que le serveur
 // tient pour que les écrans comptent comme lui. Lue une fois par i18n, avant
@@ -40,5 +41,5 @@ export async function fetchCatalog(language: string): Promise<Catalog> {
 }
 
 export async function saveLanguage(language: string): Promise<void> {
-  return api.put(`${sessionPath}/language`, { language });
+  return api.send(route("PUT /api/session/language"), { language });
 }

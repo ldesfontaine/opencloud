@@ -43,7 +43,7 @@ export function renamedProbePath(pathname: string): string {
   return probeListPath + pathname.slice(retiredProbeListPath.length);
 }
 
-export const attentionProbeStatuses: ReadonlySet<ProbeStatus> = new Set<ProbeStatus>(["down"]);
+const attentionProbeStatuses: ReadonlySet<ProbeStatus> = new Set<ProbeStatus>(["down"]);
 
 export function probeNeedsAttention(probe: Pick<Probe, "status">): boolean {
   return attentionProbeStatuses.has(probe.status);

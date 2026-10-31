@@ -1,6 +1,7 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import type { ChannelTest } from "./alerts";
 import { api } from "./client";
+import { route } from "./routes";
 import type { DiskThresholds } from "./session";
 
 // Les réglages de Paramètres : seuils du disque, relais e-mail, fin de
@@ -73,18 +74,18 @@ export function useLifecycleSettings(): Resource<LifecycleSettings> {
 }
 
 export async function saveDiskSettings(body: DiskRequest): Promise<DiskSettings> {
-  return api.put<DiskSettings>(diskPath, body);
+  return api.send<DiskSettings>(route("PUT /api/settings/disk"), body);
 }
 
 export async function saveMailSettings(body: MailRequest): Promise<MailSettings> {
-  return api.put<MailSettings>(mailPath, body);
+  return api.send<MailSettings>(route("PUT /api/settings/mail"), body);
 }
 
 // Un vrai envoi vers cette adresse, par le relais enregistré.
 export async function testMailSettings(to: string): Promise<ChannelTest> {
-  return api.post<ChannelTest>(`${mailPath}/actions/test`, { to });
+  return api.send<ChannelTest>(route("POST /api/settings/mail/actions/test"), { to });
 }
 
 export async function saveLifecycleSettings(enabled: boolean): Promise<LifecycleSettings> {
-  return api.put<LifecycleSettings>(lifecyclePath, { enabled });
+  return api.send<LifecycleSettings>(route("PUT /api/settings/lifecycle"), { enabled });
 }

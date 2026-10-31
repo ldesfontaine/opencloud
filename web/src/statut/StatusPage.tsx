@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { PublicComponent, PublicIncident, PublicStatus, StatusDay } from "../api/status";
 import { Mark } from "../components/Icon";
+import { Wordmark } from "../components/Wordmark";
 import { useNow } from "../hooks/useNow";
 import { format } from "../i18n/format";
 import { dayKeys, dayTone, uptimeOfDays } from "../lib/probes";
@@ -103,10 +104,7 @@ function StatusView({ data, t }: { data: PublicStatus; t: Translate }) {
           <span className="mark">
             <Mark />
           </span>
-          <span className="wordmark">
-            <span>open</span>
-            <b>Cloud</b>
-          </span>
+          <Wordmark />
         </span>
         <span className="status-updated">{updatedAgo(t, data.generated_at, now)}</span>
       </header>

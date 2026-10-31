@@ -4,7 +4,7 @@ import type { AuthState } from "../api/auth";
 // par le mandataire pour telle identité. Rien tant que l'API n'a pas répondu,
 // ni sans compte : l'écran de première configuration tient alors la place de
 // l'interface.
-export interface AccessLabel {
+interface AccessLabel {
   key: string;
   username: string;
 }
@@ -45,7 +45,7 @@ export function passwordFormError(password: string, confirmation: string, minLen
 
 // Le formulaire d'activation ou de changement : un identifiant (à
 // l'activation seulement), le mot de passe, sa confirmation.
-export interface CredentialsFormValues {
+interface CredentialsFormValues {
   username: string;
   password: string;
   confirmation: string;

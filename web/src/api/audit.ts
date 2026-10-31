@@ -42,12 +42,12 @@ export interface AuditObject {
 
 // Les filtres sur l'acteur : son genre (vide : tous) et un texte cherché dans
 // le nom du jeton, son identifiant ou « pour qui ».
-export interface AuditActorFilter {
+interface AuditActorFilter {
   kind: AuditActorKind | "";
   search: string;
 }
 
-export const noActorFilter: AuditActorFilter = { kind: "", search: "" };
+const noActorFilter: AuditActorFilter = { kind: "", search: "" };
 
 // Les genres qu'un filtre propose : « mcp » ne s'écrit plus, il n'est pas offert.
 export const filterableActorKinds: readonly AuditActorKind[] = ["operator", "api", "agent", "rule", "cli", "unknown"];

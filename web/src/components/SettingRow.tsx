@@ -7,7 +7,7 @@ import "./SettingRow.scss";
 // à droite (dessous sur un téléphone). width : la place du contrôle, à la
 // mesure de sa valeur (un pourcentage tient dans 6 caractères). block : le
 // contrôle prend toute la largeur sous le texte, pour une note ou un bloc.
-export type SettingWidth = "short" | "medium" | "wide";
+type SettingWidth = "short" | "medium" | "wide";
 
 export function SettingRow({
   label,

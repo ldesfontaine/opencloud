@@ -10,6 +10,7 @@ import { accessLabel } from "../lib/auth";
 import { nextDrawer, returnsFocus, type DrawerEvent } from "../lib/drawer";
 import { probeListPath } from "../lib/probes";
 import { Icon, Mark, type IconName } from "./Icon";
+import { Wordmark } from "./Wordmark";
 import "./Layout.scss";
 
 // L'état de l'accès est lu une fois ici : la barre latérale le dit.
@@ -125,10 +126,7 @@ export function Brand() {
       <span className="mark">
         <Mark />
       </span>
-      <span className="wordmark">
-        <span>open</span>
-        <b>Cloud</b>
-      </span>
+      <Wordmark />
     </NavLink>
   );
 }

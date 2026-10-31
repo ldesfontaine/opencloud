@@ -18,7 +18,7 @@ interface State<T> {
 // porte un paramètre de route passé par segment(), qui lève sur ce qui n'est
 // pas un identifiant. Lever pendant le rendu ferait tomber toute la page ;
 // ici l'erreur devient celle de la ressource, un 404 que la page sait montrer.
-export type ResourcePath = string | (() => string) | null;
+type ResourcePath = string | (() => string) | null;
 
 export function resolvePath(source: ResourcePath): { path: string | null; failure: ApiError | null } {
   if (typeof source !== "function") {

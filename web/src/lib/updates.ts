@@ -37,7 +37,7 @@ export function needsComposeEdit(container: Pick<Container, "compose_service" | 
 // La ligne image du fichier Compose, avant et après : ce que l'opérateur
 // change dans son dépôt. Docker rend l'image une fois les variables du
 // fichier résolues : la ligne d'avant peut s'y écrire autrement.
-export interface LineChange {
+interface LineChange {
   before: string;
   after: string;
 }

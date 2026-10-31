@@ -4,7 +4,7 @@ import type { Tone } from "./tone";
 
 // L'état d'un pare-feu dans la liste : jamais lu, dernier relevé en échec, ou
 // lu. Un échec garde le relevé précédent à l'écran, d'où la nuance.
-export type FirewallState = "unread" | "failed" | "read";
+type FirewallState = "unread" | "failed" | "read";
 
 export function firewallState(firewall: Pick<Firewall, "last_read_at" | "last_error">): FirewallState {
   if (firewall.last_error !== "") {

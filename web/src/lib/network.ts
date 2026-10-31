@@ -238,8 +238,8 @@ export function fitView(layout: Layout, width: number, height: number): View {
   return { scale, x: (width - layout.width * scale) / 2, y: (height - layout.height * scale) / 2 };
 }
 
-export const minScale = 0.4;
-export const maxScale = 2;
+const minScale = 0.4;
+const maxScale = 2;
 
 // Zoome autour du centre de la vue.
 export function zoomView(view: View, factor: number, width: number, height: number): View {
@@ -250,7 +250,7 @@ export function zoomView(view: View, factor: number, width: number, height: numb
 
 // Les conteneurs qui partagent un réseau avec celui-ci, par réseau : ce
 // qu'il peut joindre, sans que ce soit une dépendance.
-export interface Peers {
+interface Peers {
   network: string;
   containers: Container[];
 }
@@ -294,7 +294,7 @@ export const compactHeight = 38;
 export const overviewCompactGap = 6;
 export const overviewMargin = 4;
 const overviewColumnGap = 56;
-export const overviewFrameGap = 6;
+const overviewFrameGap = 6;
 // En haut, la place de la légende du cadre (texte de 11 px, ligne de base à 15,
 // les nœuds commencent 5 px plus bas).
 export const overviewFramePadding = { top: 20, right: 14, bottom: 4, left: 14 };
@@ -331,7 +331,7 @@ export interface PlacedMachine {
   empty: boolean;
 }
 
-export interface OverviewLayout {
+interface OverviewLayout {
   width: number;
   height: number;
   framed: boolean;
