@@ -1,0 +1,22 @@
+# C5b : code mort avant / après (#410)
+
+Avant = 5144d5e (dev après C5a), après = fin de la branche orca/ux-c5b.
+
+deadcode -test ./... avant : 0 résultat ; après : 0
+deadcode ./... (ce que seuls les tests appellent) avant : 79 ; après : 79 (les mêmes lignes, aux numéros près : bancs de test et listes fermées déjà classés faux positifs au cadrage §2.1)
+knip 6.44.1, `npx knip` sans option dans web/ (après `npm ci`) avant : 10 types exportés non utilisés ; après : les mêmes 10, rapport identique octet pour octet (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup : hors périmètre C5b, relevés au cadrage et aux chantiers C3 à C5a, aucun ajouté ici)
+
+Supprimé dans ce chantier
+- Route `POST /api/machines/{id}/actions/revoke`, son handler `revokeAgent`, sa ligne de `routes.txt` et du registre `web/src/api/routes.ts`.
+- Front : `revokeAgent` (api/machines.ts), le bouton « Révoquer l'agent » et son `ConfirmModal`, le bouton « Retirer » et son `DeletePlanDialog` dans la fiche (Machine.tsx), `OnlinePill` (remplacée par `MachineStatePill`, qui dit aussi « Archivée »).
+- `Service.Revoke` (exporté) : devient `archive`, privé, appelé par `Remove` avec `KeepHistory`. Un seul chemin public pour retirer une machine ; les tests des autres paquets (agent, alert, backup, server) passent par `Remove(… RemoveOptions{KeepHistory: true})`. `MachineService.Revoke` de l'interface du serveur : retirée.
+- Catalogues fr et en : `machine.remove`, `machine.remove_confirm`, `machine.revoke`, `machine.revoke_confirm`, `verb_request.confirm_label`. `machine.no_agent` et `machine.agent_revoked` sont gardées et reformulées (« déjà archivée », « Machine archivée »).
+- Test : `TestAPI_RevokeAgent_KeepsTheMachine…` (route disparue) remplacé par `TestAPI_RemoveMachine_KeepHistory_ArchivesItAndErasesNothing` ; la ligne `POST /api/machines/x/actions/revoke` de la liste « refusée à un jeton plein » (api_token_verbs_test.go) ; `ActionButton.scss` renommé `McpChip.scss` (la puce vit dans son composant).
+- Doc `22-fonctionnement.md` : la section « Révoquer un agent » est remplacée par « Supprimer une machine ».
+
+Gardé, avec sa raison
+- `GET /api/machines/{id}/delete-plan` et `fetchMachineDeletePlan` : lus par `DeleteMachineDialog` pour l'issue sans historique.
+- `machine.ErrNoAgent` et la clé `machine.no_agent` : refus d'archiver une machine déjà archivée (409).
+- `agent.revoke` (audit) : gardé pour l'archive, comme le prescrit la ligne C5b du §4.3.
+- `DeletePlanDialog` : encore la fenêtre de six autres suppressions ; il cède `useDeletionPlan` et `PlanBody` à `DeleteMachineDialog` au lieu d'être copié.
+- `McpChip` : extrait d'`ActionButton` pour que la fiche, dont le bouton est un bouton de danger et non le bouton principal, porte la même puce ; `ActionButton` l'utilise aussi, aucun doublon.
