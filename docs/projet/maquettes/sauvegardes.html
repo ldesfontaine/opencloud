@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openCloud · Sauvegardes (maquette)</title>
+<style>
+/* Jetons : docs/projet/21-direction-artistique.md, tels quels. */
+:root{
+  --bg:#f6f6f8;--surface:#fff;--surface-2:#f1f2f5;--line:#e5e7ec;--line-strong:#d3d6de;
+  --ink:#101216;--ink-2:#4b5160;--muted:#7a8194;--accent:#5b5be6;--accent-wash:#eeeefc;
+  --ok:#1f9d57;--ok-wash:#e4f6ec;--warn:#d78d0c;--warn-wash:#fdf2dc;--danger:#de4350;--danger-wash:#fde9eb;
+  --primary:#101216;--primary-ink:#fff;--scrim:rgba(16,18,22,.32);
+  --sans:"Geist",ui-sans-serif,"Segoe UI",system-ui,sans-serif;--mono:"Geist Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+[data-theme=dark]{
+  --bg:#0d0e12;--surface:#15171c;--surface-2:#1c1f26;--line:#262a33;--line-strong:#353a47;
+  --ink:#eef0f4;--ink-2:#b3b8c4;--muted:#7d8494;--accent:#7c7cf0;--accent-wash:#1f2040;
+  --ok:#3ac776;--ok-wash:#12301f;--warn:#f0a92a;--warn-wash:#33260d;--danger:#f06470;--danger-wash:#3a1a1e;
+  --primary:#eef0f4;--primary-ink:#101216;--scrim:rgba(0,0,0,.5);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:400 13px/1.45 var(--sans)}
+button{font:inherit;color:inherit}
+.mono{font-family:var(--mono);font-size:12px}
+.muted{color:var(--muted)}
+.ink2{color:var(--ink-2)}
+
+/* Coquille */
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+.side{background:var(--surface);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:4px}
+.brand{display:flex;align-items:center;gap:8px;padding:4px 10px 16px;font-weight:600;letter-spacing:-.02em;font-size:15px}
+.brand b{font-weight:500;color:var(--ink-2)}
+.side-label{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:12px 10px 6px}
+.nav{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;color:var(--ink-2);cursor:default}
+.nav.active{background:var(--surface-2);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(16,18,22,.06)}
+.nav .count{margin-left:auto;font:12px var(--mono);color:var(--muted)}
+.nav .count.alert{color:var(--danger)}
+.ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.side .foot{margin-top:auto;display:flex;gap:6px;padding:8px 10px}
+.main{padding:28px 32px;min-width:0}
+
+/* En-tête de page, onglets */
+.head{display:flex;align-items:flex-start;gap:16px;margin-bottom:16px}
+.head h1{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0}
+.head p{margin:4px 0 0;color:var(--ink-2)}
+.head .actions{margin-left:auto;display:flex;gap:8px}
+.btn{height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line-strong);background:var(--surface);display:inline-flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,22,.05);white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--primary);color:var(--primary-ink);border-color:var(--primary);box-shadow:none}
+.btn.primary:hover{opacity:.9}
+.btn.small{height:30px;border-radius:7px;padding:0 10px}
+.btn.danger{color:var(--danger)}
+.btn:focus-visible,.cell:focus-visible,.row-name:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.tab{padding:8px 0 10px;color:var(--ink-2);cursor:pointer;border:0;background:none;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+
+/* Pastilles, chips */
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.small{height:17px;padding:0 7px;font-size:11px;gap:5px}.pill.small i{width:5px;height:5px}
+.t-ok{background:var(--ok-wash);color:var(--ok)}.t-warn{background:var(--warn-wash);color:var(--warn)}
+.t-danger{background:var(--danger-wash);color:var(--danger)}.t-neutral{background:var(--surface-2);color:var(--muted)}
+.t-accent{background:var(--accent-wash);color:var(--accent)}
+.chip{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:5px;font:500 10px var(--mono);letter-spacing:.02em;border:1px solid var(--line-strong);color:var(--ink-2)}
+.chip.mcp{border-color:var(--accent);color:var(--accent)}
+.chip.lock{border-style:dashed;color:var(--muted)}
+
+/* Verdict */
+.verdict{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.verdict.warn{background:var(--warn-wash);border-color:transparent}
+.verdict b{font-weight:600}
+.verdict .facts{margin-left:auto;display:flex;gap:24px}
+.fact{display:flex;flex-direction:column;align-items:flex-end}
+.fact .v{font:600 20px var(--sans);letter-spacing:-.03em}
+.fact .v small{font:400 12px var(--sans);color:var(--muted);margin-left:2px}
+.fact .l{font-size:12px;color:var(--muted)}
+
+/* Matrice quoi -> où */
+.layout{display:grid;grid-template-columns:1fr;gap:16px;align-items:start}
+.layout.with-insp{grid-template-columns:minmax(0,1fr) 340px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.matrix{width:100%;border-collapse:separate;border-spacing:0}
+.matrix th{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:12px 8px 10px;border-bottom:1px solid var(--line);vertical-align:bottom;white-space:nowrap}
+.matrix th .tgt{display:block;text-transform:none;letter-spacing:0;font:500 12px var(--sans);color:var(--ink)}
+.matrix th .tgt-sub{white-space:normal;max-width:150px;display:block;text-transform:none;letter-spacing:0;font:11px var(--mono);color:var(--muted);margin-top:2px}
+.matrix td{padding:0 8px;height:52px;border-bottom:1px solid var(--line);vertical-align:middle}
+.matrix tr:last-child td{border-bottom:0}
+.matrix tr.group td{height:34px;background:var(--surface-2);font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.matrix tr.group td .mono{text-transform:none;letter-spacing:0}
+.src{display:flex;flex-direction:column;gap:1px;min-width:150px}
+.row-name{font-weight:500;color:var(--ink);text-decoration:none;cursor:pointer;background:none;border:0;padding:0;text-align:left}
+.src .kind{font:11px var(--mono);color:var(--muted);white-space:nowrap}
+.cell{display:flex;align-items:center;gap:8px;width:100%;min-width:104px;height:40px;padding:0 8px;border-radius:8px;border:1px solid transparent;background:none;cursor:pointer;text-align:left}
+.cell:hover{background:var(--surface-2)}
+.cell.sel{border-color:var(--accent);background:var(--accent-wash)}
+.cell .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.cell .when{display:flex;flex-direction:column;line-height:1.2}
+.cell .when b{font-weight:500}
+.cell .when span{font:11px var(--mono);color:var(--muted)}
+.cell.empty{color:var(--muted);cursor:default}.cell.empty:hover{background:none}
+.cell.observed .dot{background:transparent;border:1.5px solid var(--ok)}
+.d-ok{background:var(--ok)}.d-warn{background:var(--warn)}.d-danger{background:var(--danger)}.d-neutral{background:var(--muted)}
+.rt{white-space:nowrap}
+.legend{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend .dot{width:8px;height:8px;border-radius:50%}
+
+/* Inspecteur */
+.insp{position:sticky;top:20px;padding:20px;display:flex;flex-direction:column;gap:16px}
+.insp h2{font-size:14px;font-weight:600;margin:0}
+.insp .sub{font:12px var(--mono);color:var(--muted);margin-top:2px}
+.insp .close{margin-left:auto;border:0;background:none;cursor:pointer;color:var(--muted);height:28px;width:28px;border-radius:7px}
+.insp .close:hover{background:var(--surface-2)}
+.label{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.frise{display:flex;gap:3px}
+.frise i{width:8px;height:20px;border-radius:2px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;text-align:right}
+.acts{display:flex;flex-direction:column;gap:8px}
+.acts .row{display:flex;gap:8px;align-items:center}
+.acts .row .btn{flex:1;justify-content:center}
+.danger-zone{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:8px}
+.danger-zone p{margin:0;font-size:12px;color:var(--muted)}
+hr.sep{border:0;border-top:1px solid var(--line);margin:0}
+
+/* Politiques */
+.policies{display:flex;flex-direction:column;gap:12px}
+.policy{padding:16px 20px;display:grid;grid-template-columns:1fr auto;gap:8px 16px;align-items:center}
+.policy .sentence{font-size:14px;line-height:1.6}
+.policy .sentence .tok{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);font-weight:500;margin:0 2px}
+.policy .meta{grid-column:1/-1;display:flex;gap:16px;color:var(--muted);font-size:12px}
+
+/* Explorateur (composant réutilisable) */
+.scrim{position:fixed;inset:0;background:var(--scrim);display:none;align-items:center;justify-content:center;padding:32px;z-index:10}
+.scrim.on{display:flex}
+.explorer{width:min(1080px,100%);height:min(680px,100%);background:var(--surface);border:1px solid var(--line);border-radius:14px;display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.18)}
+.ex-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.ex-head h2{font-size:14px;font-weight:600;margin:0}
+.ex-body{display:grid;grid-template-columns:220px 1fr;min-height:0}
+.snaps{border-right:1px solid var(--line);overflow:auto;padding:12px 8px}
+.snap{display:flex;flex-direction:column;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.snap:hover{background:var(--surface-2)}
+.snap.on{background:var(--accent-wash);border-color:var(--accent)}
+.snap b{font-weight:500}.snap span{font:11px var(--mono);color:var(--muted)}
+.files{display:flex;flex-direction:column;min-width:0}
+.crumbs{display:flex;align-items:center;gap:4px;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.crumbs button{border:0;background:none;padding:4px 6px;border-radius:6px;cursor:pointer;font:12px var(--mono);color:var(--ink-2)}
+.crumbs button:hover{background:var(--surface-2)}
+.crumbs .sepc{color:var(--muted)}
+.crumbs .search{margin-left:auto;height:30px;border:1px solid var(--line-strong);border-radius:7px;padding:0 10px;background:var(--surface);color:var(--ink);font:12px var(--sans);width:200px}
+.flist{overflow:auto;flex:1}
+.flist table{width:100%;border-collapse:collapse}
+.flist th{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface)}
+.flist td{padding:0 16px;height:40px;border-bottom:1px solid var(--line)}
+.flist tr:hover td{background:var(--surface-2)}
+.flist tr.picked td{background:var(--accent-wash)}
+.fname{display:flex;align-items:center;gap:10px;cursor:pointer}
+.fname .ico{color:var(--muted)}
+.fname.dir{font-weight:500}
+.ex-foot{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
+.ex-foot .sel{color:var(--ink-2)}
+.ex-foot .sp{flex:1}
+.note{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--surface-2);color:var(--ink-2);font-size:12px}
+.confirm{display:none;align-items:center;gap:8px;font-size:12px}
+.confirm.on{display:inline-flex}
+
+/* Tweaks */
+.tweaks{position:fixed;right:16px;bottom:16px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;gap:6px;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,.08)}
+@media (max-width:1100px){.layout.with-insp{grid-template-columns:1fr}.insp{position:static}}
+@media (max-width:860px){.app{grid-template-columns:1fr}.side{display:none}.main{padding:20px 16px}.verdict{flex-wrap:wrap}.verdict .facts{margin-left:0}.ex-body{grid-template-columns:1fr}.snaps{display:none}}
+@media (prefers-reduced-motion:no-preference){.cell,.btn,.snap{transition:background .12s,border-color .12s}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="13" width="16" height="7" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M4 8l8-4 8 4-8 4-8-4zM4 8v8l8 4 8-4V8M12 12v8"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="5" rx="1.5"/><path d="M5 9v10h14V9M10 13h4"/></symbol>
+  <symbol id="i-fire" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16M9 6v6M15 12v6"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 20h4"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2h8a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 18.5H5A1.5 1.5 0 0 1 3.5 17z"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M6 18l1.4-1.4M16.6 7.4 18 6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+</svg>
+
+<div class="app">
+  <aside class="side" aria-label="Navigation">
+    <div class="brand"><svg class="ico" style="width:20px;height:20px;stroke-width:2.2" viewBox="0 0 24 24"><path d="M9 19a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9H14"/></svg><span><b>open</b>Cloud</span></div>
+    <div class="side-label">Vue</div>
+    <div class="nav"><svg class="ico"><use href="#i-grid"/></svg>Vue d'ensemble</div>
+    <div class="nav"><svg class="ico"><use href="#i-server"/></svg>Machines<span class="count">7</span></div>
+    <div class="nav"><svg class="ico"><use href="#i-box"/></svg>Services<span class="count">12</span></div>
+    <div class="nav"><svg class="ico"><use href="#i-bell"/></svg>Alertes<span class="count alert">2</span></div>
+    <div class="side-label">Administration</div>
+    <div class="nav"><svg class="ico"><use href="#i-fire"/></svg>Pare-feu</div>
+    <div class="nav active"><svg class="ico"><use href="#i-archive"/></svg>Sauvegardes<span class="count alert">3</span></div>
+    <div class="nav"><svg class="ico"><use href="#i-settings"/></svg>Paramètres</div>
+    <div class="nav"><svg class="ico"><use href="#i-file"/></svg>Journal</div>
+  </aside>
+
+  <main class="main">
+    <div class="head">
+      <div>
+        <h1>Sauvegardes</h1>
+        <p>Ce qui est sauvegardé, où, et si on sait le remettre.</p>
+      </div>
+      <div class="actions">
+        <button class="btn">Ajouter une cible</button>
+        <button class="btn primary">Composer une politique</button>
+      </div>
+    </div>
+
+    <div class="verdict warn" role="status">
+      <span class="pill t-warn"><i></i>À traiter</span>
+      <div><b>2 sources sans sauvegarde</b>, et 1 restauration test périmée.<br><span class="ink2">Dernière exécution réussie : cette nuit à 02:31, il y a 8 h.</span></div>
+      <div class="facts">
+        <div class="fact"><span class="v">14<small>sources</small></span><span class="l">12 couvertes</span></div>
+        <div class="fact"><span class="v">186<small>Gio</small></span><span class="l">sur les cibles</span></div>
+        <div class="fact"><span class="v">9<small>/ 12</small></span><span class="l">restaurations testées</span></div>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab on" data-tab="matrix" role="tab" aria-selected="true">Quoi → où</button>
+      <button class="tab" data-tab="policies" role="tab">Politiques <span class="muted mono">4</span></button>
+      <button class="tab" data-tab="targets" role="tab">Cibles <span class="muted mono">3</span></button>
+      <button class="tab" data-tab="runs" role="tab">Historique</button>
+    </div>
+
+    <!-- Onglet : matrice -->
+    <section id="tab-matrix">
+      <div class="layout" id="layout">
+        <div class="card" style="overflow:auto">
+          <table class="matrix" id="matrix" aria-label="Sources en lignes, cibles en colonnes"></table>
+          <div class="legend">
+            <span><i class="dot d-ok"></i>Réussie</span>
+            <span><i class="dot d-warn"></i>En retard</span>
+            <span><i class="dot d-danger"></i>Échouée</span>
+            <span><i class="dot" style="border:1.5px solid var(--ok)"></i>Observée hors openCloud</span>
+            <span><span class="chip mcp">MCP</span> faisable par un agent</span>
+            <span><span class="chip lock">Interface</span> réservé à l'interface</span>
+          </div>
+        </div>
+        <aside class="card insp" id="insp" hidden aria-live="polite"></aside>
+      </div>
+    </section>
+
+    <!-- Onglet : politiques -->
+    <section id="tab-policies" hidden>
+      <div class="policies">
+        <div class="card policy">
+          <div class="sentence">Chaque nuit à <span class="tok mono">02:30</span>, <span class="tok">les VM et LXC de pve-01</span> vers <span class="tok">pi · rest-server</span>, gardées <span class="tok">14 jours · 8 semaines · 3 mois</span>.</div>
+          <span class="pill small t-ok"><i></i>À l'heure</span>
+          <div class="meta"><span>6 sources</span><span>Prochaine : <span class="mono">02:30</span></span><span>Restauration test : 1ᵉʳ du mois, une VM tirée au sort</span></div>
+        </div>
+        <div class="card policy">
+          <div class="sentence">Toutes les <span class="tok mono">6 h</span>, <span class="tok">les volumes et la base des services</span> vers <span class="tok">pi · rest-server</span>, gardées <span class="tok">48 h · 30 jours</span>.</div>
+          <span class="pill small t-ok"><i></i>À l'heure</span>
+          <div class="meta"><span>5 sources</span><span>Prochaine : <span class="mono">12:00</span></span><span>Restauration test : chaque semaine, un fichier par source</span></div>
+        </div>
+        <div class="card policy">
+          <div class="sentence">Chaque jour à <span class="tok mono">03:15</span>, <span class="tok">l'export du pare-feu</span> vers <span class="tok">pi · rest-server</span>, gardé <span class="tok">90 jours</span>.</div>
+          <span class="pill small t-warn"><i></i>En retard</span>
+          <div class="meta"><span>1 source</span><span>Dernière réussite : il y a 3 jours</span><span>Restauration test : déchiffrement et lecture à chaque passage</span></div>
+        </div>
+        <div class="card policy">
+          <div class="sentence">Chaque nuit à <span class="tok mono">04:00</span>, <span class="tok">la base d'openCloud</span> vers <span class="tok">pi · rest-server</span> et <span class="tok">vps · rest-server</span>, gardée <span class="tok">30 jours</span>.</div>
+          <span class="pill small t-ok"><i></i>À l'heure</span>
+          <div class="meta"><span>1 source, 2 cibles</span><span>La racine de la reprise : la phrase du kit papier l'ouvre</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-targets" hidden><div class="card" style="padding:20px" class="muted">Cibles : une carte par cible (espace, plancher de rétention posé sur la cible, dernier contrôle d'intégrité, chemin : LAN direct ou relais).</div></section>
+    <section id="tab-runs" hidden><div class="card" style="padding:20px">Historique : le tableau des exécutions (frise en tête, puis une ligne par exécution, filtre par politique, source, cible, auteur).</div></section>
+  </main>
+</div>
+
+<!-- Explorateur de fichiers : composant réutilisable (sauvegardes, données d'un service, fichiers d'un conteneur). -->
+<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-labelledby="ex-title">
+  <div class="explorer">
+    <div class="ex-head">
+      <svg class="ico"><use href="#i-archive"/></svg>
+      <div><h2 id="ex-title">Parcourir</h2><div class="muted mono" id="ex-sub"></div></div>
+      <button class="btn small" style="margin-left:auto" id="ex-close"><svg class="ico"><use href="#i-x"/></svg>Fermer</button>
+    </div>
+    <div class="ex-body">
+      <nav class="snaps" aria-label="Instantanés" id="snaps"></nav>
+      <div class="files">
+        <div class="crumbs" id="crumbs"></div>
+        <div class="flist"><table><thead><tr><th style="width:28px"></th><th>Nom</th><th>Taille</th><th>Modifié</th></tr></thead><tbody id="flist"></tbody></table></div>
+      </div>
+    </div>
+    <div class="ex-foot">
+      <span class="sel" id="ex-sel">Rien de choisi</span>
+      <span class="sp"></span>
+      <span class="confirm" id="ex-confirm">Remplacer les fichiers du service ? <button class="btn small danger">Confirmer</button><button class="btn small" id="ex-cancel">Annuler</button></span>
+      <button class="btn small" id="ex-inplace" disabled title="Interface seulement, avec confirmation"><svg class="ico"><use href="#i-lock"/></svg>Restaurer en place</button>
+      <button class="btn small" id="ex-dl" disabled>Télécharger</button>
+      <button class="btn small primary" id="ex-side" disabled>Restaurer à côté <span class="chip mcp" style="border-color:currentColor;color:inherit">MCP</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="tweaks" aria-label="Réglages de la maquette">
+  <button class="btn small" id="theme">Thème sombre</button>
+</div>
+
+<script>
+// Données de démonstration, génériques (aucune valeur réelle).
+var TARGETS = [
+  {id:"pi", name:"pi · rest-server", sub:"LAN direct · append-only"},
+  {id:"nfs", name:"pi · NFS vzdump", sub:"observé, tâche de l'hôte"},
+  {id:"vps", name:"vps · rest-server", sub:"relais · à venir"}
+];
+var SOURCES = [
+  {group:"Non sauvegardé", warn:true, rows:[
+    {id:"vol-uploads", name:"atelier_uploads", kind:"volume Docker · atelier", cells:{}, rt:null},
+    {id:"db-hindsight", name:"hindsight", kind:"base PostgreSQL · agent-ia", cells:{}, rt:null}
+  ]},
+  {group:"pve-01 · VM et LXC", rows:[
+    {id:"vm-101", name:"edge", kind:"VM 101", cells:{pi:["ok","02:31","3,4 Gio"], nfs:["obs","02:30","5,1 Gio"]}, rt:["ok","le 01/10"]},
+    {id:"vm-102", name:"coffre", kind:"VM 102", cells:{pi:["ok","02:34","1,2 Gio"], nfs:["obs","02:30","1,9 Gio"]}, rt:["warn","il y a 47 j"]},
+    {id:"ct-103", name:"forge", kind:"LXC 103", cells:{pi:["ok","02:36","6,8 Gio"], nfs:["obs","02:30","9,0 Gio"]}, rt:["ok","le 01/10"]},
+    {id:"vm-104", name:"cloud", kind:"VM 104", cells:{pi:["danger","02:39","échouée"], nfs:["obs","02:30","4,4 Gio"]}, rt:["ok","le 01/10"]},
+    {id:"vm-201", name:"agent-ia", kind:"VM 201", cells:{pi:["ok","02:41","11 Gio"]}, rt:["ok","le 01/10"]}
+  ]},
+  {group:"Services", rows:[
+    {id:"vol-mcp", name:"mcp_data", kind:"volume Docker · cloud", cells:{pi:["ok","06:00","84 Mio"]}, rt:["ok","il y a 2 j"]},
+    {id:"db-payload", name:"payload", kind:"base PostgreSQL · vps", cells:{pi:["ok","06:00","212 Mio"], vps:["neutral","—","à venir"]}, rt:["ok","il y a 2 j"]},
+    {id:"db-oc", name:"opencloud.db", kind:"base d'openCloud", cells:{pi:["ok","04:00","38 Mio"], vps:["neutral","—","à venir"]}, rt:["ok","il y a 1 j"]}
+  ]},
+  {group:"Exports de configuration", rows:[
+    {id:"cfg-fw", name:"pare-feu", kind:"export OPNsense, chiffré", cells:{pi:["warn","il y a 3 j","412 Kio"]}, rt:["ok","à chaque passage"]},
+    {id:"cfg-sw", name:"switch", kind:"export manuel", cells:{pi:["neutral","déposé le 12/10","8 Kio"]}, rt:["neutral","jamais"]}
+  ]}
+];
+var TONE = {ok:"d-ok", warn:"d-warn", danger:"d-danger", neutral:"d-neutral"};
+var RT = {ok:["t-ok","Réussie"], warn:["t-warn","Périmée"], danger:["t-danger","Échouée"], neutral:["t-neutral","Jamais"]};
+
+function el(tag, attrs, html){ var e=document.createElement(tag); for (var k in (attrs||{})) e.setAttribute(k, attrs[k]); if (html!=null) e.innerHTML=html; return e; }
+
+function renderMatrix(){
+  var t = document.getElementById("matrix"); t.innerHTML="";
+  var thead = el("thead"), tr = el("tr");
+  tr.appendChild(el("th", null, "Source"));
+  tr.appendChild(el("th", null, "Restauration test"));
+  TARGETS.forEach(function(g){ tr.appendChild(el("th", null, '<span class="tgt">'+g.name+'</span><span class="tgt-sub">'+g.sub+'</span>')); });
+  thead.appendChild(tr); t.appendChild(thead);
+  var tb = el("tbody");
+  SOURCES.forEach(function(gr){
+    var g = el("tr", {"class":"group"});
+    g.appendChild(el("td", {colspan: String(TARGETS.length+2)}, gr.warn ? '<span class="pill small t-warn"><i></i>'+gr.group+'</span> <span class="mono" style="margin-left:8px">'+gr.rows.length+' sources, aucune politique</span>' : gr.group));
+    tb.appendChild(g);
+    gr.rows.forEach(function(s){
+      var r = el("tr");
+      r.appendChild(el("td", null, '<div class="src"><button class="row-name" data-src="'+s.id+'">'+s.name+'</button><span class="kind">'+s.kind+'</span></div>'));
+      r.appendChild(el("td", {"class":"rt", title: s.rt ? s.rt[1] : "aucune"}, s.rt ? '<span class="pill small '+RT[s.rt[0]][0]+'"><i></i>'+RT[s.rt[0]][1]+'</span><div class="muted mono" style="font-size:11px;margin-top:2px">'+s.rt[1]+'</div>' : '<span class="muted">—</span>'));
+      TARGETS.forEach(function(g){
+        var c = s.cells[g.id], td = el("td");
+        if (!c) { td.appendChild(el("span", {"class":"cell empty"}, gr.warn && g.id==="pi" ? '<button class="btn small" data-compose="'+s.id+'">Couvrir…</button>' : '—')); }
+        else {
+          var b = el("button", {"class":"cell"+(c[0]==="obs"?" observed":""), "data-src":s.id, "data-tgt":g.id, "aria-label":s.name+" vers "+g.name});
+          b.innerHTML = '<i class="dot '+(c[0]==="obs"?"":TONE[c[0]])+'"></i><span class="when"><b>'+c[1]+'</b><span>'+c[2]+'</span></span>';
+          td.appendChild(b);
+        }
+        r.appendChild(td);
+      });
+      tb.appendChild(r);
+    });
+  });
+  t.appendChild(tb);
+}
+
+function find(id){ var f=null; SOURCES.forEach(function(g){ g.rows.forEach(function(s){ if (s.id===id) f=s; }); }); return f; }
+
+function openInspector(srcId, tgtId){
+  var s = find(srcId), tgt = TARGETS.filter(function(x){return x.id===tgtId;})[0] || TARGETS[0];
+  var c = s.cells[tgt.id] || ["neutral","—","—"];
+  document.querySelectorAll(".cell.sel").forEach(function(x){ x.classList.remove("sel"); });
+  var me = document.querySelector('.cell[data-src="'+srcId+'"][data-tgt="'+tgt.id+'"]'); if (me) me.classList.add("sel");
+  var observed = c[0]==="obs";
+  var frise = ""; for (var i=0;i<14;i++){ var tone = (s.id==="vm-104" && i>=12) ? "d-danger" : (s.id==="cfg-fw" && i>=11) ? "d-warn" : "d-ok"; frise += '<i class="'+tone+'"></i>'; }
+  var verdict = c[0]==="danger" ? '<span class="pill t-danger"><i></i>Échouée</span><div style="margin-top:8px"><b>2 échecs de suite</b> depuis hier 02:39 : la cible a refusé l\'envoi (plancher d\'espace atteint).</div><div class="ink2">Dernière réussite : avant-hier 02:38. Libérer de l\'espace sur la cible, puis relancer.</div>'
+    : observed ? '<span class="pill t-neutral"><i></i>Observée</span><div style="margin-top:8px">Faite par la tâche vzdump de l\'hôte, hors openCloud. openCloud la voit, ne la lance pas.</div><div class="ink2">Elle s\'arrête une fois chaque VM couverte par une politique et restaurée une fois.</div>'
+    : c[0]==="warn" ? '<span class="pill t-warn"><i></i>En retard</span><div style="margin-top:8px"><b>Pas de réussite depuis 3 jours.</b> La clé d\'API du pare-feu répond 401.</div>'
+    : '<span class="pill t-ok"><i></i>Réussie</span><div style="margin-top:8px"><b>Cette nuit à '+c[1]+'</b>, '+c[2]+'.</div><div class="ink2">14 réussites de suite.</div>';
+  var insp = document.getElementById("insp");
+  insp.innerHTML =
+    '<div style="display:flex;align-items:flex-start"><div><h2>'+s.name+' → '+tgt.name+'</h2><div class="sub">'+s.kind+'</div></div><button class="close" aria-label="Fermer" id="insp-close"><svg class="ico"><use href="#i-x"/></svg></button></div>'+
+    '<div>'+verdict+'</div>'+
+    (observed ? '' : '<div><div class="label">14 derniers passages</div><div class="frise">'+frise+'</div></div>')+
+    '<hr class="sep"><dl class="kv">'+
+      '<dt>Politique</dt><dd>'+(observed?'—':'Chaque nuit, 02:30')+'</dd>'+
+      '<dt>Rétention</dt><dd class="mono">14 j · 8 sem · 3 mois</dd>'+
+      '<dt>Instantanés</dt><dd class="mono">'+(observed?'5':'24')+'</dd>'+
+      '<dt>Chemin</dt><dd>'+(tgt.id==="vps"?'relais du serveur':'LAN direct, TLS épinglé')+'</dd>'+
+      '<dt>Restauration test</dt><dd>'+(s.rt?'<span class="pill small '+RT[s.rt[0]][0]+'"><i></i>'+RT[s.rt[0]][1]+'</span>':'—')+'</dd>'+
+    '</dl><hr class="sep">'+
+    (observed ? '<div class="note">Pour la piloter : composer une politique pour cette VM. La tâche de l\'hôte reste le filet jusqu\'à la première restauration test réussie.</div>' :
+    '<div class="acts">'+
+      '<div class="row"><button class="btn primary">Lancer maintenant <span class="chip mcp" style="border-color:currentColor;color:inherit">MCP</span></button></div>'+
+      '<div class="row"><button class="btn">Vérifier <span class="chip mcp">MCP</span></button>'+(/^VM|^LXC/.test(s.kind) ? '<button class="btn" disabled style="opacity:.55;cursor:not-allowed">Parcourir</button>' : '<button class="btn" id="browse">Parcourir <span class="chip mcp">MCP</span></button>')+'</div>'+
+      (/^VM|^LXC/.test(s.kind) ? '<p class="muted" style="margin:-2px 0 0;font-size:12px">Une VM se restaure entière. Ses fichiers se parcourent par les sauvegardes de ses services.</p>' : '')+
+      '<div class="row"><button class="btn">Tester une restauration <span class="chip mcp">MCP</span></button></div>'+
+    '</div>'+
+    '<div class="danger-zone"><p>Réduire la rétention ou supprimer des instantanés se fait ici seulement, jamais par un agent. Il faut saisir le nom de la politique ; le journal le garde.</p>'+
+      '<div class="row" style="display:flex;gap:8px"><button class="btn small danger"><svg class="ico"><use href="#i-lock"/></svg>Réduire la rétention</button><button class="btn small danger"><svg class="ico"><use href="#i-lock"/></svg>Supprimer…</button></div></div>');
+  insp.hidden = false;
+  document.getElementById("layout").classList.add("with-insp");
+  document.getElementById("insp-close").onclick = closeInspector;
+  var br = document.getElementById("browse"); if (br) br.onclick = function(){ openExplorer(s); };
+}
+function closeInspector(){ document.getElementById("insp").hidden = true; document.getElementById("layout").classList.remove("with-insp"); document.querySelectorAll(".cell.sel").forEach(function(x){ x.classList.remove("sel"); }); }
+
+// Explorateur : un arbre, des instantanés, une sélection, trois sorties.
+var TREE = {name:"/", kids:[
+  {name:"srv", kids:[{name:"workspace", kids:[{name:"atelier", kids:[
+    {name:"data", kids:[{name:"uploads", kids:[{name:"2026-10", kids:[{name:"rapport-final.pdf", size:"2,4 Mio", at:"30/10 18:12"},{name:"photo-chantier.jpg", size:"5,1 Mio", at:"29/10 09:40"}]},{name:"2026-09", kids:[{name:"devis.pdf", size:"310 Kio", at:"14/09 11:02"}]}]},{name:"db", kids:[{name:"dump.sql.zst", size:"18 Mio", at:"31/10 06:00"}]}]},
+    {name:".env", size:"1,2 Kio", at:"21/10 10:15"},{name:"compose.yml", size:"2,0 Kio", at:"21/10 10:15"}]}]}]},
+  {name:"etc", kids:[{name:"atelier", kids:[{name:"config.toml", size:"3,3 Kio", at:"12/10 08:30"}]}]}
+]};
+var path = [TREE], picked = {};
+function openExplorer(s){
+  document.getElementById("ex-sub").textContent = s.name+" · "+s.kind;
+  var snaps = document.getElementById("snaps"); snaps.innerHTML = '<div class="label" style="padding:0 10px">Instantanés</div>';
+  ["Aujourd'hui 06:00","Aujourd'hui 00:00","Hier 18:00","Hier 12:00","29/10 06:00","Semaine 43","Septembre"].forEach(function(n,i){
+    var d = el("div", {"class":"snap"+(i===0?" on":""), tabindex:"0"}, '<b>'+n+'</b><span>'+(i===0?"a3f9c21e · 84 Mio":"instantané")+'</span>');
+    d.onclick = function(){ snaps.querySelectorAll(".snap").forEach(function(x){x.classList.remove("on");}); d.classList.add("on"); };
+    snaps.appendChild(d);
+  });
+  path = [TREE]; picked = {}; renderFiles();
+  document.getElementById("scrim").classList.add("on");
+  document.getElementById("ex-close").focus();
+}
+function renderFiles(){
+  var cur = path[path.length-1], cr = document.getElementById("crumbs"); cr.innerHTML = "";
+  path.forEach(function(n,i){ if (i) cr.appendChild(el("span", {"class":"sepc"}, "/")); var b = el("button", null, i===0?"racine":n.name); b.onclick = function(){ path = path.slice(0,i+1); renderFiles(); }; cr.appendChild(b); });
+  var q = el("input", {"class":"search", placeholder:"Chercher dans l'instantané…", "aria-label":"Chercher"}); cr.appendChild(q);
+  var tb = document.getElementById("flist"); tb.innerHTML = "";
+  var kids = (cur.kids||[]).slice().sort(function(a,b){ return (!!b.kids - !!a.kids) || a.name.localeCompare(b.name); });
+  kids.forEach(function(k){
+    var full = path.map(function(p){return p.name;}).join("/")+"/"+k.name;
+    var tr = el("tr", {"class": picked[full] ? "picked" : ""});
+    var cb = el("input", {type:"checkbox", "aria-label":"Choisir "+k.name}); cb.checked = !!picked[full];
+    cb.onchange = function(){ if (cb.checked) picked[full] = k; else delete picked[full]; renderFiles(); };
+    var td0 = el("td"); td0.appendChild(cb); tr.appendChild(td0);
+    var nm = el("td", null, '<span class="fname'+(k.kids?" dir":"")+'"><svg class="ico"><use href="#i-'+(k.kids?"folder":"file")+'"/></svg>'+k.name+'</span>');
+    if (k.kids) nm.querySelector(".fname").onclick = function(){ path.push(k); renderFiles(); };
+    tr.appendChild(nm);
+    tr.appendChild(el("td", {"class":"mono"}, k.size || (k.kids ? '<span class="muted">'+k.kids.length+' élément'+(k.kids.length>1?"s":"")+'</span>' : "")));
+    tr.appendChild(el("td", {"class":"mono muted"}, k.at || ""));
+    tb.appendChild(tr);
+  });
+  var n = Object.keys(picked).length;
+  document.getElementById("ex-sel").textContent = n ? n+" élément"+(n>1?"s":"")+" choisi"+(n>1?"s":"") : "Rien de choisi";
+  ["ex-side","ex-dl","ex-inplace"].forEach(function(id){ document.getElementById(id).disabled = !n; });
+}
+document.getElementById("ex-close").onclick = function(){ document.getElementById("scrim").classList.remove("on"); };
+document.getElementById("ex-inplace").onclick = function(){ document.getElementById("ex-confirm").classList.add("on"); document.getElementById("ex-inplace").hidden = true; document.getElementById("ex-cancel").focus(); };
+document.getElementById("ex-cancel").onclick = function(){ document.getElementById("ex-confirm").classList.remove("on"); var b = document.getElementById("ex-inplace"); b.hidden = false; b.focus(); };
+document.addEventListener("keydown", function(e){ if (e.key==="Escape"){ var sc=document.getElementById("scrim"); if (sc.classList.contains("on")) sc.classList.remove("on"); else closeInspector(); } });
+
+document.addEventListener("click", function(e){
+  var c = e.target.closest(".cell:not(.empty)"); if (c) openInspector(c.getAttribute("data-src"), c.getAttribute("data-tgt"));
+  var n = e.target.closest(".row-name"); if (n) { var s = find(n.getAttribute("data-src")); var first = Object.keys(s.cells)[0]; if (first) openInspector(s.id, first); }
+});
+document.querySelectorAll(".tab").forEach(function(t){ t.onclick = function(){
+  document.querySelectorAll(".tab").forEach(function(x){ x.classList.remove("on"); x.setAttribute("aria-selected","false"); });
+  t.classList.add("on"); t.setAttribute("aria-selected","true");
+  ["matrix","policies","targets","runs"].forEach(function(k){ document.getElementById("tab-"+k).hidden = (k !== t.getAttribute("data-tab")); });
+};});
+var th = document.getElementById("theme");
+th.onclick = function(){ var d = document.documentElement; var dark = d.getAttribute("data-theme")==="dark"; d.setAttribute("data-theme", dark?"light":"dark"); th.textContent = dark?"Thème sombre":"Thème clair"; };
+
+renderMatrix();
+openInspector("vm-104","pi");
+// Démo : ?explorer ouvre l'explorateur depuis un volume de service.
+if (location.search.indexOf("explorer") >= 0) { openInspector("vol-mcp","pi"); openExplorer(find("vol-mcp")); }
+if (location.search.indexOf("sombre") >= 0) { document.getElementById("theme").click(); }
+</script>
+</body>
+</html>
