@@ -491,24 +491,39 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   changement signé par une clé de l'opérateur : modifier le fichier à la main
   se voit comme un écart, et c'est le fichier qui s'applique.
 
-### Révoquer un agent
+### Supprimer une machine
 
-`POST /api/machines/{id}/actions/revoke`, bouton « Révoquer l'agent » de la
-fiche, après confirmation. Pour une machine compromise : l'agent est refusé
-**sans supprimer la machine** (revue RSSI, C09).
+`DELETE /api/machines/{id}`, bouton **Supprimer la machine** de la fiche (un seul
+geste, avec la puce `MCP` : c'est le verbe `machine.delete`, à confirmation).
+Corps `{keep_history}` ; vide, `keep_history` vaut faux. La fenêtre
+(`DeleteMachineDialog`) propose **Garder l'historique**, coché d'avance, parce
+que c'est ce qui se défait.
 
-| Ce qui se passe | Ce qui reste |
-| --- | --- |
-| `agents.revoked_at` posé sur l'agent actif ; son flux est coupé (`session_closed`) ; les jetons de ré-enrôlement en attente pour la machine sont annulés, dans la même transaction | La machine, son historique, ses services déclarés, ses sondes et tâches ; l'agent révoqué reste visible sur la fiche, avec sa date de révocation |
-| À sa preuve suivante, l'agent lit `401 revoked` et s'arrête | La machine passe hors ligne et n'est jamais déclarée **perdue** : sans agent actif, il n'y a rien à perdre |
+| | Garder l'historique | Sans historique |
+| --- | --- | --- |
+| Effet | La machine est **archivée** : `agents.revoked_at` posé sur l'agent actif, son flux coupé (`session_closed`), les jetons de ré-enrôlement en attente annulés, dans la même transaction | La machine est effacée, avec ses agents, ses mesures, ses conteneurs et ses clés SSH ; ses alertes restent, détachées |
+| Reste | La machine, son historique, ses services déclarés, ses sondes et tâches ; la fiche montre l'agent révoqué et sa date | Rien de ce qui la nommait : le plan dit ce qui part |
+| Ce qui la retient | Rien : l'archive n'efface rien | Services, sondes, tâches, composants de page de statut, plans de sauvegarde : `409` avec le plan (`GET …/delete-plan`) |
+| Confirmation | Un clic | Le nom de la machine, tapé tel quel |
+| Retour arrière | **Ré-enrôler** : même id, même historique, nouvel agent, nouvelle clé ; l'ancien reste révoqué | Aucun |
+| Audit | `agent.revoke` | `machine.delete` |
 
-Refus : `409 machine.no_agent` sans agent actif (déjà révoqué, ou jamais
-enrôlé), `404` pour une machine inconnue. La machine openCloud se révoque
-comme les autres. **Ré-enrôler lève la révocation** : un nouveau jeton, un
-nouvel agent, une nouvelle clé ; l'ancien reste révoqué. Ce que l'agent
-détenait, il le détient encore (sa clé, désormais refusée ; les `.env` des
-services de la machine) : après une compromission, tourner les secrets des
-services de cette machine reste à faire à la main.
+Une machine archivée reste **dans la liste**, avec la pastille « Archivée »
+(neutre, ni en ligne ni hors ligne) ; elle ne compte plus dans « N machines, M
+en ligne », ni dans le compteur du menu, et n'est jamais déclarée **perdue** :
+sans agent actif il n'y a rien à perdre, et son alerte « perdue » ouverte se
+résout à l'archivage. Sur la fiche d'une machine archivée, la fenêtre ne propose
+plus que l'issue définitive. La machine openCloud s'archive et se supprime comme
+les autres.
+
+Refus : `409 machine.no_agent` pour une archive déjà archivée, `404` pour une
+machine inconnue, `400` pour un champ inconnu. **La route
+`POST /api/machines/{id}/actions/revoke` n'existe plus** : « Révoquer l'agent »
+et « Retirer » étaient deux boutons pour deux issues d'un même geste.
+
+Ce que l'agent détenait, il le détient encore (sa clé, désormais refusée ; les
+`.env` des services de la machine) : après une compromission, tourner les
+secrets des services de cette machine reste à faire à la main.
 
 ### La machine openCloud
 
@@ -524,7 +539,7 @@ toujours eue : c'est par lui qu'elle garde son historique.
 | Ensuite | `409 machine.local_enrolled` dès que la machine a, ou a eu, un agent : un agent révoqué ne se réinstalle pas de lui-même. La ligne se redonne par la fiche › **Ré-enrôler**, ou par Ajouter une machine, jouée sur elle (l'empreinte la rattache à `local`) |
 | À chaque démarrage | Le jeton est émis de nouveau tant que la machine n'a jamais eu d'agent : celui d'avant, dont le clair est perdu, expire seul dans l'heure |
 | Hors ligne | Sans le flux de son agent, la machine openCloud est hors ligne, comme les autres ; tant qu'elle n'a pas d'agent actif, elle n'est jamais déclarée **perdue** |
-| Retrait | Comme les autres, par son plan : elle emporte son agent. Au démarrage suivant, sans ligne `local`, le jeton est de nouveau offert |
+| Suppression | Comme les autres : archivée (agent coupé) ou effacée par son plan, qui emporte son agent. Au démarrage suivant, sans ligne `local`, le jeton est de nouveau offert |
 
 ## Comment les modules et le rôle d'une machine décident de l'écran
 
@@ -4085,17 +4100,17 @@ les verbes ordinaires ; la confirmation remplace l'inverse comme garde-fou.
 | Règle | Comment |
 | --- | --- |
 | Le registre | `verb.Verb.Confirm` : pas d'inverse (`ErrConfirmReverse` sinon), une route `POST`, `PUT` ou `DELETE` sous `/api/`, et une machine pour cible (`ErrConfirmTarget` : le serveur ne sait nommer que la machine dans la demande) |
-| Le premier verbe | `machine.delete`, `DELETE /api/machines/{id}`, aucun corps |
+| Le premier verbe | `machine.delete`, `DELETE /api/machines/{id}`, corps `{keep_history}` (« Supprimer une machine ») : sans, la machine et son historique partent ; avec, elle est archivée |
 | La demande | Un jeton qui porte le verbe, admis comme pour tout verbe (portée, débit), ne fait rien : `internal/server/api_verb_requests.go` (`askConfirmation`) écrit une ligne `verb_requests` et répond `202 {verb, request_id, state: "awaiting_confirmation", expires_at}`. L'opérateur qui appelle la même route par son bouton passe, lui, par le handler tel quel |
 | Le corps | Vide, ou un objet JSON dont les champs sont ceux que le verbe déclare ; sinon `400 bad_json`. Gardé tel quel, clés triées |
 | Une machine inconnue | `404`, aucune demande |
 | La même demande deux fois | Le même jeton qui redemande la même chose pendant qu'elle attend retrouve la même demande : pas de doublon, pas de second événement d'audit |
 | Le plafond | 10 demandes en attente par jeton (`409 verb_request.too_many`) : un agent qui boucle ne noie pas l'écran |
 | L'échéance | 15 minutes (`verbrequest.TTL`). Le passage de fond (`Watch`, toutes les minutes) échoit les demandes ; toute lecture ou décision échoit d'abord celles dont le délai est passé, la boucle n'est pas la seule garde. Une demande échue ne se confirme plus (`409 verb_request.expired`) ; terminée, la ligne est purgée après 30 jours |
-| La lecture | `GET /api/verb-requests` rend les demandes en attente, les plus anciennes d'abord : `{id, verb, object: {id, name}, token_name, on_behalf_of, created_at, expires_at}`. Le nom de l'objet est celui de l'instant de la demande |
+| La lecture | `GET /api/verb-requests` rend les demandes en attente, les plus anciennes d'abord : `{id, verb, object: {id, name}, token_name, on_behalf_of, body, created_at, expires_at}`. Le nom de l'objet est celui de l'instant de la demande ; `body` est le corps gardé, tel que la confirmation le rejouera (`{}` s'il est vide), pour que l'opérateur voie ce qu'il confirme |
 | La confirmation | `POST /api/verb-requests/{id}/actions/confirm`, **par l'opérateur seulement** : un jeton, même celui qui a déposé la demande, reçoit `403 api_token.route_forbidden`, comme pour la lecture et le refus. La demande passe à `confirmed` d'un seul geste (deux confirmations simultanées : une gagne, l'autre reçoit `409 verb_request.already_decided`), puis la route d'opérateur du verbe est **rejouée** avec les paramètres et le corps gardés : même handler, même code, même réponse que le bouton. Si le geste échoue (409 avec son plan, 404), l'opérateur reçoit cet échec ; la demande reste `confirmed` et ne se rejoue pas, un nouvel appel du jeton en dépose une neuve |
 | Le refus | `POST /api/verb-requests/{id}/actions/reject` : rien n'est exécuté, la demande passe à `rejected` |
-| L'écran | La carte « Gestes à confirmer » de la vue d'ensemble (`VerbRequestsCard`), lue sur le sujet du direct `verb_requests`. « Confirmer… » ouvre la même fenêtre que le geste d'écran (`DeletePlanDialog` : le plan de la suppression avant d'écrire), « Refuser » écrit le refus |
+| L'écran | La carte « Gestes à confirmer » de la vue d'ensemble (`VerbRequestsCard`), lue sur le sujet du direct `verb_requests`. « Confirmer… » ouvre la même fenêtre que le geste d'écran (`DeleteMachineDialog`), avec le choix de l'historique **fixé** par le corps de la demande : l'opérateur le lit, ne le change pas, et sans historique tape le nom de la machine, « Refuser » écrit le refus |
 | Les états | `awaiting_confirmation`, `confirmed`, `rejected`, `expired` (`verbrequest.States()`, contrainte `CHECK` de la migration) |
 | Révoquer le jeton | Emporte ses demandes (`ON DELETE CASCADE`) : un jeton volé puis révoqué ne laisse rien à confirmer |
 
@@ -4544,7 +4559,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
   qui retient (changer la machine d'une sonde, retirer la machine d'une tâche
   ou d'un composant), puis supprime.
 - **L'interface** montre le plan dans la boîte de confirmation de chaque
-  bouton Supprimer ou Retirer (machine, service, projet, sonde, tâche,
+  bouton Supprimer (machine sans historique, service, projet, sonde, tâche,
   composant) : ce qui retient, nommé, et le bouton fermé ; ce qui part ; ce qui
   reste détaché. Un 409 reçu quand même remplace le plan par celui du serveur.
 - **Un jeton d'API** ne supprime rien : aucune écriture ne lui est ouverte, et
@@ -4627,8 +4642,8 @@ l'acteur de l'apply et avec son `apply_id`.
 | Émettre un jeton d'enrôlement, l'annuler | `enrollment_token.create`, `.cancel` | Le jeton, au nom de la future machine | `expires_at`, `capabilities` (les droits demandés) |
 | Ré-enrôler une machine | `machine.reenroll` | La machine | `token_id`, `expires_at`, `capabilities` |
 | Enrôlement par l'agent | `agent.enroll` (avant la table `agents` : `machine.enroll`, que les lignes déjà écrites gardent) | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
-| Révoquer l'agent | `agent.revoke` | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
-| Retirer une machine | `machine.delete` | La machine | `hostname`, `address` |
+| Archiver une machine (garder l'historique) | `agent.revoke` | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
+| Retirer une machine (sans historique) | `machine.delete` | La machine | `hostname`, `address` |
 | Déclarer, retirer l'hôte Proxmox d'une machine | `machine.proxmox_set`, `machine.proxmox_unset` | La machine qui porte l'hôte | `token_id`, `host` (l'hôte et le port, sans le schéma ni le chemin), `pinned` (`yes` ou `no`) ; au retrait, rien. **Ni l'adresse complète ni le secret** |
 | Projet | `project.create`, `.update`, `.delete` | Le projet | `title` |
 | Service déclaré | `service.create`, `.update`, `.delete`, `.review` | Le service | `machine_id`, `nature`, `origin`, `units` |

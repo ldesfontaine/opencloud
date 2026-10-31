@@ -15,6 +15,9 @@ export interface VerbRequest {
   token_name: string;
   // Pour qui le jeton dit appeler ; vide si mcp-maison ne l'a pas dit.
   on_behalf_of: string;
+  // Les champs que le jeton a envoyés, tels que la confirmation les rejouera
+  // (machine.delete : keep_history).
+  body: Record<string, unknown>;
   created_at: string;
   expires_at: string;
 }

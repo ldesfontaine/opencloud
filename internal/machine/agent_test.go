@@ -216,10 +216,11 @@ func TestNoteRootDir_KeepsAValidPathAndIgnoresTheRest(t *testing.T) {
 	}
 }
 
-// Révoquer : le flux tombe, la preuve suivante est refusée (l'agent
-// s'arrête), les jetons de ré-enrôlement en attente partent ; la machine
-// reste. Ré-enrôler installe un nouvel agent et lève la révocation.
-func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) {
+// Garder l'historique archive la machine : le flux tombe, la preuve suivante
+// est refusée (l'agent s'arrête), les jetons de ré-enrôlement en attente
+// partent ; la machine reste. Ré-enrôler installe un nouvel agent et la
+// désarchive.
+func TestRemove_KeepHistory_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	m, private := h.enroll(t, "vps-paris-1")
@@ -231,7 +232,7 @@ func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	if err := h.service.Revoke(ctx, m.ID); err != nil {
+	if err := h.service.Remove(ctx, m.ID, RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -249,7 +250,7 @@ func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) 
 	if err != nil || !status.Agent.IsRevoked() || status.Online {
 		t.Fatalf("the machine stays, its agent revoked: %+v %v", status, err)
 	}
-	if err := h.service.Revoke(ctx, m.ID); !errors.Is(err, ErrNoAgent) {
+	if err := h.service.Remove(ctx, m.ID, RemoveOptions{KeepHistory: true}); !errors.Is(err, ErrNoAgent) {
 		t.Fatalf("revoking twice: %v", err)
 	}
 	// Sans agent actif, la machine n'est pas « perdue » : rien à perdre.

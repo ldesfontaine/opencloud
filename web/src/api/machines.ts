@@ -156,13 +156,10 @@ export async function reenrollMachine(id: string, capabilities: Capability[]): P
   return api.send<TokenResponse>(route("POST /api/machines/{id}/actions/reenroll", { id }), { capabilities });
 }
 
-// L'agent est refusé et s'arrête ; la machine et son historique restent.
-export async function revokeAgent(id: string): Promise<void> {
-  return api.send(route("POST /api/machines/{id}/actions/revoke", { id }));
-}
-
-export async function deleteMachine(id: string): Promise<void> {
-  return api.send(route("DELETE /api/machines/{id}", { id }));
+// Supprimer la machine : effacée avec son historique, ou, avec keepHistory,
+// archivée (l'agent est refusé et s'arrête, rien n'est effacé).
+export async function deleteMachine(id: string, keepHistory: boolean): Promise<void> {
+  return api.send(route("DELETE /api/machines/{id}", { id }), { keep_history: keepHistory });
 }
 
 // Ce que le retrait ferait, lu avant de le confirmer.

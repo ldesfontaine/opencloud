@@ -192,7 +192,7 @@ func TestRun_RemovedMachine_StopsForGood(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, b.options(token)) }()
 	online := b.waitFor(t, "vps-lyon-2", func(s machine.Status) bool { return s.Online })
-	if err := b.machines.Remove(context.Background(), online.ID); err != nil {
+	if err := b.machines.Remove(context.Background(), online.ID, machine.RemoveOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -235,7 +235,7 @@ func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
 		t.Fatalf("identity rights %+v %v", identity.Rights, err)
 	}
 
-	if err := b.machines.Revoke(context.Background(), reported.ID); err != nil {
+	if err := b.machines.Remove(context.Background(), reported.ID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	select {

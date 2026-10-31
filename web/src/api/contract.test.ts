@@ -1042,6 +1042,7 @@ const contract: Record<string, Shape<unknown>> = {
       object: shape("VerbRequestObject", { id: value, name: value }),
       token_name: value,
       on_behalf_of: value,
+      body: dictionaryOf(value),
       created_at: value,
       expires_at: value,
     }),

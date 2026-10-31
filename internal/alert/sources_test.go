@@ -42,7 +42,7 @@ func TestMachine_LostAfterTheDelay_BackOnConnect_GoneOnRemove(t *testing.T) {
 	ctx := context.Background()
 	// La machine openCloud du banc n'a jamais donné signe de vie : sans
 	// agent actif, elle ne se perd pas, et ne compte pas ici.
-	if err := f.machines.Revoke(ctx, machine.LocalID); err != nil {
+	if err := f.machines.Remove(ctx, machine.LocalID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	enrolled := f.enrollRemote(t)
@@ -74,7 +74,7 @@ func TestMachine_LostAfterTheDelay_BackOnConnect_GoneOnRemove(t *testing.T) {
 		t.Fatalf("kinds %q, events %q", f.kinds(t), f.sender.events())
 	}
 	f.Open(ctx, alert.Fact{Kind: alert.KindMachineLost, Severity: alert.SeverityDanger, Object: alert.Object{Kind: alert.ObjectMachine, ID: enrolled.ID, Name: "vps-paris-1"}, MachineID: enrolled.ID})
-	if err := f.machines.Remove(ctx, enrolled.ID); err != nil {
+	if err := f.machines.Remove(ctx, enrolled.ID, machine.RemoveOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "" {
@@ -93,7 +93,7 @@ func TestMachine_LostOnAnOpenStream_BackWhenSignalsResume_ThenQuiet(t *testing.T
 	f := newFixture(t)
 	f.channel(t, "ops", alert.SeverityAttention, true)
 	ctx := context.Background()
-	if err := f.machines.Revoke(ctx, machine.LocalID); err != nil {
+	if err := f.machines.Remove(ctx, machine.LocalID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	enrolled := f.enrollRemote(t)

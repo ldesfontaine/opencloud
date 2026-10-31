@@ -7,7 +7,7 @@ import { agentBehindServer } from "../lib/agentUpdate";
 import { machineSeen } from "../lib/machines";
 import { machineTabsOf, type ModuleID } from "../lib/modules";
 import { MachineSelect } from "./MachineSelect";
-import { OnlinePill } from "./Pill";
+import { MachineStatePill } from "./Pill";
 import { SupportLine } from "./SupportBlock";
 import { TabNav } from "./TabNav";
 import "./MachineHead.scss";
@@ -27,7 +27,7 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
     <div className="machine-head">
       <MachineSelect icon="server" aria-label={t("machine.select")} machines={all} value={current.id} onChange={(id) => void navigate(pathOf(id))} />
       <span className="machine-state">
-        <OnlinePill online={current.online} />
+        <MachineStatePill machine={current} />
         <span className="meta">
           {current.address !== "" && (
             <>

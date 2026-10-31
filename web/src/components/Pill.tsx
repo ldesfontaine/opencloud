@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 
 import type { JobStatus } from "../api/jobs";
+import type { Machine } from "../api/machines";
 import type { ProbeStatus } from "../api/probes";
 import { useT } from "../i18n/context";
 import { displayedState, type PillFacts } from "../lib/containers";
 import { jobTones } from "../lib/jobs";
+import { isArchived } from "../lib/machines";
 import { probeTones } from "../lib/probes";
 import type { Tone } from "../lib/tone";
 import "./Pill.scss";
@@ -27,9 +29,14 @@ export function Dot({ tone }: { tone: Tone }) {
   return <span className={`dot ${tone}`} />;
 }
 
-export function OnlinePill({ online }: { online: boolean }) {
+// L'état d'une machine : en ligne, hors ligne, ou archivée (agent révoqué,
+// historique gardé) : ni attendue ni en défaut, donc neutre.
+export function MachineStatePill({ machine }: { machine: Pick<Machine, "online" | "agent"> }) {
   const t = useT();
-  return <Pill tone={online ? "ok" : "danger"}>{t(online ? "state.online" : "state.offline")}</Pill>;
+  if (isArchived(machine)) {
+    return <Pill tone="neutral">{t("state.archived")}</Pill>;
+  }
+  return <Pill tone={machine.online ? "ok" : "danger"}>{t(machine.online ? "state.online" : "state.offline")}</Pill>;
 }
 
 export function JobPill({ status }: { status: JobStatus }) {

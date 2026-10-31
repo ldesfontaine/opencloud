@@ -6,12 +6,12 @@ import { Button } from "../components/Button";
 import { Card, CardHeader } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
-import { Dot, OnlinePill } from "../components/Pill";
+import { Dot, MachineStatePill } from "../components/Pill";
 import { List, RowText, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { machineSeen, machinesSubtitle } from "../lib/machines";
+import { liveMachines, machineSeen, machinesSubtitle } from "../lib/machines";
 import { formatRemaining } from "../lib/time";
 
 export function Machines() {
@@ -19,12 +19,13 @@ export function Machines() {
   const now = useNow();
   const machines = useMachines();
   const list = machines.data?.machines ?? [];
-  const online = list.filter((machine) => machine.online).length;
+  const live = liveMachines(list);
+  const online = live.filter((machine) => machine.online).length;
   return (
     <>
       <PageHead
         title={t("nav.machines")}
-        subtitle={machines.data ? machinesSubtitle(t, list.length, online) : ""}
+        subtitle={machines.data ? machinesSubtitle(t, live.length, online) : ""}
         actions={
           <ActionButton route="POST /api/machines/tokens" icon="plus" to="/machines/nouvelle">
             {t("machine.add")}
@@ -61,7 +62,7 @@ export function Machines() {
                     <td className="wide-only">{machine.os}</td>
                     <td className="num wide-only">{machine.agent?.version ?? "—"}</td>
                     <td>
-                      <OnlinePill online={machine.online} />
+                      <MachineStatePill machine={machine} />
                     </td>
                     <td className="secondary nowrap">{machineSeen(t, machine, now)}</td>
                     <td className="td-end wide-only">

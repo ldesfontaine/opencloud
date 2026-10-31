@@ -5,7 +5,7 @@ package verb
 // confirme dans l'interface, et seulement alors la route d'opérateur s'exécute.
 func init() {
 	Default.MustRegister(Verb{
-		ID: "machine.delete", Route: "DELETE /api/machines/{id}", Params: []string{"id"}, Body: []string{}, Target: TargetMachine,
+		ID: "machine.delete", Route: "DELETE /api/machines/{id}", Params: []string{"id"}, Body: []string{"keep_history"}, Target: TargetMachine,
 		Label: "api_token.verb_machine_delete", Summary: "api_token.verb_machine_delete_text", Confirm: true,
 	})
 }

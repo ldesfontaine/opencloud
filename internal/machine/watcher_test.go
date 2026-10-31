@@ -43,7 +43,7 @@ func TestWatcher_HearsEveryVisibleChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.service.Disconnect(session)
-	if err := h.service.Remove(ctx, id); err != nil {
+	if err := h.service.Remove(ctx, id, RemoveOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"", id, id, id, id}

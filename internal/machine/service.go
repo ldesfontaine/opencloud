@@ -172,18 +172,24 @@ func (s *Service) status(machine Machine) Status {
 	return Status{Machine: machine, Online: s.presence.IsOnline(machine, s.now())}
 }
 
-// Count renvoie le nombre de machines et celles en ligne.
+// Count renvoie le nombre de machines et celles en ligne. Une machine
+// archivée (plus d'agent actif) reste dans la liste mais ne compte pas : elle
+// n'est ni attendue ni en défaut.
 func (s *Service) Count(ctx context.Context) (total, online int, err error) {
 	statuses, err := s.List(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
 	for _, status := range statuses {
+		if !status.Agent.IsActive() {
+			continue
+		}
+		total++
 		if status.Online {
 			online++
 		}
 	}
-	return len(statuses), online, nil
+	return total, online, nil
 }
 
 // CreateToken émet le jeton d'une nouvelle machine, nommée par l'opérateur,
@@ -265,12 +271,23 @@ func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, err
 	return s.store.MachineDeletionPlan(ctx, id)
 }
 
+// RemoveOptions dit comment retirer une machine. KeepHistory la garde,
+// archivée : son agent est coupé, tout le reste demeure (Q9).
+type RemoveOptions struct {
+	KeepHistory bool
+}
+
 // Remove retire une machine et coupe son flux, la machine openCloud comme les
-// autres. Tant que son plan est bloqué, le refus porte ce plan.
-func (s *Service) Remove(ctx context.Context, id string) error {
+// autres. Tant que son plan est bloqué, le refus porte ce plan. Avec
+// KeepHistory, rien ne part : la machine est archivée, et le plan ne la
+// retient pas.
+func (s *Service) Remove(ctx context.Context, id string, options RemoveOptions) error {
 	machine, err := s.store.GetMachine(ctx, id)
 	if err != nil {
 		return err
+	}
+	if options.KeepHistory {
+		return s.archive(ctx, machine)
 	}
 	if err := s.store.DeleteMachine(ctx, id); err != nil {
 		return err
@@ -368,25 +385,25 @@ func (s *Service) Enroll(ctx context.Context, request Enrollment) (Machine, erro
 	return machine, nil
 }
 
-// Revoke révoque l'agent actif d'une machine : il est refusé à sa prochaine
+// archive garde la machine et coupe son agent : il est refusé à sa prochaine
 // preuve, son flux est coupé, les jetons de ré-enrôlement en attente sont
-// annulés. La machine, son historique et ses services restent ; ré-enrôler
-// installe un nouvel agent et lève la révocation.
-func (s *Service) Revoke(ctx context.Context, machineID string) error {
-	machine, err := s.store.GetMachine(ctx, machineID)
-	if err != nil {
-		return err
-	}
+// annulés. Son historique, ses conteneurs et ses services restent ; ré-enrôler
+// installe un nouvel agent et la sort de l'archive. Plus d'agent attendu, donc
+// plus de machine perdue : son alerte se résout.
+func (s *Service) archive(ctx context.Context, machine Machine) error {
 	now := s.now()
-	revokedID, err := s.store.RevokeAgent(ctx, machineID, now)
+	revokedID, err := s.store.RevokeAgent(ctx, machine.ID, now)
 	if err != nil {
 		return err
 	}
-	s.sessions.Close(machineID)
+	s.sessions.Close(machine.ID)
 	machine.Agent.ID, machine.Agent.RevokedAt = revokedID, now
-	s.logger.Info("agent revoked", "machine_id", machineID, "agent_id", revokedID, "name", machine.Name)
+	s.logger.Info("agent revoked", "machine_id", machine.ID, "agent_id", revokedID, "name", machine.Name)
 	s.auditor.Record(ctx, agentEvent(audit.AgentRevoke, machine))
-	s.changed(machineID)
+	if s.alerter != nil {
+		s.alerter.MachineBack(ctx, machine.ID)
+	}
+	s.changed(machine.ID)
 	return nil
 }
 

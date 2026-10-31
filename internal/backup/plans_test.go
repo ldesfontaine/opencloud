@@ -290,13 +290,13 @@ func TestRemoveMachine_IsHeldBackByThePlanItProduces(t *testing.T) {
 	if _, err := b.backups.SavePlan(operator(), agentPlan("pve-vm", destination.ID)); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.machines.Remove(operator(), sourceID); !errors.Is(err, machine.ErrHasBackupPlans) {
+	if err := b.machines.Remove(operator(), sourceID, machine.RemoveOptions{}); !errors.Is(err, machine.ErrHasBackupPlans) {
 		t.Fatalf("remove the source: %v", err)
 	}
 	if err := b.backups.DeletePlan(operator(), "pve-vm"); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.machines.Remove(operator(), sourceID); err != nil {
+	if err := b.machines.Remove(operator(), sourceID, machine.RemoveOptions{}); err != nil {
 		t.Fatalf("released: %v", err)
 	}
 }

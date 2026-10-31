@@ -3,18 +3,18 @@ import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-rou
 
 import { useMachineContainers } from "../api/containers";
 import type { Lifecycle } from "../api/lifecycle";
-import { deleteMachine, fetchMachineDeletePlan, revokeAgent, useMachines, type Agent, type Machine } from "../api/machines";
+import { deleteMachine, useMachines, type Agent, type Machine } from "../api/machines";
 import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
 import { ActionsCard } from "../components/ActionsCard";
 import { AgentUpdate } from "../components/AgentUpdate";
 import { Button } from "../components/Button";
-import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
-import { DeletePlanDialog } from "../components/DeletePlanDialog";
+import { DeleteMachineDialog } from "../components/DeleteMachineDialog";
 import { Failure } from "../components/Failure";
 import { MachineHead, Tabs } from "../components/MachineHead";
+import { McpChip } from "../components/McpChip";
 import { HostedCard, MachineHypervisor, ProxmoxCard } from "../components/MachineHypervisor";
 import { MachineSSHKeys } from "../components/MachineSSHKeys";
 import { NetworkView } from "../components/NetworkView";
@@ -27,12 +27,11 @@ import { SupportDetails } from "../components/SupportBlock";
 import { ContainerPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
-import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { renamedMachineTabs, resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
 import { lifecycleHasDetails } from "../lib/lifecycle";
-import { describeAccount, describeCapability, unavailableRights } from "../lib/machines";
+import { describeAccount, describeCapability, isArchived, unavailableRights } from "../lib/machines";
 import { formatWhen } from "../lib/time";
 import { NotFound } from "./NotFound";
 import "./Machine.scss";
@@ -288,50 +287,37 @@ function MachineLogs({ machineID }: { machineID: string }) {
 }
 
 // Ré-enrôler (une fenêtre, aussi pour changer les droits) donne un nouveau
-// jeton pour le même id ; révoquer refuse l'agent
-// et garde tout le reste ; retirer coupe l'agent et efface l'historique,
-// après confirmation sur le plan : ce qui le retient (services, sondes,
-// tâches, page de statut), ce qui part avec la machine.
+// jeton pour le même id et remet une machine archivée en service. Supprimer la
+// machine est un seul geste : garder l'historique l'archive, sinon elle est
+// effacée après confirmation sur le plan (ce qui la retient, ce qui part avec
+// elle). C'est aussi un verbe : un agent peut le demander, l'opérateur confirme.
 function Actions({ machine }: { machine: Machine }) {
   const t = useT();
   const navigate = useNavigate();
-  const action = useAction();
-  const [removing, setRemoving] = useState(false);
-
-  const revoke = () => {
-    action.run(() => revokeAgent(machine.id), { topic: "all" });
-  };
+  const [deleting, setDeleting] = useState(false);
+  const archived = isArchived(machine);
 
   return (
     <>
-      <Failure error={action.error} />
       <Button icon="refresh" to={`/machines/${machine.id}/reenroller`}>
         {t("machine.reenroll")}
       </Button>
-      {machine.agent !== null && machine.agent.revoked_at === null && (
-        <ConfirmModal
-          title={t("machine.revoke")}
-          question={t("machine.revoke_confirm", machine.name)}
-          confirmLabel={t("machine.revoke")}
-          onConfirm={revoke}
-          variant="danger"
-          icon="x"
-        >
-          {t("machine.revoke")}
-        </ConfirmModal>
-      )}
-      <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
-        {t("machine.remove")}
+      <Button variant="danger" icon="x" onClick={() => setDeleting(true)}>
+        {t("machine.delete")}
+        <McpChip route="DELETE /api/machines/{id}" />
       </Button>
-      {removing && (
-        <DeletePlanDialog
-          question={t("machine.remove_confirm", machine.name)}
-          confirmLabel={t("machine.remove")}
-          loadPlan={() => fetchMachineDeletePlan(machine.id)}
-          perform={() => deleteMachine(machine.id)}
-          topic="all"
-          onDone={() => void navigate("/machines")}
-          onClose={() => setRemoving(false)}
+      {deleting && (
+        <DeleteMachineDialog
+          machine={machine}
+          archived={archived}
+          perform={(keepHistory) => deleteMachine(machine.id, keepHistory)}
+          onDone={(keptHistory) => {
+            setDeleting(false);
+            if (!keptHistory) {
+              void navigate("/machines");
+            }
+          }}
+          onClose={() => setDeleting(false)}
         />
       )}
     </>

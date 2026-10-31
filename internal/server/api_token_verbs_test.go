@@ -248,7 +248,6 @@ func TestVerbs_EveryOtherWriteRouteIsRefusedToAFullWriteToken(t *testing.T) {
 	// Les gestes qui comptent le plus, nommés : le test de table ne les nomme pas.
 	for _, target := range []struct{ method, path string }{
 		{http.MethodPost, "/api/settings/api-tokens"},
-		{http.MethodPost, "/api/machines/x/actions/revoke"},
 		{http.MethodPost, "/api/machines/x/actions/reenroll"},
 		{http.MethodPut, "/api/machines/x/update-last"},
 		{http.MethodPut, "/api/machines/x/role"},

@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/release/releasetest"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
@@ -127,7 +128,7 @@ func TestActions_PingRefusesWithoutAnActiveAgentOnline(t *testing.T) {
 	if got.Code != http.StatusConflict || errorCode(t, got) != "action.machine_offline" {
 		t.Fatalf("offline: %d %s", got.Code, got.Body.String())
 	}
-	if err := server.machines.Revoke(context.Background(), remoteID); err != nil {
+	if err := server.machines.Remove(context.Background(), remoteID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	got = callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/ping", map[string]any{})

@@ -71,7 +71,7 @@ func TestEnroll_FromTheServerMachine_TakesTheStableID(t *testing.T) {
 		t.Fatalf("the refused token must stay pending: %+v", pending)
 	}
 
-	if err := machines.Revoke(ctx, machine.LocalID); err != nil {
+	if err := machines.Remove(ctx, machine.LocalID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	again, err := enrollFrom(t, machines, second, serverFingerprint)
@@ -111,7 +111,7 @@ func TestOfferLocalEnrollment_UntilTheServerMachineHasAnAgent(t *testing.T) {
 	if _, _, err := machines.OfferLocalEnrollment(ctx); !errors.Is(err, machine.ErrLocalEnrolled) {
 		t.Fatalf("after the agent: %v", err)
 	}
-	if err := machines.Revoke(ctx, machine.LocalID); err != nil {
+	if err := machines.Remove(ctx, machine.LocalID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := machines.OfferLocalEnrollment(ctx); !errors.Is(err, machine.ErrLocalEnrolled) {

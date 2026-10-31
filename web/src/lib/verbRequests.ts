@@ -8,9 +8,16 @@ import { formatRemaining } from "./time";
 // refusable.
 export function requestPhrase(t: Translate, request: VerbRequest): string {
   if (request.verb === "machine.delete") {
-    return t("verb_request.machine_delete", request.object.name);
+    return t(requestKeepsHistory(request) ? "verb_request.machine_archive" : "verb_request.machine_delete", request.object.name);
   }
   return `${request.verb} : ${request.object.name}`;
+}
+
+// Le jeton demande de garder l'historique : la machine serait archivée, non
+// effacée. Seul un vrai booléen vaut oui ; la route d'opérateur refuse le reste
+// à la confirmation.
+export function requestKeepsHistory(request: VerbRequest): boolean {
+  return request.body["keep_history"] === true;
 }
 
 // Qui demande : le jeton, et pour qui il dit appeler quand mcp-maison l'a dit.

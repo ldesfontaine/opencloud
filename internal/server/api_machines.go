@@ -596,14 +596,21 @@ func (s *Server) cancelMachineToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request) {
-	err := s.machines.Remove(r.Context(), r.PathValue("id"))
-	s.finishAPIAction(w, r, err, machine.ErrNotFound)
+// removeMachineRequest : garder l'historique archive la machine au lieu de
+// l'effacer. Absent (ou sans corps), la machine est retirée.
+type removeMachineRequest struct {
+	KeepHistory bool `json:"keep_history"`
 }
 
-// Révoquer : l'agent est refusé, la machine et son historique restent.
-func (s *Server) revokeAgent(w http.ResponseWriter, r *http.Request) {
-	err := s.machines.Revoke(r.Context(), r.PathValue("id"))
+// Supprimer la machine, le geste unique du retrait : effacée avec son
+// historique, ou, avec keep_history, archivée (agent coupé, rien d'effacé).
+// C'est aussi la route du verbe machine.delete, que l'opérateur confirme.
+func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request) {
+	var request removeMachineRequest
+	if r.ContentLength != 0 && !s.readAPI(w, r, &request) {
+		return
+	}
+	err := s.machines.Remove(r.Context(), r.PathValue("id"), machine.RemoveOptions{KeepHistory: request.KeepHistory})
 	s.finishAPIAction(w, r, err, machine.ErrNotFound)
 }
 

@@ -70,8 +70,7 @@ type MachineService interface {
 	OfferLocalEnrollment(ctx context.Context) (string, machine.Token, error)
 	PendingTokens(ctx context.Context) ([]machine.Token, error)
 	CancelToken(ctx context.Context, id string) error
-	Remove(ctx context.Context, id string) error
-	Revoke(ctx context.Context, id string) error
+	Remove(ctx context.Context, id string, options machine.RemoveOptions) error
 	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Enroll(ctx context.Context, request machine.Enrollment) (machine.Machine, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
