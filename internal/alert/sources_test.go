@@ -712,3 +712,55 @@ func TestAgentRolledBack_OpensReadableAlertAndAConfirmedUpdateResolvesIt(t *test
 		t.Fatalf("text %+v", text)
 	}
 }
+
+// Un arrêt demandé qui sort en code 1 (le service dépasse son propre délai
+// d'arrêt) n'est pas un plantage : aucune alerte, ni à la sortie ni au retour.
+// Sans arrêt demandé, le même code ouvre l'alerte ; le manque de mémoire passe
+// avant l'arrêt demandé.
+func TestService_StopRequestedWithANonZeroCode_OpensNothing(t *testing.T) {
+	ctx := context.Background()
+	record := func(t *testing.T, f *fixture, tracker *container.Tracker, events ...container.Event) {
+		t.Helper()
+		if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: events}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("stop requested, exit 1, start", func(t *testing.T) {
+		f := newFixture(t)
+		tracker := f.tracker(t)
+		died := f.event("die", container.StateExited, 1, "", false)
+		died.StopRequested = true
+		record(t, f, tracker, died)
+		listed, err := tracker.List(ctx, machine.LocalID)
+		if err != nil || len(listed) != 1 || !listed[0].StopRequested || container.NeedsAttention(listed[0]) {
+			t.Fatalf("a requested stop needs no attention: %+v %v", listed, err)
+		}
+		f.advance(5 * time.Second)
+		record(t, f, tracker, f.event("start", container.StateRunning, 0, "", false))
+		if f.kinds(t) != "" {
+			t.Fatalf("a requested stop opens nothing: %q", f.kinds(t))
+		}
+	})
+	t.Run("exit 1 without a stop request", func(t *testing.T) {
+		f := newFixture(t)
+		tracker := f.tracker(t)
+		record(t, f, tracker, f.event("die", container.StateExited, 1, "", false))
+		f.advance(5 * time.Second)
+		record(t, f, tracker, f.event("start", container.StateRunning, 0, "", false))
+		if f.kinds(t) != "service_restart:attention" {
+			t.Fatalf("kinds %q", f.kinds(t))
+		}
+	})
+	t.Run("out of memory beats the stop request", func(t *testing.T) {
+		f := newFixture(t)
+		tracker := f.tracker(t)
+		died := f.event("die", container.StateExited, 137, "", false)
+		died.StopRequested = true
+		died.Container.OOMKilled = true
+		record(t, f, tracker, died)
+		opened := f.only(t, alert.StatusOpen)
+		if f.kinds(t) != "service_down:danger" || opened.Details.Reason != alert.ReasonOOM {
+			t.Fatalf("kinds %q, %+v", f.kinds(t), opened.Details)
+		}
+	})
+}

@@ -29,6 +29,8 @@ const (
 	// Ce qu'on laisse en plus du délai entre la demande d'arrêt et le
 	// « die » : un -t passé à docker stop ou à compose down peut l'allonger.
 	stopRequestMargin = time.Minute
+	// Un -t démesuré ne fait pas d'une panne tardive un arrêt demandé.
+	maxStopTimeout = 10 * time.Minute
 )
 
 // Sink reçoit chaque rapport, dans l'ordre où le veilleur l'observe.

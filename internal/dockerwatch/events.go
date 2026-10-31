@@ -140,11 +140,14 @@ func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
 		// Un conteneur qu'on retire (rm -f, compose down) est tué en
 		// SIGKILL sans « stop » : c'est demandé aussi.
 		isRemoved := isGone || inspected.State.Status == string(container.StateRemoving)
+		isRequested := w.takeStopRequest(event.ContainerID, event.At, stopTimeout(inspected))
 		event.Killed = event.ExitCode != nil && *event.ExitCode == exitCodeKilled &&
-			!observed.OOMKilled && !isRemoved && !w.takeStopRequest(event.ContainerID, event.At, stopTimeout(inspected))
+			!observed.OOMKilled && !isRemoved && !isRequested
+		// Le manque de mémoire passe avant un arrêt demandé.
+		event.StopRequested = isRequested && !observed.OOMKilled
 	}
 	// Le manque de mémoire ne se lit qu'à l'inspection : elle passe avant.
-	if event.Action == "die" && event.ExitCode != nil && !container.IsCleanStop(*event.ExitCode, observed.OOMKilled, event.Killed) {
+	if event.Action == "die" && event.ExitCode != nil && !container.IsCleanStop(*event.ExitCode, observed.OOMKilled, event.Killed, event.StopRequested) {
 		event.Snippet = w.snippet(ctx, event.ContainerID)
 	}
 	w.sink.Deliver(container.Report{Events: []container.Event{event}})
@@ -178,7 +181,7 @@ func (w *Watcher) takeStopRequest(id string, diedAt time.Time, timeout time.Dura
 	defer w.mu.Unlock()
 	requestedAt, ok := w.stopRequests[id]
 	delete(w.stopRequests, id)
-	return ok && diedAt.Sub(requestedAt) <= timeout+stopRequestMargin
+	return ok && diedAt.Sub(requestedAt) <= min(timeout, maxStopTimeout)+stopRequestMargin
 }
 
 func (w *Watcher) forgetStopRequest(id string) {

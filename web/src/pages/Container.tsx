@@ -15,7 +15,7 @@ import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
-import { findingText, formatBindings, containerPill, lastStateText, transitionPassage } from "../lib/containers";
+import { findingText, formatBindings, containerPill, isCleanExit, lastStateText, transitionPassage } from "../lib/containers";
 import { modeText } from "../lib/network";
 import { newProbePath } from "../lib/probes";
 import { ago, formatClock, formatDuration, since } from "../lib/time";
@@ -232,7 +232,7 @@ function LogsCard({ containerID }: { containerID: string }) {
 
 function TransitionRow({ transition, now }: { transition: Transition; now: number }) {
   const t = useI18n().t;
-  const tone = transition.new_state === "" ? "neutral" : containerPill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed }).tone;
+  const tone = transition.new_state === "" ? "neutral" : containerPill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed, stop_requested: transition.stop_requested }).tone;
   return (
     <div className="row">
       <Dot tone={tone} />
@@ -244,6 +244,12 @@ function TransitionRow({ transition, now }: { transition: Transition; now: numbe
               <>
                 {" · "}
                 <span className="mono">{t("container.exit_code", transition.exit_code)}</span>
+              </>
+            )}
+            {transition.stop_requested && transition.exit_code !== null && !isCleanExit(transition.exit_code) && (
+              <>
+                {" · "}
+                <span className="muted">{t("container.transition_slow_stop", transition.exit_code)}</span>
               </>
             )}
             {transition.replayed && (

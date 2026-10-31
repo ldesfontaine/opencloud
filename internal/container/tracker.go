@@ -221,7 +221,7 @@ func NeedsAttention(container Container) bool {
 	case StateRestarting, StateDead:
 		return true
 	case StateExited:
-		return !IsCleanStop(container.ExitCode, container.OOMKilled, container.Killed)
+		return !IsCleanStop(container.ExitCode, container.OOMKilled, container.Killed, container.StopRequested)
 	}
 	return false
 }
@@ -235,9 +235,11 @@ func IsCleanExit(code int) bool {
 // IsCleanStop : un code propre ne suffit pas. Le noyau qui tue faute de
 // mémoire envoie aussi SIGKILL (137), Docker le dit par OOMKilled ; un
 // docker kill aussi, l'agent le dit par killed quand aucun arrêt n'a été
-// demandé juste avant.
-func IsCleanStop(code int, oomKilled, killed bool) bool {
-	return !oomKilled && !killed && IsCleanExit(code)
+// demandé juste avant. À l'inverse, un arrêt demandé (stopRequested) est
+// propre quel que soit le code : un service qui met trop de temps à
+// s'arrêter sort en 1 après le signal. Le manque de mémoire passe avant.
+func IsCleanStop(code int, oomKilled, killed, stopRequested bool) bool {
+	return !oomKilled && !killed && (stopRequested || IsCleanExit(code))
 }
 
 // Purge efface chaque table au-delà de sa rétention.

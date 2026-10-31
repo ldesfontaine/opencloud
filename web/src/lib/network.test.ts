@@ -29,6 +29,7 @@ function container(id: string, name: string, extra: Partial<Container> = {}): Co
     exit_code: 0,
     oom_killed: false,
     killed: false,
+    stop_requested: false,
     health: "",
     restart_count: 0,
     ports: [],

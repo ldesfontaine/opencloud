@@ -65,24 +65,25 @@ type containerJSON struct {
 	// absent tant que son agent n'en a donné aucun.
 	MachineLastSeenAt *time.Time `json:"machine_last_seen_at"`
 
-	ExitCode     int                    `json:"exit_code"`
-	OOMKilled    bool                   `json:"oom_killed"`
-	Killed       bool                   `json:"killed"`
-	Health       string                 `json:"health"`
-	RestartCount int                    `json:"restart_count"`
-	Ports        []container.Port       `json:"ports"`
-	NetworkMode  string                 `json:"network_mode"`
-	Privileged   bool                   `json:"privileged"`
-	Networks     []container.Attachment `json:"networks"`
-	DependsOn    []container.Dependency `json:"depends_on"`
-	Exposure     []container.Finding    `json:"exposure"`
-	CreatedAt    time.Time              `json:"created_at"`
-	StartedAt    *time.Time             `json:"started_at"`
-	FinishedAt   *time.Time             `json:"finished_at"`
-	FirstSeenAt  time.Time              `json:"first_seen_at"`
-	LastSeenAt   time.Time              `json:"last_seen_at"`
-	ArchivedAt   *time.Time             `json:"archived_at"`
-	Current      *sampleJSON            `json:"current"`
+	ExitCode      int                    `json:"exit_code"`
+	OOMKilled     bool                   `json:"oom_killed"`
+	Killed        bool                   `json:"killed"`
+	StopRequested bool                   `json:"stop_requested"`
+	Health        string                 `json:"health"`
+	RestartCount  int                    `json:"restart_count"`
+	Ports         []container.Port       `json:"ports"`
+	NetworkMode   string                 `json:"network_mode"`
+	Privileged    bool                   `json:"privileged"`
+	Networks      []container.Attachment `json:"networks"`
+	DependsOn     []container.Dependency `json:"depends_on"`
+	Exposure      []container.Finding    `json:"exposure"`
+	CreatedAt     time.Time              `json:"created_at"`
+	StartedAt     *time.Time             `json:"started_at"`
+	FinishedAt    *time.Time             `json:"finished_at"`
+	FirstSeenAt   time.Time              `json:"first_seen_at"`
+	LastSeenAt    time.Time              `json:"last_seen_at"`
+	ArchivedAt    *time.Time             `json:"archived_at"`
+	Current       *sampleJSON            `json:"current"`
 }
 
 // Le constat de l'agent sur l'image, et ce que le serveur en fait : le
@@ -133,6 +134,7 @@ type transitionJSON struct {
 	ExitCode       *int      `json:"exit_code"`
 	OOMKilled      bool      `json:"oom_killed"`
 	Killed         bool      `json:"killed"`
+	StopRequested  bool      `json:"stop_requested"`
 	Replayed       bool      `json:"replayed"`
 	Snippet        string    `json:"snippet"`
 }
@@ -479,7 +481,7 @@ func containerToJSON(item container.Container, host machineView, current contain
 		ComposeService: item.ComposeService, ComposeDir: item.ComposeDir, ComposeFile: item.ComposeFile,
 		UpdatePolicy: string(item.UpdatePolicy), DeclaredServiceID: item.DeclaredServiceID, ImageCheck: imageCheckToJSON(item, checks),
 		State: string(item.State), Observed: host.observed, MachineLastSeenAt: httpx.TimeOrNil(host.lastSeenAt),
-		ExitCode: item.ExitCode, OOMKilled: item.OOMKilled, Killed: item.Killed, Health: string(item.Health), RestartCount: item.RestartCount,
+		ExitCode: item.ExitCode, OOMKilled: item.OOMKilled, Killed: item.Killed, StopRequested: item.StopRequested, Health: string(item.Health), RestartCount: item.RestartCount,
 		Ports: orEmpty(item.Ports), NetworkMode: item.NetworkMode, Privileged: item.Privileged,
 		Networks: orEmpty(item.Networks), DependsOn: orEmpty(item.DependsOn), Exposure: container.Exposure(item),
 		CreatedAt: item.CreatedAt.UTC(), StartedAt: httpx.TimeOrNil(item.StartedAt), FinishedAt: httpx.TimeOrNil(item.FinishedAt),
@@ -526,7 +528,7 @@ func transitionsToJSON(transitions []container.Transition) []transitionJSON {
 	for _, t := range transitions {
 		converted = append(converted, transitionJSON{
 			ID: t.ID, At: t.At.UTC(), Action: t.Action, PreviousState: string(t.PreviousState), NewState: string(t.NewState),
-			PreviousHealth: string(t.PreviousHealth), NewHealth: string(t.NewHealth), ExitCode: t.ExitCode, OOMKilled: t.OOMKilled, Killed: t.Killed, Replayed: t.Replayed, Snippet: t.Snippet,
+			PreviousHealth: string(t.PreviousHealth), NewHealth: string(t.NewHealth), ExitCode: t.ExitCode, OOMKilled: t.OOMKilled, Killed: t.Killed, StopRequested: t.StopRequested, Replayed: t.Replayed, Snippet: t.Snippet,
 		})
 	}
 	return converted
