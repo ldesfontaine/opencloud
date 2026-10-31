@@ -1,24 +1,24 @@
 import { Link } from "react-router";
 
 import type { Container } from "../api/containers";
-import { ignoreObservation, unignoreObservation, type ContainerDirectory, type IgnoreKey } from "../api/directory";
-import { useAction } from "../hooks/useAction";
+import type { ContainerDirectory, IgnoreKey } from "../api/directory";
+import { useProposalActions } from "../hooks/useProposalActions";
 import { useT } from "../i18n/context";
-import { adoptPath, isOrphan, orphanText } from "../lib/gaps";
+import { editBeforeAcceptPath, isOrphan, orphanText } from "../lib/gaps";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader } from "./Card";
 import { Failure } from "./Failure";
 import { Pill } from "./Pill";
 
 // Ce que l'annuaire sait de ce conteneur : l'unité déclarée à laquelle il se
-// rattache, ou, faute d'elle, de quoi l'adopter ou le dire voulu. Une fiche
-// archivée garde son dernier rattachement, mais n'a rien à adopter : le
+// rattache, ou, faute d'elle, de quoi l'accepter ou le dire voulu. Une fiche
+// archivée garde son dernier rattachement, mais n'a rien à accepter : le
 // conteneur n'existe plus. Un conteneur dont le label ne vise rien est dit
 // « label orphelin », avec le motif et les deux valeurs : le corriger, ou le
-// retirer, ne passe pas par l'adoption.
+// retirer, ne passe pas par une proposition.
 export function DirectoryCard({ container, directory }: { container: Container; directory: ContainerDirectory | null }) {
   const t = useT();
-  const action = useAction();
+  const actions = useProposalActions();
   if (directory === null) {
     return null;
   }
@@ -28,17 +28,11 @@ export function DirectoryCard({ container, directory }: { container: Container; 
   }
   const orphan = isOrphan(directory);
   const key: IgnoreKey = { machine_id: container.machine_id, kind: directory.key_kind, value: directory.key_value };
-  const ignore = () => {
-    action.run(() => ignoreObservation(key), { topic: "directory" });
-  };
-  const stopIgnoring = () => {
-    action.run(() => unignoreObservation(key), { topic: "directory" });
-  };
   return (
     <Card>
       <CardHeader title={t("gap.card_title")} />
       <CardBody gap={10}>
-        <Failure error={action.error} />
+        <Failure error={actions.error} />
         {directory.declared ? (
           <>
             <span className="cluster">
@@ -77,17 +71,22 @@ export function DirectoryCard({ container, directory }: { container: Container; 
             )}
             <span className="cluster">
               {directory.ignored ? (
-                <Button small variant="ghost" onClick={stopIgnoring}>
+                <Button small variant="ghost" disabled={actions.busy} onClick={() => actions.stopIgnoring(key)}>
                   {t("gap.unignore")}
                 </Button>
               ) : (
                 <>
                   {!orphan && (
-                    <Button small variant="primary" to={adoptPath(container.id)}>
-                      {t("gap.adopt")}
-                    </Button>
+                    <>
+                      <Button small variant="primary" disabled={actions.busy} onClick={() => actions.accept(container.id)}>
+                        {t("gap.accept")}
+                      </Button>
+                      <Button small variant="ghost" to={editBeforeAcceptPath(container.id)}>
+                        {t("gap.edit_before_accept")}
+                      </Button>
+                    </>
                   )}
-                  <Button small variant="ghost" onClick={ignore}>
+                  <Button small variant="ghost" disabled={actions.busy} onClick={() => actions.ignore(key)}>
                     {t("gap.ignore")}
                   </Button>
                 </>

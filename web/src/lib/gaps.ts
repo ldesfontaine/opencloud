@@ -23,14 +23,15 @@ export function gapsByService(gaps: GapsResponse | null): Map<string, ServiceGap
   return new Map((gaps?.services ?? []).map((gap) => [gap.service_id, gap]));
 }
 
-// Les groupes non déclarés visibles : ceux que l'opérateur n'a pas ignorés,
-// ou tous quand il demande à les voir.
-export function shownUndeclared(groups: readonly UndeclaredGroup[], showIgnored: boolean): UndeclaredGroup[] {
-  return groups.filter((group) => showIgnored || !group.ignored);
+// Ce que les machines font tourner sans que l'annuaire le déclare, en deux
+// listes : les propositions (l'opérateur n'a rien dit), et les ignorés (il a
+// dit que c'est voulu).
+export function proposalsOf(groups: readonly UndeclaredGroup[]): UndeclaredGroup[] {
+  return groups.filter((group) => !group.ignored);
 }
 
-export function ignoredCount(groups: readonly UndeclaredGroup[]): number {
-  return groups.filter((group) => group.ignored).length;
+export function ignoredOf(groups: readonly UndeclaredGroup[]): UndeclaredGroup[] {
+  return groups.filter((group) => group.ignored);
 }
 
 // Des conteneurs, pas des groupes : c'est ce que l'opérateur a à régler.
@@ -38,25 +39,23 @@ export function containerCount(groups: readonly UndeclaredGroup[]): number {
   return groups.reduce((sum, group) => sum + group.containers.length, 0);
 }
 
-// « Adopter » ouvre le formulaire de déclaration, que le serveur pré-remplit
-// depuis ce conteneur.
-export function adoptPath(containerID: string): string {
+// « Modifier avant d'accepter » ouvre l'assistant de déclaration, que le
+// serveur pré-remplit depuis ce conteneur ; si son projet Compose est déjà
+// déclaré, l'assistant bascule seul sur la modification de ce service.
+export function editBeforeAcceptPath(containerID: string): string {
   return `/services/annuaire/nouveau?container=${encodeURIComponent(containerID)}`;
 }
 
-export function adoptIntoPath(serviceID: string, containerID: string): string {
-  return `/services/annuaire/${serviceID}/modifier?container=${encodeURIComponent(containerID)}`;
-}
-
-// Le conteneur par lequel un groupe s'adopte : le premier sans label, dans
-// l'ordre du serveur. Un conteneur étiqueté ne s'adopte pas, le serveur le
-// refuse ; le groupe ne s'adopte que par un voisin qui n'en porte pas.
-export function adoptionTarget(group: UndeclaredGroup): string {
+// Le conteneur par lequel un groupe s'accepte : le premier sans label, dans
+// l'ordre du serveur. Un conteneur étiqueté n'a pas de proposition, le
+// serveur la refuse ; le groupe ne s'accepte que par un voisin qui n'en porte
+// pas.
+export function acceptanceTarget(group: UndeclaredGroup): string {
   return group.containers.find((container) => container.label_service === "" && container.label_unit === "")?.id ?? "";
 }
 
 // Il y a de quoi proposer dès qu'un groupe que l'opérateur n'ignore pas est
-// adoptable : c'est la règle de l'export du serveur.
+// acceptable : c'est la règle de l'export du serveur.
 export function hasProposals(groups: readonly UndeclaredGroup[]): boolean {
   return groups.some((group) => !group.ignored && group.adoptable);
 }
@@ -80,7 +79,7 @@ export function orphanText(t: Translate, directory: ContainerDirectory): string 
 }
 
 // Le conteneur porte-t-il des labels qui ne le rattachent à rien ? Mal formés
-// (aucune valeur à montrer) ou non, le motif est là : « Adopter » n'y changerait
+// (aucune valeur à montrer) ou non, le motif est là : « Accepter » n'y changerait
 // rien, le label continuerait de gagner.
 export function isOrphan(directory: Pick<ContainerDirectory, "label_problem"> | null): boolean {
   return directory !== null && directory.label_problem !== "";

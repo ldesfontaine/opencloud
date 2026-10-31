@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DeclaredService, Project, ProposalResponse } from "../api/directory";
 import {
+  acceptanceOf,
   emptyServiceForm,
   emptyUnitForm,
   formatUnitPorts,
@@ -196,27 +197,27 @@ describe("serviceFormOfDefinition", () => {
   });
 });
 
-describe("serviceFormStart", () => {
-  // Ce que le serveur propose pour un conteneur : un service neuf (sans
-  // identifiant) ou l'édition de svc_1, à laquelle s'ajoute une unité.
-  function proposal(serviceID: string): ProposalResponse {
-    return {
-      service_id: serviceID,
-      definition: {
-        machine_id: "m2",
-        name: "nextcloud",
-        title: "",
-        nature: "application",
-        origin: "compose",
-        compose_project: "nextcloud",
-        public_url: "",
-        provides: [],
-        units: [{ id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [] }],
-        project_ids: [],
-      },
-    };
-  }
+// Ce que le serveur propose pour un conteneur : un service neuf (sans
+// identifiant) ou l'édition de svc_1, à laquelle s'ajoute une unité.
+function proposal(serviceID: string): ProposalResponse {
+  return {
+    service_id: serviceID,
+    definition: {
+      machine_id: "m2",
+      name: "nextcloud",
+      title: "",
+      nature: "application",
+      origin: "compose",
+      compose_project: "nextcloud",
+      public_url: "",
+      provides: [],
+      units: [{ id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [] }],
+      project_ids: [],
+    },
+  };
+}
 
+describe("serviceFormStart", () => {
   it("attend le service à modifier, et la proposition tant qu'elle n'est ni arrivée ni refusée", () => {
     expect(serviceFormStart("svc_1", null, null, false)).toBeNull();
     expect(serviceFormStart("svc_1", nextcloud(), null, true)).toBeNull();
@@ -284,5 +285,24 @@ describe("hasAdvancedUnitValues", () => {
     expect(hasAdvancedUnitValues({ ...emptyUnitForm(), ports: "80" })).toBe(true);
     expect(hasAdvancedUnitValues({ ...emptyUnitForm(), dataPath: "/data" })).toBe(true);
     expect(hasAdvancedUnitValues({ ...emptyUnitForm(), updatePolicy: "hold" })).toBe(true);
+  });
+});
+
+describe("acceptanceOf", () => {
+  it("crée un service neuf avec la proposition telle quelle, sans identifiant", () => {
+    const { id, body } = acceptanceOf(proposal(""));
+    expect(id).toBeUndefined();
+    expect(body).toMatchObject({ machine_id: "m2", name: "nextcloud", origin: "compose", compose_project: "nextcloud" });
+    // Une unité que la proposition ajoute se suit : le serveur ne la dit pas.
+    expect(body.units.map((unit) => [unit.name, unit.update_policy])).toEqual([["redis", "watch"]]);
+  });
+
+  it("modifie le service que la proposition complète, par son identifiant", () => {
+    expect(acceptanceOf(proposal("svc_1")).id).toBe("svc_1");
+  });
+
+  it("envoie ce que l'assistant enverrait sans y toucher", () => {
+    const proposed = proposal("");
+    expect(acceptanceOf(proposed).body).toEqual(serviceRequestOf(serviceFormOfDefinition(proposed.definition)));
   });
 });

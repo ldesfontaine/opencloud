@@ -123,6 +123,17 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
   };
 }
 
+// « Accepter » écrit la proposition telle quelle, sans la repasser par le
+// formulaire : une création quand elle déclare un service neuf, la
+// modification de ce service quand son projet Compose est déjà déclaré (l'id
+// qu'elle porte). Le corps est celui que l'assistant enverrait sans y toucher.
+export function acceptanceOf(proposal: ProposalResponse): { id: string | undefined; body: ServiceRequest } {
+  return {
+    id: proposal.service_id === "" ? undefined : proposal.service_id,
+    body: serviceRequestOf(serviceFormOfDefinition(proposal.definition)),
+  };
+}
+
 // Les valeurs dont part le formulaire d'un service, ou null tant qu'il faut
 // attendre. En édition : le service tel qu'il est gardé, ou la proposition
 // d'adoption quand elle le vise (elle y ajoute les unités qui manquent), une

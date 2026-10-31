@@ -302,27 +302,36 @@ function LinkList({ label, objects, to }: { label: string; objects: LinkedObject
 // restent, seul le lien s'efface. Un service que des sondes ou des
 // composants visent ne se supprime pas : le plan les nomme, et un 409 reçu
 // quand même (le lien est apparu entre-temps) montre le plan du serveur.
+// Ses conteneurs qui tournent reviennent en proposition ; « Supprimer et
+// ignorer » les dit voulus du même geste (pas pour un binaire, qui n'a pas de
+// conteneur).
 function Actions({ service }: { service: DeclaredServiceDetail }) {
   const t = useT();
   const navigate = useNavigate();
-  const [removing, setRemoving] = useState(false);
+  const [removing, setRemoving] = useState<"delete" | "ignore" | null>(null);
+  const ignoring = removing === "ignore";
   return (
     <>
       <Button icon="settings" to={`/services/annuaire/${service.id}/modifier`}>
         {t("directory.edit")}
       </Button>
-      <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
+      {service.origin !== "binary" && (
+        <Button variant="danger" icon="x" onClick={() => setRemoving("ignore")}>
+          {t("directory.delete_ignore")}
+        </Button>
+      )}
+      <Button variant="danger" icon="x" onClick={() => setRemoving("delete")}>
         {t("directory.delete")}
       </Button>
-      {removing && (
+      {removing !== null && (
         <DeletePlanDialog
-          question={t("directory.delete_confirm", service.name)}
-          confirmLabel={t("directory.delete")}
+          question={t(ignoring ? "directory.delete_ignore_confirm" : "directory.delete_confirm", service.name)}
+          confirmLabel={t(ignoring ? "directory.delete_ignore" : "directory.delete")}
           loadPlan={() => fetchDeclaredServiceDeletePlan(service.id)}
-          perform={() => deleteDeclaredService(service.id)}
+          perform={() => deleteDeclaredService(service.id, ignoring)}
           topic="directory"
           onDone={() => void navigate("/services")}
-          onClose={() => setRemoving(false)}
+          onClose={() => setRemoving(null)}
         />
       )}
     </>

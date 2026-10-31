@@ -127,7 +127,7 @@ var (
 	// liste se relit.
 	ErrContainerIgnored = refusal.Conflict("directory.container_ignored", "container is ignored: stop ignoring it before accepting it")
 	// Le conteneur porte un label qui ne vise aucune unité de sa machine :
-	// l'adopter créerait une unité que ce label empêcherait de rattacher.
+	// l'accepter créerait une unité que ce label empêcherait de rattacher.
 	// Un état que l'opérateur corrige par le label, d'où un conflit.
 	ErrContainerLabelled = refusal.Conflict("directory.container_labelled", "container carries a label that targets no unit of its machine")
 	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y
