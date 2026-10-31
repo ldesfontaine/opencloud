@@ -67,9 +67,16 @@ func (r *Recorder) Record(ctx context.Context, event Event) {
 	event.ApplyID = applyFrom(ctx)
 	event.ObjectKind = event.Action.ObjectKind()
 	event.Details = r.cleanDetails(event)
-	// Posé après le nettoyage, et seul l'acteur le pose : un geste ne peut
-	// pas l'usurper.
+	// Posés après le nettoyage, et seuls l'acteur et le contexte les posent :
+	// un geste ne peut pas les usurper.
 	delete(event.Details, "on_behalf_of")
+	delete(event.Details, "request_id")
+	if requestID := verbRequestFrom(ctx); requestID != "" {
+		if event.Details == nil {
+			event.Details = Details{}
+		}
+		event.Details["request_id"] = requestID
+	}
 	if event.Actor.OnBehalfOf != "" {
 		if event.Details == nil {
 			event.Details = Details{}

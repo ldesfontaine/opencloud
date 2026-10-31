@@ -36,9 +36,17 @@ Qui a appris un module sait lire les autres.
   tout geste marqué existe comme verbe d'API, avec le même nom, la même portée
   et le même refus. Un geste sans verbe n'a pas la puce.
 - **Ce qui détruit ou réduit va dans la zone de danger**, marqué
-  « Interface », jamais exposé comme verbe : supprimer, réduire une rétention,
-  révoquer, retirer. Confirmation par la saisie du nom de l'objet quand la
-  perte est irréversible (`ConfirmInline` sinon). Le journal garde l'auteur.
+  « Interface » : supprimer, réduire une rétention, révoquer, retirer.
+  Confirmation par la saisie du nom de l'objet quand la perte est irréversible
+  (`ConfirmInline` sinon). Le journal garde l'auteur.
+- **Un geste destructeur peut être un verbe, mais à confirmation.** Il porte
+  la puce `MCP` et s'appelle par un jeton comme les autres, mais le jeton
+  n'exécute rien : il dépose une demande que l'opérateur confirme dans
+  l'interface, par la même fenêtre que le geste d'écran. Elle expire au bout de
+  15 minutes ; l'audit nomme le jeton, puis l'opérateur. Le premier est
+  `machine.delete`. Un geste qu'on ne sait pas confirmer à l'écran reste
+  réservé à l'interface (`docs/projet/22-fonctionnement.md`, « Les verbes à
+  confirmation »).
 - **Restaurer ou remplacer en place** est toujours une action d'interface ;
   « à côté » (dans un dossier neuf) peut être un verbe.
 - **Chaque geste dit son retour arrière** avant d'agir, dans l'inspecteur

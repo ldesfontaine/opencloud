@@ -56,6 +56,8 @@ const (
 	ObjectBackupPlan        ObjectKind = "backup_plan"
 	// Un pare-feu déclaré, lu en lecture seule.
 	ObjectFirewall ObjectKind = "firewall"
+	// La demande qu'un jeton dépose pour un verbe à confirmation.
+	ObjectVerb ObjectKind = "verb"
 )
 
 func ObjectKinds() []ObjectKind {
@@ -65,7 +67,7 @@ func ObjectKinds() []ObjectKind {
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectAPIToken, ObjectSecrets, ObjectAction,
 		ObjectBackupKeyring, ObjectBackupDestination, ObjectBackupPlan,
-		ObjectFirewall,
+		ObjectFirewall, ObjectVerb,
 	}
 }
 
@@ -197,6 +199,13 @@ const (
 	FirewallCreate Action = "firewall.create"
 	FirewallUpdate Action = "firewall.update"
 	FirewallDelete Action = "firewall.delete"
+
+	// La demande d'un verbe à confirmation : déposée par un jeton, refusée par
+	// l'opérateur, ou échue sans réponse. La confirmation n'a pas de ligne à
+	// elle : le geste confirmé s'écrit sous l'opérateur, avec request_id.
+	VerbRequest Action = "verb.request"
+	VerbReject  Action = "verb.reject"
+	VerbExpire  Action = "verb.expire"
 )
 
 func Actions() []Action {
@@ -224,6 +233,7 @@ func Actions() []Action {
 		BackupKeyringCreate, BackupKeyringReplace, BackupDestinationCreate, BackupDestinationDelete,
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
 		FirewallCreate, FirewallUpdate, FirewallDelete,
+		VerbRequest, VerbReject, VerbExpire,
 	}
 }
 

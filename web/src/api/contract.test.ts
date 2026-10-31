@@ -21,6 +21,7 @@ import type { ProxmoxHost, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
 import type { Session } from "./session";
+import type { VerbRequest, VerbRequestsResponse } from "./verbRequests";
 import type { Incident, IncidentsResponse, PublicStatus, StatusComponent, StatusComponentsResponse, StatusPagesResponse } from "./status";
 
 // Le contrat de l'API est écrit deux fois : en Go (les balises json) et ici
@@ -668,7 +669,7 @@ const apiTokens = shape<APITokensState>("APITokensState", {
   machines: shape("ReachMachine", { id: value, name: value }),
   limit: value,
   lifetimes: shape("APITokensState.lifetimes", { days: value, default_days: value }),
-  verbs: shape("VerbOffer", { id: value, label: value, summary: value, reverse: value }),
+  verbs: shape("VerbOffer", { id: value, label: value, summary: value, reverse: value, confirm: value }),
   env: shape("APITokensState.env", { mcp_host: value, opencloud_url: value }),
 });
 
@@ -1034,6 +1035,17 @@ const contract: Record<string, Shape<unknown>> = {
   "ssh_keys.golden.json": shape<SSHMatrixResponse>("SSHMatrixResponse", { machines: sshReport }),
   "ssh_keys_machine.golden.json": sshReport,
   "settings_ai_agent.golden.json": mcpCheck,
+  "verb_requests.golden.json": shape<VerbRequestsResponse>("VerbRequestsResponse", {
+    requests: shape<VerbRequest>("VerbRequest", {
+      id: value,
+      verb: value,
+      object: shape("VerbRequestObject", { id: value, name: value }),
+      token_name: value,
+      on_behalf_of: value,
+      created_at: value,
+      expires_at: value,
+    }),
+  }),
   "status_component.golden.json": statusComponent,
   "status_components.golden.json": shape<StatusComponentsResponse>("StatusComponentsResponse", {
     public_url: value,

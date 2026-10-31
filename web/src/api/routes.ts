@@ -86,6 +86,8 @@ export const writes = [
   "PUT /api/backups/plans/{subject}",
   "DELETE /api/backups/plans/{subject}",
   "POST /api/backups/plans/{subject}/actions/run",
+  "POST /api/verb-requests/{id}/actions/confirm",
+  "POST /api/verb-requests/{id}/actions/reject",
 ] as const;
 
 export type Write = (typeof writes)[number];

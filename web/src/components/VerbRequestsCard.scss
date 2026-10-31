@@ -1,0 +1,32 @@
+.verb-request-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.verb-request-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 0;
+
+  & + & {
+    border-top: 1px solid var(--line);
+  }
+}
+
+.verb-request-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.verb-request-actions {
+  display: flex;
+  gap: 8px;
+}

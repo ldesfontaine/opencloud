@@ -350,17 +350,19 @@ type Server struct {
 	alerts     AlertService
 	notifier   Notifier
 	apiTokens  APITokenService
-	mcpCheck   *mcpcheck.Checker
-	mcpURL     string
-	auth       AuthService
-	actions    ActionService
-	sshKeys    SSHKeysService
-	proxmox    ProxmoxService
-	firewalls  FirewallService
-	backups    Backups
-	deploy     Deployer
-	live       Live
-	logStreams atomic.Int32
+	// verbRequests tient les demandes des verbes à confirmation.
+	verbRequests VerbRequestService
+	mcpCheck     *mcpcheck.Checker
+	mcpURL       string
+	auth         AuthService
+	actions      ActionService
+	sshKeys      SSHKeysService
+	proxmox      ProxmoxService
+	firewalls    FirewallService
+	backups      Backups
+	deploy       Deployer
+	live         Live
+	logStreams   atomic.Int32
 	// Le limiteur de la racine, par source : les essais d'identifiants Basic
 	// et de jetons d'API.
 	authLimit *ratelimit.BySource
@@ -418,6 +420,8 @@ type Options struct {
 	Notifier   Notifier
 	// APITokens crée et vérifie les jetons d'API ; voir api_tokens.go.
 	APITokens APITokenService
+	// VerbRequests tient les demandes de verbe à confirmation ; voir api_verb_requests.go.
+	VerbRequests VerbRequestService
 	// MCPURL est l'adresse de mcp-maison, vide : aucun ; voir api_settings_mcp.go.
 	MCPURL string
 	// Auth garde l'interface de l'opérateur ; voir auth.go.
@@ -490,6 +494,7 @@ func New(opts Options) (*Server, error) {
 		alerts:         opts.Alerts,
 		notifier:       opts.Notifier,
 		apiTokens:      opts.APITokens,
+		verbRequests:   opts.VerbRequests,
 		mcpURL:         opts.MCPURL,
 		auth:           opts.Auth,
 		actions:        opts.Actions,

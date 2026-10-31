@@ -162,6 +162,9 @@ func (s *Server) routes() []route {
 		{"GET", "/api/alerts/{id}", s.getAlert},
 		{"POST", "/api/alerts/{id}/actions/acknowledge", s.acknowledgeAlert},
 		{"GET", "/api/token/verbs", s.listTokenVerbs},
+		{"GET", "/api/verb-requests", s.listVerbRequests},
+		{"POST", "/api/verb-requests/{id}/actions/confirm", s.confirmVerbRequest},
+		{"POST", "/api/verb-requests/{id}/actions/reject", s.rejectVerbRequest},
 		{"GET", "/api/settings/api-tokens", s.listAPITokens},
 		{"POST", "/api/settings/api-tokens", s.grantsAuthority(s.createAPIToken)},
 		{"PUT", "/api/settings/api-tokens/{id}/reach", s.grantsAuthority(s.setAPITokenReach)},
@@ -246,6 +249,15 @@ func tokenAccessOf(method, pattern string) tokenAccess {
 	return access
 }
 
+// verbHandler fait répondre un verbe à un jeton : l'exécution et sa réponse
+// reformulée, ou, pour un verbe à confirmation, la demande déposée.
+func (s *Server) verbHandler(verbID string, next http.HandlerFunc) http.HandlerFunc {
+	if offered, _ := verb.Default.Lookup(verbID); offered.Confirm {
+		return s.askConfirmation(offered, next)
+	}
+	return s.shapeVerbReply(verbID, next)
+}
+
 // Toute écriture sous /api passe par la garde même-origine ; les lectures
 // et les routes de l'agent, des pings et de la page publique n'en ont pas
 // besoin. L'accès de l'opérateur enveloppe le tout, avant la garde. Ce qu'un
@@ -258,7 +270,7 @@ func (s *Server) mux() *http.ServeMux {
 		isAPI := strings.HasPrefix(route.pattern, "/api/")
 		access := tokenAccessOf(route.method, route.pattern)
 		if access.verb != "" {
-			handler = s.shapeVerbReply(access.verb, handler)
+			handler = s.verbHandler(access.verb, handler)
 		}
 		if isAPI && route.method != http.MethodGet {
 			handler = s.requireSameOrigin(handler)

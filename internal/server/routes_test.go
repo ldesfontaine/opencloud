@@ -41,6 +41,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
+	"github.com/ldesfontaine/opencloud/internal/verbrequest"
 )
 
 // L'horloge figée des tests : « vu il y a » se calcule depuis elle.
@@ -61,6 +62,7 @@ type testServer struct {
 	alerts     *alert.Engine
 	notifier   *alert.Notifier
 	apiTokens  *apitoken.Service
+	requests   *verbrequest.Service
 	operator   *auth.Service
 	journal    *audit.Recorder
 	actions    *action.Service
@@ -193,6 +195,10 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	statusPage.SetAuditor(journal)
 	alerts.SetAuditor(journal)
 	apiTokens.SetAuditor(journal)
+	requests := verbrequest.New(db, logger)
+	requests.SetClock(func() time.Time { return testNow })
+	requests.SetAuditor(journal)
+	requests.SetWatcher(bus)
 	operator.SetAuditor(journal)
 	// Les ordres, signés par une clé figée : les rendus le sont aussi.
 	actions := action.New(db, machines, logger)
@@ -241,33 +247,34 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	firewalls.SetAuditor(journal)
 	firewalls.SetConnector(firewall.KindOPNsense, opnsense.New)
 	server, err := New(Options{
-		Logger:     logger,
-		Version:    "v0.0.1",
-		Reader:     db,
-		Settings:   preferences,
-		Machines:   machines,
-		Heartbeats: heartbeats,
-		Resources:  resources,
-		Containers: containers,
-		Probes:     probes,
-		Directory:  declared,
-		Manifest:   newTestManifest(declared, probes, heartbeats, db, bus, logger),
-		Updates:    updates,
-		Lifecycle:  lifecycles,
-		Status:     statusPage,
-		Alerts:     alerts,
-		Notifier:   notifier,
-		APITokens:  apiTokens,
-		Auth:       operator,
-		Actions:    actions,
-		SSHKeys:    sshKeys,
-		Roles:      roles,
-		Proxmox:    hypervisors,
-		Firewalls:  firewalls,
-		Backups:    backups,
-		Deploy:     deployer,
-		Live:       bus,
-		PublicLive: publicBus,
+		Logger:       logger,
+		Version:      "v0.0.1",
+		Reader:       db,
+		Settings:     preferences,
+		Machines:     machines,
+		Heartbeats:   heartbeats,
+		Resources:    resources,
+		Containers:   containers,
+		Probes:       probes,
+		Directory:    declared,
+		Manifest:     newTestManifest(declared, probes, heartbeats, db, bus, logger),
+		Updates:      updates,
+		Lifecycle:    lifecycles,
+		Status:       statusPage,
+		Alerts:       alerts,
+		Notifier:     notifier,
+		APITokens:    apiTokens,
+		VerbRequests: requests,
+		Auth:         operator,
+		Actions:      actions,
+		SSHKeys:      sshKeys,
+		Roles:        roles,
+		Proxmox:      hypervisors,
+		Firewalls:    firewalls,
+		Backups:      backups,
+		Deploy:       deployer,
+		Live:         bus,
+		PublicLive:   publicBus,
 		// httptest donne Host: example.com à ses requêtes : c'est l'hôte
 		// d'écoute de ce serveur, donc un Host reconnu.
 		Listen: "example.com:80",
@@ -281,7 +288,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	probes.SetCommander(server)
 	updates.SetCommander(server)
 	actions.SetCommander(server)
-	return &testServer{actions: actions, backups: backups, proxmox: hypervisors, firewalls: firewalls, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{actions: actions, backups: backups, proxmox: hypervisors, firewalls: firewalls, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, requests: requests, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
 }
 
 // testServerKey lit une clé du serveur figée, posée dans un fichier comme

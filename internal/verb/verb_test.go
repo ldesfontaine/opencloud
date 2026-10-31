@@ -18,6 +18,59 @@ func TestRegister_RefusesAVerbWithoutReverse(t *testing.T) {
 	}
 }
 
+func confirmable() Verb {
+	return Verb{ID: "thing.delete", Route: "DELETE /api/things/{id}", Params: []string{"id"}, Target: TargetMachine, Label: "l", Summary: "s", Confirm: true}
+}
+
+// Un verbe à confirmation remplace l'inverse par la confirmation : il n'en a
+// pas, et sa route peut être un DELETE ou un PUT.
+func TestRegister_AcceptsAVerbToConfirmWithoutReverse(t *testing.T) {
+	registry := &Registry{}
+	registry.MustRegister(confirmable())
+	put := confirmable()
+	put.ID, put.Route = "thing.replace", "PUT /api/things/{id}"
+	registry.MustRegister(put)
+	if err := registry.Check(); err != nil {
+		t.Fatalf("a verb to confirm has no reverse to check: %v", err)
+	}
+}
+
+func TestRegister_RefusesMalformedVerbsToConfirm(t *testing.T) {
+	cases := map[string]struct {
+		mutate func(*Verb)
+		want   error
+	}{
+		"with a reverse":   {func(v *Verb) { v.Reverse = "thing.create" }, ErrConfirmReverse},
+		"a read":           {func(v *Verb) { v.Route = "GET /api/things/{id}" }, ErrRouteInvalid},
+		"outside api":      {func(v *Verb) { v.Route = "DELETE /agent/things/{id}" }, ErrRouteInvalid},
+		"not on a machine": {func(v *Verb) { v.Target = TargetProbe }, ErrConfirmTarget},
+	}
+	for name, c := range cases {
+		v := confirmable()
+		c.mutate(&v)
+		if err := (&Registry{}).Register(v); !errors.Is(err, c.want) {
+			t.Errorf("%s: got %v, want %v", name, err, c.want)
+		}
+	}
+}
+
+// Un DELETE ne passe pas pour un verbe ordinaire : seule la confirmation
+// l'ouvre.
+func TestRegister_RefusesADeleteWithoutConfirmation(t *testing.T) {
+	v := valid()
+	v.Route = "DELETE /api/things/{id}"
+	if err := (&Registry{}).Register(v); !errors.Is(err, ErrRouteInvalid) {
+		t.Fatalf("got %v, want ErrRouteInvalid", err)
+	}
+}
+
+func TestDefault_MachineDeleteAsksForAConfirmation(t *testing.T) {
+	found, ok := Default.ByRoute("DELETE /api/machines/{id}")
+	if !ok || found.ID != "machine.delete" || !found.Confirm || found.Reverse != "" {
+		t.Fatalf("got %+v %v", found, ok)
+	}
+}
+
 func TestRegister_RefusesMalformedVerbs(t *testing.T) {
 	cases := map[string]func(*Verb){
 		"id without dot": func(v *Verb) { v.ID = "start" },
@@ -68,6 +121,9 @@ func TestDefault_EveryVerbHasARealReverse(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, v := range Default.All() {
+		if v.Confirm {
+			continue
+		}
 		back, _ := Default.Lookup(v.Reverse)
 		if back.Reverse != v.ID {
 			t.Errorf("%s -> %s -> %s: the reverse does not come back", v.ID, back.ID, back.Reverse)
@@ -87,7 +143,7 @@ func TestByRoute_FindsTheVerbOfARoute(t *testing.T) {
 		t.Fatalf("got %+v %v", found, ok)
 	}
 	if _, ok := Default.ByRoute("DELETE /api/probes/{id}"); ok {
-		t.Fatal("a deletion is a verb")
+		t.Fatal("a deletion without confirmation is a verb")
 	}
 }
 
