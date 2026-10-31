@@ -87,7 +87,12 @@ type Guest struct {
 	MaxMem  int64
 	MaxDisk int64
 	Node    string
-	// La machine enrôlée du même nom d'hôte ; vide sans rapprochement.
+	// Les adresses MAC de ses cartes, lues dans sa configuration chez l'hôte
+	// pour le rapprochement ; vides quand l'hôte ne les dit pas. Non gardées :
+	// le rapprochement est fait avant l'écriture du relevé.
+	MACs []string
+	// La machine enrôlée que le rapprochement lui trouve (MAC, puis nom
+	// d'hôte) ; vide sans rapprochement.
 	LinkedMachineID string
 	// Zéro : aucune sauvegarde connue.
 	LastBackupAt    time.Time
@@ -123,8 +128,11 @@ func (s Storage) AcceptsBackups() bool {
 
 // Reading est un relevé complet de l'API : il remplace le précédent ou rien.
 type Reading struct {
-	Version  string
-	Node     string
+	Version string
+	Node    string
+	// Le nom de la grappe ; vide pour un nœud seul, ou quand le jeton ne peut
+	// pas la lire.
+	Cluster  string
 	Guests   []Guest
 	Storages []Storage
 }
@@ -142,7 +150,18 @@ type Summary struct {
 	Declared  bool
 	Guests    int
 	LastError string
-	Hosted    *HostedGuest
+	// Le nom du nœud de l'hôte, sa grappe (nil pour un nœud seul), et ses
+	// invités : l'arbre des machines se construit avec.
+	Node    string
+	Cluster *Cluster
+	Members []Guest
+	Hosted  *HostedGuest
+}
+
+// Cluster est la grappe d'hyperviseurs que plusieurs hôtes déclarés partagent.
+type Cluster struct {
+	ID   string
+	Name string
 }
 
 // HostedGuest est la VM d'un hôte que la machine est.

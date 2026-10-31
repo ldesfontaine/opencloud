@@ -81,6 +81,7 @@ type MachineService interface {
 	NoteRollbackVersion(ctx context.Context, agentID, reported string) error
 	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) (machine.Machine, error)
 	SetRole(ctx context.Context, machineID string, role machine.Role) (machine.Machine, error)
+	SetPlacement(ctx context.Context, machineID string, kindOverride machine.Kind, hostOverride string) (machine.Machine, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
 	SessionMachine(sessionToken string) (machineID string, err error)
@@ -431,6 +432,8 @@ type Options struct {
 	SSHKeys SSHKeysService
 	// Roles garde ce que l'agent reconnaît sur sa machine ; le signal l'écrit.
 	Roles agentapi.RolesService
+	// Host garde où tourne la machine et ses disques ; le signal l'écrit.
+	Host agentapi.HostService
 	// Proxmox déclare l'hôte Proxmox d'une machine ; voir api_proxmox.go.
 	Proxmox ProxmoxService
 	// Firewalls déclare les pare-feu lus en lecture seule ; voir api_firewalls.go.
@@ -530,6 +533,7 @@ func New(opts Options) (*Server, error) {
 		Actions:       opts.Actions,
 		SSHKeys:       opts.SSHKeys,
 		Roles:         opts.Roles,
+		Host:          opts.Host,
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})

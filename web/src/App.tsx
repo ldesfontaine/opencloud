@@ -24,6 +24,7 @@ import { Jobs } from "./pages/Jobs";
 import { MachinePage } from "./pages/Machine";
 import { AddMachine } from "./pages/machines/AddMachine";
 import { DeclareProxmoxHost } from "./pages/machines/DeclareProxmoxHost";
+import { PlacementMachine } from "./pages/machines/PlacementMachine";
 import { ReenrollMachine } from "./pages/machines/ReenrollMachine";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
@@ -76,6 +77,7 @@ export function App() {
         <Route path="machines/:id" element={<MachinePage />}>
           <Route path="reenroller" element={<ReenrollMachine />} />
           <Route path="proxmox" element={<DeclareProxmoxHost />} />
+          <Route path="emplacement" element={<PlacementMachine />} />
         </Route>
         <Route path="machines/:id/:tab" element={<MachinePage />} />
         <Route path="services" element={<Services tab="annuaire" />} />

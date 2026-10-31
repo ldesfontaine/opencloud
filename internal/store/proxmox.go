@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/backup"
+	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 )
 
@@ -82,11 +83,48 @@ func (db *DB) SaveProxmoxHost(ctx context.Context, credentials proxmox.Credentia
 
 // DeleteProxmoxHost retire l'hôte ; ses VM et ses stockages partent avec lui.
 func (db *DB) DeleteProxmoxHost(ctx context.Context, machineID string) error {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM machine_proxmox WHERE machine_id = ?`, machineID)
-	if err != nil {
-		return fmt.Errorf("delete proxmox host: %w", err)
+	return db.inTx(ctx, "delete proxmox host", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `DELETE FROM machine_proxmox WHERE machine_id = ?`, machineID)
+		if err != nil {
+			return fmt.Errorf("delete proxmox host: %w", err)
+		}
+		if err := notFoundIfNoRow(result, proxmox.ErrNotFound); err != nil {
+			return err
+		}
+		return pruneClusters(ctx, tx)
+	})
+}
+
+// ensureCluster rend la grappe de ce nom, créée au premier hôte qui la dit ;
+// nulle pour un nœud seul. Deux hôtes d'une même grappe en partagent la ligne.
+func ensureCluster(ctx context.Context, tx *sql.Tx, name string) (sql.NullString, error) {
+	if name == "" {
+		return sql.NullString{}, nil
 	}
-	return notFoundIfNoRow(result, proxmox.ErrNotFound)
+	id, err := ident.New()
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("new cluster id: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT OR IGNORE INTO hypervisor_clusters (id, kind, name) VALUES (?, 'proxmox', ?)`, id, name); err != nil {
+		return sql.NullString{}, fmt.Errorf("insert cluster: %w", err)
+	}
+	var found string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT id FROM hypervisor_clusters WHERE kind = 'proxmox' AND name = ?`, name).Scan(&found); err != nil {
+		return sql.NullString{}, fmt.Errorf("read cluster: %w", err)
+	}
+	return sql.NullString{String: found, Valid: true}, nil
+}
+
+// pruneClusters retire les grappes qu'aucun hôte ne déclare plus.
+func pruneClusters(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `
+		DELETE FROM hypervisor_clusters WHERE id NOT IN (SELECT cluster_id FROM machine_proxmox WHERE cluster_id IS NOT NULL)`)
+	if err != nil {
+		return fmt.Errorf("prune clusters: %w", err)
+	}
+	return nil
 }
 
 func (db *DB) ListProxmoxHostIDs(ctx context.Context) ([]string, error) {
@@ -115,9 +153,13 @@ func (db *DB) NoteProxmoxFailure(ctx context.Context, machineID, errorKey string
 // relevé : ce qu'un relevé ne montre plus disparaît.
 func (db *DB) ReplaceProxmoxReading(ctx context.Context, machineID string, reading proxmox.Reading, at time.Time) error {
 	return db.inTx(ctx, "replace proxmox reading", func(tx *sql.Tx) error {
+		clusterID, err := ensureCluster(ctx, tx, reading.Cluster)
+		if err != nil {
+			return err
+		}
 		result, err := tx.ExecContext(ctx, `
-			UPDATE machine_proxmox SET node = ?, version = ?, last_read_at = ?, last_error = '' WHERE machine_id = ?`,
-			reading.Node, reading.Version, at.Unix(), machineID)
+			UPDATE machine_proxmox SET node = ?, version = ?, cluster_id = ?, last_read_at = ?, last_error = '' WHERE machine_id = ?`,
+			reading.Node, reading.Version, clusterID, at.Unix(), machineID)
 		if err != nil {
 			return fmt.Errorf("update proxmox host: %w", err)
 		}
@@ -140,7 +182,7 @@ func (db *DB) ReplaceProxmoxReading(ctx context.Context, machineID string, readi
 				return err
 			}
 		}
-		return nil
+		return pruneClusters(ctx, tx)
 	})
 }
 
@@ -280,9 +322,11 @@ func (db *DB) ProxmoxSummaries(ctx context.Context) (map[string]proxmox.Summary,
 
 func (db *DB) readDeclaredHosts(ctx context.Context, into map[string]proxmox.Summary) error {
 	rows, err := db.sql.QueryContext(ctx, `
-		SELECT h.machine_id, h.last_error, COUNT(g.vmid)
-		FROM machine_proxmox h LEFT JOIN proxmox_guests g ON g.machine_id = h.machine_id
-		GROUP BY h.machine_id, h.last_error`)
+		SELECT h.machine_id, h.last_error, h.node, c.id, c.name, COUNT(g.vmid)
+		FROM machine_proxmox h
+		LEFT JOIN proxmox_guests g ON g.machine_id = h.machine_id
+		LEFT JOIN hypervisor_clusters c ON c.id = h.cluster_id
+		GROUP BY h.machine_id, h.last_error, h.node, c.id, c.name`)
 	if err != nil {
 		return fmt.Errorf("count proxmox guests: %w", err)
 	}
@@ -291,8 +335,12 @@ func (db *DB) readDeclaredHosts(ctx context.Context, into map[string]proxmox.Sum
 		summary   proxmox.Summary
 	}
 	hosts, err := collect(rows, func(row scanner) (declared, error) {
-		host := declared{summary: proxmox.Summary{Declared: true}}
-		err := row.Scan(&host.machineID, &host.summary.LastError, &host.summary.Guests)
+		host := declared{summary: proxmox.Summary{Declared: true, Members: []proxmox.Guest{}}}
+		var clusterID, clusterName sql.NullString
+		err := row.Scan(&host.machineID, &host.summary.LastError, &host.summary.Node, &clusterID, &clusterName, &host.summary.Guests)
+		if clusterID.Valid {
+			host.summary.Cluster = &proxmox.Cluster{ID: clusterID.String, Name: clusterName.String}
+		}
 		return host, err
 	})
 	if err != nil {
@@ -301,14 +349,47 @@ func (db *DB) readDeclaredHosts(ctx context.Context, into map[string]proxmox.Sum
 	for _, host := range hosts {
 		into[host.machineID] = host.summary
 	}
+	return db.readMembers(ctx, into)
+}
+
+// readMembers pose sur chaque hôte déclaré les invités de son dernier relevé.
+func (db *DB) readMembers(ctx context.Context, into map[string]proxmox.Summary) error {
+	rows, err := db.sql.QueryContext(ctx,
+		`SELECT `+proxmoxGuestColumns+`, g.machine_id FROM proxmox_guests g ORDER BY g.machine_id, g.vmid`)
+	if err != nil {
+		return fmt.Errorf("list proxmox members: %w", err)
+	}
+	type member struct {
+		hostID string
+		guest  proxmox.Guest
+	}
+	members, err := collect(rows, func(row scanner) (member, error) {
+		var read guestRow
+		var entry member
+		if err := row.Scan(append(read.destinations(), &entry.hostID)...); err != nil {
+			return member{}, err
+		}
+		entry.guest = read.result()
+		return entry, nil
+	})
+	if err != nil {
+		return fmt.Errorf("scan proxmox members: %w", err)
+	}
+	for _, entry := range members {
+		summary := into[entry.hostID]
+		summary.Members = append(summary.Members, entry.guest)
+		into[entry.hostID] = summary
+	}
 	return nil
 }
 
 func (db *DB) readHostedGuests(ctx context.Context, into map[string]proxmox.Summary) error {
 	rows, err := db.sql.QueryContext(ctx, `
 		SELECT `+proxmoxGuestColumns+`, g.machine_id, hm.name
-		FROM proxmox_guests g JOIN machines hm ON hm.id = g.machine_id
-		WHERE g.linked_machine_id IS NOT NULL
+		FROM proxmox_guests g
+		JOIN machines hm ON hm.id = g.machine_id
+		JOIN machines lm ON lm.id = g.linked_machine_id
+		WHERE lm.host_override IS NULL OR lm.host_override = g.machine_id
 		ORDER BY hm.name, g.vmid`)
 	if err != nil {
 		return fmt.Errorf("list hosted proxmox guests: %w", err)

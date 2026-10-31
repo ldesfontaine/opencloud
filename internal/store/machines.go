@@ -14,6 +14,7 @@ import (
 // Une machine se lit avec son agent courant : l'actif, sinon le dernier
 // révoqué ; et ce que le jeton qui l'a enrôlé demandait.
 const machineSelect = `SELECT m.id, m.name, m.hostname, m.address, m.os, m.arch, m.created_at, m.update_last, m.role,
+		m.kind, m.kind_override, m.host_override,
 		a.id, a.public_key, a.version, a.root_dir, a.enrolled_at, a.last_seen_at, a.revoked_at,
 		a.server_key_fingerprint, a.run_as_uid, a.run_as_name, t.requested_capabilities, a.rollback_version
 	FROM machines m
@@ -35,6 +36,9 @@ func (db *DB) ListMachines(ctx context.Context) ([]machine.Machine, error) {
 	if err := attachCapabilities(ctx, db.sql, machines); err != nil {
 		return nil, err
 	}
+	if err := attachMACs(ctx, db.sql, machines); err != nil {
+		return nil, err
+	}
 	return machines, nil
 }
 
@@ -49,6 +53,9 @@ func (db *DB) GetMachine(ctx context.Context, id string) (machine.Machine, error
 	}
 	machines := []machine.Machine{found}
 	if err := attachCapabilities(ctx, db.sql, machines); err != nil {
+		return machine.Machine{}, err
+	}
+	if err := attachMACs(ctx, db.sql, machines); err != nil {
 		return machine.Machine{}, err
 	}
 	return machines[0], nil
@@ -388,18 +395,20 @@ func classifyTokenFailure(ctx context.Context, tx *sql.Tx, tokenHash string, now
 func scanMachine(row scanner) (machine.Machine, error) {
 	var m machine.Machine
 	var createdAt int64
-	var role string
+	var role, kind string
+	var kindOverride, hostOverride sql.NullString
 	var agentID, version, rootDir, serverKey, runAsName, requested sql.NullString
 	var publicKey []byte
 	var enrolledAt, lastSeenAt, revokedAt, runAsUID sql.NullInt64
 	var rollbackVersion sql.NullInt64
-	err := row.Scan(&m.ID, &m.Name, &m.Hostname, &m.Address, &m.OS, &m.Arch, &createdAt, &m.UpdateLast, &role,
+	err := row.Scan(&m.ID, &m.Name, &m.Hostname, &m.Address, &m.OS, &m.Arch, &createdAt, &m.UpdateLast, &role, &kind, &kindOverride, &hostOverride,
 		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &serverKey, &runAsUID, &runAsName, &requested, &rollbackVersion)
 	if err != nil {
 		return machine.Machine{}, err
 	}
 	m.CreatedAt = time.Unix(createdAt, 0)
 	m.Role = machine.Role(role)
+	m.Kind, m.KindOverride, m.HostOverride = machine.Kind(kind), machine.Kind(kindOverride.String), hostOverride.String
 	if !agentID.Valid {
 		return m, nil
 	}

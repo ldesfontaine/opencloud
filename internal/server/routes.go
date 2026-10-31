@@ -51,6 +51,8 @@ func (s *Server) routes() []route {
 		{"GET", "/api/agent-migration", s.getAgentMigration},
 		{"PUT", "/api/machines/{id}/update-last", s.setUpdateLast},
 		{"PUT", "/api/machines/{id}/role", s.setRole},
+		{"PUT", "/api/machines/{id}/placement", s.setPlacement},
+		{"GET", "/api/machines/{id}/storage", s.getMachineStorage},
 		{"POST", "/api/machines/{id}/actions/check-updates", s.checkUpdates},
 		{"GET", "/api/machines/{id}/resources", s.getMachineResources},
 		{"GET", "/api/machines/{id}/resources/history", s.getMachineHistory},

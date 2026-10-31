@@ -38,6 +38,24 @@ export interface Machine {
   // ceux de son rôle et ceux que l'agent observe.
   role: RoleID;
   modules: ModuleID[];
+  // Où elle tourne : le type retenu, la correction de l'opérateur seule (vide
+  // sans), et l'hôte qui la porte, null s'il n'est pas connu.
+  kind: KindID;
+  kind_override: KindID | "";
+  host: MachineHost | null;
+}
+
+// Les types de machine (liste fermée du serveur). « vps » se déduit : virtualisée
+// sans hôte connu.
+export type KindID = "physical" | "vm" | "lxc" | "vps" | "unknown";
+
+// L'hôte d'une machine : celui que l'opérateur a désigné (override), sinon
+// celui dont l'API de l'hyperviseur rapproche la machine d'un invité (guest).
+export interface MachineHost {
+  machine_id: string;
+  machine_name: string;
+  node: string;
+  source: "override" | "guest";
 }
 
 // Les rôles qu'une machine peut recevoir (liste fermée du serveur).
@@ -138,6 +156,12 @@ export async function createMachineToken(name: string, role: RoleID, capabilitie
 // Change le rôle de la machine, donc ses modules ; ses droits ne bougent pas.
 export async function setMachineRole(machineID: string, role: RoleID): Promise<void> {
   await api.send(route("PUT /api/machines/{id}/role", { id: machineID }), { role });
+}
+
+// Corrige où tourne la machine : son type (vide : le type déduit) et l'hôte qui
+// la porte (vide : aucun désigné).
+export async function setMachinePlacement(machineID: string, kindOverride: KindID | "", hostOverride: string): Promise<Machine> {
+  return api.send<Machine>(route("PUT /api/machines/{id}/placement", { id: machineID }), { kind_override: kindOverride, host_override: hostOverride });
 }
 
 export async function deleteMachineToken(id: string): Promise<void> {

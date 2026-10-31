@@ -1,0 +1,31 @@
+// Le retrait suit la profondeur de l'arbre : 20 px par niveau.
+.tree-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: calc(var(--depth, 0) * 20px);
+}
+
+// Les jauges d'une ligne gardent une largeur propre : leur conteneur décide si
+// l'étiquette et le chiffre tiennent côte à côte.
+.tree-meters {
+  container-type: inline-size;
+  min-width: 240px;
+  width: 280px;
+}
+
+// Un invité que nul agent ne suit se lit moins fort qu'une machine suivie.
+.tree-guest {
+  color: var(--muted);
+
+  .svc,
+  .mono {
+    color: inherit;
+  }
+}
+
+// Une grappe ou un nœud : une étiquette de section sur toute la ligne.
+.tree-group td {
+  background: var(--surface-2);
+  font-size: 12px;
+}

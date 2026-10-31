@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router";
 
 import { useMachineContainers } from "../api/containers";
@@ -15,13 +15,16 @@ import { DeleteMachineDialog } from "../components/DeleteMachineDialog";
 import { Failure } from "../components/Failure";
 import { MachineHead, Tabs } from "../components/MachineHead";
 import { McpChip } from "../components/McpChip";
-import { HostedCard, MachineHypervisor, ProxmoxCard } from "../components/MachineHypervisor";
+import { MachineHypervisor } from "../components/MachineHypervisor";
+import { MachineIdentity } from "../components/MachineIdentity";
+import { MachineStorage } from "../components/MachineStorage";
+import { MachineTodoCard } from "../components/MachineTodoCard";
 import { MachineSSHKeys } from "../components/MachineSSHKeys";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
 import { RoleCard } from "../components/RoleCard";
 import { ProbeTable } from "../components/ProbeTable";
-import { DiskVolumesCard, ResourceHistory, ResourceStats } from "../components/Resources";
+import { ResourceHistory, ResourceStats } from "../components/Resources";
 import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
 import { SupportDetails } from "../components/SupportBlock";
 import { ContainerPill } from "../components/Pill";
@@ -66,10 +69,19 @@ function KnownMachinePage({ id, tab, known }: { id: string; tab: string; known: 
 }
 
 // 16 px entre les blocs de la page (.content, global, garde ses 24 px) : en
-// tête, tuiles et historique tiennent sur un écran de portable (#141).
+// tête, tuiles et historique tiennent sur un écran de portable (#141). Deux
+// colonnes : l'identité fixe à droite (où tourne la machine), les onglets à
+// gauche ; sous 1100 px l'identité passe devant.
 function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; tab: string }) {
   const now = useNow();
   const resources = useMachineResources(tab === "" ? current.id : null);
+  // Un lien « détail du support » mène à son ancre sur la page même.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash !== "") {
+      document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
+    }
+  }, [hash]);
   return (
     <div className="machine-page">
       <PageHead title={current.name} actions={<Actions machine={current} />} />
@@ -79,32 +91,41 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
           <Tabs machineID={current.id} modules={current.modules} />
         </CardBody>
       </Card>
-      {tab === "" ? (
-        <>
-          <ResourceStats current={resources.data} />
-          <ResourceHistory machineID={current.id} />
-          <DiskVolumesCard current={resources.data} />
-          {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
-          {current.proxmox.hosted !== null && <HostedCard hosted={current.proxmox.hosted} />}
-          <ProxmoxCard machine={current} />
-          <RoleCard machine={current} />
-          <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} online={current.online} now={now} />
-          <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
-        </>
-      ) : tab === "services" ? (
-        <MachineContainers machineID={current.id} />
-      ) : tab === "reseau" ? (
-        <NetworkView machineID={current.id} />
-      ) : tab === "ssh" ? (
-        <MachineSSHKeys machine={current} />
-      ) : tab === "hyperviseur" ? (
-        <MachineHypervisor machine={current} />
-      ) : tab === "journaux" ? (
-        <MachineLogs machineID={current.id} />
-      ) : (
-        <MachineProbes machineID={current.id} />
-      )}
-      {/* Les fenêtres de l'adresse : ré-enrôler, déclarer l'hôte Proxmox. */}
+      <div className="machine-columns">
+        <div className="machine-main">
+          {tab === "" ? (
+            <>
+              <MachineTodoCard machine={current} />
+              <ResourceStats current={resources.data} />
+              <ResourceHistory machineID={current.id} />
+              <MachineStorage machine={current} current={resources.data} />
+              {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
+              <RoleCard machine={current} />
+            </>
+          ) : tab === "agent" ? (
+            <>
+              <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} online={current.online} now={now} />
+              <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
+            </>
+          ) : tab === "services" ? (
+            <MachineContainers machineID={current.id} />
+          ) : tab === "reseau" ? (
+            <NetworkView machineID={current.id} />
+          ) : tab === "ssh" ? (
+            <MachineSSHKeys machine={current} />
+          ) : tab === "hyperviseur" ? (
+            <MachineHypervisor machine={current} />
+          ) : tab === "journaux" ? (
+            <MachineLogs machineID={current.id} />
+          ) : (
+            <MachineProbes machineID={current.id} />
+          )}
+        </div>
+        <aside className="machine-aside">
+          <MachineIdentity machine={current} all={all} />
+        </aside>
+      </div>
+      {/* Les fenêtres de l'adresse : ré-enrôler, déclarer l'hôte Proxmox, corriger le type et l'hôte. */}
       <Outlet />
     </div>
   );
@@ -115,12 +136,14 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
 function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
   const t = useT();
   return (
-    <Card>
-      <CardHeader title={t("lifecycle.title_system")} />
-      <CardBody gap={8}>
-        <SupportDetails lifecycle={lifecycle} />
-      </CardBody>
-    </Card>
+    <div id="support">
+      <Card>
+        <CardHeader title={t("lifecycle.title_system")} />
+        <CardBody gap={8}>
+          <SupportDetails lifecycle={lifecycle} />
+        </CardBody>
+      </Card>
+    </div>
   );
 }
 

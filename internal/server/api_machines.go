@@ -42,9 +42,25 @@ type machineJSON struct {
 	// de son rôle et ceux que l'agent observe (internal/module).
 	Role    string   `json:"role"`
 	Modules []string `json:"modules"`
+	// Où elle tourne : le type retenu (la correction de l'opérateur, sinon ce
+	// que l'hôte ou l'agent en disent), la correction seule (vide sans), et
+	// l'hôte qui la porte, null s'il n'est pas connu.
+	Kind         string           `json:"kind"`
+	KindOverride string           `json:"kind_override"`
+	Host         *machineHostJSON `json:"host"`
 	// Le support du système, seulement quand l'opérateur a activé la fin
 	// de support.
 	Lifecycle *lifecycleJSON `json:"lifecycle,omitempty"`
+}
+
+// L'hôte d'une machine : celui que l'opérateur a désigné (override), sinon
+// celui dont l'API rapproche la machine d'un de ses invités (guest).
+type machineHostJSON struct {
+	MachineID   string `json:"machine_id"`
+	MachineName string `json:"machine_name"`
+	// Le nœud de l'hôte qui l'héberge, quand l'API le dit ; vide sinon.
+	Node   string `json:"node"`
+	Source string `json:"source"`
 }
 
 type roleJSON struct {
@@ -209,6 +225,7 @@ type machineFacts struct {
 	summaries     map[string]proxmox.Summary
 	roles         map[string][]role.Role
 	modules       map[string][]module.ID
+	names         map[string]string
 	withLifecycle bool
 }
 
@@ -229,7 +246,11 @@ func (s *Server) readMachineFacts(ctx context.Context) (machineFacts, error) {
 	if err != nil {
 		return machineFacts{}, err
 	}
-	return machineFacts{summaries: summaries, roles: roles, modules: modules, withLifecycle: withLifecycle}, nil
+	names, err := s.reader.MachineNames(ctx)
+	if err != nil {
+		return machineFacts{}, err
+	}
+	return machineFacts{summaries: summaries, roles: roles, modules: modules, names: names, withLifecycle: withLifecycle}, nil
 }
 
 // machineJSONOf ajoute aux faits de la machine ce qu'elle est pour Proxmox, ses
@@ -240,6 +261,9 @@ func (s *Server) machineJSONOf(machineStatus machine.Status, facts machineFacts)
 	converted.Proxmox = proxmoxSummaryToJSON(facts.summaries[machineStatus.ID])
 	converted.Roles = httpx.ConvertAll(facts.roles[machineStatus.ID], roleToJSON)
 	converted.Modules = httpx.ConvertAll(facts.modules[machineStatus.ID], func(id module.ID) string { return string(id) })
+	converted.Host = hostingOf(machineStatus, facts)
+	converted.KindOverride = string(machineStatus.KindOverride)
+	converted.Kind = string(effectiveKind(machineStatus, facts.summaries[machineStatus.ID], converted.Host != nil))
 	if facts.withLifecycle {
 		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(machineStatus.OS))
 	}
@@ -642,4 +666,31 @@ func (s *Server) offerLocalEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeToken(w, r, token, cleartext, true)
+}
+
+// hostingOf dit quel hôte porte la machine : celui que l'opérateur a désigné
+// l'emporte sur celui que l'API de l'hyperviseur rapproche d'un invité.
+func hostingOf(machineStatus machine.Status, facts machineFacts) *machineHostJSON {
+	hosted := facts.summaries[machineStatus.ID].Hosted
+	if machineStatus.HostOverride != "" {
+		host := &machineHostJSON{MachineID: machineStatus.HostOverride, MachineName: facts.names[machineStatus.HostOverride], Source: "override"}
+		if hosted != nil && hosted.HostMachineID == host.MachineID {
+			host.Node = hosted.Node
+		}
+		return host
+	}
+	if hosted == nil {
+		return nil
+	}
+	return &machineHostJSON{MachineID: hosted.HostMachineID, MachineName: hosted.HostName, Node: hosted.Node, Source: "guest"}
+}
+
+// effectiveKind applique la règle du type (machine.EffectiveKind) aux faits que
+// la machine et l'hôte rapportent.
+func effectiveKind(machineStatus machine.Status, summary proxmox.Summary, hasHost bool) machine.Kind {
+	placement := machine.Placement{Reported: machineStatus.Kind, Override: machineStatus.KindOverride, HasHost: hasHost}
+	if summary.Hosted != nil {
+		placement.GuestKind = machine.KindOfGuest(summary.Hosted.Kind)
+	}
+	return machine.EffectiveKind(placement)
 }

@@ -269,6 +269,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		Actions:      actions,
 		SSHKeys:      sshKeys,
 		Roles:        roles,
+		Host:         machines,
 		Proxmox:      hypervisors,
 		Firewalls:    firewalls,
 		Backups:      backups,

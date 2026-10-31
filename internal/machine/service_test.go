@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/deletion"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 )
 
 // Un faux magasin en mémoire : le vrai est testé chez lui, et le service
@@ -97,6 +98,27 @@ func (f *fakeStore) SetRole(_ context.Context, machineID string, role Role) erro
 	m.Role = role
 	f.machines[machineID] = m
 	return nil
+}
+
+func (f *fakeStore) SetPlacement(_ context.Context, machineID string, kindOverride Kind, hostOverride string) error {
+	m, ok := f.machines[machineID]
+	if !ok {
+		return ErrNotFound
+	}
+	m.KindOverride, m.HostOverride = kindOverride, hostOverride
+	f.machines[machineID] = m
+	return nil
+}
+
+func (f *fakeStore) ReplaceHostReport(_ context.Context, machineID string, kind Kind, _ hostinfo.Report) (bool, error) {
+	m, ok := f.machines[machineID]
+	if !ok {
+		return false, ErrNotFound
+	}
+	changed := m.Kind != kind
+	m.Kind = kind
+	f.machines[machineID] = m
+	return changed, nil
 }
 
 func (f *fakeStore) RecordRootDir(_ context.Context, agentID, root string) error {

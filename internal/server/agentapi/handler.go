@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
@@ -92,6 +93,12 @@ type RolesService interface {
 	Record(ctx context.Context, machineID string, report role.Report) error
 }
 
+// Ce que l'agent attend du composant machine : le signal écrit où tourne sa
+// machine et ses disques.
+type HostService interface {
+	RecordHost(ctx context.Context, machineID string, report hostinfo.Report) error
+}
+
 type Options struct {
 	Logger     *slog.Logger
 	Machines   MachineService
@@ -102,6 +109,7 @@ type Options struct {
 	Actions    ActionService
 	SSHKeys    SSHKeysService
 	Roles      RolesService
+	Host       HostService
 	// ClientAddress rend l'adresse du client telle que le serveur la résout,
 	// mandataires de confiance compris : la règle vit à la racine.
 	ClientAddress func(r *http.Request) string
@@ -119,6 +127,7 @@ type Handler struct {
 	actions       ActionService
 	sshKeys       SSHKeysService
 	roles         RolesService
+	host          HostService
 	clientAddress func(r *http.Request) string
 	sourceLimit   *ratelimit.BySource
 	signalLimit   *ratelimit.Limiter
@@ -136,6 +145,7 @@ func New(opts Options) *Handler {
 		actions:       opts.Actions,
 		sshKeys:       opts.SSHKeys,
 		roles:         opts.Roles,
+		host:          opts.Host,
 		clientAddress: opts.ClientAddress,
 		sourceLimit:   ratelimit.NewBySource(perSourceRate, perSourceBurst, sourceIdle),
 		signalLimit:   ratelimit.New(signalPerMachineRate, signalPerMachineBurst, signalIdle),

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { JobStatus } from "../api/jobs";
-import type { Machine } from "../api/machines";
+import type { KindID, Machine } from "../api/machines";
 import type { ProbeStatus } from "../api/probes";
 import { useT } from "../i18n/context";
 import { displayedState, type PillFacts } from "../lib/containers";
@@ -37,6 +37,17 @@ export function MachineStatePill({ machine }: { machine: Pick<Machine, "online" 
     return <Pill tone="neutral">{t("state.archived")}</Pill>;
   }
   return <Pill tone={machine.online ? "ok" : "danger"}>{t(machine.online ? "state.online" : "state.offline")}</Pill>;
+}
+
+// Où tourne la machine : matériel, VM, LXC, VPS. Un type qu'on ne sait pas
+// reste neutre et discret, jamais en défaut : ce n'est pas une panne.
+export function MachineKindPill({ kind }: { kind: KindID }) {
+  const t = useT();
+  return (
+    <Pill tone={kind === "vps" ? "accent" : "neutral"} dot={false} small>
+      {t(`machine.kind_${kind}`)}
+    </Pill>
+  );
 }
 
 export function JobPill({ status }: { status: JobStatus }) {

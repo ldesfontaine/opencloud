@@ -19,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -408,7 +409,19 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	if request.Roles != nil {
 		keep(agentwire.SectionRoles, h.recordRoles(ctx, machineID, *request.Roles), role.ErrReportInvalid)
 	}
+	if request.Host != nil {
+		keep(agentwire.SectionHost, h.recordHost(ctx, machineID, *request.Host), hostinfo.ErrReportInvalid)
+	}
 	return rejected, failed
+}
+
+// recordHost écrit où tourne la machine et ses disques ; sans composant, la
+// section est refusée.
+func (h *Handler) recordHost(ctx context.Context, machineID string, report hostinfo.Report) error {
+	if h.host == nil {
+		return hostinfo.ErrReportInvalid
+	}
+	return h.host.RecordHost(ctx, machineID, report)
 }
 
 // recordRoles écrit ce que l'agent reconnaît sur sa machine ; sans composant,

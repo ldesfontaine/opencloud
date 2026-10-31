@@ -73,10 +73,10 @@ test("les conteneurs qui vont mal mènent à la liste des conteneurs, pas à la 
 
 test("les onglets d'une machine : les fixes, puis ceux des modules qu'elle porte, dans l'ordre", () => {
   const slugs = (carried: ModuleID[]) => machineTabsOf(carried).map((tab) => tab.slug);
-  expect(slugs([])).toEqual(["", "reseau", "journaux"]);
-  expect(slugs(["containers", "probes", "ssh_keys"])).toEqual(["", "services", "disponibilite", "reseau", "ssh", "journaux"]);
-  expect(slugs(["hypervisor"])).toEqual(["", "reseau", "hyperviseur", "journaux"]);
-  expect(slugs(["guest"])).toEqual(["", "reseau", "journaux"]);
+  expect(slugs([])).toEqual(["", "reseau", "journaux", "agent"]);
+  expect(slugs(["containers", "probes", "ssh_keys"])).toEqual(["", "services", "disponibilite", "reseau", "ssh", "journaux", "agent"]);
+  expect(slugs(["hypervisor"])).toEqual(["", "reseau", "hyperviseur", "journaux", "agent"]);
+  expect(slugs(["guest"])).toEqual(["", "reseau", "journaux", "agent"]);
 });
 
 test("chaque onglet connu a son libellé : fixe, ou celui de son module", () => {

@@ -29,6 +29,7 @@ export const writes = [
   "POST /api/machines/{id}/actions/check-updates",
   "PUT /api/machines/{id}/update-last",
   "PUT /api/machines/{id}/role",
+  "PUT /api/machines/{id}/placement",
   "PUT /api/machines/{id}/proxmox",
   "POST /api/machines/{id}/actions/remove-proxmox",
   "POST /api/machines/{id}/proxmox/guests/{vmid}/actions/start",

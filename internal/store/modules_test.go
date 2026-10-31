@@ -183,9 +183,10 @@ func TestMigration024_DeducesTheRoleFromTheFacts(t *testing.T) {
 		"dock": machine.RoleDocker, "no-docker": machine.RoleGeneric, "plain": machine.RoleGeneric,
 	}
 	for id, role := range want {
-		got, err := db.GetMachine(ctx, id)
-		if err != nil || got.Role != role {
-			t.Errorf("%s : rôle %q (%v), attendu %q", id, got.Role, err, role)
+		// GetMachine lit des colonnes d'une migration plus récente : on lit la ligne.
+		var got string
+		if err := db.sql.QueryRow(`SELECT role FROM machines WHERE id = ?`, id).Scan(&got); err != nil || got != string(role) {
+			t.Errorf("%s : rôle %q (%v), attendu %q", id, got, err, role)
 		}
 	}
 	if role := count(t, db, `SELECT COUNT(*) FROM enrollment_tokens WHERE role = 'generic'`); role != 1 {

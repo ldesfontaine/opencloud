@@ -12,12 +12,13 @@ import type { Firewall, FirewallCounts, FirewallDetail, FirewallInterfacesRespon
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
-import type { Account, Agent, Capability, Machine, MachineRole, MachinesResponse, ReportedCapability } from "./machines";
+import type { Account, Agent, Capability, Machine, MachineHost, MachineRole, MachinesResponse, ReportedCapability } from "./machines";
+import type { MachineStorage, PhysicalDisk, StoragePool } from "./storage";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
-import type { ProxmoxHost, ProxmoxSummary } from "./proxmox";
+import type { ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
 import type { Session } from "./session";
@@ -131,23 +132,47 @@ const machine = shape<Machine>("Machine", {
   roles: shape<MachineRole>("MachineRole", { name: value, version: value }),
   role: value,
   modules: value,
+  kind: value,
+  kind_override: value,
+  host: shape<MachineHost>("MachineHost", { machine_id: value, machine_name: value, node: value, source: value }),
   proxmox: shape<ProxmoxSummary>("ProxmoxSummary", {
     declared: value,
     guests: value,
     last_error: value,
+    node: value,
+    cluster: shape<ProxmoxCluster>("ProxmoxCluster", { id: value, name: value }),
+    guest_list: shape<ProxmoxMember>("ProxmoxMember", {
+      vmid: value,
+      kind: value,
+      name: value,
+      status: value,
+      template: value,
+      node: value,
+      cpus: value,
+      max_memory: value,
+      max_disk: value,
+      linked_machine_id: value,
+    }),
     hosted: shape<NonNullable<ProxmoxSummary["hosted"]>>("ProxmoxHosted", {
       host_machine_id: value,
       host_machine_name: value,
+      node: value,
       vmid: value,
       kind: value,
       name: value,
       status: value,
       cpus: value,
       max_memory: value,
+      max_disk: value,
       last_backup_at: value,
       last_backup_bytes: value,
     }),
   }),
+});
+
+const machineStorage = shape<MachineStorage>("MachineStorage", {
+  disks: shape<PhysicalDisk>("PhysicalDisk", { name: value, model: value, size: value, media: value, removable: value }),
+  pools: shape<StoragePool>("StoragePool", { name: value, kind: value, level: value, state: value, size: value, members: value }),
 });
 
 const machines = shape<MachinesResponse>("MachinesResponse", {
@@ -1018,6 +1043,7 @@ const contract: Record<string, Shape<unknown>> = {
   "machine_containers.golden.json": containers,
   "machine_network.golden.json": network,
   "machine_probes.golden.json": probes,
+  "machine_storage.golden.json": machineStorage,
   "machine_hosted.golden.json": machine,
   "machine_hosting_proxmox.golden.json": machine,
   "machine_role.golden.json": machine,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 )
 
 const (
@@ -43,6 +45,13 @@ type Store interface {
 	RecordRollbackVersion(ctx context.Context, agentID string, version int) error
 	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) error
 	SetRole(ctx context.Context, machineID string, role Role) error
+	// SetPlacement pose la correction de type et l'hôte désigné par l'opérateur ;
+	// vides, ils les retirent.
+	SetPlacement(ctx context.Context, machineID string, kindOverride Kind, hostOverride string) error
+	// ReplaceHostReport remplace ce que l'agent a rapporté de l'endroit où
+	// tourne la machine (type, cartes, disques, pools) et dit si quelque chose
+	// a changé.
+	ReplaceHostReport(ctx context.Context, machineID string, kind Kind, report hostinfo.Report) (changed bool, err error)
 	InsertToken(ctx context.Context, token Token) error
 	ListPendingTokens(ctx context.Context, now time.Time) ([]Token, error)
 	DeleteToken(ctx context.Context, id string) error
@@ -596,6 +605,84 @@ func (s *Service) SetRole(ctx context.Context, machineID string, role Role) (Mac
 	})
 	s.changed(machineID)
 	return target, nil
+}
+
+// maxHostChain borne la remontée des hôtes désignés : une chaîne plus longue
+// est une boucle qu'on n'a pas su voir.
+const maxHostChain = 16
+
+// SetPlacement corrige où tourne la machine : son type, et l'hôte qui la porte.
+// L'hôte est une autre machine ; il ne peut pas être porté par elle, de près
+// ou de loin. Vides, les deux champs retirent la correction. Réservé à
+// l'opérateur, comme SetRole.
+func (s *Service) SetPlacement(ctx context.Context, machineID string, kindOverride Kind, hostOverride string) (Machine, error) {
+	if kindOverride != "" && !slices.Contains(Kinds(), kindOverride) {
+		return Machine{}, ErrKindUnknown
+	}
+	target, err := s.store.GetMachine(ctx, machineID)
+	if err != nil {
+		return Machine{}, err
+	}
+	if err := s.checkHost(ctx, machineID, hostOverride); err != nil {
+		return Machine{}, err
+	}
+	if target.KindOverride == kindOverride && target.HostOverride == hostOverride {
+		return target, nil
+	}
+	if err := s.store.SetPlacement(ctx, machineID, kindOverride, hostOverride); err != nil {
+		return Machine{}, err
+	}
+	previous := target
+	target.KindOverride, target.HostOverride = kindOverride, hostOverride
+	s.auditor.Record(ctx, audit.Event{
+		Action: audit.MachinePlacement, ObjectID: target.ID, ObjectName: target.Name,
+		Details: audit.Details{
+			"kind": string(kindOverride), "host": hostOverride,
+			"previous_kind": string(previous.KindOverride), "previous_host": previous.HostOverride,
+		},
+	})
+	s.changed(machineID)
+	return target, nil
+}
+
+// checkHost refuse un hôte inconnu, la machine elle-même, ou une machine qu'elle
+// porte déjà : la remontée des hôtes désignés ne revient jamais à elle.
+func (s *Service) checkHost(ctx context.Context, machineID, hostID string) error {
+	for range maxHostChain {
+		if hostID == "" {
+			return nil
+		}
+		if hostID == machineID {
+			return ErrHostInvalid
+		}
+		host, err := s.store.GetMachine(ctx, hostID)
+		if errors.Is(err, ErrNotFound) {
+			return ErrHostInvalid
+		}
+		if err != nil {
+			return err
+		}
+		hostID = host.HostOverride
+	}
+	return ErrHostInvalid
+}
+
+// RecordHost garde ce que l'agent rapporte de l'endroit où tourne sa machine :
+// son type et ses disques. Un rapport hors bornes est refusé en entier. Rien
+// n'est journalisé à l'audit : c'est une lecture de l'agent, qui ne change
+// aucun réglage.
+func (s *Service) RecordHost(ctx context.Context, machineID string, report hostinfo.Report) error {
+	if err := report.Validate(); err != nil {
+		return err
+	}
+	changed, err := s.store.ReplaceHostReport(ctx, machineID, KindOfVirt(report.Virt), report)
+	if err != nil {
+		return err
+	}
+	if changed {
+		s.changed(machineID)
+	}
+	return nil
 }
 
 // isKeyFingerprint : « SHA256: » et 43 caractères de base64 sans
