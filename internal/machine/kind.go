@@ -28,7 +28,7 @@ func Kinds() []Kind {
 }
 
 var (
-	ErrKindUnknown = refusal.Invalid("machine.kind_unknown", "unknown machine kind")
+	ErrKindUnknown = refusal.Invalid("machine.kind_invalid", "unknown machine kind")
 	ErrHostInvalid = refusal.Invalid("machine.host_invalid", "the host must be another existing machine, not one that runs on this machine")
 )
 

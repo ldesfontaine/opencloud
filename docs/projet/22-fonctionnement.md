@@ -126,6 +126,7 @@ dit comment. Une migration de plus part de `002`.
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système, rôle choisi), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq`, le compte sous lequel il tourne `run_as_uid` et `run_as_name` (nuls tant qu'il ne l'a pas dit) ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport, et `unavailable`, la raison pour laquelle son compte ne peut pas l'exercer, vide s'il le peut), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
+| Où tourne chaque machine, `state_dir` | `opencloud.db` | Le type rapporté (`machines.kind`), la correction de l'opérateur (`kind_override`, `host_override`), les cartes réseau (`machine_interfaces` : nom, adresse MAC), les disques physiques (`machine_block_devices` : nom, modèle, taille, nature, amovible), les pools (`machine_storage_pools` : genre, niveau, état, taille, disques) et les grappes d'hyperviseurs (`hypervisor_clusters`, `machine_proxmox.cluster_id`) | Rien de secret : des noms de noyau et des adresses MAC. Chaque rapport de l'agent remplace les listes ; une machine retirée les emporte (cascade), une grappe sans hôte est retirée |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_lookup` garde son SHA-256 ; le chiffré est dans `token_sealed` | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche. La machine d'une tâche, facultative, est en `restrict` : une machine à laquelle une tâche est rattachée ne se retire pas (409 `machine.has_heartbeats`), on détache la tâche d'abord |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code, issue dont « manquée » : un retard sans exécution) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes par heure et par jour dans `machine_rollups` (une ligne par machine, granularité `hour` ou `day` et seau) | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
@@ -564,10 +565,10 @@ module a une entrée de menu, un onglet ou un premier geste) :
   Paramètres, la langue et le thème. Un module de l'installation n'y est que
   **configuré**. Plus de section « Administration ». Avant la première lecture
   des compteurs, seules les entrées fixes s'affichent, sans chiffre inventé.
-- **Les onglets d'une fiche** : Résumé, Réseau, Journaux, et ceux des modules
-  que la machine porte (Conteneurs, Disponibilité, Clés SSH, Hyperviseur).
-  L'adresse d'un onglet reste servie sans son module : un lien gardé ne tombe
-  pas sur une page introuvable.
+- **Les onglets d'une fiche** : Résumé, Réseau, Journaux, Agent (la carte de
+  l'agent et ses ordres), et ceux des modules que la machine porte (Conteneurs,
+  Disponibilité, Clés SSH, Hyperviseur). L'adresse d'un onglet reste servie sans
+  son module : un lien gardé ne tombe pas sur une page introuvable.
 - **Paramètres › Modules** (`/parametres#modules`) : les modules de
   l'installation, configuré ou « à configurer », avec un bouton vers leur page
   ou vers leur premier geste. C'est ici qu'un module sans objet se configure :
@@ -643,6 +644,16 @@ l'hôte la rapproche d'un invité —, ou `null`), et dans `proxmox` : `node`,
 dont ceux qu'aucune machine enrôlée ne porte). L'arbre des machines se construit
 côté navigateur avec cela (`web/src/lib/machineTree.ts`), sans route de plus.
 
+**Ce que l'écran en fait.**
+
+| Écran | Ce qu'il montre | Où |
+| --- | --- | --- |
+| Liste des machines | Un **arbre** : l'hôte, ses invités en retrait (machines enrôlées, puis invités que nul agent ne suit, grisés « sans agent », avec « Enrôler »), la grappe et ses nœuds à partir de **deux nœuds** (un nœud sans agent est une ligne). Une pastille de type, les jauges processeur, mémoire, disque. Ce qui ne répond pas passe en tête avec sa branche. Au-dessus, le **verdict** : teinté seulement si une machine ne répond pas ; les invités sans agent se disent sans alarmer. Les modèles de VM n'entrent pas dans l'arbre. Une boucle d'hôtes désignés à la main ne fait disparaître aucune machine | `web/src/lib/machineTree.ts`, `pages/machines/MachineTree.tsx` |
+| Fiche, colonne de droite | L'**identité** fixe : type (et « corrigé »), hôte (lien, « désigné à la main »), grappe, nœud, adresse, système, agent, et, pour une VM d'un hôte, l'invité, ce que l'hôte lui alloue et sa dernière sauvegarde ; « Corriger » ouvre la fenêtre `/machines/{id}/emplacement` (type, hôte) | `components/MachineIdentity.tsx`, `pages/machines/PlacementMachine.tsx` |
+| Fiche, résumé | Le bloc **À faire** en tête (agent absent ; agent en retard sur le serveur ; droits cochés que le compte ne peut pas exercer ; système en fin de support ; type inconnu ; hôte Proxmox à déclarer ou dont le relevé échoue), un bouton chacun ; sans rien à faire, il n'est pas là. Une machine archivée n'a rien à faire. Puis les tuiles et l'historique, la carte **Stockage** | `lib/machineTodo.ts`, `components/MachineTodoCard.tsx` |
+| Fiche, carte Stockage | Les volumes montés, les **disques physiques** (nom, modèle, nature, taille, amovible), les **pools** (genre, niveau, état, disques, taille ; « — » quand le noyau ne la dit pas), et, pour un hôte, le disque que chaque invité se fait allouer. **Aucun relevé SMART** | `components/MachineStorage.tsx`, `GET /api/machines/{id}/storage` |
+| Fiche, onglet Agent | La carte de l'agent et ses ordres, qui étaient dans le résumé | `pages/Machine.tsx` |
+
 **Migration `026`** (`machine_placement`) : les colonnes `kind`, `kind_override`,
 `host_override`, les tables `machine_interfaces`, `machine_block_devices`,
 `machine_storage_pools`, `hypervisor_clusters`, et `machine_proxmox.cluster_id`.
@@ -660,8 +671,9 @@ liste des VM du sélecteur `all`). L'opérateur déclare,
 sur la fiche d'une machine, l'hôte Proxmox qu'elle porte ; openCloud interroge
 l'API de l'hyperviseur et montre ses VM et conteneurs, ses stockages et la
 dernière sauvegarde de chaque VM (onglet « Hyperviseur » de la machine), et, sur
-la fiche d'une machine qui est une de ces VM, l'encadré « Sur l'hôte Proxmox »
-(« VM 5012, 2 vCPU, 2 Gio, dernière sauvegarde le … (233 Mio) »). **Le
+la fiche d'une machine qui est une de ces VM, son identité (« Comment openCloud
+sait où tourne une machine » : hôte, nœud, invité 5012, « 2 vCPU · 2 Gio · 32 Gio »
+alloués, dernière sauvegarde (233 Mio)). **Le
 serveur ne donne aucun ordre à Proxmox** (ses gestes passent par l'agent de
 l'hôte, « Comment un hôte Proxmox agit ») : ni démarrage, ni arrêt, ni sauvegarde lancée, ni
 fichier écrit. **Aucune alerte** ne naît d'un relevé : une VM arrêtée, un
@@ -780,15 +792,15 @@ changement prévient le direct (sujet `machines`), un rapport identique non.
 elle ne demande pas de droit à l'agent, et l'hôte reste « non déclaré » tant que
 l'opérateur n'a pas fourni le jeton.
 
-Sur la fiche d'une machine où Proxmox est reconnu mais non déclaré, un encadré
-dit « {product} a reconnu un hôte Proxmox VE sur cette machine (version …) »,
-explique en une phrase le jeton à créer (rôle `PVEAuditor`, lecture seule) et
-propose « Déclarer un hôte Proxmox ». Le formulaire s'ouvre avec l'adresse de la
-machine sur le port 8006 déjà remplie ; l'identifiant du jeton, son secret et
-l'empreinte restent à l'opérateur. La déclaration est le formulaire de quatre
-champs décrit plus bas, pas l'assistant pas à pas : la direction artistique le
-réserve aux créations de plus de cinq champs. Une fois l'hôte déclaré, le
-relevé est celui d'avant.
+Sur la fiche d'une machine où Proxmox est reconnu (ou que son rôle annonce) mais
+non déclaré, le bloc « À faire » du résumé dit « {product} a reconnu un hôte Proxmox
+VE sur cette machine (version …) », explique en une phrase le jeton à créer (rôle
+`PVEAuditor`, lecture seule) et propose « Déclarer l'hôte ». La fenêtre s'ouvre avec
+l'adresse de la machine sur le port 8006 déjà remplie ; l'identifiant du jeton, son
+secret et l'empreinte restent à l'opérateur. Un hôte déclaré dont le dernier relevé
+a échoué y dit pourquoi, avec un bouton vers l'onglet Hyperviseur. Une VM d'un hôte
+déjà déclaré ne se voit pas proposer d'être un hyperviseur. Une fois l'hôte
+déclaré, le relevé est celui d'avant.
 
 **Qui est quelle machine.** Une VM est rapprochée de la machine enrôlée dont le
 **nom d'hôte** (`hostname`, relevé par l'agent) est égal à son nom : l'égalité

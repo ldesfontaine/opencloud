@@ -110,6 +110,7 @@ type proxmoxHostedJSON struct {
 	Status          string     `json:"status"`
 	CPUs            float64    `json:"cpus"`
 	MaxMemory       int64      `json:"max_memory"`
+	MaxDisk         int64      `json:"max_disk"`
 	LastBackupAt    *time.Time `json:"last_backup_at"`
 	LastBackupBytes int64      `json:"last_backup_bytes"`
 }
@@ -179,7 +180,7 @@ func proxmoxSummaryToJSON(summary proxmox.Summary) proxmoxSummaryJSON {
 		hosted := summary.Hosted
 		converted.Hosted = &proxmoxHostedJSON{
 			HostMachineID: hosted.HostMachineID, HostMachineName: hosted.HostName, Node: hosted.Node, VMID: hosted.VMID, Kind: hosted.Kind,
-			Name: hosted.Name, Status: hosted.Status, CPUs: hosted.CPUs, MaxMemory: hosted.MaxMem,
+			Name: hosted.Name, Status: hosted.Status, CPUs: hosted.CPUs, MaxMemory: hosted.MaxMem, MaxDisk: hosted.MaxDisk,
 			LastBackupAt: httpx.TimeOrNil(hosted.LastBackupAt), LastBackupBytes: hosted.LastBackupBytes,
 		}
 	}

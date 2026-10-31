@@ -60,7 +60,7 @@ export interface ProxmoxHost {
 }
 
 // La VM qu'une machine enrôlée est sur un hôte Proxmox.
-export interface ProxmoxHosted {
+interface ProxmoxHosted {
   host_machine_id: string;
   host_machine_name: string;
   // Le nœud de l'hôte qui l'héberge.
@@ -71,6 +71,7 @@ export interface ProxmoxHosted {
   status: string;
   cpus: number;
   max_memory: number;
+  max_disk: number;
   last_backup_at: string | null;
   last_backup_bytes: number;
 }

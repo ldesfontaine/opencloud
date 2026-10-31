@@ -6,7 +6,7 @@ import { segment } from "./client";
 // « machines », que topicsOf devine du chemin.
 
 export type DiskMedia = "nvme" | "ssd" | "hdd" | "virtual" | "unknown";
-export type PoolKind = "md" | "lvm" | "zfs";
+type PoolKind = "md" | "lvm" | "zfs";
 export type PoolState = "ok" | "degraded" | "failed" | "unknown";
 
 export interface PhysicalDisk {

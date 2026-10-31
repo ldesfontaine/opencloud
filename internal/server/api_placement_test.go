@@ -179,7 +179,7 @@ func TestPlacement_RefusesWhatCannotBeTrueAndTokensNeverCorrect(t *testing.T) {
 		code int
 		key  string
 	}{
-		"type inconnu":     {map[string]any{"kind_override": "mainframe"}, path, http.StatusUnprocessableEntity, "machine.kind_unknown"},
+		"type inconnu":     {map[string]any{"kind_override": "mainframe"}, path, http.StatusUnprocessableEntity, "machine.kind_invalid"},
 		"hôte inconnu":     {map[string]any{"host_override": "nope"}, path, http.StatusUnprocessableEntity, "machine.host_invalid"},
 		"elle-même":        {map[string]any{"host_override": remoteID}, path, http.StatusUnprocessableEntity, "machine.host_invalid"},
 		"machine inconnue": {map[string]any{}, "/api/machines/nope/placement", http.StatusNotFound, ""},

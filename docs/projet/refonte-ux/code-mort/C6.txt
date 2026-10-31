@@ -1,0 +1,20 @@
+# C6 : code mort avant / après (#411)
+
+Avant = 01d72c5 (dev après C5b), après = fin de la branche orca/ux-c6.
+
+deadcode -test ./... avant : 0 résultat ; après : 0
+deadcode ./... (ce que seuls les tests appellent) avant : 79 ; après : 79 (les mêmes lignes, aux numéros près : bancs de test et listes fermées déjà classés faux positifs au cadrage §2.1)
+knip 6.44.1, `npx knip` sans option dans web/ (après `npm ci`) avant : 10 types exportés non utilisés ; après : les mêmes 10, rapport identique octet pour octet (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup : hors périmètre C6, relevés au cadrage et aux chantiers précédents, aucun ajouté ici). Deux types exportés par ce chantier (`ProxmoxHosted`, `PoolKind`) ont perdu leur `export` dès que knip les a vus : ils ne servent que dans leur fichier.
+
+Supprimé dans ce chantier
+- Front : `HostedCard` et `ProxmoxCard` (components/MachineHypervisor.tsx), absorbées par l'identité de la fiche (components/MachineIdentity.tsx) et par le bloc « À faire » (lib/machineTodo.ts) ; leur test `components/MachineHypervisor.test.tsx`, dont chaque cas est repris dans `lib/machineTodo.test.ts` (hôte reconnu, sans version, déjà déclaré) ; `DiskVolumesCard` (components/Resources.tsx), remplacée par la carte Stockage (components/MachineStorage.tsx), qui réutilise `DiskVolumes`, désormais exportée ; la colonne « Système » et la liste plate de pages/Machines.tsx (remplacées par l'arbre) ; `AgentCard` et `ActionsCard` quittent le résumé de la fiche pour l'onglet Agent (déplacées, pas supprimées).
+- `MachineHead` perd l'adresse, le système et la version de l'agent (l'identité les dit, un fait à un seul endroit) et sa phrase « en retard sur le serveur » (le bloc « À faire » la dit, avec son bouton).
+- Catalogues fr et en : `machines.col_os`, `machine.agent_behind` ; `machine.proxmox_declare_hint`, `proxmox_detected`, `proxmox_detected_unversioned`, `proxmox_detected_token`, `proxmox_hosted_title`, `proxmox_hosted_host`, `proxmox_hosted_resources`, `proxmox_open`.
+- Go : le rapprochement d'un invité **par nom seul** (`linkedMachine` de internal/proxmox/reading.go) devient un repli : `linkedByName` ne se lit qu'après `linkedByMAC`, et la correction de l'opérateur écarte les candidates d'un autre hôte. Aucun ancien chemin ne reste à côté.
+- Migration : aucune colonne `proxmox_guests.macs` (esquisse du §4.2) : les adresses de l'invité ne servent qu'au rapprochement, fait avant l'écriture du relevé ; les garder aurait fait une colonne écrite et jamais lue.
+
+Gardé, avec sa raison
+- `proxmox.hosted` et `proxmox.guests` dans les machines, et `GET /api/machines/{id}/proxmox` : lus par l'identité, l'onglet Hyperviseur et `machineTodos`.
+- `useMachineProxmox`, `kindLabel`, `guestStatusLabel`, `resourcesLabel` (lib/proxmox.ts) : l'onglet Hyperviseur et l'arbre les lisent.
+- `RoleCard` dans le résumé : hors de la liste de C6 (C3 l'a posée), elle ne change pas.
+- `detectedProxmox` (lib/proxmox.ts) : lu par `machineTodos`.

@@ -163,6 +163,7 @@ const machine = shape<Machine>("Machine", {
       status: value,
       cpus: value,
       max_memory: value,
+      max_disk: value,
       last_backup_at: value,
       last_backup_bytes: value,
     }),

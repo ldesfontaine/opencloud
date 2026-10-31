@@ -176,7 +176,8 @@ interface MachineTab {
 const fixedTabs: MachineTab[] = [
   { slug: "", label: "tab.summary", rank: 0 },
   { slug: "reseau", label: "tab.network", rank: 30 },
-  { slug: "journaux", label: "tab.logs", rank: 60 },
+    { slug: "journaux", label: "tab.logs", rank: 60 },
+  { slug: "agent", label: "tab.agent", rank: 70 },
 ];
 
 // Tous les onglets que la fiche sait montrer, portés ou non : l'adresse d'un

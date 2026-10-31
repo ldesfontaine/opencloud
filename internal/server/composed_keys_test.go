@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -118,6 +119,12 @@ func closedKeyLists() []composedKeys {
 		{prefix: "module.", suffix: "_text", values: allModuleNames()},
 		{prefix: "role.", values: names(machine.Roles())},
 		{prefix: "role.", suffix: "_text", values: names(machine.Roles())},
+		// Où tourne la machine, et ses disques : la pastille de type, la nature d'un
+		// disque, le genre et l'état d'un pool.
+		{prefix: "machine.kind_", values: names(machine.Kinds())},
+		{prefix: "storage.media_", values: hostinfo.DiskMedia()},
+		{prefix: "storage.pool_", values: hostinfo.PoolKinds()},
+		{prefix: "storage.state_", values: hostinfo.PoolStates()},
 		// La pastille de la carte « Accès à l'interface », par mode.
 		{prefix: "auth.state_", values: names(auth.Modes())},
 		// Le choix du mode à l'activation : tous sauf « none », qui est l'état de départ.
