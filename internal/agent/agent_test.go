@@ -323,23 +323,29 @@ func (b *bench) waitForRun(t *testing.T, runID string, want action.State) action
 	return action.Run{}
 }
 
-// waitForActionAudit attend la première entrée d'audit d'un ordre : le serveur
-// l'écrit après avoir fermé le run, donc un run refusé ne prouve pas qu'elle
-// existe déjà.
-func (b *bench) waitForActionAudit(t *testing.T) []audit.Event {
+// waitForRefusalAudit attend l'entrée de refus de l'agent pour cet ordre : le
+// serveur l'écrit après avoir fermé le run, et l'entrée « action.order » de
+// l'opérateur existe avant elle. Rend toutes les entrées de refus de l'ordre.
+func (b *bench) waitForRefusalAudit(t *testing.T, runID string) []audit.Event {
 	t.Helper()
 	deadline := time.Now().Add(benchTimeout)
 	for time.Now().Before(deadline) {
-		events, err := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 1, ObjectKind: audit.ObjectAction})
+		events, err := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 100, ObjectKind: audit.ObjectAction, ObjectID: runID})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(events) > 0 {
-			return events
+		var refusals []audit.Event
+		for _, event := range events {
+			if event.Action == audit.ActionRefused && event.Actor.Kind == audit.ActorAgent {
+				refusals = append(refusals, event)
+			}
+		}
+		if len(refusals) > 0 {
+			return refusals
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal("no audit entry for the order")
+	t.Fatalf("no refusal audit entry for order %s", runID)
 	return nil
 }
 
@@ -469,9 +475,8 @@ func TestRun_AppliesItsRightsAndItsRefusalIsJournaled(t *testing.T) {
 	if refused.Reason != agentwire.ReasonNotSelfUpdatable {
 		t.Fatalf("refused %+v", refused)
 	}
-	events := b.waitForActionAudit(t)
-	if len(events) != 1 || events[0].Action != audit.ActionRefused || events[0].Actor.Kind != audit.ActorAgent {
-		t.Fatalf("audit %+v", events)
+	if events := b.waitForRefusalAudit(t, sent.ID); len(events) != 1 {
+		t.Fatalf("want one refusal entry, audit %+v", events)
 	}
 	cancel()
 	<-done
