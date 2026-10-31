@@ -210,10 +210,10 @@ func TestAPITokenVerbs_InsertIsAllOrNothing(t *testing.T) {
 	}
 }
 
-// La 022 laisse les jetons d'avant « partout » : ni drapeau ni liste, leurs
+// La 023 laisse les jetons d'avant « partout » : ni drapeau ni liste, leurs
 // verbes intacts. Une ligne neuve sans portée l'est aussi, et un drapeau
 // hors 0/1 est refusé.
-func TestMigration022_KeepsExistingTokensEverywhere(t *testing.T) {
+func TestMigration023_KeepsExistingTokensEverywhere(t *testing.T) {
 	ctx := context.Background()
 	db := openEmpty(t)
 	names, err := migrationFiles()
@@ -221,7 +221,7 @@ func TestMigration022_KeepsExistingTokensEverywhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range names {
-		if version := migrationVersion(name); version < 22 {
+		if version := migrationVersion(name); version < 23 {
 			if err := db.apply(ctx, name, version); err != nil {
 				t.Fatal(err)
 			}
@@ -230,7 +230,7 @@ func TestMigration022_KeepsExistingTokensEverywhere(t *testing.T) {
 	exec(t, db, `INSERT INTO api_tokens (id, token_hash, token_prefix, scope, name, created_at) VALUES ('avant', 'h', 'p', 'write', 'avant', 1)`)
 	exec(t, db, `INSERT INTO api_token_verbs (token_id, verb) VALUES ('avant', 'probe.pause')`)
 
-	if err := db.apply(ctx, "022_api_token_reach.sql", 22); err != nil {
+	if err := db.apply(ctx, "023_api_token_reach.sql", 23); err != nil {
 		t.Fatal(err)
 	}
 

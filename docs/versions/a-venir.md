@@ -16,7 +16,7 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 
 ## À faire en mettant à jour
 
-- Mettez à jour **le serveur d'abord** : les migrations `019` à `022`
+- Mettez à jour **le serveur d'abord** : les migrations `019` à `023`
   s'appliquent au démarrage.
 - Mettez ensuite à jour **les agents** des machines qui portent Docker :
   tant qu'ils sont anciens, l'inventaire n'y voit aucun volume.
@@ -28,7 +28,7 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 - `last_targets_ok` et `last_targets_failed` d'un plan ne sont plus en mémoire :
   ils se lisent dans l'historique. Un plan qui n'a pas encore repassé garde 0 et 0.
 - La migration `021` ne touche pas aux données existantes ; `019` et `020` non plus.
-- La migration `022` laisse tous les jetons d'API existants sur « toutes les machines » :
+- La migration `023` laisse tous les jetons d'API existants sur « toutes les machines » :
   rien ne change pour eux tant que vous ne les limitez pas.
 - `GET /api/token/verbs` rend un champ de plus, `reach` ; `GET /api/settings/api-tokens` rend
   `machines` (les machines à cocher) et, par jeton, `machines` et `guests`.
