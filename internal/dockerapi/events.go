@@ -87,7 +87,7 @@ type EventStream struct {
 // s'il n'est pas vide, rejoue d'abord ceux survenus depuis cet instant. Le
 // contexte tient le flux : l'annuler le ferme.
 func (c *Client) Events(ctx context.Context, since string) (*EventStream, error) {
-	query := url.Values{"filters": {`{"type":["container","network"]}`}}
+	query := url.Values{"filters": {`{"type":["container","network","volume"]}`}}
 	if since != "" {
 		query.Set("since", since)
 	}

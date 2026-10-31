@@ -489,3 +489,28 @@ func TestDeleteMachine_TakesItsContainersAlong(t *testing.T) {
 		t.Fatalf("engines = %+v", engines)
 	}
 }
+
+// Les volumes de la machine sont remplacés à chaque liste complète : un volume
+// qui n'y est plus disparaît ; un rapport sans liste ne touche à rien ; un
+// volume au nom vide est écarté sans perdre les autres.
+func TestRecord_ReplacesTheVolumesOfTheMachine(t *testing.T) {
+	b := newBench(t)
+	b.record(t, container.Report{VolumesComplete: true, Volumes: []container.VolumeReport{
+		{Name: "data", Driver: "local", UsedBy: []string{"web", "db"}}, {Name: "spare", Driver: "local"}, {Name: "", Driver: "local"},
+	}})
+	volumes, err := b.db.ListVolumes(context.Background(), machine.LocalID)
+	if err != nil || len(volumes) != 2 || volumes[0].Name != "data" || len(volumes[0].UsedBy) != 2 || volumes[0].UsedBy[0] != "web" || volumes[1].Name != "spare" || len(volumes[1].UsedBy) != 0 {
+		t.Fatalf("volumes = %+v %v", volumes, err)
+	}
+
+	b.record(t, inventory(running(webID, "web", "fixture")))
+	if volumes, _ := b.db.ListVolumes(context.Background(), machine.LocalID); len(volumes) != 2 {
+		t.Fatalf("a report without a list must keep the volumes: %+v", volumes)
+	}
+
+	b.record(t, container.Report{VolumesComplete: true, Volumes: []container.VolumeReport{{Name: "data", Driver: "local"}}})
+	volumes, _ = b.db.ListVolumes(context.Background(), machine.LocalID)
+	if len(volumes) != 1 || volumes[0].Name != "data" || len(volumes[0].UsedBy) != 0 {
+		t.Fatalf("after the second list = %+v", volumes)
+	}
+}
