@@ -101,9 +101,14 @@ func writeHostReport(ctx context.Context, tx *sql.Tx, machineID string, kind mac
 	if _, err := tx.ExecContext(ctx, `UPDATE machines SET kind = ? WHERE id = ?`, string(kind), machineID); err != nil {
 		return fmt.Errorf("update machine kind: %w", err)
 	}
-	for _, table := range []string{"machine_interfaces", "machine_block_devices", "machine_storage_pools"} {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE machine_id = ?`, machineID); err != nil {
-			return fmt.Errorf("delete %s: %w", table, err)
+	deletions := []string{
+		`DELETE FROM machine_interfaces WHERE machine_id = ?`,
+		`DELETE FROM machine_block_devices WHERE machine_id = ?`,
+		`DELETE FROM machine_storage_pools WHERE machine_id = ?`,
+	}
+	for _, deletion := range deletions {
+		if _, err := tx.ExecContext(ctx, deletion, machineID); err != nil {
+			return fmt.Errorf("delete host report rows: %w", err)
 		}
 	}
 	for _, iface := range report.Interfaces {
