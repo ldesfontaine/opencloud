@@ -125,6 +125,9 @@ POST /api/alerts/actions/acknowledge
 GET /api/alerts/{id}
 POST /api/alerts/{id}/actions/acknowledge
 GET /api/token/verbs
+GET /api/verb-requests
+POST /api/verb-requests/{id}/actions/confirm
+POST /api/verb-requests/{id}/actions/reject
 GET /api/settings/api-tokens
 POST /api/settings/api-tokens
 PUT /api/settings/api-tokens/{id}/reach

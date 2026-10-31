@@ -11,6 +11,7 @@ import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
 import { TodoCard } from "../components/TodoCard";
+import { VerbRequestsCard } from "../components/VerbRequestsCard";
 import { OnlinePill, Pill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
@@ -128,6 +129,7 @@ export function Overview() {
         }
       />
       {machines.error && <Failure error={machines.error} />}
+      <VerbRequestsCard />
       <TodoCard todos={modulesToConfigure(counts.data, list)} />
       {machines.data && list.length === 0 && (
         <EmptyCard icon="server" title={t("overview.empty_title")} text={t("overview.empty_text")} />

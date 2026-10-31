@@ -69,6 +69,7 @@ var (
 	ErrParamsMismatch = errors.New("verb: params do not match the route path")
 	ErrTargetInvalid  = errors.New("verb: target must be machine, probe or job, and the route must carry {id}")
 	ErrDuplicate      = errors.New("verb: already registered")
+	ErrConfirmTarget  = errors.New("verb: a verb to confirm must target a machine")
 	ErrUnknownReverse = errors.New("verb: reverse is not registered")
 )
 
@@ -96,6 +97,11 @@ func (r *Registry) Register(v Verb) error {
 	}
 	if !v.Confirm && v.Reverse == "" {
 		return fmt.Errorf("%w: %s", ErrNoReverse, v.ID)
+	}
+	// Le serveur ne sait nommer, dans la demande, que la machine visée ; un
+	// autre objet s'ajoute avec le premier verbe qui le vise.
+	if v.Confirm && v.Target != TargetMachine {
+		return fmt.Errorf("%w: %s", ErrConfirmTarget, v.ID)
 	}
 	if !slices.Equal(v.Params, PathParams(v.Route)) {
 		return fmt.Errorf("%w: %s", ErrParamsMismatch, v.ID)

@@ -127,6 +127,7 @@ func runServe(args []string) error {
 	parts.roles.SetWatcher(bus)
 	parts.proxmox.SetWatcher(bus)
 	parts.firewalls.SetWatcher(bus)
+	parts.verbRequests.SetWatcher(bus)
 	parts.actions.SetKey(serverKey)
 	// Les colis des ordres longs (la sauvegarde) : un dossier vidé à chaque
 	// démarrage de serve.
@@ -157,7 +158,7 @@ func runServe(args []string) error {
 	// Quinze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la purge des conteneurs, le rollup et la purge des sondes, la
 	// purge des constats d'images, la page de statut, les machines perdues,
-	// le moteur des alertes, le notifieur, la purge des jetons d'API, la fin
+	// le moteur des alertes, le notifieur, la purge des jetons d'API, l'échéance des demandes de verbe, la fin
 	// de support, l'expiration et la purge des ordres, la sauvegarde de la
 	// base, le relevé des hôtes Proxmox, le relevé des pare-feu. Elles finissent avant
 	// que la base ne se ferme.
@@ -172,6 +173,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { parts.alerts.Watch(ctx) })
 	runLoop(&loops, func() { parts.notifier.Run(ctx) })
 	runLoop(&loops, func() { parts.apiTokens.Watch(ctx) })
+	runLoop(&loops, func() { parts.verbRequests.Watch(ctx) })
 	runLoop(&loops, func() { parts.support.Watch(ctx) })
 	runLoop(&loops, func() { parts.actions.Watch(ctx) })
 	runLoop(&loops, func() { parts.backups.Watch(ctx) })

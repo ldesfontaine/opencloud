@@ -25,6 +25,8 @@ const (
 	TopicBackups Topic = "backups"
 	// Les pare-feu déclarés et ce que leur dernier relevé en dit.
 	TopicFirewalls Topic = "firewalls"
+	// Les demandes de verbe à confirmation qui attendent l'opérateur.
+	TopicVerbRequests Topic = "verb_requests"
 )
 
 // ResourcesEvery espace les publications des mesures : chaque machine en
@@ -178,6 +180,10 @@ func (b *Bus) RolesChanged(string) {
 
 func (b *Bus) FirewallsChanged() {
 	b.Publish(TopicFirewalls)
+}
+
+func (b *Bus) VerbRequestsChanged() {
+	b.Publish(TopicVerbRequests)
 }
 
 func (b *Bus) BackupsChanged() {
