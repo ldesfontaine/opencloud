@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import { currentSection, settingsSections } from "./settingsSections";
 
-const order = ["acces", "alertes", "e-mails", "fin-de-support", "agent-ia"];
+const order = ["acces", "alertes", "e-mails", "fin-de-support", "agent-ia", "a-propos"];
 
 test("les ancres sont sans accent ni espace, et propres à chaque section", () => {
   const ids = settingsSections.map((section) => section.id);
@@ -29,7 +29,7 @@ test("sans précédente connue, la première ; sans section, rien", () => {
 });
 
 test("en bas de page, la dernière section, même si une autre traverse la bande", () => {
-  expect(currentSection(order, new Set(["fin-de-support"]), "fin-de-support", true)).toBe("agent-ia");
+  expect(currentSection(order, new Set(["fin-de-support"]), "fin-de-support", true)).toBe("a-propos");
 });
 
 test("une section absente de la page (lecture en échec) n'est jamais choisie", () => {

@@ -16,7 +16,9 @@ import (
 // Ce que le front lit au démarrage : la version, la langue réglée et les
 // seuils du produit.
 type sessionResponse struct {
-	Version   string   `json:"version"`
+	Version string `json:"version"`
+	// Le commit du binaire ; vide quand il n'est pas construit par make.
+	Commit    string   `json:"commit"`
 	Language  string   `json:"language"`
 	Languages []string `json:"languages"`
 	// Les jours à partir desquels un certificat se signale. Servis ici
@@ -117,6 +119,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	languages := httpx.ConvertAll(lang.Codes(), func(code lang.Code) string { return string(code) })
 	s.writeAPI(w, http.StatusOK, sessionResponse{
 		Version:      s.version,
+		Commit:       s.commit,
 		Language:     string(language),
 		Languages:    languages,
 		Certificates: certificateThresholds{Warning: probe.CertificateWarning, Danger: probe.CertificateDanger},

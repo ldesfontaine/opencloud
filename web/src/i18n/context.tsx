@@ -8,6 +8,7 @@ export type Translate = (key: string, ...args: (string | number)[]) => string;
 
 interface I18n {
   version: string;
+  commit: string;
   language: string;
   languages: string[];
   // Les seuils d'échéance viennent du serveur avec le reste de la session :
@@ -68,6 +69,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     };
     return {
       version: session.version,
+      commit: session.commit,
       language: session.language,
       languages: session.languages,
       certificates: session.certificate_thresholds,

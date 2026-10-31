@@ -330,6 +330,7 @@ type Live interface {
 type Server struct {
 	logger   *slog.Logger
 	version  string
+	commit   string
 	catalogs lang.Catalogs
 	// reader est la base, pour les lectures sans règle : listes, objets,
 	// comptes. Ce qui porte une règle passe par le composant.
@@ -399,6 +400,7 @@ type Server struct {
 type Options struct {
 	Logger     *slog.Logger
 	Version    string
+	Commit     string
 	Reader     reader.Reader
 	Settings   SettingsService
 	Machines   MachineService
@@ -470,6 +472,7 @@ func New(opts Options) (*Server, error) {
 	server := &Server{
 		logger:         opts.Logger,
 		version:        opts.Version,
+		commit:         opts.Commit,
 		catalogs:       catalogs,
 		reader:         opts.Reader,
 		settings:       opts.Settings,

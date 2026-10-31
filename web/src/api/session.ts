@@ -17,6 +17,8 @@ export interface DiskThresholds {
 
 export interface Session {
   version: string;
+  // Le commit du binaire ; vide quand il n'est pas construit par make.
+  commit: string;
   language: string;
   languages: string[];
   // Les jours à partir desquels un certificat se signale. Le serveur les

@@ -195,6 +195,7 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 	return server.Options{
 		Logger:         c.logger,
 		Version:        version.Number(),
+		Commit:         version.Commit(),
 		Reader:         c.db,
 		Settings:       c.preferences,
 		Machines:       c.machines,
