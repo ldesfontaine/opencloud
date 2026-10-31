@@ -135,7 +135,7 @@ function GroupRow({ group, children }: { group: UndeclaredGroup; children: React
         </span>
       </td>
       <td className="td-end">
-        <span className="cluster">{children}</span>
+        <span className="cluster proposal-actions">{children}</span>
       </td>
     </tr>
   );
