@@ -1,0 +1,85 @@
+// Le cadre de toute fenêtre modale : confirmations, plan de suppression,
+// déploiement, assistants. Le voile garde la couleur de l'écran de fond et
+// floute légèrement la vue dessous.
+.modal {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-2);
+  flex-direction: column;
+
+  // Un <dialog> fermé reste caché : display ne doit pas le rouvrir.
+  &[open] {
+    display: flex;
+  }
+
+  &::backdrop {
+    background: var(--scrim);
+    backdrop-filter: blur(var(--scrim-blur));
+  }
+}
+
+.modal-wide {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 0 20px;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.modal-body {
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+}
+
+// La question d'une confirmation : une phrase, sans autre décor.
+.modal-question {
+  margin: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+// Un formulaire dans une fenêtre : ses boutons sont dans le pied de la
+// fenêtre, liés par l'attribut form.
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+// La question d'abandon prend tout le pied : la phrase à gauche, les boutons à droite.
+.modal-foot .confirm-inline {
+  flex: 1;
+}
+
+.modal-foot .confirm-ask {
+  max-width: none;
+  width: 100%;
+}

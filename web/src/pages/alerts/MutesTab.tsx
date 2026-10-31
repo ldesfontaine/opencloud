@@ -1,7 +1,7 @@
 import { deleteMute, useMutes, type Mute } from "../../api/alerts";
 import { useRefresh } from "../../api/refresh";
-import { Button } from "../../components/Button";
 import { Card, CardHeader, EmptyCard } from "../../components/Card";
+import { ConfirmInline } from "../../components/ConfirmInline";
 import { Failure } from "../../components/Failure";
 import { Loaded } from "../../components/Loaded";
 import { Pill } from "../../components/Pill";
@@ -66,7 +66,6 @@ function MuteRow({ mute }: { mute: Mute }) {
   // entre-temps, et la ligne doit le dire.
   const lift = () => {
     action.run(() => deleteMute(mute.id), {
-      confirm: t("silence.delete_confirm"),
       onSettled: () => refresh("alerts"),
     });
   };
@@ -93,9 +92,9 @@ function MuteRow({ mute }: { mute: Mute }) {
         <span className="cell-action">
           <Failure error={action.error} />
           {state !== "expired" && (
-            <Button small variant="ghost" onClick={lift} disabled={action.busy}>
+            <ConfirmInline question={t("silence.delete_confirm")} onConfirm={lift} variant="ghost" small disabled={action.busy}>
               {t("silence.delete")}
-            </Button>
+            </ConfirmInline>
           )}
         </span>
       </td>

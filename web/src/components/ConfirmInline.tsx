@@ -58,6 +58,9 @@ export function ConfirmInline({
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
+      // Consommé par la question : ni la fenêtre modale autour, ni le navigateur
+      // ne le prennent pour une fermeture.
+      event.preventDefault();
       event.stopPropagation();
       send("escape");
     }

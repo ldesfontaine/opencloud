@@ -25,6 +25,14 @@ export interface Session {
   certificate_thresholds: CertificateThresholds;
   // Les pourcentages à partir desquels un volume alerte, puis s'aggrave.
   disk_thresholds: DiskThresholds;
+  // Les écritures que le registre des verbes ouvre aux jetons d'API : un
+  // bouton qui appelle l'une d'elles porte la puce « MCP ».
+  verbs: SessionVerb[];
+}
+
+interface SessionVerb {
+  id: string;
+  route: string;
 }
 
 // Un catalogue : la clé, et son format Go (%s, %d).

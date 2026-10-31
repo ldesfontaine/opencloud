@@ -9,6 +9,7 @@ import { useMachineResources } from "../api/resources";
 import { ActionsCard } from "../components/ActionsCard";
 import { AgentUpdate } from "../components/AgentUpdate";
 import { Button } from "../components/Button";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
@@ -307,7 +308,7 @@ function Actions({ machine }: { machine: Machine }) {
   };
 
   const revoke = () => {
-    action.run(() => revokeAgent(machine.id), { confirm: t("machine.revoke_confirm", machine.name), topic: "all" });
+    action.run(() => revokeAgent(machine.id), { topic: "all" });
   };
 
   return (
@@ -317,9 +318,16 @@ function Actions({ machine }: { machine: Machine }) {
         {t("machine.reenroll")}
       </Button>
       {machine.agent !== null && machine.agent.revoked_at === null && (
-        <Button variant="danger" icon="x" onClick={revoke}>
+        <ConfirmModal
+          title={t("machine.revoke")}
+          question={t("machine.revoke_confirm", machine.name)}
+          confirmLabel={t("machine.revoke")}
+          onConfirm={revoke}
+          variant="danger"
+          icon="x"
+        >
           {t("machine.revoke")}
-        </Button>
+        </ConfirmModal>
       )}
       <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
         {t("machine.remove")}

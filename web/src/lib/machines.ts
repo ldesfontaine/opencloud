@@ -35,6 +35,13 @@ interface MachineFormValues extends RightsValues {
 // réseau local ; l'opérateur le décoche s'il veut les en empêcher.
 export const emptyMachineForm: MachineFormValues = { name: "", rights: ["probe.lan"], backupPath: "", writePaths: "" };
 
+// La saisie a changé depuis le formulaire neuf : fermer la fenêtre de l'ajout
+// demande alors s'il faut l'abandonner.
+export function isMachineFormModified(values: MachineFormValues): boolean {
+  const sameRights = values.rights.length === emptyMachineForm.rights.length && values.rights.every((right) => emptyMachineForm.rights.includes(right));
+  return values.name.trim() !== "" || values.backupPath.trim() !== "" || values.writePaths.trim() !== "" || !sameRights;
+}
+
 // Les droits d'un agent en valeurs du formulaire : ce que son jeton
 // demandait, pour les changer.
 export function rightsFormOf(capabilities: Capability[]): RightsValues {

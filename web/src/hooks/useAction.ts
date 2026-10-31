@@ -4,8 +4,6 @@ import { ApiError, failureOf } from "../api/client";
 import { useRefresh, type Topic } from "../api/refresh";
 
 interface RunOptions<Result> {
-  // Le texte à confirmer avant d'écrire ; sans lui, on écrit sans demander.
-  confirm?: string;
   // Ce que l'écriture change, à relire après elle : un sujet du direct, ou tout.
   topic?: Topic | "all";
   // Après la relecture : naviguer, montrer « Enregistré », garder la réponse.
@@ -34,9 +32,6 @@ export function useAction(): Action {
 
   const run = async <Result>(perform: () => Promise<Result>, options: RunOptions<Result> = {}) => {
     if (running.current) {
-      return;
-    }
-    if (options.confirm !== undefined && !window.confirm(options.confirm)) {
       return;
     }
     running.current = true;

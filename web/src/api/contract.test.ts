@@ -694,6 +694,7 @@ const session = shape<Session>("Session", {
   languages: value,
   certificate_thresholds: shape("CertificateThresholds", { warning: value, danger: value }),
   disk_thresholds: shape("DiskThresholds", { attention: value, danger: value }),
+  verbs: shape("SessionVerb", { id: value, route: value }),
 });
 
 type IncidentUpdateJSON = Incident["updates"][number];

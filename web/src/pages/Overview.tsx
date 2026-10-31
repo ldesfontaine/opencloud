@@ -5,7 +5,7 @@ import { useAlerts, type AlertsResponse } from "../api/alerts";
 import { useCounts, type Counts } from "../api/counts";
 import { useMachines } from "../api/machines";
 import { useCurrentResources } from "../api/resources";
-import { Button } from "../components/Button";
+import { ActionButton } from "../components/ActionButton";
 import { EmptyCard, Stat } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
@@ -120,9 +120,9 @@ export function Overview() {
         title={t("nav.overview")}
         subtitle={machines.data && list.length === 0 ? machinesSubtitle(t, 0, 0) : ""}
         actions={
-          <Button variant="primary" icon="plus" to="/machines/nouvelle">
+          <ActionButton route="POST /api/machines/tokens" icon="plus" to="/machines/nouvelle">
             {t("machine.add")}
-          </Button>
+          </ActionButton>
         }
       />
       {machines.error && <Failure error={machines.error} />}
