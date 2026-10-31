@@ -317,6 +317,9 @@ type Backups interface {
 	SavePlan(ctx context.Context, definition backup.PlanDefinition) (backup.Plan, error)
 	DeletePlan(ctx context.Context, subject string) error
 	RunNow(ctx context.Context, subject string) (action.Run, error)
+	// Inventory et Runs sont des lectures : l'inventaire calculé et l'historique.
+	Inventory(ctx context.Context) (backup.Inventory, error)
+	Runs(ctx context.Context, query backup.RunQuery) ([]backup.RunRecord, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.

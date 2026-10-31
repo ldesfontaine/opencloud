@@ -181,6 +181,8 @@ func (s *Server) routes() []route {
 		{"GET", "/api/actions", s.listActions},
 		{"GET", "/api/agents/server-key", s.getServerKey},
 		{"GET", "/api/backups", s.getBackups},
+		{"GET", "/api/backups/inventory", s.getBackupInventory},
+		{"GET", "/api/backups/runs", s.getBackupRuns},
 		{"POST", "/api/backups/keyring", s.createBackupKeyring},
 		{"POST", "/api/backups/destinations", s.createBackupDestination},
 		{"DELETE", "/api/backups/destinations/{id}", s.deleteBackupDestination},
@@ -215,6 +217,7 @@ var apiTokenRoutes = []string{
 	"GET /api/status/pages", "GET /api/status/pages/{id}", "GET /api/status/components", "GET /api/status/incidents",
 	"GET /api/alerts", "GET /api/alerts/{id}", "GET /api/alerts/channels",
 	"GET /api/audit", "GET /api/actions", "GET /api/agent-updates",
+	"GET /api/backups/inventory", "GET /api/backups/runs",
 	"GET /api/token/verbs",
 }
 

@@ -56,6 +56,13 @@ type Store interface {
 	// LastPassCounts rend, par plan, les cibles reçues et en échec de sa
 	// dernière tentative.
 	LastPassCounts(ctx context.Context) (map[string]PassCounts, error)
+	// Ce que l'inventaire lit de ce que les machines ont rapporté : les invités
+	// des hôtes Proxmox, leurs stockages de sauvegardes, les volumes Docker, et
+	// la dernière exécution de chaque source.
+	ListObservedGuests(ctx context.Context) ([]ObservedGuest, error)
+	ListObservedStorages(ctx context.Context) ([]ObservedStorage, error)
+	ListObservedVolumes(ctx context.Context) ([]ObservedVolume, error)
+	LatestRunsBySource(ctx context.Context) (LatestRuns, error)
 }
 
 // Machines est ce que le composant lit des machines : si elles sont en
