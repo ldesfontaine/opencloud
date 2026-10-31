@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/apitoken"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
@@ -36,6 +37,9 @@ func newService(t *testing.T) (*apitoken.Service, *clock, *store.DB, *bytes.Buff
 	service.SetClock(tick.Now)
 	return service, tick, db, &logs
 }
+
+// La machine openCloud, enregistrée par storetest.SaveLocalMachine.
+const machineLocal = machine.LocalID
 
 func ptr(days int) *int { return &days }
 
@@ -423,5 +427,116 @@ func TestCreate_RefusesANameALiveTokenAlreadyBears(t *testing.T) {
 	}
 	if _, _, err := service.Create(ctx, apitoken.Request{Name: "agent-veille"}); err != nil {
 		t.Fatalf("after a revocation: %v", err)
+	}
+}
+
+func writeRequest(name string, reach apitoken.Reach) apitoken.Request {
+	return apitoken.Request{Name: name, Scope: apitoken.ScopeWrite, Verbs: []string{"agent.ping"}, Reach: reach}
+}
+
+// Une portée neuve est jugée : machines connues, numéros valides, doublons
+// retirés, listes triées ; sur une lecture, elle est dite et refusée.
+func TestCreate_JudgesTheReach(t *testing.T) {
+	service, _, db, _ := newService(t)
+	ctx := context.Background()
+	storetest.SaveLocalMachine(t, db, testNow)
+
+	_, token, err := service.Create(ctx, writeRequest("limité", apitoken.Reach{
+		OnlyMachines: true, Machines: []string{machineLocal, machineLocal},
+		OnlyGuests: true, Guests: []int{5012, 200, 5012},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !token.Reach.OnlyMachines || !slices.Equal(token.Reach.Machines, []string{machineLocal}) || !slices.Equal(token.Reach.Guests, []int{200, 5012}) {
+		t.Fatalf("reach %+v", token.Reach)
+	}
+
+	cases := map[string]struct {
+		request apitoken.Request
+		want    error
+	}{
+		"unknown machine": {writeRequest("a", apitoken.Reach{OnlyMachines: true, Machines: []string{"fantôme"}}), apitoken.ErrMachineUnknown},
+		"guest zero":      {writeRequest("b", apitoken.Reach{OnlyGuests: true, Guests: []int{0}}), apitoken.ErrGuestInvalid},
+		"guest too large": {writeRequest("c", apitoken.Reach{OnlyGuests: true, Guests: []int{apitoken.MaxGuestID + 1}}), apitoken.ErrGuestInvalid},
+		"read with a reach": {
+			apitoken.Request{Name: "d", Reach: apitoken.Reach{OnlyMachines: true}}, apitoken.ErrReachNeedsWrite,
+		},
+	}
+	for name, c := range cases {
+		if _, _, err := service.Create(ctx, c.request); !errors.Is(err, c.want) {
+			t.Errorf("%s: got %v, want %v", name, err, c.want)
+		}
+	}
+}
+
+// Le jeton relu garde sa portée ; une liste vide limitée reste vide (aucune
+// machine), et n'est pas confondue avec « toutes ».
+func TestReach_SurvivesAReadAndAnEmptyListStaysEmpty(t *testing.T) {
+	service, _, db, _ := newService(t)
+	ctx := context.Background()
+	storetest.SaveLocalMachine(t, db, testNow)
+	secret, _, err := service.Create(ctx, writeRequest("vide", apitoken.Reach{OnlyMachines: true, OnlyGuests: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := service.Verify(ctx, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified.Reach.OnlyMachines || !verified.Reach.OnlyGuests || len(verified.Reach.Machines) != 0 || len(verified.Reach.Guests) != 0 {
+		t.Fatalf("reach %+v", verified.Reach)
+	}
+	if verified.Reach.AllowsMachine(machineLocal) || verified.Reach.AllowsMachine("") || verified.Reach.AllowsGuest(200) {
+		t.Fatal("an empty limited reach lets something through")
+	}
+}
+
+func TestSetReach_ReplacesTheReachAndRecordsIt(t *testing.T) {
+	service, _, db, _ := newService(t)
+	ctx := context.Background()
+	storetest.SaveLocalMachine(t, db, testNow)
+	secret, token, err := service.Create(ctx, writeRequest("agent", apitoken.Reach{OnlyMachines: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.SetReach(ctx, token.ID, apitoken.Reach{OnlyMachines: true, Machines: []string{machineLocal}})
+	if err != nil || !updated.Reach.AllowsMachine(machineLocal) {
+		t.Fatalf("set: %+v %v", updated, err)
+	}
+	verified, _ := service.Verify(ctx, secret)
+	if !verified.Reach.AllowsMachine(machineLocal) {
+		t.Fatalf("the stored reach did not change: %+v", verified.Reach)
+	}
+	// Remplacer par une portée vide : redevient « partout ».
+	if _, err := service.SetReach(ctx, token.ID, apitoken.Reach{}); err != nil {
+		t.Fatal(err)
+	}
+	verified, _ = service.Verify(ctx, secret)
+	if verified.Reach.IsLimited() || len(verified.Reach.Machines) != 0 {
+		t.Fatalf("reach %+v", verified.Reach)
+	}
+	if _, err := service.SetReach(ctx, "inconnu", apitoken.Reach{}); !errors.Is(err, apitoken.ErrNotFound) {
+		t.Fatalf("unknown token: %v", err)
+	}
+	_, reader, _ := service.Create(ctx, apitoken.Request{Name: "lecteur"})
+	if _, err := service.SetReach(ctx, reader.ID, apitoken.Reach{OnlyMachines: true}); !errors.Is(err, apitoken.ErrReachNeedsWrite) {
+		t.Fatalf("read token: %v", err)
+	}
+}
+
+func TestReach_Allows(t *testing.T) {
+	everywhere := apitoken.Reach{}
+	if !everywhere.AllowsMachine("m") || !everywhere.AllowsMachine("") || !everywhere.AllowsGuest(7) {
+		t.Fatal("the zero reach must allow everything: tokens from before keep working")
+	}
+	limited := apitoken.Reach{OnlyMachines: true, Machines: []string{"a"}, OnlyGuests: true, Guests: []int{200}}
+	if !limited.AllowsMachine("a") || limited.AllowsMachine("b") || limited.AllowsMachine("") || !limited.AllowsGuest(200) || limited.AllowsGuest(201) {
+		t.Fatal("a limited reach must allow only its lists")
+	}
+	// Les listes sans le drapeau ne comptent pas.
+	stale := apitoken.Reach{Machines: []string{"a"}, Guests: []int{200}}
+	if !stale.AllowsMachine("z") || !stale.AllowsGuest(1) {
+		t.Fatal("a list without its flag must not limit")
 	}
 }

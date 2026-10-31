@@ -1,6 +1,7 @@
 package apitoken
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -55,11 +56,46 @@ type Token struct {
 	// Les verbes que le jeton peut déclencher, triés ; vide pour un jeton
 	// read, et pour un jeton write que l'opérateur n'a rien coché.
 	Verbs []string
+	// Jusqu'où ces verbes portent : toutes les machines (zéro valeur), ou une
+	// liste.
+	Reach Reach
 }
 
 // CanDo dit si le jeton porte ce verbe. Seule une portée write en porte.
 func (t Token) CanDo(verbID string) bool {
 	return t.Scope == ScopeWrite && slices.Contains(t.Verbs, verbID)
+}
+
+// Reach dit sur quelles machines, et pour Proxmox sur quels invités, un jeton
+// en écriture agit. La zéro valeur est « partout » : un jeton d'avant cette
+// limite, ou créé sans elle, garde son comportement. Une liste limitée peut
+// être vide, et ne laisse alors rien passer.
+type Reach struct {
+	OnlyMachines bool
+	// Les identifiants des machines admises, triés ; sans effet si
+	// OnlyMachines est faux.
+	Machines   []string
+	OnlyGuests bool
+	// Les numéros d'invités Proxmox admis, triés ; sans effet si OnlyGuests
+	// est faux. Un numéro vaut sur tout hôte que la liste des machines admet.
+	Guests []int
+}
+
+// IsLimited dit si le jeton est limité d'une façon ou d'une autre.
+func (r Reach) IsLimited() bool {
+	return r.OnlyMachines || r.OnlyGuests
+}
+
+// AllowsMachine juge la machine visée : celle de l'agent qui reçoit l'ordre,
+// ou la machine d'une sonde ou d'une tâche. Un identifiant vide (une tâche
+// sans machine) n'est dans aucune liste.
+func (r Reach) AllowsMachine(machineID string) bool {
+	return !r.OnlyMachines || (machineID != "" && slices.Contains(r.Machines, machineID))
+}
+
+// AllowsGuest juge l'invité Proxmox visé, en plus de l'hôte.
+func (r Reach) AllowsGuest(vmid int) bool {
+	return !r.OnlyGuests || slices.Contains(r.Guests, vmid)
 }
 
 func (t Token) IsExpired(now time.Time) bool {
@@ -80,6 +116,8 @@ type Request struct {
 	// Les verbes cochés : réservés à la portée write, tous connus du
 	// registre.
 	Verbs []string
+	// Où ces verbes portent ; réservé à la portée write, comme les verbes.
+	Reach Reach
 }
 
 var (
@@ -94,7 +132,13 @@ var (
 	ErrLifetimeInvalid = refusal.Invalid("api_token.lifetime_invalid", "api token: lifetime invalid")
 	ErrVerbUnknown     = refusal.Invalid("api_token.verb_unknown", "api token: verb unknown")
 	ErrVerbsNeedWrite  = refusal.Invalid("api_token.verbs_need_write", "api token: verbs need the write scope")
+	ErrReachNeedsWrite = refusal.Invalid("api_token.reach_needs_write", "api token: a reach needs the write scope")
+	ErrMachineUnknown  = refusal.Invalid("api_token.machine_unknown", "api token: machine unknown")
+	ErrGuestInvalid    = refusal.Invalid("api_token.guest_invalid", "api token: guest number invalid")
 )
+
+// MaxGuestID est le plus grand numéro d'invité que Proxmox attribue.
+const MaxGuestID = 999999999
 
 // verbsOf juge les verbes cochés : connus, sans doublon, triés. Une portée
 // read n'en porte aucun, et le dit plutôt que de les ignorer en silence.
@@ -116,6 +160,46 @@ func verbsOf(scope Scope, requested []string) ([]string, error) {
 	}
 	slices.Sort(verbs)
 	return verbs, nil
+}
+
+// reachOf juge la portée demandée : des machines connues, des numéros
+// d'invité valides, sans doublon, triés. Une portée read n'agit sur rien, et
+// le dit plutôt que de garder une limite qui ne sert à rien.
+func (s *Service) reachOf(ctx context.Context, scope Scope, requested Reach) (Reach, error) {
+	if !requested.IsLimited() {
+		return Reach{}, nil
+	}
+	if scope != ScopeWrite {
+		return Reach{}, ErrReachNeedsWrite
+	}
+	reach := Reach{OnlyMachines: requested.OnlyMachines, OnlyGuests: requested.OnlyGuests}
+	if reach.OnlyMachines {
+		for _, id := range requested.Machines {
+			exists, err := s.store.MachineExists(ctx, id)
+			if err != nil {
+				return Reach{}, err
+			}
+			if !exists {
+				return Reach{}, ErrMachineUnknown
+			}
+			if !slices.Contains(reach.Machines, id) {
+				reach.Machines = append(reach.Machines, id)
+			}
+		}
+		slices.Sort(reach.Machines)
+	}
+	if reach.OnlyGuests {
+		for _, vmid := range requested.Guests {
+			if vmid < 1 || vmid > MaxGuestID {
+				return Reach{}, ErrGuestInvalid
+			}
+			if !slices.Contains(reach.Guests, vmid) {
+				reach.Guests = append(reach.Guests, vmid)
+			}
+		}
+		slices.Sort(reach.Guests)
+	}
+	return reach, nil
 }
 
 // scopeOf lit la portée demandée : vide vaut lecture seule.

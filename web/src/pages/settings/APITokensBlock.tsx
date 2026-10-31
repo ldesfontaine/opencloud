@@ -14,8 +14,10 @@ import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useNow } from "../../hooks/useNow";
 import { useT } from "../../i18n/context";
-import { emptyTokenForm, envBlock, expiryLabel, lifetimeLabel, scopeLabel, toggleVerb, tokenRequestOf } from "../../lib/apiTokens";
+import { emptyTokenForm, envBlock, expiryLabel, hasProxmoxVerb, lifetimeLabel, reachLines, scopeLabel, toggleVerb, tokenRequestOf } from "../../lib/apiTokens";
 import { ago, formatClock } from "../../lib/time";
+import { ReachChoices } from "./ReachChoices";
+import { ReachEditor } from "./ReachEditor";
 import { VerbChoices } from "./VerbChoices";
 
 // Les jetons d'API, sous le réglage de l'agent IA : la liste, où chaque
@@ -30,9 +32,17 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
   const [created, setCreated] = useState<APITokenResponse | null>(null);
   const creating = useAction();
   const revoking = useAction();
+  // Le jeton dont on modifie la portée, s'il y en a un.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editing = state.tokens.find((token) => token.id === editingId);
+  // Nul tant qu'un numéro d'invité tapé est invalide.
+  const request = tokenRequestOf(values);
 
   const create = () => {
-    creating.run(() => createAPIToken(tokenRequestOf(values)), {
+    if (request === null) {
+      return;
+    }
+    creating.run(() => createAPIToken(request), {
       onDone: (response) => {
         setCreated(response);
         update(emptyTokenForm(state.lifetimes.default_days));
@@ -100,11 +110,21 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
                 <td>
                   {token.name} <span className="mono secondary">{token.masked}</span>
                 </td>
-                <td className="secondary">{scopeLabel(t, token, labelOfVerb)}</td>
+                <td className="secondary">
+                  {scopeLabel(t, token, labelOfVerb)}
+                  {reachLines(t, token, state.machines).map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </td>
                 <td className="secondary nowrap">{formatClock(token.created_at)}</td>
                 <td className="secondary nowrap">{expiryLabel(t, token.expires_at, formatClock)}</td>
                 <td className="secondary nowrap">{token.last_used_at === null ? t("api_token.never_used") : ago(t, token.last_used_at, now)}</td>
                 <td className="td-end">
+                  {token.scope === "write" && (
+                    <Button variant="ghost" small onClick={() => setEditingId(token.id)}>
+                      {t("api_token.reach_edit")}
+                    </Button>
+                  )}
                   <ConfirmInline variant="ghost" small disabled={revoking.busy} question={t("api_token.revoke_confirm", token.name)} onConfirm={() => revoke(token)}>
                     {t("api_token.revoke")}
                   </ConfirmInline>
@@ -113,6 +133,18 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
             ))}
           </tbody>
         </Table>
+      )}
+      {editing !== undefined && (
+        <ReachEditor
+          key={editing.id}
+          token={editing}
+          machines={state.machines}
+          onCancel={() => setEditingId(null)}
+          onDone={() => {
+            setEditingId(null);
+            reload();
+          }}
+        />
       )}
       {state.tokens.length < state.limit && (
         <form
@@ -140,6 +172,7 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
             <SettingBlock>
               <Note tone="warn">{t("api_token.write_warn")}</Note>
               <VerbChoices offers={state.verbs} chosen={values.verbs} onToggle={(id) => change("verbs", toggleVerb(values.verbs, id))} />
+              <ReachChoices machines={state.machines} values={values} withGuests={hasProxmoxVerb(values.verbs)} idPrefix="api-token-reach" onChange={update} />
             </SettingBlock>
           )}
           <SettingRow label={t("api_token.lifetime_label")} description={t("api_token.lifetime_help")} htmlFor="api-token-lifetime">
@@ -156,7 +189,7 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
             </SettingBlock>
           )}
           <SettingFoot>
-            <Button type="submit" variant="primary" icon="plus" disabled={creating.busy}>
+            <Button type="submit" variant="primary" icon="plus" disabled={creating.busy || request === null}>
               {t("api_token.create")}
             </Button>
           </SettingFoot>

@@ -12,23 +12,23 @@ var Default = newDefault()
 func newDefault() *Registry {
 	registry := &Registry{}
 	registry.MustRegister(Verb{
-		ID: "agent.ping", Route: "POST /api/machines/{id}/actions/ping", Params: []string{"id"}, Body: []string{},
+		ID: "agent.ping", Route: "POST /api/machines/{id}/actions/ping", Params: []string{"id"}, Body: []string{}, Target: TargetMachine,
 		Label: "api_token.verb_agent_ping", Summary: "api_token.verb_agent_ping_text", Reverse: "agent.ping",
 	})
 	registry.MustRegister(Verb{
-		ID: "probe.pause", Route: "POST /api/probes/{id}/actions/pause", Params: []string{"id"}, Body: []string{},
+		ID: "probe.pause", Route: "POST /api/probes/{id}/actions/pause", Params: []string{"id"}, Body: []string{}, Target: TargetProbe,
 		Label: "api_token.verb_probe_pause", Summary: "api_token.verb_probe_pause_text", Reverse: "probe.resume",
 	})
 	registry.MustRegister(Verb{
-		ID: "probe.resume", Route: "POST /api/probes/{id}/actions/resume", Params: []string{"id"}, Body: []string{},
+		ID: "probe.resume", Route: "POST /api/probes/{id}/actions/resume", Params: []string{"id"}, Body: []string{}, Target: TargetProbe,
 		Label: "api_token.verb_probe_resume", Summary: "api_token.verb_probe_resume_text", Reverse: "probe.pause",
 	})
 	registry.MustRegister(Verb{
-		ID: "job.pause", Route: "POST /api/jobs/{id}/actions/pause", Params: []string{"id"}, Body: []string{},
+		ID: "job.pause", Route: "POST /api/jobs/{id}/actions/pause", Params: []string{"id"}, Body: []string{}, Target: TargetJob,
 		Label: "api_token.verb_job_pause", Summary: "api_token.verb_job_pause_text", Reverse: "job.resume",
 	})
 	registry.MustRegister(Verb{
-		ID: "job.resume", Route: "POST /api/jobs/{id}/actions/resume", Params: []string{"id"}, Body: []string{},
+		ID: "job.resume", Route: "POST /api/jobs/{id}/actions/resume", Params: []string{"id"}, Body: []string{}, Target: TargetJob,
 		Label: "api_token.verb_job_resume", Summary: "api_token.verb_job_resume_text", Reverse: "job.pause",
 	})
 	return registry

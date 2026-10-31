@@ -12,16 +12,17 @@ import (
 
 var _ apitoken.Store = (*DB)(nil)
 
-const apiTokenColumns = `id, token_hash, token_prefix, scope, name, created_at, expires_at, last_used_at` // #nosec G101 -- des noms de colonnes.
+const apiTokenColumns = `id, token_hash, token_prefix, scope, name, created_at, expires_at, last_used_at, machines_limited, guests_limited` // #nosec G101 -- des noms de colonnes.
 
 // InsertAPIToken écrit le jeton et ses verbes d'un seul tenant : un jeton
 // write ne doit jamais exister à moitié.
 func (db *DB) InsertAPIToken(ctx context.Context, token apitoken.Token) error {
 	return db.inTx(ctx, "insert api token", func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
-			INSERT INTO api_tokens (id, token_hash, token_prefix, scope, name, created_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			token.ID, token.Hash, token.Prefix, string(token.Scope), token.Name, token.CreatedAt.Unix(), nullableTime(token.ExpiresAt))
+			INSERT INTO api_tokens (id, token_hash, token_prefix, scope, name, created_at, expires_at, machines_limited, guests_limited)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			token.ID, token.Hash, token.Prefix, string(token.Scope), token.Name, token.CreatedAt.Unix(), nullableTime(token.ExpiresAt),
+			token.Reach.OnlyMachines, token.Reach.OnlyGuests)
 		if err != nil {
 			return fmt.Errorf("insert api token: %w", err)
 		}
@@ -30,7 +31,49 @@ func (db *DB) InsertAPIToken(ctx context.Context, token apitoken.Token) error {
 				return fmt.Errorf("insert api token verb: %w", err)
 			}
 		}
-		return nil
+		return insertAPITokenReach(ctx, tx, token.ID, token.Reach)
+	})
+}
+
+// insertAPITokenReach écrit les listes d'une portée limitée ; une portée
+// sans limite n'écrit rien.
+func insertAPITokenReach(ctx context.Context, tx *sql.Tx, tokenID string, reach apitoken.Reach) error {
+	if reach.OnlyMachines {
+		for _, machineID := range reach.Machines {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO api_token_machines (token_id, machine_id) VALUES (?, ?)`, tokenID, machineID); err != nil {
+				return fmt.Errorf("insert api token machine: %w", err)
+			}
+		}
+	}
+	if reach.OnlyGuests {
+		for _, vmid := range reach.Guests {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO api_token_guests (token_id, vmid) VALUES (?, ?)`, tokenID, vmid); err != nil {
+				return fmt.Errorf("insert api token guest: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// UpdateAPITokenReach remplace la portée du jeton d'un seul tenant : jamais
+// une liste neuve avec l'ancien drapeau.
+func (db *DB) UpdateAPITokenReach(ctx context.Context, id string, reach apitoken.Reach) error {
+	return db.inTx(ctx, "update api token reach", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `UPDATE api_tokens SET machines_limited = ?, guests_limited = ? WHERE id = ?`,
+			reach.OnlyMachines, reach.OnlyGuests, id)
+		if err != nil {
+			return fmt.Errorf("update api token reach: %w", err)
+		}
+		if err := notFoundIfNoRow(result, apitoken.ErrNotFound); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM api_token_machines WHERE token_id = ?`, id); err != nil {
+			return fmt.Errorf("clear api token machines: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM api_token_guests WHERE token_id = ?`, id); err != nil {
+			return fmt.Errorf("clear api token guests: %w", err)
+		}
+		return insertAPITokenReach(ctx, tx, id, reach)
 	})
 }
 
@@ -47,7 +90,11 @@ func (db *DB) GetAPIToken(ctx context.Context, hash string) (apitoken.Token, err
 		return apitoken.Token{}, err
 	}
 	token.Verbs = verbs[token.ID]
-	return token, nil
+	one := []apitoken.Token{token}
+	if err := db.loadAPITokenReach(ctx, one, token.ID); err != nil {
+		return apitoken.Token{}, err
+	}
+	return one[0], nil
 }
 
 // ListAPITokens rend les jetons, les plus récents d'abord.
@@ -67,7 +114,59 @@ func (db *DB) ListAPITokens(ctx context.Context) ([]apitoken.Token, error) {
 	for i := range tokens {
 		tokens[i].Verbs = verbs[tokens[i].ID]
 	}
+	if err := db.loadAPITokenReach(ctx, tokens, ""); err != nil {
+		return nil, err
+	}
 	return tokens, nil
+}
+
+// loadAPITokenReach remplit les listes des portées limitées, triées ; tokenID
+// vide : pour tous les jetons. Le drapeau est déjà lu avec la ligne.
+func (db *DB) loadAPITokenReach(ctx context.Context, tokens []apitoken.Token, tokenID string) error {
+	machines := map[string][]string{}
+	rows, err := db.sql.QueryContext(ctx,
+		`SELECT token_id, machine_id FROM api_token_machines WHERE ? = '' OR token_id = ? ORDER BY token_id, machine_id`, tokenID, tokenID)
+	if err != nil {
+		return fmt.Errorf("list api token machines: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, machineID string
+		if err := rows.Scan(&id, &machineID); err != nil {
+			return fmt.Errorf("scan api token machine: %w", err)
+		}
+		machines[id] = append(machines[id], machineID)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list api token machines: %w", err)
+	}
+	guests := map[string][]int{}
+	guestRows, err := db.sql.QueryContext(ctx,
+		`SELECT token_id, vmid FROM api_token_guests WHERE ? = '' OR token_id = ? ORDER BY token_id, vmid`, tokenID, tokenID)
+	if err != nil {
+		return fmt.Errorf("list api token guests: %w", err)
+	}
+	defer guestRows.Close()
+	for guestRows.Next() {
+		var id string
+		var vmid int
+		if err := guestRows.Scan(&id, &vmid); err != nil {
+			return fmt.Errorf("scan api token guest: %w", err)
+		}
+		guests[id] = append(guests[id], vmid)
+	}
+	if err := guestRows.Err(); err != nil {
+		return fmt.Errorf("list api token guests: %w", err)
+	}
+	for i := range tokens {
+		if tokens[i].Reach.OnlyMachines {
+			tokens[i].Reach.Machines = machines[tokens[i].ID]
+		}
+		if tokens[i].Reach.OnlyGuests {
+			tokens[i].Reach.Guests = guests[tokens[i].ID]
+		}
+	}
+	return nil
 }
 
 // listAPITokenVerbs rend les verbes par jeton, triés ; tokenID vide : de
@@ -142,7 +241,8 @@ func scanAPIToken(row scanner) (apitoken.Token, error) {
 	var scope string
 	var createdAt int64
 	var expiresAt, lastUsedAt sql.NullInt64
-	err := row.Scan(&token.ID, &token.Hash, &token.Prefix, &scope, &token.Name, &createdAt, &expiresAt, &lastUsedAt)
+	err := row.Scan(&token.ID, &token.Hash, &token.Prefix, &scope, &token.Name, &createdAt, &expiresAt, &lastUsedAt,
+		&token.Reach.OnlyMachines, &token.Reach.OnlyGuests)
 	if err != nil {
 		return apitoken.Token{}, err
 	}
