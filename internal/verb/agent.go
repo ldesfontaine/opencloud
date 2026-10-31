@@ -8,11 +8,11 @@ package verb
 // d'avant, et ne met jamais deux agents à jour en même temps.
 func init() {
 	Default.MustRegister(Verb{
-		ID: "agent.update", Route: "POST /api/machines/{id}/actions/update-agent", Params: []string{"id"}, Body: []string{},
+		ID: "agent.update", Route: "POST /api/machines/{id}/actions/update-agent", Params: []string{"id"}, Body: []string{}, Target: TargetMachine,
 		Label: "api_token.verb_agent_update", Summary: "api_token.verb_agent_update_text", Reverse: "agent.rollback",
 	})
 	Default.MustRegister(Verb{
-		ID: "agent.rollback", Route: "POST /api/machines/{id}/actions/rollback-agent", Params: []string{"id"}, Body: []string{},
+		ID: "agent.rollback", Route: "POST /api/machines/{id}/actions/rollback-agent", Params: []string{"id"}, Body: []string{}, Target: TargetMachine,
 		Label: "api_token.verb_agent_rollback", Summary: "api_token.verb_agent_rollback_text", Reverse: "agent.update",
 	})
 }

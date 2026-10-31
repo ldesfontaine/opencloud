@@ -209,3 +209,115 @@ func TestAPITokenVerbs_InsertIsAllOrNothing(t *testing.T) {
 		t.Fatalf("%d jeton(s) à moitié écrit(s)", rows)
 	}
 }
+
+// La 022 laisse les jetons d'avant « partout » : ni drapeau ni liste, leurs
+// verbes intacts. Une ligne neuve sans portée l'est aussi, et un drapeau
+// hors 0/1 est refusé.
+func TestMigration022_KeepsExistingTokensEverywhere(t *testing.T) {
+	ctx := context.Background()
+	db := openEmpty(t)
+	names, err := migrationFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if version := migrationVersion(name); version < 22 {
+			if err := db.apply(ctx, name, version); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	exec(t, db, `INSERT INTO api_tokens (id, token_hash, token_prefix, scope, name, created_at) VALUES ('avant', 'h', 'p', 'write', 'avant', 1)`)
+	exec(t, db, `INSERT INTO api_token_verbs (token_id, verb) VALUES ('avant', 'probe.pause')`)
+
+	if err := db.apply(ctx, "022_api_token_reach.sql", 22); err != nil {
+		t.Fatal(err)
+	}
+
+	token, err := db.GetAPIToken(ctx, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.Reach.IsLimited() || len(token.Reach.Machines) != 0 || len(token.Reach.Guests) != 0 {
+		t.Fatalf("un jeton d'avant est limité : %+v", token.Reach)
+	}
+	if len(token.Verbs) != 1 || token.Verbs[0] != "probe.pause" {
+		t.Fatalf("verbes %v", token.Verbs)
+	}
+	for _, table := range []string{"api_token_machines", "api_token_guests"} {
+		if rows := count(t, db, `SELECT COUNT(*) FROM `+table); rows != 0 {
+			t.Fatalf("%s : %d ligne(s) sur une base d'avant", table, rows)
+		}
+	}
+	if _, err := db.sql.Exec(`UPDATE api_tokens SET machines_limited = 2 WHERE id = 'avant'`); err == nil {
+		t.Fatal("un drapeau hors 0 et 1 est accepté")
+	}
+	if _, err := db.sql.Exec(`INSERT INTO api_token_guests (token_id, vmid) VALUES ('avant', 0)`); err == nil {
+		t.Fatal("un numéro d'invité nul est accepté")
+	}
+}
+
+// La portée fait l'aller-retour de la base, triée ; une liste vide limitée
+// reste limitée ; la remplacer efface l'ancienne ; supprimer une machine la
+// retire de la liste sans élargir la portée ; révoquer le jeton emporte tout.
+func TestAPITokens_ReachRoundTripAndCascades(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	exec(t, db, `INSERT INTO machines (id, name, created_at) VALUES ('m1', 'un', 1), ('m2', 'deux', 1)`)
+	limited := newAPIToken("lim", "h-lim", time.Time{})
+	limited.Scope = apitoken.ScopeWrite
+	limited.Reach = apitoken.Reach{OnlyMachines: true, Machines: []string{"m1", "m2"}, OnlyGuests: true, Guests: []int{200, 5012}}
+	empty := newAPIToken("vide", "h-vide", time.Time{})
+	empty.Scope = apitoken.ScopeWrite
+	empty.Reach = apitoken.Reach{OnlyMachines: true}
+	free := newAPIToken("libre", "h-libre", time.Time{})
+	free.Scope = apitoken.ScopeWrite
+	for _, token := range []apitoken.Token{limited, empty, free} {
+		if err := db.InsertAPIToken(ctx, token); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := db.GetAPIToken(ctx, "h-lim")
+	if err != nil || !got.Reach.OnlyMachines || !got.Reach.OnlyGuests || len(got.Reach.Machines) != 2 || got.Reach.Machines[0] != "m1" || got.Reach.Guests[1] != 5012 {
+		t.Fatalf("get: %+v %v", got.Reach, err)
+	}
+	listed, err := db.ListAPITokens(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]apitoken.Token{}
+	for _, token := range listed {
+		byID[token.ID] = token
+	}
+	if !byID["vide"].Reach.OnlyMachines || len(byID["vide"].Reach.Machines) != 0 {
+		t.Fatalf("empty list: %+v", byID["vide"].Reach)
+	}
+	if byID["libre"].Reach.IsLimited() || len(byID["lim"].Reach.Machines) != 2 {
+		t.Fatalf("list mixes the reaches: %+v %+v", byID["libre"].Reach, byID["lim"].Reach)
+	}
+
+	if err := db.UpdateAPITokenReach(ctx, "lim", apitoken.Reach{OnlyMachines: true, Machines: []string{"m2"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = db.GetAPIToken(ctx, "h-lim")
+	if got.Reach.OnlyGuests || len(got.Reach.Guests) != 0 || len(got.Reach.Machines) != 1 || got.Reach.Machines[0] != "m2" {
+		t.Fatalf("after replace: %+v", got.Reach)
+	}
+	if err := db.UpdateAPITokenReach(ctx, "absent", apitoken.Reach{}); !errors.Is(err, apitoken.ErrNotFound) {
+		t.Fatalf("unknown token: %v", err)
+	}
+
+	exec(t, db, `DELETE FROM machines WHERE id = 'm2'`)
+	got, _ = db.GetAPIToken(ctx, "h-lim")
+	if !got.Reach.OnlyMachines || len(got.Reach.Machines) != 0 {
+		t.Fatalf("a deleted machine widened or kept the reach: %+v", got.Reach)
+	}
+
+	if err := db.DeleteAPIToken(ctx, "lim"); err != nil {
+		t.Fatal(err)
+	}
+	if rows := count(t, db, `SELECT COUNT(*) FROM api_token_machines WHERE token_id = 'lim'`) + count(t, db, `SELECT COUNT(*) FROM api_token_guests WHERE token_id = 'lim'`); rows != 0 {
+		t.Fatalf("%d ligne(s) de portée survivent à la révocation", rows)
+	}
+}

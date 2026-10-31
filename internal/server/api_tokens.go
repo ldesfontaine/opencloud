@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,11 +10,14 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/apitoken"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/verb"
@@ -28,19 +32,25 @@ type APITokenService interface {
 	Revoke(ctx context.Context, id string) error
 	RevokeAll(ctx context.Context) (int, error)
 	Verify(ctx context.Context, bearer string) (apitoken.Token, error)
+	SetReach(ctx context.Context, id string, reach apitoken.Reach) (apitoken.Token, error)
 	RecordDenied(ctx context.Context, token apitoken.Token, verbID string)
+	RecordOutOfScope(ctx context.Context, token apitoken.Token, verbID, machineID string, vmid int)
 }
 
 const (
 	codeAPITokenInvalid        = "api_token.invalid"         // #nosec G101 -- une clé de catalogue, pas un secret.
 	codeAPITokenRouteForbidden = "api_token.route_forbidden" // #nosec G101 -- une clé de catalogue, pas un secret.
 	codeAPITokenVerbForbidden  = "api_token.verb_forbidden"  // #nosec G101 -- une clé de catalogue, pas un secret.
+	codeAPITokenOutOfScope     = "api_token.out_of_scope"    // #nosec G101 -- une clé de catalogue, pas un secret.
 	codeAPITokenOnly           = "api_token.token_only"      // #nosec G101 -- une clé de catalogue, pas un secret.
 	// L'en-tête où mcp-maison dit pour qui il appelle (le sub OIDC). Posé
 	// par lui, indicatif : il n'ouvre aucun droit.
 	onBehalfOfHeader = "X-MCP-Maison-User"
 	// La borne de l'émetteur (MAX_HEADER_VALUE chez mcp-maison).
 	maxOnBehalfOfRunes = 200
+	// La borne d'un identifiant de machine journalisé quand il vient du
+	// chemin de la requête : un identifiant d'openCloud est plus court.
+	maxAuditedMachineRunes = 64
 	// Le port d'écoute de mcp-maison, qu'openCloud suggère de lire.
 	mcpDefaultPort = "3000"
 	// Le port d'openCloud quand l'adresse d'écoute n'en dit pas (config.go).
@@ -140,12 +150,70 @@ func (s *Server) admitVerb(w http.ResponseWriter, r *http.Request, token apitoke
 		s.apiRefuse(w, http.StatusForbidden, codeAPITokenVerbForbidden)
 		return false
 	}
+	if !s.admitReach(w, r, token, verbID) {
+		return false
+	}
 	if !s.verbLimit.Allow(token.ID) {
 		s.logger.Warn("api token rate limited", "token_id", token.ID, "verb", verbID)
 		httpx.WriteTooMany(w)
 		return false
 	}
 	return true
+}
+
+// admitReach juge la machine et l'invité que le verbe vise contre la portée
+// du jeton : 403 out_of_scope, journalisé comme un refus de verbe (même
+// limite de trace). Un jeton sans limite ne coûte aucune lecture. Ce qu'on ne
+// sait pas rattacher à une machine (sonde ou tâche inconnue, tâche sans
+// machine) est hors portée : le doute ferme, et un 404 ne dirait pas à un jeton
+// limité que l'objet existe ailleurs.
+func (s *Server) admitReach(w http.ResponseWriter, r *http.Request, token apitoken.Token, verbID string) bool {
+	if !token.Reach.IsLimited() {
+		return true
+	}
+	offered, _ := verb.Default.Lookup(verbID)
+	machineID, err := s.machineTargeted(r, offered)
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return false
+	}
+	vmid := 0
+	if offered.TargetsGuest() {
+		// Un numéro illisible reste zéro : aucune liste ne le contient.
+		vmid, _ = strconv.Atoi(r.PathValue("vmid"))
+	}
+	if token.Reach.AllowsMachine(machineID) && (!offered.TargetsGuest() || token.Reach.AllowsGuest(vmid)) {
+		return true
+	}
+	if s.verbDenyLimit.Allow(token.ID) {
+		ctx := audit.WithActor(r.Context(), audit.API(token.ID, token.Name, onBehalfOf(r)))
+		s.apiTokens.RecordOutOfScope(ctx, token, verbID, printable(machineID, maxAuditedMachineRunes), vmid)
+	}
+	s.apiRefuse(w, http.StatusForbidden, codeAPITokenOutOfScope)
+	return false
+}
+
+// machineTargeted rend la machine dont le verbe touche l'agent : celle du
+// chemin, ou celle d'une sonde ou d'une tâche. Vide quand la sonde ou la
+// tâche n'existe pas, ou que la tâche n'a pas de machine.
+func (s *Server) machineTargeted(r *http.Request, offered verb.Verb) (string, error) {
+	id := r.PathValue("id")
+	switch offered.Target {
+	case verb.TargetProbe:
+		found, err := s.reader.GetProbe(r.Context(), id)
+		if errors.Is(err, probe.ErrNotFound) {
+			return "", nil
+		}
+		return found.MachineID, err
+	case verb.TargetJob:
+		found, err := s.reader.GetHeartbeat(r.Context(), id)
+		if errors.Is(err, heartbeat.ErrNotFound) {
+			return "", nil
+		}
+		return found.MachineID, err
+	default:
+		return id, nil
+	}
 }
 
 // onBehalfOf est la valeur de X-MCP-Maison-User : exactement une, sans
@@ -250,6 +318,46 @@ type tokenVerbJSON struct {
 type tokenVerbsResponse struct {
 	Scope string          `json:"scope"`
 	Verbs []tokenVerbJSON `json:"verbs"`
+	// Où ces verbes portent : mcp-maison n'offre pas à l'agent ce qui sera
+	// refusé.
+	Reach tokenReachJSON `json:"reach"`
+}
+
+// tokenReachJSON dit la portée d'un jeton : null pour « toutes », une liste
+// sinon, vide pour « aucune ».
+type tokenReachJSON struct {
+	Machines []string `json:"machines"`
+	Guests   []int    `json:"guests"`
+}
+
+func tokenReachToJSON(reach apitoken.Reach) tokenReachJSON {
+	var converted tokenReachJSON
+	if reach.OnlyMachines {
+		converted.Machines = orEmpty(reach.Machines)
+	}
+	if reach.OnlyGuests {
+		converted.Guests = orEmpty(reach.Guests)
+	}
+	return converted
+}
+
+// reachRequest est la portée demandée, à la création comme au
+// remplacement : une clé absente ou null vaut « toutes », une liste, même
+// vide, limite.
+type reachRequest struct {
+	Machines *[]string `json:"machines,omitempty"`
+	Guests   *[]int    `json:"guests,omitempty"`
+}
+
+func (request reachRequest) reach() apitoken.Reach {
+	var reach apitoken.Reach
+	if request.Machines != nil {
+		reach.OnlyMachines, reach.Machines = true, *request.Machines
+	}
+	if request.Guests != nil {
+		reach.OnlyGuests, reach.Guests = true, *request.Guests
+	}
+	return reach
 }
 
 // listTokenVerbs rend les seuls verbes du jeton appelant, dans la langue du
@@ -279,7 +387,7 @@ func (s *Server) listTokenVerbs(w http.ResponseWriter, r *http.Request) {
 			Reverse: offered.Reverse, Label: catalog.Get(offered.Label), Summary: catalog.Get(offered.Summary),
 		})
 	}
-	s.writeAPI(w, http.StatusOK, tokenVerbsResponse{Scope: string(token.Scope), Verbs: verbs})
+	s.writeAPI(w, http.StatusOK, tokenVerbsResponse{Scope: string(token.Scope), Verbs: verbs, Reach: tokenReachToJSON(token.Reach)})
 }
 
 // --- Masquage ---
@@ -314,6 +422,16 @@ type apiTokenJSON struct {
 	// Les verbes que le jeton déclenche : [] pour une lecture, ou une
 	// écriture que l'opérateur n'a rien cochée.
 	Verbs []string `json:"verbs"`
+	// Où ils portent : null pour toutes les machines (les invités), une liste
+	// sinon.
+	Machines []string `json:"machines"`
+	Guests   []int    `json:"guests"`
+}
+
+// Une machine que la liste à cocher offre.
+type reachMachineJSON struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Un verbe offert à la création, avec ses clés de catalogue et son inverse.
@@ -342,7 +460,9 @@ type apiTokensResponse struct {
 	Limit     int                   `json:"limit"`
 	Lifetimes apiTokenLifetimesJSON `json:"lifetimes"`
 	Verbs     []verbOfferJSON       `json:"verbs"`
-	Env       apiTokenEnvJSON       `json:"env"`
+	// Les machines connues, par nom, pour limiter un jeton.
+	Machines []reachMachineJSON `json:"machines"`
+	Env      apiTokenEnvJSON    `json:"env"`
 }
 
 // Le jeton en clair, une seule fois, avec sa ligne.
@@ -359,13 +479,16 @@ type apiTokenRequest struct {
 	ExpiresInDays *int   `json:"expires_in_days,omitempty"`
 	// Les verbes cochés, pour la portée write seule.
 	Verbs []string `json:"verbs,omitempty"`
+	// Où ils portent, pour la portée write seule.
+	reachRequest
 }
 
 func apiTokenToJSON(token apitoken.Token) apiTokenJSON {
+	reach := tokenReachToJSON(token.Reach)
 	return apiTokenJSON{
 		ID: token.ID, Name: token.Name, Masked: token.Masked(), Scope: string(token.Scope),
 		CreatedAt: token.CreatedAt.UTC(), ExpiresAt: httpx.TimeOrNil(token.ExpiresAt), LastUsedAt: httpx.TimeOrNil(token.LastUsedAt),
-		Verbs: orEmpty(token.Verbs),
+		Verbs: orEmpty(token.Verbs), Machines: reach.Machines, Guests: reach.Guests,
 	}
 }
 
@@ -378,8 +501,13 @@ func (s *Server) listAPITokens(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
+	names, err := s.reader.MachineNames(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
 	host, openCloudURL := mcpEnvOf(s.listen)
 	s.writeAPI(w, http.StatusOK, apiTokensResponse{
+		Machines:  machineChoices(names),
 		Tokens:    httpx.ConvertAll(tokens, apiTokenToJSON),
 		Limit:     apitoken.MaxTokens,
 		Lifetimes: apiTokenLifetimesJSON{Days: apitoken.Lifetimes(), DefaultDays: apitoken.DefaultDays},
@@ -396,11 +524,40 @@ func (s *Server) createAPIToken(w http.ResponseWriter, r *http.Request) {
 	}
 	cleartext, token, err := s.apiTokens.Create(r.Context(), apitoken.Request{
 		Name: request.Name, Scope: apitoken.Scope(request.Scope), Days: request.ExpiresInDays, Verbs: request.Verbs,
+		Reach: request.reach(),
 	})
 	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, apiTokenCreated{Token: cleartext, Item: apiTokenToJSON(token)})
+}
+
+// setAPITokenReach remplace la portée d'un jeton existant : tout ce qui n'est
+// pas dans la requête redevient « toutes ». Route d'opérateur : elle n'est ni
+// une lecture ni un verbe, un jeton la reçoit en 403 (route_forbidden), le
+// sien comme celui d'un autre.
+func (s *Server) setAPITokenReach(w http.ResponseWriter, r *http.Request) {
+	var request reachRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	token, err := s.apiTokens.SetReach(r.Context(), r.PathValue("id"), request.reach())
+	if s.failed(w, r, err, apitoken.ErrNotFound) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, apiTokenToJSON(token))
+}
+
+// machineChoices met les machines connues par nom, puis par identifiant.
+func machineChoices(names map[string]string) []reachMachineJSON {
+	choices := make([]reachMachineJSON, 0, len(names))
+	for id, name := range names {
+		choices = append(choices, reachMachineJSON{ID: id, Name: name})
+	}
+	slices.SortFunc(choices, func(a, b reachMachineJSON) int {
+		return cmp.Or(strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)), strings.Compare(a.ID, b.ID))
+	})
+	return choices
 }
 
 func (s *Server) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
