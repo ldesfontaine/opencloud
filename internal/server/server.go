@@ -65,7 +65,7 @@ type MachineService interface {
 	List(ctx context.Context) ([]machine.Status, error)
 	Get(ctx context.Context, id string) (machine.Status, error)
 	Count(ctx context.Context) (total, online int, err error)
-	CreateToken(ctx context.Context, name string, capabilities []machine.Capability) (string, machine.Token, error)
+	CreateToken(ctx context.Context, name string, role machine.Role, capabilities []machine.Capability) (string, machine.Token, error)
 	CreateReenrollToken(ctx context.Context, machineID string, capabilities []machine.Capability) (string, machine.Token, error)
 	OfferLocalEnrollment(ctx context.Context) (string, machine.Token, error)
 	PendingTokens(ctx context.Context) ([]machine.Token, error)
@@ -81,6 +81,7 @@ type MachineService interface {
 	NoteRootDir(ctx context.Context, agentID, root string) error
 	NoteRollbackVersion(ctx context.Context, agentID, reported string) error
 	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) (machine.Machine, error)
+	SetRole(ctx context.Context, machineID string, role machine.Role) (machine.Machine, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
 	SessionMachine(sessionToken string) (machineID string, err error)

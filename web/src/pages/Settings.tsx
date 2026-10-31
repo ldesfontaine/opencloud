@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAPITokens } from "../api/apiTokens";
 import { useAuth } from "../api/auth";
+import { useCounts } from "../api/counts";
 import { useMCPCheck } from "../api/mcpCheck";
 import { useDiskSettings, useLifecycleSettings, useMailSettings } from "../api/settings";
 import { PageHead } from "../components/PageHead";
@@ -13,10 +14,11 @@ import { AIAgentSection } from "./settings/AIAgentSection";
 import { DiskSection } from "./settings/DiskSection";
 import { LifecycleSection } from "./settings/LifecycleSection";
 import { MailSection } from "./settings/MailSection";
+import { ModulesSection } from "./settings/ModulesSection";
 import { SettingsNav } from "./settings/SettingsNav";
 import "./Settings.scss";
 
-// Paramètres : six sections ancrées (l'accès à l'interface, les alertes du
+// Paramètres : sept sections ancrées (l'accès à l'interface, les modules, les alertes du
 // disque, l'envoi d'e-mails, la fin de support, l'agent IA et ses jetons
 // d'API, la version), toutes dans la page, avec leur navigation. Chaque section lit la
 // sienne : l'une qui échoue ne retient pas les autres, et sort de la
@@ -30,10 +32,14 @@ export function Settings() {
   const support = useLifecycleSettings();
   const aiAgent = useMCPCheck();
   const tokens = useAPITokens();
+  const counts = useCounts();
 
   const present: SettingsSectionId[] = [];
   if (access.data !== null) {
     present.push("acces");
+  }
+  if (counts.data !== null) {
+    present.push("modules");
   }
   if (disks.data !== null) {
     present.push("alertes");
@@ -58,6 +64,7 @@ export function Settings() {
         <SettingsNav present={present} current={current} onPick={pick} />
         <div className="settings-main">
           {access.data !== null && <AccessSection state={access.data} />}
+          {counts.data !== null && <ModulesSection modules={counts.data.modules} />}
           {disks.data !== null && <DiskSection settings={disks.data} reload={disks.reload} />}
           {mail.data !== null && <MailSection settings={mail.data} reload={mail.reload} />}
           {support.data !== null && <LifecycleSection settings={support.data} reload={support.reload} />}

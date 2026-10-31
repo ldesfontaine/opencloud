@@ -4,6 +4,11 @@ import { countsPath } from "./counts";
 import { bumpVersions, initialVersions, topics, topicsOf, versionOf } from "./refresh";
 
 describe("topicsOf", () => {
+  it("les compteurs relisent aussi les pare-feu et les sauvegardes : le premier objet configure son module", () => {
+    expect(topicsOf("/api/counts")).toEqual(expect.arrayContaining(["firewalls", "backups", "jobs", "probes", "status"]));
+    expect(topicsOf("/api/counts")).not.toContain("resources");
+  });
+
   it("sends the declared directory to its own topic, though its path says services", () => {
     expect(topicsOf("/api/directory/services")).toEqual(["directory"]);
     expect(topicsOf("/api/directory/services/svc_1")).toEqual(["directory"]);

@@ -31,6 +31,9 @@ type Machine struct {
 	// À mettre à jour en dernier : la machine porte le chemin des ordres. Réglé
 	// par l'opérateur seul.
 	UpdateLast bool
+	// Ce que l'opérateur en fait : choisi à l'ajout, il fixe les modules que
+	// la machine porte (Role).
+	Role Role
 	// L'agent courant : l'actif, sinon le dernier révoqué ; vide sans agent.
 	Agent Agent
 }
@@ -48,6 +51,9 @@ type Token struct {
 	Prefix    string
 	Name      string
 	MachineID string
+	// Le rôle de la machine que ce jeton crée ; un ré-enrôlement garde celui
+	// de la machine.
+	Role Role
 	// Les droits demandés à l'émission ; vide pour un jeton d'avant les
 	// droits.
 	Capabilities []Capability

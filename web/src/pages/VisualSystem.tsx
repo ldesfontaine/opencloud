@@ -416,11 +416,11 @@ export function VisualSystem() {
                 <nav className="tabs">
                   <span className="tab active">{t("tab.summary")}</span>
                   <span className="tab">
-                    {t("tab.services")}
+                    {t("module.containers")}
                     <span className="n">6</span>
                   </span>
                   <span className="tab">
-                    {t("tab.availability")}
+                    {t("module.probes")}
                     <span className="n">5</span>
                   </span>
                   <span className="tab">{t("tab.network")}</span>

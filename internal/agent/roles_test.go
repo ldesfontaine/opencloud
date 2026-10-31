@@ -84,7 +84,7 @@ func TestRolesLoop_ReadsAtStartAndEveryPeriodAndStopsWithTheAgent(t *testing.T) 
 // droit n'est demandé pour cela.
 func TestRun_ReportsItsRolesToTheServer(t *testing.T) {
 	b := newBench(t)
-	token, _, err := b.machines.CreateToken(context.Background(), "pve-1", nil)
+	token, _, err := b.machines.CreateToken(context.Background(), "pve-1", machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

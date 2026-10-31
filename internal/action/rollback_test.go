@@ -49,7 +49,7 @@ func readyBench(t *testing.T) *updateBench {
 func (b *updateBench) addMachine(t *testing.T, id, name, version string, migrated bool) machine.Machine {
 	t.Helper()
 	ctx := context.Background()
-	cleartext, _, err := b.machines.CreateToken(ctx, name, nil)
+	cleartext, _, err := b.machines.CreateToken(ctx, name, machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

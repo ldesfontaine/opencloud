@@ -1,4 +1,5 @@
 import { useResource, type Resource } from "../hooks/useResource";
+import type { ModuleID } from "../lib/modules";
 import type { AlertCounts } from "./alerts";
 
 // Les compteurs de la barre latérale et de la vue d'ensemble, calculés par
@@ -15,6 +16,12 @@ interface CertificateCounts {
   soonest_expires_at: string | null;
 }
 
+// Un module de l'installation et s'il est configuré : au moins un objet existe.
+export interface ModuleState {
+  id: ModuleID;
+  configured: boolean;
+}
+
 export interface Counts {
   machines: { total: number; online: number };
   jobs: { total: number; attention: number };
@@ -27,6 +34,9 @@ export interface Counts {
   status: { open_incidents: number };
   // Les alertes ouvertes, et celles que personne n'a acquittées.
   alerts: AlertCounts;
+  // Les modules de l'installation : ici et non dans la session, qui se lit une
+  // fois, pour que le menu suive le premier objet créé.
+  modules: ModuleState[];
 }
 
 export const countsPath = "/api/counts";

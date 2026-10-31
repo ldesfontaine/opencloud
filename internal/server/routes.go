@@ -51,6 +51,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/agent-updates", s.listAgentUpdates},
 		{"GET", "/api/agent-migration", s.getAgentMigration},
 		{"PUT", "/api/machines/{id}/update-last", s.setUpdateLast},
+		{"PUT", "/api/machines/{id}/role", s.setRole},
 		{"POST", "/api/machines/{id}/actions/check-updates", s.checkUpdates},
 		{"GET", "/api/machines/{id}/resources", s.getMachineResources},
 		{"GET", "/api/machines/{id}/resources/history", s.getMachineHistory},

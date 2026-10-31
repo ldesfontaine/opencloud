@@ -10,6 +10,7 @@ import { EmptyCard, Stat } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
+import { TodoCard } from "../components/TodoCard";
 import { OnlinePill, Pill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
@@ -17,6 +18,7 @@ import { useCertificateThresholds, useDiskThresholds, useT } from "../i18n/conte
 import { describeAlert, mostUrgentAlert } from "../lib/alerts";
 import { certificateTone, daysUntil } from "../lib/certificates";
 import { machineSeen, machinesSubtitle } from "../lib/machines";
+import { modulesToConfigure } from "../lib/modules";
 import "./Overview.scss";
 
 // La tuile Alertes : le nombre d'ouvertes, puis en pied, sur une ligne
@@ -126,6 +128,7 @@ export function Overview() {
         }
       />
       {machines.error && <Failure error={machines.error} />}
+      <TodoCard todos={modulesToConfigure(counts.data, list)} />
       {machines.data && list.length === 0 && (
         <EmptyCard icon="server" title={t("overview.empty_title")} text={t("overview.empty_text")} />
       )}
@@ -159,14 +162,14 @@ export function Overview() {
             <Stat
               compact
               icon="globe"
-              label={t("nav.availability")}
+              label={t("module.probes")}
               value={counts.data?.probes.total ?? "–"}
               foot={counts.data ? <AvailabilityFoot counts={counts.data} /> : "–"}
             />
             <Stat
               compact
               icon="clock"
-              label={t("nav.jobs")}
+              label={t("module.jobs")}
               value={counts.data?.jobs.total ?? "–"}
               foot={
                 counts.data && counts.data.jobs.attention > 0 ? (

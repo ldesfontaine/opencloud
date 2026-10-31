@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import { currentSection, settingsSections } from "./settingsSections";
 
-const order = ["acces", "alertes", "e-mails", "fin-de-support", "agent-ia", "a-propos"];
+const order = ["acces", "modules", "alertes", "e-mails", "fin-de-support", "agent-ia", "a-propos"];
 
 test("les ancres sont sans accent ni espace, et propres à chaque section", () => {
   const ids = settingsSections.map((section) => section.id);

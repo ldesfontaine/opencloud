@@ -438,7 +438,7 @@ func TestRun_UnsafeStateKeepsObserveOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-brest-1", rights)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-brest-1", machine.RoleGeneric, rights)
 	enrolling := b.options(token)
 	enrolling.Rights = rights
 	ctx, cancel := context.WithCancel(context.Background())

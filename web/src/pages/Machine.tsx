@@ -19,6 +19,7 @@ import { HostedCard, MachineHypervisor, ProxmoxCard } from "../components/Machin
 import { MachineSSHKeys } from "../components/MachineSSHKeys";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
+import { RoleCard } from "../components/RoleCard";
 import { ProbeTable } from "../components/ProbeTable";
 import { DiskVolumesCard, ResourceHistory, ResourceStats } from "../components/Resources";
 import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
@@ -76,7 +77,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
       <Card>
         <CardBody gap={12}>
           <MachineHead current={current} all={all} />
-          <Tabs machineID={current.id} hostsProxmox={current.proxmox.declared} />
+          <Tabs machineID={current.id} modules={current.modules} />
         </CardBody>
       </Card>
       {tab === "" ? (
@@ -87,6 +88,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
           {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
           {current.proxmox.hosted !== null && <HostedCard hosted={current.proxmox.hosted} />}
           <ProxmoxCard machine={current} />
+          <RoleCard machine={current} />
           <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} online={current.online} now={now} />
           <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
         </>
@@ -215,7 +217,7 @@ function MachineContainers({ machineID }: { machineID: string }) {
   const note = containers.data && all.length === 0 ? engineNote(t, containers.data.engines[0]) : null;
   return (
     <Card className="scroll-x">
-      <CardHeader title={t("tab.services")} aside={containers.data ? t("services.machine_subtitle", all.length) : ""} />
+      <CardHeader title={t("module.containers")} aside={containers.data ? t("services.machine_subtitle", all.length) : ""} />
       {containers.error && <Failure error={containers.error} />}
       {all.length > 0 && (
         <div className="table-bar">

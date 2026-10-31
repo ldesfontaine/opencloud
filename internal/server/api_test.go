@@ -273,7 +273,7 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	// L'agent de la machine distante vient de signaler : ses conteneurs sont
 	// observés. La machine openCloud, elle, n'a jamais signalé.
 	server.signaledAt(t, remoteID, testNow)
-	if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2", nil); err != nil {
+	if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2", machine.RoleGeneric, nil); err != nil {
 		t.Fatal(err)
 	}
 	jobID := server.seedJobs(t)

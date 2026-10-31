@@ -17,7 +17,7 @@ export function Probes() {
   return (
     <>
       <PageHead
-        title={t("nav.availability")}
+        title={t("module.probes")}
         subtitle={probes.data ? probesSubtitle(t, list.length, attention) : ""}
         actions={
           <Button variant="primary" icon="plus" to={newProbePath()}>

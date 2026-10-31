@@ -25,6 +25,8 @@ function machine(over: Partial<Machine> = {}): Machine {
     agent: null,
     proxmox: { declared: false, guests: 0, last_error: "", hosted: null },
     roles: [],
+    role: "generic",
+    modules: [],
     ...over,
   };
 }

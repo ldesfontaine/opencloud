@@ -25,7 +25,7 @@ func TestWatcher_HearsEveryVisibleChange(t *testing.T) {
 	h.service.SetWatcher(watcher)
 	ctx := context.Background()
 
-	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", nil)
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestWatcher_HearsEveryVisibleChange(t *testing.T) {
 
 func TestWatcher_NilIsTolerated(t *testing.T) {
 	h := newHarness(t)
-	if _, _, err := h.service.CreateToken(context.Background(), "vps-paris-1", nil); err != nil {
+	if _, _, err := h.service.CreateToken(context.Background(), "vps-paris-1", RoleGeneric, nil); err != nil {
 		t.Fatal(err)
 	}
 }

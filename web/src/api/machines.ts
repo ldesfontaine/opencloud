@@ -4,6 +4,7 @@ import { route } from "./routes";
 import type { DeletionPlan } from "./deletion";
 import type { Lifecycle } from "./lifecycle";
 import type { ProxmoxSummary } from "./proxmox";
+import type { ModuleID } from "../lib/modules";
 
 // Les machines et leurs jetons d'enrôlement, sur le modèle d'api/probes.
 // Sujet du direct : « machines », que topicsOf devine du chemin. Ce qu'une
@@ -33,7 +34,14 @@ export interface Machine {
   // Ce que l'agent reconnaît sur la machine par ses signes locaux ; vide sans
   // agent ou quand rien n'est reconnu. Un rôle ne donne aucun droit.
   roles: MachineRole[];
+  // Ce que l'opérateur en fait, choisi à l'ajout ; et les modules qu'elle porte,
+  // ceux de son rôle et ceux que l'agent observe.
+  role: RoleID;
+  modules: ModuleID[];
 }
+
+// Les rôles qu'une machine peut recevoir (liste fermée du serveur).
+export type RoleID = "generic" | "docker" | "proxmox";
 
 // Un rôle de la liste fermée du serveur (« proxmox_ve »), avec la version
 // trouvée, vide si elle n'est pas lisible.
@@ -123,8 +131,13 @@ export function useMachines(wanted = true): Resource<MachinesResponse> {
 
 // Un jeton à usage unique pour enrôler une machine neuve, avec les droits
 // cochés ; observe s'y ajoute toujours.
-export async function createMachineToken(name: string, capabilities: Capability[]): Promise<TokenResponse> {
-  return api.send<TokenResponse>(route("POST /api/machines/tokens"), { name, capabilities });
+export async function createMachineToken(name: string, role: RoleID, capabilities: Capability[]): Promise<TokenResponse> {
+  return api.send<TokenResponse>(route("POST /api/machines/tokens"), { name, role, capabilities });
+}
+
+// Change le rôle de la machine, donc ses modules ; ses droits ne bougent pas.
+export async function setMachineRole(machineID: string, role: RoleID): Promise<void> {
+  await api.send(route("PUT /api/machines/{id}/role", { id: machineID }), { role });
 }
 
 export async function deleteMachineToken(id: string): Promise<void> {

@@ -28,8 +28,9 @@ export function bumpVersions(versions: Versions, topic?: Topic): Versions {
 
 // Les sujets qui changent un compteur de /api/counts : tous sauf les
 // mesures. L'annuaire en est : la politique d'une unité change le compte
-// des mises à jour ; le statut aussi : les incidents ouverts.
-const countedTopics: readonly Topic[] = ["machines", "jobs", "containers", "probes", "status", "alerts", "directory"];
+// des mises à jour ; le statut aussi : les incidents ouverts ; les pare-feu et les
+// sauvegardes aussi : le premier objet configure son module.
+const countedTopics: readonly Topic[] = ["machines", "jobs", "containers", "probes", "status", "alerts", "directory", "firewalls", "backups"];
 
 interface Refresh {
   // Relit un sujet, ou tout sans argument.

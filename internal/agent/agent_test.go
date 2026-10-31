@@ -119,7 +119,7 @@ func (b *bench) waitFor(t *testing.T, name string, want func(machine.Status) boo
 
 func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	b := newBench(t)
-	token, _, err := b.machines.CreateToken(context.Background(), "vps-paris-1", nil)
+	token, _, err := b.machines.CreateToken(context.Background(), "vps-paris-1", machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestRun_BadToken_FailsClearly(t *testing.T) {
 
 func TestRun_RemovedMachine_StopsForGood(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", nil)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", machine.RoleGeneric, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -210,7 +210,7 @@ func TestRun_RemovedMachine_StopsForGood(t *testing.T) {
 // quand l'opérateur le révoque.
 func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", []machine.Capability{{Name: machine.CapabilityAgentUpdate}})
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", machine.RoleGeneric, []machine.Capability{{Name: machine.CapabilityAgentUpdate}})
 	rights, err := machine.ParseCapabilities("agent.update,files.write=/srv/workspace")
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +262,7 @@ func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
 // serveur sait pourquoi il ne s'exerce pas.
 func TestRun_SaysItsAccountAndWhyAnEnrolledRightCannotBeExercised(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nice-1", []machine.Capability{{Name: machine.CapabilityDockerDeploy}})
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nice-1", machine.RoleGeneric, []machine.Capability{{Name: machine.CapabilityDockerDeploy}})
 	rights, err := machine.ParseCapabilities("docker.deploy")
 	if err != nil {
 		t.Fatal(err)
@@ -354,7 +354,7 @@ func (b *bench) waitForRefusalAudit(t *testing.T, runID string) []audit.Event {
 // l'exécute, garde son rang et répond par le signal.
 func TestRun_PinsTheServerKeyAndAnswersASignedPing(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-paris-1", nil)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-paris-1", machine.RoleGeneric, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -401,7 +401,7 @@ func TestRun_PinsTheServerKeyAndAnswersASignedPing(t *testing.T) {
 // l'épingle, et les ordres suivants, signés par la neuve, passent.
 func TestRun_FollowsARotationOfTheServerKey(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nantes-3", nil)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nantes-3", machine.RoleGeneric, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, b.options(token)) }()
@@ -437,7 +437,7 @@ func TestRun_FollowsARotationOfTheServerKey(t *testing.T) {
 // a le droit juge lui-même, et son refus revient au serveur, journalisé.
 func TestRun_AppliesItsRightsAndItsRefusalIsJournaled(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", nil)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", machine.RoleGeneric, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)

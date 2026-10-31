@@ -2,14 +2,14 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from "react"
 import { NavLink, Outlet, useLocation } from "react-router";
 
 import { useAuth, type AuthState } from "../api/auth";
-import { useCounts, type Counts } from "../api/counts";
+import { useCounts } from "../api/counts";
 import { useLive } from "../hooks/useLive";
 import { useTheme } from "../hooks/useTheme";
 import { useI18n, useT } from "../i18n/context";
 import { accessLabel } from "../lib/auth";
 import { nextDrawer, returnsFocus, type DrawerEvent } from "../lib/drawer";
-import { probeListPath } from "../lib/probes";
-import { Icon, Mark, type IconName } from "./Icon";
+import { menuEntries, settingsEntry, type MenuEntry } from "../lib/modules";
+import { Icon, Mark } from "./Icon";
 import { Wordmark } from "./Wordmark";
 import "./Layout.scss";
 
@@ -131,38 +131,9 @@ export function Brand() {
   );
 }
 
-interface NavEntry {
-  key: string;
-  // La clé du libellé en entier : le test des clés la voit dans les deux sens.
-  label: string;
-  href: string;
-  icon: IconName;
-  // Où mène l'entrée quand son compteur demande attention : les conteneurs du
-  // compteur ne sont plus la première page de Services.
-  attentionHref?: string;
-}
-
-// Seul ce qui est livré a son entrée.
-const viewEntries: NavEntry[] = [
-  { key: "overview", label: "nav.overview", href: "/", icon: "grid" },
-  { key: "machines", label: "nav.machines", href: "/machines", icon: "server" },
-  { key: "services", label: "nav.services", href: "/services", icon: "box", attentionHref: "/services/conteneurs" },
-  { key: "availability", label: "nav.availability", href: probeListPath, icon: "globe" },
-  { key: "jobs", label: "nav.jobs", href: "/taches", icon: "clock" },
-  { key: "statuspage", label: "nav.statuspage", href: "/page-statut", icon: "eye" },
-  { key: "alerts", label: "nav.alerts", href: "/alertes", icon: "bell" },
-];
-
-const settingsEntries: NavEntry[] = [
-  { key: "firewall", label: "nav.firewall", href: "/pare-feu", icon: "firewall" },
-  { key: "backups", label: "nav.backups", href: "/sauvegardes", icon: "archive" },
-  { key: "ssh_keys", label: "nav.ssh_keys", href: "/cles-ssh", icon: "shield" },
-  { key: "settings", label: "nav.settings", href: "/parametres", icon: "settings" },
-  { key: "audit", label: "nav.audit", href: "/journal", icon: "file" },
-];
-
-// Barre latérale : marque, sections Vue et Administration avec leurs compteurs en
-// mono (rouge quand il y a une alerte), en bas thème, langue et compte.
+// Barre latérale : marque, puis le menu que le registre des modules compose
+// (les entrées fixes et celles des modules configurés) avec leurs compteurs en
+// mono (rouge quand il y a une alerte) ; en bas Paramètres, thème, langue et compte.
 function Sidebar({ access, inert }: { access: AuthState | null; inert: boolean }) {
   const { t, language, languages, setLanguage } = useI18n();
   const theme = useTheme();
@@ -171,19 +142,15 @@ function Sidebar({ access, inert }: { access: AuthState | null; inert: boolean }
   return (
     <aside className="side" id="side" inert={inert}>
       <Brand />
-      <div className="side-label">{t("nav.section_view")}</div>
       <nav className="nav">
-        {viewEntries.map((entry) => (
-          <NavItem key={entry.key} entry={entry} counter={counter(entry.key, counts)} />
-        ))}
-      </nav>
-      <div className="side-label">{t("nav.section_settings")}</div>
-      <nav className="nav">
-        {settingsEntries.map((entry) => (
-          <NavItem key={entry.key} entry={entry} counter={null} />
+        {menuEntries(counts).map((entry) => (
+          <NavItem key={entry.key} entry={entry} />
         ))}
       </nav>
       <div className="side-foot">
+        <nav className="nav">
+          <NavItem entry={settingsEntry} />
+        </nav>
         <div className="switches">
           <div className="theme" role="group" aria-label={t("theme.label")}>
             <button type="button" data-set-theme="light" aria-pressed={theme === "light"} aria-label={t("theme.light")} title={t("theme.light")}>
@@ -225,44 +192,9 @@ function Sidebar({ access, inert }: { access: AuthState | null; inert: boolean }
   );
 }
 
-interface Counter {
-  value: number;
-  hot: boolean;
-}
-
-// Les machines comptent toutes, en rouge dès qu'une est hors ligne ; les
-// tâches ne comptent que celles à traiter ; les conteneurs et les sondes
-// comptent tous, en rouge dès qu'un est défaillant ou hors ligne ; la page
-// de statut ne compte que les incidents ouverts ; les alertes comptent les
-// ouvertes, en rouge tant qu'une n'est pas acquittée. Rien tant que l'API
-// n'a pas répondu, plutôt qu'un zéro inventé.
-function counter(key: string, counts: Counts | null): Counter | null {
-  if (!counts) {
-    return null;
-  }
-  if (key === "machines" && counts.machines.total > 0) {
-    return { value: counts.machines.total, hot: counts.machines.online < counts.machines.total };
-  }
-  if (key === "jobs" && counts.jobs.attention > 0) {
-    return { value: counts.jobs.attention, hot: true };
-  }
-  if (key === "services" && counts.containers.total > 0) {
-    return { value: counts.containers.total, hot: counts.containers.attention > 0 };
-  }
-  if (key === "availability" && counts.probes.total > 0) {
-    return { value: counts.probes.total, hot: counts.probes.attention > 0 };
-  }
-  if (key === "statuspage" && counts.status.open_incidents > 0) {
-    return { value: counts.status.open_incidents, hot: true };
-  }
-  if (key === "alerts" && counts.alerts.open > 0) {
-    return { value: counts.alerts.open, hot: counts.alerts.unacknowledged > 0 };
-  }
-  return null;
-}
-
-function NavItem({ entry, counter }: { entry: NavEntry; counter: Counter | null }) {
+function NavItem({ entry }: { entry: MenuEntry }) {
   const { t } = useI18n();
+  const counter = entry.counter;
   const href = counter?.hot === true && entry.attentionHref !== undefined ? entry.attentionHref : entry.href;
   return (
     <NavLink className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")} to={href} end={entry.href === "/"}>
