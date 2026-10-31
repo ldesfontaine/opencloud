@@ -6,7 +6,7 @@ import type { StateTone } from "./tone";
 const step = 1024;
 const unitKeys = ["unit.b", "unit.kb", "unit.mb", "unit.gb", "unit.tb"];
 
-export interface Quantity {
+interface Quantity {
   value: string;
   unit: string;
 }

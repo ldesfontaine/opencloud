@@ -1,6 +1,6 @@
 // La ligne cliquable d'un tableau : un clic n'importe où sur la ligne suit le
 // lien de son nom. Listé ici pour que la règle se teste sans navigateur.
-export type RowClick = "ignore" | "follow" | "new-tab";
+type RowClick = "ignore" | "follow" | "new-tab";
 
 export interface RowClickFacts {
   // 0 le bouton principal, 1 celui du milieu.

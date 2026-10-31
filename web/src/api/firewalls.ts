@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import { route } from "./routes";
 
 // Les pare-feu déclarés et ce que leur API en dit. Sujet du direct :
 // « firewalls », que topicsOf devine du chemin. Le secret de l'API n'est jamais
@@ -109,7 +110,7 @@ export interface FirewallLeasesResponse extends FirewallReading {
   leases: FirewallLease[];
 }
 
-export interface FirewallDefinition {
+interface FirewallDefinition {
   name: string;
   kind: FirewallKind;
   api_url: string;
@@ -139,13 +140,13 @@ export function useFirewallLeases(id: string): Resource<FirewallLeasesResponse> 
 }
 
 export function declareFirewall(definition: FirewallDefinition): Promise<FirewallDetail> {
-  return api.post<FirewallDetail>("/api/firewalls", definition);
+  return api.send<FirewallDetail>(route("POST /api/firewalls"), definition);
 }
 
 export function redeclareFirewall(id: string, definition: FirewallDefinition): Promise<FirewallDetail> {
-  return api.put<FirewallDetail>(`/api/firewalls/${segment(id)}`, definition);
+  return api.send<FirewallDetail>(route("PUT /api/firewalls/{id}", { id }), definition);
 }
 
 export async function removeFirewall(id: string): Promise<void> {
-  return api.delete(`/api/firewalls/${segment(id)}`);
+  return api.send(route("DELETE /api/firewalls/{id}", { id }));
 }

@@ -1,4 +1,5 @@
 import { api, segment } from "./client";
+import { route } from "./routes";
 
 // La session du navigateur : version, langue, et les seuils que le serveur
 // tient pour que les écrans comptent comme lui. Lue une fois par i18n, avant
@@ -24,6 +25,14 @@ export interface Session {
   certificate_thresholds: CertificateThresholds;
   // Les pourcentages à partir desquels un volume alerte, puis s'aggrave.
   disk_thresholds: DiskThresholds;
+  // Les écritures que le registre des verbes ouvre aux jetons d'API : un
+  // bouton qui appelle l'une d'elles porte la puce « MCP ».
+  verbs: SessionVerb[];
+}
+
+interface SessionVerb {
+  id: string;
+  route: string;
 }
 
 // Un catalogue : la clé, et son format Go (%s, %d).
@@ -40,5 +49,5 @@ export async function fetchCatalog(language: string): Promise<Catalog> {
 }
 
 export async function saveLanguage(language: string): Promise<void> {
-  return api.put(`${sessionPath}/language`, { language });
+  return api.send(route("PUT /api/session/language"), { language });
 }

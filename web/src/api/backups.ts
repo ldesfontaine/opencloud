@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
-import { api, segment } from "./client";
+import { api } from "./client";
+import { route } from "./routes";
 import type { ActionRun } from "./actions";
 
 // Les sauvegardes : la clé, les destinations, les plans et le dernier ordre
@@ -74,7 +75,7 @@ export interface Backups {
   plans: BackupPlan[];
 }
 
-export interface DestinationRequest {
+interface DestinationRequest {
   name: string;
   machine_id: string;
   path: string;
@@ -196,23 +197,23 @@ export function useBackupInventory(): Resource<BackupInventory> {
 // La phrase part ici et nulle part ailleurs : le serveur scelle la clé
 // privée avec elle et ne la garde pas.
 export async function createKeyring(passphrase: string, replace: boolean): Promise<BackupKeyring> {
-  return api.post<BackupKeyring>(`${backupsPath}/keyring`, { passphrase, replace });
+  return api.send<BackupKeyring>(route("POST /api/backups/keyring"), { passphrase, replace });
 }
 
 export async function createBackupDestination(request: DestinationRequest): Promise<BackupDestination> {
-  return api.post<BackupDestination>(`${backupsPath}/destinations`, request);
+  return api.send<BackupDestination>(route("POST /api/backups/destinations"), request);
 }
 
 export async function deleteBackupDestination(id: string): Promise<void> {
-  return api.delete(`${backupsPath}/destinations/${segment(id)}`);
+  return api.send(route("DELETE /api/backups/destinations/{id}", { id }));
 }
 
 export async function saveBackupPlan(subject: string, request: PlanRequest): Promise<BackupPlan> {
-  return api.put<BackupPlan>(`${backupsPath}/plans/${segment(subject)}`, request);
+  return api.send<BackupPlan>(route("PUT /api/backups/plans/{subject}", { subject }), request);
 }
 
 export async function deleteBackupPlan(subject: string): Promise<void> {
-  return api.delete(`${backupsPath}/plans/${segment(subject)}`);
+  return api.send(route("DELETE /api/backups/plans/{subject}", { subject }));
 }
 
 // Lance la sauvegarde du plan tout de suite. Pour la base, la réponse est
@@ -220,5 +221,5 @@ export async function deleteBackupPlan(subject: string): Promise<void> {
 // backup.produce, le reste du passage (une cible après l'autre) se mène
 // derrière la requête.
 export async function runBackupNow(subject: string): Promise<ActionRun> {
-  return api.post<ActionRun>(`${backupsPath}/plans/${segment(subject)}/actions/run`, {});
+  return api.send<ActionRun>(route("POST /api/backups/plans/{subject}/actions/run", { subject }), {});
 }

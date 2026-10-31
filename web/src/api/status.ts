@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import { route } from "./routes";
 import type { DeletionPlan } from "./deletion";
 
 // Les pages de statut : chacune ses réglages et ses composants, les
@@ -213,11 +214,13 @@ export function useIncident(id: string): Resource<Incident> {
 
 // Sans id, une création ; avec, le remplacement de ce composant.
 export async function saveStatusComponent(id: string | undefined, body: StatusComponentRequest): Promise<StatusComponent> {
-  return id === undefined ? api.post<StatusComponent>(componentsPath, body) : api.put<StatusComponent>(componentPath(id), body);
+  return id === undefined
+    ? api.send<StatusComponent>(route("POST /api/status/components"), body)
+    : api.send<StatusComponent>(route("PUT /api/status/components/{id}", { id }), body);
 }
 
 export async function deleteStatusComponent(id: string): Promise<void> {
-  return api.delete(componentPath(id));
+  return api.send(route("DELETE /api/status/components/{id}", { id }));
 }
 
 export async function fetchComponentDeletePlan(id: string): Promise<DeletionPlan> {
@@ -225,29 +228,29 @@ export async function fetchComponentDeletePlan(id: string): Promise<DeletionPlan
 }
 
 export async function createIncident(body: IncidentRequest): Promise<Incident> {
-  return api.post<Incident>(incidentsPath, body);
+  return api.send<Incident>(route("POST /api/status/incidents"), body);
 }
 
 export async function editIncident(id: string, body: IncidentEditRequest): Promise<Incident> {
-  return api.put<Incident>(incidentPath(id), body);
+  return api.send<Incident>(route("PUT /api/status/incidents/{id}", { id }), body);
 }
 
 // Une entrée du fil : un statut, un message, ou les deux.
 export async function addIncidentUpdate(id: string, body: IncidentUpdateRequest): Promise<Incident> {
-  return api.post<Incident>(`${incidentPath(id)}/updates`, body);
+  return api.send<Incident>(route("POST /api/status/incidents/{id}/updates", { id }), body);
 }
 
 export async function deleteIncident(id: string): Promise<void> {
-  return api.delete(incidentPath(id));
+  return api.send(route("DELETE /api/status/incidents/{id}", { id }));
 }
 
 // Sans id, une création ; avec, le remplacement de cette page.
 export async function saveStatusPage(id: string | undefined, body: StatusPageRequest): Promise<StatusPage> {
-  return id === undefined ? api.post<StatusPage>(pagesPath, body) : api.put<StatusPage>(pagePath(id), body);
+  return id === undefined ? api.send<StatusPage>(route("POST /api/status/pages"), body) : api.send<StatusPage>(route("PUT /api/status/pages/{id}", { id }), body);
 }
 
 export async function deleteStatusPage(id: string): Promise<void> {
-  return api.delete(pagePath(id));
+  return api.send(route("DELETE /api/status/pages/{id}", { id }));
 }
 
 export async function fetchStatusPageDeletePlan(id: string): Promise<DeletionPlan> {

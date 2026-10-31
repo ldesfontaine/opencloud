@@ -74,11 +74,6 @@ export function backupLabel(t: Translate, language: string, at: string | null, b
   return t("machine.proxmox_backup_value", formatWhen(at, now), formatBytes(t, language, bytes));
 }
 
-// Une machine porte un hôte déclaré : l'onglet « Hyperviseur » s'affiche.
-export function hostsProxmox(machine: Pick<Machine, "proxmox">): boolean {
-  return machine.proxmox.declared;
-}
-
 // Le port de l'API d'un hôte Proxmox VE.
 const proxmoxAPIPort = 8006;
 
@@ -221,7 +216,7 @@ export function gestureBlockText(t: Translate, block: GestureBlock, agent: Pick<
 }
 
 // Où en est un geste envoyé : parti, pris par l'agent, fait, ou échoué.
-export type GestureStep = "sent" | "accepted" | "done" | "failed";
+type GestureStep = "sent" | "accepted" | "done" | "failed";
 
 export function gestureStep(state: ActionState): GestureStep {
   switch (state) {

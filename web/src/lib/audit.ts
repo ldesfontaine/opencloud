@@ -11,7 +11,7 @@ export function verbOf(action: string): string {
 // L'acteur d'une ligne, décomposé pour l'écran : le genre (dont la pastille
 // se déduit), le nom à montrer et, pour un jeton d'API, pour qui il agit.
 // forWhom est null hors jeton ; "" quand le jeton n'a pas dit pour qui.
-export interface ActorParts {
+interface ActorParts {
   kind: AuditEvent["actor_kind"];
   name: string;
   forWhom: string | null;

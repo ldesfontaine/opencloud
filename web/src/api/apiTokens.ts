@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
-import { api, segment } from "./client";
+import { api } from "./client";
+import { route } from "./routes";
 
 // Les jetons d'API : ce qu'un jeton lit de l'API, pour mcp-maison ou un
 // script, et en écriture les verbes qu'il peut déclencher. Chemin sans sujet du direct : relu à la demande de la page, ou
@@ -84,14 +85,14 @@ export function useAPITokens(): Resource<APITokensState> {
 
 // Le jeton revient en clair, cette fois seulement.
 export async function createAPIToken(body: APITokenRequest): Promise<APITokenResponse> {
-  return api.post<APITokenResponse>(apiTokensPath, body);
+  return api.send<APITokenResponse>(route("POST /api/settings/api-tokens"), body);
 }
 
 export async function deleteAPIToken(id: string): Promise<void> {
-  return api.delete(`${apiTokensPath}/${segment(id)}`);
+  return api.send(route("DELETE /api/settings/api-tokens/{id}", { id }));
 }
 
 // Remplace la portée du jeton : ce que la requête ne dit pas redevient « toutes ».
 export async function setAPITokenReach(id: string, body: ReachRequest): Promise<APIToken> {
-  return api.put<APIToken>(`${apiTokensPath}/${segment(id)}/reach`, body);
+  return api.send<APIToken>(route("PUT /api/settings/api-tokens/{id}/reach", { id }), body);
 }

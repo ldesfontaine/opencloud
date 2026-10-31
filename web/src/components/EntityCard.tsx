@@ -10,13 +10,13 @@ import "./EntityCard.scss";
 
 // Un fait se lit en mono (une adresse, une version) ; `mono: false` pour
 // une phrase (« il y a 12 s »).
-export interface EntityFact {
+interface EntityFact {
   label: string;
   value: ReactNode;
   mono?: boolean;
 }
 
-export interface EntityMeter {
+interface EntityMeter {
   label: string;
   value: ReactNode;
   percent: number;

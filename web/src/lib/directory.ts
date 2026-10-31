@@ -61,7 +61,7 @@ export function emptyServiceForm(): ServiceFormValues {
   };
 }
 
-export function unitFormOf(unit: ServiceUnit): UnitFormValues {
+function unitFormOf(unit: ServiceUnit): UnitFormValues {
   return {
     id: unit.id,
     name: unit.name,
@@ -162,7 +162,7 @@ export function formatUnitPorts(ports: readonly string[]): string {
 
 // Le formulaire d'un projet est aussi le corps de sa création comme de son
 // édition : un nom et un titre, rien de ce que le serveur tient seul.
-export interface ProjectFormValues {
+interface ProjectFormValues {
   name: string;
   title: string;
 }

@@ -93,7 +93,7 @@ function stateSentence(t: Translate, state: SSHState, agentAccount: string | nul
   }
 }
 
-export function AccountState({ state, uid }: { state: SSHState; uid: number }) {
+function AccountState({ state, uid }: { state: SSHState; uid: number }) {
   const t = useT();
   return (
     <span className="ssh-state">

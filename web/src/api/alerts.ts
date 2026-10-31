@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import { route } from "./routes";
 
 // Les alertes, les canaux qui les portent, et les silences qui les taisent
 // (« mutes » côté serveur). Sujet du direct : « alerts », que topicsOf
@@ -236,31 +237,31 @@ export function useMutes(): Resource<MutesResponse> {
 
 // Acquitte d'un coup ; la réponse dit combien l'étaient vraiment.
 export async function acknowledgeAlerts(ids: number[]): Promise<{ acknowledged: number }> {
-  return api.post<{ acknowledged: number }>(`${alertsPath}/actions/acknowledge`, { ids });
+  return api.send<{ acknowledged: number }>(route("POST /api/alerts/actions/acknowledge"), { ids });
 }
 
 export async function acknowledgeAlert(id: NumericID): Promise<void> {
-  return api.post(`${alertPath(id)}/actions/acknowledge`);
+  return api.send(route("POST /api/alerts/{id}/actions/acknowledge", { id: String(id) }));
 }
 
 // Sans id, une création ; avec, le remplacement de ce canal.
 export async function saveChannel(id: NumericID | undefined, body: ChannelRequest): Promise<Channel> {
-  return id === undefined ? api.post<Channel>(channelsPath, body) : api.put<Channel>(channelPath(id), body);
+  return id === undefined ? api.send<Channel>(route("POST /api/alerts/channels"), body) : api.send<Channel>(route("PUT /api/alerts/channels/{id}", { id: String(id) }), body);
 }
 
 export async function deleteChannel(id: NumericID): Promise<void> {
-  return api.delete(channelPath(id));
+  return api.send(route("DELETE /api/alerts/channels/{id}", { id: String(id) }));
 }
 
 // Un vrai envoi, dont le résultat revient tel quel.
 export async function testChannel(id: NumericID): Promise<ChannelTest> {
-  return api.post<ChannelTest>(`${channelPath(id)}/actions/test`);
+  return api.send<ChannelTest>(route("POST /api/alerts/channels/{id}/actions/test", { id: String(id) }));
 }
 
 export async function createMute(body: MuteRequest): Promise<Mute> {
-  return api.post<Mute>(mutesPath, body);
+  return api.send<Mute>(route("POST /api/alerts/mutes"), body);
 }
 
 export async function deleteMute(id: NumericID): Promise<void> {
-  return api.delete(`${mutesPath}/${segment(String(id))}`);
+  return api.send(route("DELETE /api/alerts/mutes/{id}", { id: String(id) }));
 }

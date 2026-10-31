@@ -4,12 +4,15 @@
 // catalogue.
 import { useState } from "react";
 
+import { ActionButton } from "../components/ActionButton";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyLine, KeyValue, Meter, Stat } from "../components/Card";
 import { ConfirmInline } from "../components/ConfirmInline";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { CardGrid, EntityCard } from "../components/EntityCard";
 import { Checkbox, Checks, Field, Input } from "../components/Field";
 import { Icon } from "../components/Icon";
+import { Modal, ModalCancel } from "../components/Modal";
 import type { MenuAction } from "../components/MoreMenu";
 import { PageHead } from "../components/PageHead";
 import { Dot, Pill } from "../components/Pill";
@@ -334,6 +337,11 @@ export function VisualSystem() {
           </section>
 
           <section>
+            <h2 className="side-label section-label">{t("visual.modal.title")}</h2>
+            <ModalSample />
+          </section>
+
+          <section>
             <h2 className="side-label section-label">{t("visual.nav.title")}</h2>
             <div className="grid-nav-nodes">
               <nav className="nav">
@@ -470,6 +478,65 @@ export function VisualSystem() {
         </div>
       </div>
     </>
+  );
+}
+
+// La fenêtre modale : le voile flou, la saisie qui ne se perd pas (Échap
+// demande avant d'abandonner, un clic sur le voile ne ferme rien), la
+// confirmation d'un geste qui ne se défait pas, et le bouton d'action avec ou
+// sans la puce « MCP ».
+function ModalSample() {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const finish = () => {
+    setOpen(false);
+    setText("");
+  };
+  return (
+    <div className="stack gap-14">
+      <div className="cluster">
+        <Button onClick={() => setOpen(true)}>{t("visual.modal.open")}</Button>
+        <ConfirmModal
+          title={t("visual.modal.confirm_title")}
+          question={t("visual.modal.confirm_question")}
+          confirmLabel={t("visual.modal.confirm_label")}
+          onConfirm={() => undefined}
+          variant="danger"
+          icon="x"
+        >
+          {t("visual.modal.confirm_open")}
+        </ConfirmModal>
+      </div>
+      <div className="cluster">
+        <ActionButton route="POST /api/probes/{id}/actions/pause" onClick={() => undefined}>
+          {t("visual.modal.action_verb")}
+        </ActionButton>
+        <ActionButton route="POST /api/probes" icon="plus" onClick={() => undefined}>
+          {t("visual.modal.action_plain")}
+        </ActionButton>
+      </div>
+      {open && (
+        <Modal
+          title={t("visual.modal.title")}
+          dirty={text !== ""}
+          onClose={finish}
+          actions={
+            <>
+              <ModalCancel />
+              <Button variant="primary" onClick={finish}>
+                {t("visual.modal.submit")}
+              </Button>
+            </>
+          }
+        >
+          <p className="secondary">{t("visual.modal.text")}</p>
+          <Field label={t("visual.modal.field_label")} htmlFor="vs-modal-field">
+            <Input id="vs-modal-field" value={text} onChange={(event) => setText(event.target.value)} autoFocus />
+          </Field>
+        </Modal>
+      )}
+    </div>
   );
 }
 

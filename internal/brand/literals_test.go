@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,6 +33,8 @@ var tokenSchemes = []string{"oc_", "ock_"}
 // Le nom du produit s'écrit dans ce paquet et nulle part ailleurs : aucun
 // littéral du code Go de production ne le contient, ni ne vaut un schéma de
 // jeton. Les commentaires et les identifiants Go ne sont pas des littéraux.
+// Le front est tenu de même : les chaînes et le texte des composants .tsx ne
+// nomment pas le produit, le mot-symbole se lit dans la page (Wordmark).
 func TestNameOnlyInBrand(t *testing.T) {
 	root := moduleRoot(t)
 	used := make(map[exception]bool)
@@ -49,6 +52,10 @@ func TestNameOnlyInBrand(t *testing.T) {
 			case ".git", "web/node_modules", "web/dist", "internal/brand":
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".tsx") && strings.HasPrefix(relative, "web/src/") && !strings.HasSuffix(path, ".test.tsx") {
+			checkFrontFile(t, root, path, relative, used)
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -96,6 +103,88 @@ func TestNameOnlyInBrand(t *testing.T) {
 	}
 }
 
+func checkFrontFile(t *testing.T, root, path, relative string, used map[exception]bool) {
+	t.Helper()
+	source, err := os.ReadFile(path) // #nosec G304 -- le parcours du dépôt par le test.
+	if err != nil {
+		t.Errorf("%s: %v", relative, err)
+		return
+	}
+	for _, value := range frontLiterals(string(source)) {
+		if !namesTheProduct(value) {
+			continue
+		}
+		key := exception{relative, value}
+		if _, ok := exceptions[key]; ok {
+			used[key] = true
+			continue
+		}
+		t.Errorf("%s: %q names the product: read it from the page (Wordmark, productName)", relative, excerpt(value))
+	}
+}
+
+// excerpt garde l'entourage du nom : le texte des balises est mis bout à bout
+// et peut être long.
+func excerpt(value string) string {
+	at := strings.Index(strings.ToLower(value), "opencloud")
+	if at < 0 {
+		return value
+	}
+	return value[max(0, at-20):min(len(value), at+29)]
+}
+
+var jsxText = regexp.MustCompile(`>([^<>{}]*)<`)
+
+// frontLiterals rend ce qu'un composant .tsx écrit comme texte : le contenu
+// de ses chaînes, et le texte de ses balises mis bout à bout (le mot-symbole
+// « open »+« Cloud » est écrit en deux balises). Les commentaires et les
+// identifiants n'en sont pas. Un balayage, pas un analyseur : il suffit à
+// garder la règle.
+func frontLiterals(source string) []string {
+	literals := []string{}
+	code := strings.Builder{}
+	for i := 0; i < len(source); {
+		switch c := source[i]; {
+		case strings.HasPrefix(source[i:], "//"):
+			for i < len(source) && source[i] != '\n' {
+				i++
+			}
+		case strings.HasPrefix(source[i:], "/*"):
+			end := strings.Index(source[i+2:], "*/")
+			if end < 0 {
+				i = len(source)
+			} else {
+				i += end + 4
+			}
+		case c == '"' || c == '\'' || c == '`':
+			start := i + 1
+			i = start
+			for i < len(source) && source[i] != c {
+				if source[i] == '\\' {
+					i++
+				}
+				i++
+			}
+			if i > len(source) {
+				i = len(source)
+			}
+			literals = append(literals, source[start:i])
+			code.WriteString(`""`)
+			i++
+		default:
+			code.WriteByte(c)
+			i++
+		}
+	}
+	texts := []string{}
+	for _, match := range jsxText.FindAllStringSubmatch(code.String(), -1) {
+		if text := strings.TrimSpace(match[1]); text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return append(literals, strings.Join(texts, ""))
+}
+
 func namesTheProduct(value string) bool {
 	if strings.Contains(strings.ToLower(value), "opencloud") {
 		return true
@@ -125,4 +214,40 @@ func moduleRoot(t *testing.T) string {
 		}
 		dir = parent
 	}
+}
+
+func TestFrontLiterals_ReadsStringsAndTagTextButNotCommentsOrIdentifiers(t *testing.T) {
+	source := "// openCloud en commentaire\n" +
+		"/* openCloud */\n" +
+		"const opencloud_tools = 3;\n" +
+		"const a = \"http://x\"; const b = 'it\\'s'; const c = `tpl`;\n" +
+		"<span class=\"wordmark\"><span>open</span><b>Cloud</b></span>"
+	got := frontLiterals(source)
+	want := []string{"http://x", "it\\'s", "tpl", "wordmark", "openCloud"}
+	if len(got) != len(want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Errorf("literal %d: got %q, want %q", index, got[index], want[index])
+		}
+	}
+}
+
+func TestFrontLiterals_FlagsAWordmarkWrittenInTags(t *testing.T) {
+	if !slicesContainsProduct(frontLiterals(`<b>open</b><b>Cloud</b>`)) {
+		t.Fatal("le mot-symbole en balises n'est pas vu")
+	}
+	if slicesContainsProduct(frontLiterals(`const opencloud_tools = 3; // openCloud`)) {
+		t.Fatal("un identifiant ou un commentaire ne nomme pas le produit")
+	}
+}
+
+func slicesContainsProduct(literals []string) bool {
+	for _, literal := range literals {
+		if namesTheProduct(literal) {
+			return true
+		}
+	}
+	return false
 }

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { deleteJob, fetchJobDeletePlan, pauseJob, regenerateJobToken, resumeJob, useJob, type Job, type JobResponse, type Ping, type Run } from "../api/jobs";
 import { Button } from "../components/Button";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
@@ -163,10 +164,7 @@ function Installation({ response, reload, initiallyOpen }: { response: JobRespon
   const t = useT();
   const action = useAction();
   const regenerate = () => {
-    action.run(() => regenerateJobToken(response.job.id), {
-      confirm: t("job.regenerate_confirm", response.job.name),
-      onDone: reload,
-    });
+    action.run(() => regenerateJobToken(response.job.id), { onDone: reload });
   };
   return (
     <Disclosure title={t("job.install_title")} aside={t("job.install_text")} initiallyOpen={initiallyOpen}>
@@ -176,9 +174,16 @@ function Installation({ response, reload, initiallyOpen }: { response: JobRespon
           {response.url_local && <Note tone="danger">{t("job.url_local")}</Note>}
           <Failure error={action.error} />
           <div className="cluster">
-            <Button variant="ghost" icon="refresh" onClick={regenerate}>
+            <ConfirmModal
+              title={t("job.regenerate")}
+              question={t("job.regenerate_confirm", response.job.name)}
+              confirmLabel={t("job.regenerate")}
+              onConfirm={regenerate}
+              variant="ghost"
+              icon="refresh"
+            >
               {t("job.regenerate")}
-            </Button>
+            </ConfirmModal>
           </div>
           <KeyValue label={t("job.form_finish")} value={response.ping_url} mono />
           <KeyValue label={t("job.form_start")} value={`${response.ping_url}/start`} mono />

@@ -9,7 +9,7 @@ export interface SelectOption {
 }
 
 // Au-delà, la liste ouverte porte un champ de recherche en tête.
-export const searchThreshold = 8;
+const searchThreshold = 8;
 
 // Une suite de lettres tapées vaut un seul mot tant que les frappes se
 // suivent de moins que ce délai.
@@ -182,21 +182,21 @@ export function searchMenu(state: MenuState, options: readonly SelectOption[], q
   return { ...state, query, active: found.length > 0 ? 0 : -1 };
 }
 
-export interface Box {
+interface Box {
   top: number;
   bottom: number;
   left: number;
   width: number;
 }
 
-export interface Viewport {
+interface Viewport {
   width: number;
   height: number;
 }
 
 // La place de la liste ouverte, en position fixe : top quand elle s'ouvre
 // dessous, bottom quand elle s'ouvre dessus.
-export interface MenuPlace {
+interface MenuPlace {
   top: number | null;
   bottom: number | null;
   left: number;

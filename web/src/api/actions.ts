@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import { route } from "./routes";
 
 // Les ordres envoyés aux agents (ping, mise à jour, sauvegarde, déploiement) et ce qu'ils
 // deviennent. Sujet du direct : « actions », que topicsOf devine du chemin.
@@ -55,7 +56,7 @@ export interface ServerKey {
 // Les derniers ordres d'une machine, ce que sa fiche montre.
 const machineActionsLimit = 10;
 
-export function actionsPath(machineID: string): string {
+function actionsPath(machineID: string): string {
   return `/api/actions?machine=${segment(machineID)}&limit=${machineActionsLimit}`;
 }
 
@@ -78,7 +79,7 @@ export function useServerKey(): Resource<ServerKey> {
 // L'ordre agent.ping : écrit et journalisé avant de partir ; la réponse de
 // l'agent arrive par le direct.
 export async function pingAgent(machineID: string): Promise<ActionRun> {
-  return api.post<ActionRun>(`/api/machines/${segment(machineID)}/actions/ping`);
+  return api.send<ActionRun>(route("POST /api/machines/{id}/actions/ping", { id: machineID }));
 }
 
 // Ce que la fiche d'une machine propose à son agent : la version du serveur,
@@ -94,7 +95,7 @@ export interface AgentUpdateOffer {
   reason: string;
 }
 
-export function agentUpdatePath(machineID: string): string {
+function agentUpdatePath(machineID: string): string {
   return `/api/machines/${segment(machineID)}/agent-update`;
 }
 
@@ -106,19 +107,19 @@ export function useAgentUpdateOffer(machineID: string): Resource<AgentUpdateOffe
 // revérifie, puis redémarre. L'ordre est fini quand il revient avec la
 // nouvelle version.
 export async function updateAgent(machineID: string): Promise<ActionRun> {
-  return api.post<ActionRun>(`/api/machines/${segment(machineID)}/actions/update-agent`);
+  return api.send<ActionRun>(route("POST /api/machines/{id}/actions/update-agent", { id: machineID }));
 }
 
 // L'ordre agent.rollback : l'agent rebascule sur la version d'avant, l'éprouve
 // et redémarre. Confirmé ou annulé comme une mise à jour.
 export async function rollbackAgent(machineID: string): Promise<ActionRun> {
-  return api.post<ActionRun>(`/api/machines/${segment(machineID)}/actions/rollback-agent`);
+  return api.send<ActionRun>(route("POST /api/machines/{id}/actions/rollback-agent", { id: machineID }));
 }
 
 // Pose ou retire « à mettre à jour en dernier » sur la machine (l'opérateur
 // seul : la route n'est ouverte à aucun jeton).
 export async function setUpdateLast(machineID: string, updateLast: boolean): Promise<void> {
-  await api.put(`/api/machines/${segment(machineID)}/update-last`, { update_last: updateLast });
+  await api.send(route("PUT /api/machines/{id}/update-last", { id: machineID }), { update_last: updateLast });
 }
 
 // Les lignes à coller sur une machine dont l'agent n'a pas encore le retour

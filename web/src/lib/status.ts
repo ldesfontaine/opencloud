@@ -44,8 +44,8 @@ export const impactTones: Record<Impact, Tone> = {
 
 // Un incident se planifie ou s'analyse : les statuts qui ont un sens pour
 // chaque nature, dans l'ordre où l'opérateur les parcourt.
-export const incidentStatuses: readonly IncidentStatus[] = ["investigating", "identified", "monitoring", "resolved"];
-export const maintenanceStatuses: readonly IncidentStatus[] = ["scheduled", "in_progress", "resolved"];
+const incidentStatuses: readonly IncidentStatus[] = ["investigating", "identified", "monitoring", "resolved"];
+const maintenanceStatuses: readonly IncidentStatus[] = ["scheduled", "in_progress", "resolved"];
 
 export function statusesFor(impact: Impact): readonly IncidentStatus[] {
   return impact === "maintenance" ? maintenanceStatuses : incidentStatuses;
@@ -103,7 +103,7 @@ export function fromLocalInput(value: string): string | null {
 
 // Ouvrir un incident ou planifier une maintenance : un seul formulaire, dont
 // la nature décide de l'impact, du statut et de la fenêtre qui comptent.
-export type IncidentKind = "incident" | "maintenance";
+type IncidentKind = "incident" | "maintenance";
 
 export const incidentKinds: readonly IncidentKind[] = ["incident", "maintenance"];
 
@@ -113,7 +113,7 @@ export const incidentImpacts: readonly Impact[] = ["degraded", "down"];
 // Un incident s'ouvre sans être déjà résolu.
 export const openingStatuses: readonly IncidentStatus[] = incidentStatuses.filter((status) => status !== "resolved");
 
-export interface IncidentFormValues {
+interface IncidentFormValues {
   kind: IncidentKind;
   title: string;
   impact: Impact;
@@ -150,7 +150,7 @@ export function updateStatusesFor(impact: Impact): IncidentStatus[] {
   return statusesFor(impact).filter((status) => status !== "scheduled");
 }
 
-export interface IncidentUpdateFormValues {
+interface IncidentUpdateFormValues {
   status: IncidentStatus;
   message: string;
 }
@@ -173,7 +173,7 @@ export function saysNothing(values: IncidentUpdateFormValues, incident: Pick<Inc
   return values.message.trim() === "" && values.status === incident.status;
 }
 
-export interface IncidentEditFormValues {
+interface IncidentEditFormValues {
   title: string;
   targets: MemberChoice[];
   startsAt: string;
@@ -210,7 +210,7 @@ export interface MemberChoice {
 }
 
 // La page se choisit à la création : un composant ne change plus de page.
-export interface ComponentFormValues {
+interface ComponentFormValues {
   pageID: string;
   name: string;
   position: string;
@@ -273,7 +273,7 @@ export function chosenPageID(pages: readonly Pick<StatusPage, "id">[], requested
 // Les chemins que lit une page publique, tirés de son adresse
 // /statut/<slug> (barre finale admise) ; null pour une autre adresse. Le
 // slug n'a besoin d'aucun échappement : minuscules, chiffres et tirets.
-export interface PublicStatusPaths {
+interface PublicStatusPaths {
   status: string;
   catalog: string;
   events: string;

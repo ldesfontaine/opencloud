@@ -30,7 +30,7 @@ export function diskSettingsError(
 
 // Les deux seuils tels que les champs les montrent : du texte, jusqu'à
 // l'envoi.
-export interface DiskFormValues {
+interface DiskFormValues {
   attention: string;
   danger: string;
 }

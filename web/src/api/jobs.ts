@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import { route } from "./routes";
 import type { DeletionPlan } from "./deletion";
 
 // Les tâches planifiées, sur le modèle d'api/probes. Sujet du direct :
@@ -90,11 +91,11 @@ export function useJob(id: string | null): Resource<JobResponse> {
 
 // Sans id, une création ; avec, le remplacement de cette tâche.
 export async function saveJob(id: string | undefined, body: JobRequest): Promise<Job> {
-  return id === undefined ? api.post<Job>(jobsPath, body) : api.put<Job>(jobPath(id), body);
+  return id === undefined ? api.send<Job>(route("POST /api/jobs"), body) : api.send<Job>(route("PUT /api/jobs/{id}", { id }), body);
 }
 
 export async function deleteJob(id: string): Promise<void> {
-  return api.delete(jobPath(id));
+  return api.send(route("DELETE /api/jobs/{id}", { id }));
 }
 
 export async function fetchJobDeletePlan(id: string): Promise<DeletionPlan> {
@@ -102,14 +103,14 @@ export async function fetchJobDeletePlan(id: string): Promise<DeletionPlan> {
 }
 
 export async function pauseJob(id: string): Promise<void> {
-  return api.post(`${jobPath(id)}/actions/pause`);
+  return api.send(route("POST /api/jobs/{id}/actions/pause", { id }));
 }
 
 export async function resumeJob(id: string): Promise<void> {
-  return api.post(`${jobPath(id)}/actions/resume`);
+  return api.send(route("POST /api/jobs/{id}/actions/resume", { id }));
 }
 
 // L'ancienne URL de ping cesse aussitôt de répondre.
 export async function regenerateJobToken(id: string): Promise<void> {
-  return api.post(`${jobPath(id)}/actions/regenerate-token`);
+  return api.send(route("POST /api/jobs/{id}/actions/regenerate-token", { id }));
 }

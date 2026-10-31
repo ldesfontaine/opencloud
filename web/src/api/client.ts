@@ -1,3 +1,5 @@
+import type { WriteRoute } from "./routes";
+
 // Ce que l'API rend, tel quel : des faits, des instants ISO en UTC, des
 // durées en secondes ou en millisecondes. Le formatage vit dans le front.
 
@@ -70,11 +72,11 @@ export function segment(value: string): string {
   return encodeURIComponent(value);
 }
 
+// Les lectures passent un chemin ; les écritures, une route de routes.ts :
+// aucune écriture ne part d'un chemin écrit à la main.
 export const api = {
   get: <T>(path: string) => call<T>("GET", path),
-  post: <T>(path: string, body?: unknown) => call<T>("POST", path, body),
-  put: <T>(path: string, body?: unknown) => call<T>("PUT", path, body),
-  delete: <T>(path: string) => call<T>("DELETE", path),
+  send: <T>(write: WriteRoute, body?: unknown) => call<T>(write.method, write.path, body),
 };
 
 // Ce qui n'est pas un refus du serveur (réseau coupé, levée imprévue) se

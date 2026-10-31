@@ -1,0 +1,12 @@
+// La puce « MCP » : un agent peut faire ce geste par un jeton d'API. Dans le
+// bouton primaire, elle reprend son encre en lavis.
+.mcp-chip {
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}

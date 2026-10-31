@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import { route } from "./routes";
 import type { DeletionPlan } from "./deletion";
 import type { Lifecycle } from "./lifecycle";
 import type { ProxmoxSummary } from "./proxmox";
@@ -110,7 +111,6 @@ export interface TokenResponse {
 }
 
 const machinesPath = "/api/machines";
-const tokensPath = `${machinesPath}/tokens`;
 
 function machinePath(id: string): string {
   return `${machinesPath}/${segment(id)}`;
@@ -124,32 +124,32 @@ export function useMachines(wanted = true): Resource<MachinesResponse> {
 // Un jeton à usage unique pour enrôler une machine neuve, avec les droits
 // cochés ; observe s'y ajoute toujours.
 export async function createMachineToken(name: string, capabilities: Capability[]): Promise<TokenResponse> {
-  return api.post<TokenResponse>(tokensPath, { name, capabilities });
+  return api.send<TokenResponse>(route("POST /api/machines/tokens"), { name, capabilities });
 }
 
 export async function deleteMachineToken(id: string): Promise<void> {
-  return api.delete(`${tokensPath}/${segment(id)}`);
+  return api.send(route("DELETE /api/machines/tokens/{id}", { id }));
 }
 
 // La ligne d'installation de l'agent de la machine openCloud, tant qu'elle
 // n'en a jamais eu : l'écran de première configuration la montre.
 export async function offerLocalEnrollment(): Promise<TokenResponse> {
-  return api.post<TokenResponse>(`${machinesPath}/local-enrollment`);
+  return api.send<TokenResponse>(route("POST /api/machines/local-enrollment"));
 }
 
 // Un nouveau jeton pour le même identifiant de machine. Avec des droits,
 // c'est changer ceux de son agent ; sans, il garde ceux d'avant.
 export async function reenrollMachine(id: string, capabilities?: Capability[]): Promise<TokenResponse> {
-  return api.post<TokenResponse>(`${machinePath(id)}/actions/reenroll`, capabilities === undefined ? {} : { capabilities });
+  return api.send<TokenResponse>(route("POST /api/machines/{id}/actions/reenroll", { id }), capabilities === undefined ? {} : { capabilities });
 }
 
 // L'agent est refusé et s'arrête ; la machine et son historique restent.
 export async function revokeAgent(id: string): Promise<void> {
-  return api.post(`${machinePath(id)}/actions/revoke`);
+  return api.send(route("POST /api/machines/{id}/actions/revoke", { id }));
 }
 
 export async function deleteMachine(id: string): Promise<void> {
-  return api.delete(machinePath(id));
+  return api.send(route("DELETE /api/machines/{id}", { id }));
 }
 
 // Ce que le retrait ferait, lu avant de le confirmer.
@@ -160,5 +160,5 @@ export async function fetchMachineDeletePlan(id: string): Promise<DeletionPlan> 
 // La machine vérifie ses images à son rythme ; la réponse dit seulement que
 // la demande est partie.
 export async function checkMachineUpdates(id: string): Promise<void> {
-  return api.post(`${machinePath(id)}/actions/check-updates`);
+  return api.send(route("POST /api/machines/{id}/actions/check-updates", { id }));
 }

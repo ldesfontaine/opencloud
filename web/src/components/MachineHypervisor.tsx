@@ -32,6 +32,7 @@ import { reasonText } from "./ActionsCard";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Meter, Note } from "./Card";
 import { ConfirmInline } from "./ConfirmInline";
+import { ConfirmModal } from "./ConfirmModal";
 import { Failure } from "./Failure";
 import { MoreMenu, type MenuAction } from "./MoreMenu";
 import { Pill } from "./Pill";
@@ -82,10 +83,7 @@ function HostCard({ machine, host }: { machine: Machine; host: ProxmoxHost }) {
   const now = useNow();
   const removal = useAction();
   const remove = () => {
-    removal.run(() => removeMachineProxmox(machine.id), {
-      confirm: t("machine.proxmox_remove_confirm", machine.name),
-      topic: "machines",
-    });
+    removal.run(() => removeMachineProxmox(machine.id), { topic: "machines" });
   };
   return (
     <Card>
@@ -107,9 +105,18 @@ function HostCard({ machine, host }: { machine: Machine; host: ProxmoxHost }) {
           <Button small icon="settings" to={`/machines/${machine.id}/proxmox`}>
             {t("machine.proxmox_edit")}
           </Button>
-          <Button small variant="danger" icon="x" onClick={remove} disabled={removal.busy}>
+          <ConfirmModal
+            title={t("machine.proxmox_remove")}
+            question={t("machine.proxmox_remove_confirm", machine.name)}
+            confirmLabel={t("machine.proxmox_remove")}
+            onConfirm={remove}
+            variant="danger"
+            small
+            icon="x"
+            disabled={removal.busy}
+          >
             {t("machine.proxmox_remove")}
-          </Button>
+          </ConfirmModal>
         </div>
       </CardBody>
     </Card>

@@ -8,7 +8,7 @@ export const topics = ["machines", "jobs", "resources", "containers", "probes", 
 
 export type Topic = (typeof topics)[number];
 
-export type Versions = Record<Topic, number>;
+type Versions = Record<Topic, number>;
 
 // Un littéral typé : un sujet ajouté à topics et oublié ici ne compile pas.
 export function initialVersions(): Versions {
@@ -29,7 +29,7 @@ export function bumpVersions(versions: Versions, topic?: Topic): Versions {
 // Les sujets qui changent un compteur de /api/counts : tous sauf les
 // mesures. L'annuaire en est : la politique d'une unité change le compte
 // des mises à jour ; le statut aussi : les incidents ouverts.
-export const countedTopics: readonly Topic[] = ["machines", "jobs", "containers", "probes", "status", "alerts", "directory"];
+const countedTopics: readonly Topic[] = ["machines", "jobs", "containers", "probes", "status", "alerts", "directory"];
 
 interface Refresh {
   // Relit un sujet, ou tout sans argument.

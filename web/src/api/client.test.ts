@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 
 import { api, ApiError, errorKey, failureOf, segment } from "./client";
+import { route } from "./routes";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -17,8 +18,8 @@ function recordFetch(): RequestInit[] {
 
 test("une écriture sans corps part en JSON avec {}", async () => {
   const calls = recordFetch();
-  await api.post("/api/settings/api-tokens");
-  await api.delete("/api/jobs/x");
+  await api.send(route("POST /api/settings/api-tokens"));
+  await api.send(route("DELETE /api/jobs/{id}", { id: "x" }));
   for (const init of calls) {
     expect(init.headers).toEqual({ "Content-Type": "application/json" });
     expect(init.body).toBe("{}");
@@ -27,7 +28,7 @@ test("une écriture sans corps part en JSON avec {}", async () => {
 
 test("une écriture avec corps l'envoie tel quel, une lecture n'envoie rien", async () => {
   const calls = recordFetch();
-  await api.put("/api/session/language", { language: "en" });
+  await api.send(route("PUT /api/session/language"), { language: "en" });
   await api.get("/api/session");
   expect(calls).toHaveLength(2);
   expect(calls[0]?.body).toBe('{"language":"en"}');

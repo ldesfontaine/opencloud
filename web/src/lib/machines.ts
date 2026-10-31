@@ -27,13 +27,20 @@ export interface RightsValues {
 // Le formulaire d'une machine neuve : l'opérateur la nomme et coche les
 // droits de son agent, le serveur répond par un jeton et la ligne
 // d'installation qui les porte.
-export interface MachineFormValues extends RightsValues {
+interface MachineFormValues extends RightsValues {
   name: string;
 }
 
 // probe.lan est coché d'emblée : les sondes d'une machine visent d'abord son
 // réseau local ; l'opérateur le décoche s'il veut les en empêcher.
 export const emptyMachineForm: MachineFormValues = { name: "", rights: ["probe.lan"], backupPath: "", writePaths: "" };
+
+// La saisie a changé depuis le formulaire neuf : fermer la fenêtre de l'ajout
+// demande alors s'il faut l'abandonner.
+export function isMachineFormModified(values: MachineFormValues): boolean {
+  const sameRights = values.rights.length === emptyMachineForm.rights.length && values.rights.every((right) => emptyMachineForm.rights.includes(right));
+  return values.name.trim() !== "" || values.backupPath.trim() !== "" || values.writePaths.trim() !== "" || !sameRights;
+}
 
 // Les droits d'un agent en valeurs du formulaire : ce que son jeton
 // demandait, pour les changer.
@@ -58,7 +65,7 @@ export function tokenPageState(token: TokenResponse, rights: Capability[]): Toke
 
 // La racine des services qu'un agent déploie quand on ne lui en donne pas
 // d'autre : brand.WorkspaceRoot côté Go (-root-dir).
-export const workspaceRoot = "/srv/workspace";
+const workspaceRoot = "/srv/workspace";
 
 // Les dossiers où l'agent écrit hors de son état, que son unité systemd ne
 // laisse pas écrire sans ReadWritePaths : celui des sauvegardes reçues, et la

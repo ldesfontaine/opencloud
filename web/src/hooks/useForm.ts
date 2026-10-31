@@ -3,12 +3,12 @@ import { useEffect, useState } from "react";
 // D'où un formulaire d'édition tire ses valeurs : la ressource lue, null
 // tant qu'elle n'est pas arrivée, et sa traduction en valeurs (jobFormOf,
 // probeFormOf…).
-export interface Filling<Source, Values> {
+interface Filling<Source, Values> {
   source: Source | null;
   fill: (source: Source) => Values;
 }
 
-export interface Form<Values> {
+interface Form<Values> {
   values: Values;
   change: <Key extends keyof Values>(key: Key, value: Values[Key]) => void;
   // Plusieurs champs d'un coup, par-dessus la saisie : voir useForm.

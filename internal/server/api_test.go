@@ -258,15 +258,15 @@ func compareGolden(t *testing.T, golden, got string) {
 	}
 	want, err := os.ReadFile(golden)
 	if err != nil {
-		t.Fatalf("%v (lancer go test ./web -update)", err)
+		t.Fatalf("%v (lancer go test ./internal/server -update)", err)
 	}
 	if got != string(want) {
-		t.Fatalf("réponse différente de %s :\n%s\n(lancer go test ./web -update après vérification)", golden, got)
+		t.Fatalf("réponse différente de %s :\n%s\n(lancer go test ./internal/server -update après vérification)", golden, got)
 	}
 }
 
 // Chaque lecture de l'API est figée dans testdata/*.golden.json ;
-// `go test ./web -update` les réécrit après un changement voulu.
+// `go test ./internal/server -update` les réécrit après un changement voulu.
 func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)

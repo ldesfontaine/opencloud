@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { failureOf, type ApiError } from "../api/client";
 import { planOfRefusal, type DeletionPlan } from "../api/deletion";
@@ -9,6 +9,7 @@ import { blockerText, countsText, isBarePlan } from "../lib/deletion";
 import { Button } from "./Button";
 import { Note } from "./Card";
 import { Failure } from "./Failure";
+import { Modal, ModalCancel } from "./Modal";
 import "./DeletePlanDialog.scss";
 
 interface Props {
@@ -29,7 +30,6 @@ interface Props {
 // entre-temps) remplace le plan par celui que le serveur rend.
 export function DeletePlanDialog({ question, confirmLabel, loadPlan, perform, topic, onDone, onClose }: Props) {
   const { t, language } = useI18n();
-  const dialog = useRef<HTMLDialogElement>(null);
   const action = useAction();
   const [loaded, setLoaded] = useState<DeletionPlan | null>(null);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
@@ -38,9 +38,6 @@ export function DeletePlanDialog({ question, confirmLabel, loadPlan, perform, to
   // et la page la démonte en la fermant. loadPlan est une flèche refaite à
   // chaque rendu de la page : la suivre relirait le plan sans fin.
   useEffect(() => {
-    if (dialog.current !== null && !dialog.current.open) {
-      dialog.current.showModal();
-    }
     loadPlan().then(setLoaded, (failure: unknown) => setLoadError(failureOf(failure)));
   }, []);
 
@@ -50,18 +47,23 @@ export function DeletePlanDialog({ question, confirmLabel, loadPlan, perform, to
   };
 
   return (
-    <dialog ref={dialog} className="delete-plan" onClose={onClose}>
+    <Modal
+      title={confirmLabel}
+      onClose={onClose}
+      actions={
+        <>
+          <ModalCancel />
+          <Button variant="danger" icon="x" onClick={confirm} disabled={plan === null || plan.blocked || action.busy}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
       <p className="delete-plan-question">{question}</p>
       <Failure error={loadError ?? action.error} />
       {plan === null && loadError === null && <p className="muted">{t("deletion.loading")}</p>}
       {plan !== null && <PlanBody plan={plan} t={t} language={language} />}
-      <div className="delete-plan-actions">
-        <Button onClick={() => dialog.current?.close()}>{t("deletion.cancel")}</Button>
-        <Button variant="danger" icon="x" onClick={confirm} disabled={plan === null || plan.blocked || action.busy}>
-          {confirmLabel}
-        </Button>
-      </div>
-    </dialog>
+    </Modal>
   );
 }
 

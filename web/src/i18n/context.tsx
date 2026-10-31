@@ -15,6 +15,8 @@ interface I18n {
   // ainsi sur le même chiffre, tenu à un seul endroit.
   certificates: CertificateThresholds;
   disks: DiskThresholds;
+  // Les routes d'écriture qui sont aussi des verbes d'API (puce « MCP »).
+  verbRoutes: ReadonlySet<string>;
   t: Translate;
   setLanguage: (code: string) => Promise<void>;
   // Relit la session : après un réglage de seuil, les jauges suivent sans
@@ -70,6 +72,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       languages: session.languages,
       certificates: session.certificate_thresholds,
       disks: session.disk_thresholds,
+      verbRoutes: new Set(session.verbs.map((verb) => verb.route)),
       t,
       setLanguage,
       reloadSession: load,
@@ -110,4 +113,10 @@ export function useCertificateThresholds(): CertificateThresholds {
 
 export function useDiskThresholds(): DiskThresholds {
   return useI18n().disks;
+}
+
+// Dit si une écriture est aussi un verbe d'API que les jetons peuvent porter.
+export function useIsVerbRoute(): (route: string) => boolean {
+  const { verbRoutes } = useI18n();
+  return (route) => verbRoutes.has(route);
 }
