@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Navigate, useLocation, useNavigate, useParams } from "react-router";
+import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router";
 
 import { useMachineContainers } from "../api/containers";
 import type { Lifecycle } from "../api/lifecycle";
-import { deleteMachine, fetchMachineDeletePlan, reenrollMachine, revokeAgent, useMachines, type Agent, type Machine } from "../api/machines";
+import { deleteMachine, fetchMachineDeletePlan, revokeAgent, useMachines, type Agent, type Machine } from "../api/machines";
 import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
 import { ActionsCard } from "../components/ActionsCard";
@@ -32,7 +32,7 @@ import { useT } from "../i18n/context";
 import { renamedMachineTabs, resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
 import { lifecycleHasDetails } from "../lib/lifecycle";
-import { describeAccount, describeCapability, tokenPageState, unavailableRights } from "../lib/machines";
+import { describeAccount, describeCapability, unavailableRights } from "../lib/machines";
 import { formatWhen } from "../lib/time";
 import { NotFound } from "./NotFound";
 import "./Machine.scss";
@@ -105,6 +105,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
       ) : (
         <MachineProbes machineID={current.id} />
       )}
+      {/* Les fenêtres de l'adresse : ré-enrôler, déclarer l'hôte Proxmox. */}
+      <Outlet />
     </div>
   );
 }
@@ -126,7 +128,7 @@ function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
 // L'agent de la machine : sa version, depuis quand, s'il est révoqué, et ses
 // droits, tels qu'il les rapporte et tels que sa commande d'installation les
 // demandait. Il applique ceux de son fichier ; les changer, c'est le
-// ré-enrôler, par la page des droits.
+// ré-enrôler, dans la fenêtre du même nom.
 function AgentCard({ machineID, agent, updateLast, online, now }: { machineID: string; agent: Agent | null; updateLast: boolean; online: boolean; now: number }) {
   const t = useT();
   if (agent === null) {
@@ -170,13 +172,6 @@ function AgentCard({ machineID, agent, updateLast, online, now }: { machineID: s
           </Note>
         )}
         <p className="secondary">{t("machine.agent_rights_note")}</p>
-        {agent.revoked_at === null && (
-          <div>
-            <Button small icon="settings" to={`/machines/${machineID}/droits`}>
-              {t("machine.change_rights")}
-            </Button>
-          </div>
-        )}
       </CardBody>
     </Card>
   );
@@ -292,7 +287,8 @@ function MachineLogs({ machineID }: { machineID: string }) {
   );
 }
 
-// Ré-enrôler donne un nouveau jeton pour le même id ; révoquer refuse l'agent
+// Ré-enrôler (une fenêtre, aussi pour changer les droits) donne un nouveau
+// jeton pour le même id ; révoquer refuse l'agent
 // et garde tout le reste ; retirer coupe l'agent et efface l'historique,
 // après confirmation sur le plan : ce qui le retient (services, sondes,
 // tâches, page de statut), ce qui part avec la machine.
@@ -302,13 +298,6 @@ function Actions({ machine }: { machine: Machine }) {
   const action = useAction();
   const [removing, setRemoving] = useState(false);
 
-  const reenroll = () => {
-    action.run(() => reenrollMachine(machine.id), {
-      topic: "all",
-      onDone: (token) => void navigate("/machines/jeton", { state: tokenPageState(token, machine.agent?.requested ?? []) }),
-    });
-  };
-
   const revoke = () => {
     action.run(() => revokeAgent(machine.id), { topic: "all" });
   };
@@ -316,7 +305,7 @@ function Actions({ machine }: { machine: Machine }) {
   return (
     <>
       <Failure error={action.error} />
-      <Button icon="refresh" onClick={reenroll}>
+      <Button icon="refresh" to={`/machines/${machine.id}/reenroller`}>
         {t("machine.reenroll")}
       </Button>
       {machine.agent !== null && machine.agent.revoked_at === null && (

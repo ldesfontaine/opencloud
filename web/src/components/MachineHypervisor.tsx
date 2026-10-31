@@ -196,9 +196,9 @@ function GuestRow({ machine, guest, runs }: { machine: Machine; guest: ProxmoxGu
     ...(gesture.blocked !== null && { hint: gestureBlockText(t, gesture.blocked, machine.agent) }),
     onSelect: () => choose(gesture),
   }));
-  // Un droit qui manque se change d'ici : la page des droits ré-enrôle l'agent.
+  // Un droit qui manque se donne d'ici : ré-enrôler l'agent, droits pré-cochés.
   if (gestures.some((gesture) => gesture.blocked?.kind === "right_missing")) {
-    actions.push({ label: t("machine.change_rights"), to: `/machines/${machine.id}/droits` });
+    actions.push({ label: t("machine.reenroll"), to: `/machines/${machine.id}/reenroller` });
   }
   const panelOpen = chosen !== null || sent !== null || sending.error !== null;
 

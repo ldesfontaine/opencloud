@@ -52,6 +52,13 @@ export function isMachineFormModified(values: MachineFormValues): boolean {
   return values.name.trim() !== "" || values.role !== emptyMachineForm.role || values.backupPath.trim() !== "" || values.writePaths.trim() !== "" || !sameRights;
 }
 
+// Les droits ont changé depuis ceux d'origine (l'ordre des cases n'y compte pas) :
+// fermer la fenêtre du ré-enrôlement demande alors s'il faut les abandonner.
+export function isRightsModified(values: RightsValues, initial: RightsValues): boolean {
+  const sameRights = values.rights.length === initial.rights.length && values.rights.every((right) => initial.rights.includes(right));
+  return !sameRights || values.backupPath.trim() !== initial.backupPath.trim() || values.writePaths.trim() !== initial.writePaths.trim();
+}
+
 // Les droits d'un agent en valeurs du formulaire : ce que son jeton
 // demandait, pour les changer.
 export function rightsFormOf(capabilities: Capability[]): RightsValues {

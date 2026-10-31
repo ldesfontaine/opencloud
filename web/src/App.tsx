@@ -23,9 +23,8 @@ import { JobForm } from "./pages/JobForm";
 import { Jobs } from "./pages/Jobs";
 import { MachinePage } from "./pages/Machine";
 import { AddMachine } from "./pages/machines/AddMachine";
-import { EnrollmentTokenModal } from "./pages/machines/EnrollmentTokenModal";
-import { MachineRights } from "./pages/MachineRights";
-import { MachineProxmox } from "./pages/MachineProxmox";
+import { DeclareProxmoxHost } from "./pages/machines/DeclareProxmoxHost";
+import { ReenrollMachine } from "./pages/machines/ReenrollMachine";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
 import { ProbePage } from "./pages/Probe";
@@ -70,14 +69,14 @@ export function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Overview />} />
-        {/* Les fenêtres modales sont des routes filles : la liste reste le fond, et chaque fenêtre garde son adresse. */}
+        {/* Les fenêtres modales sont des routes filles : la liste (ou la fiche) reste le fond, et chaque fenêtre garde son adresse. */}
         <Route path="machines" element={<Machines />}>
           <Route path="nouvelle" element={<AddMachine />} />
-          <Route path="jeton" element={<EnrollmentTokenModal />} />
         </Route>
-        <Route path="machines/:id" element={<MachinePage />} />
-        <Route path="machines/:id/droits" element={<MachineRights />} />
-        <Route path="machines/:id/proxmox" element={<MachineProxmox />} />
+        <Route path="machines/:id" element={<MachinePage />}>
+          <Route path="reenroller" element={<ReenrollMachine />} />
+          <Route path="proxmox" element={<DeclareProxmoxHost />} />
+        </Route>
         <Route path="machines/:id/:tab" element={<MachinePage />} />
         <Route path="services" element={<Services tab="annuaire" />} />
         <Route path="services/conteneurs" element={<Services tab="conteneurs" />} />
