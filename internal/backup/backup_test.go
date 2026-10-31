@@ -135,6 +135,14 @@ func newBench(t *testing.T, reportedRights string) *bench {
 	b.backups.SetAuditor(journal)
 	b.backups.SetSender(b.actions)
 	b.backups.SetParcels(b.outbox)
+	// Un passage lancé par un test suit la vie du serveur : on l'arrête et on
+	// l'attend avant que le dossier d'état soit effacé.
+	lifetime, stopServer := context.WithCancel(context.Background())
+	b.backups.SetLifetime(lifetime)
+	t.Cleanup(func() {
+		stopServer()
+		b.backups.Settle()
+	})
 	return b
 }
 

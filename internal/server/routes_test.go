@@ -210,6 +210,11 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	backups := backup.New(db, machines, root, logger)
 	backups.SetClock(func() time.Time { return testNow })
 	backups.SetWorkFactor(10)
+	// Les passages lancés par une requête suivent la vie du serveur : à la fin
+	// du test on l'arrête, puis on attend qu'ils aient fini d'écrire, avant que
+	// le dossier d'état soit effacé.
+	lifetime, stopServer := context.WithCancel(context.Background())
+	backups.SetLifetime(lifetime)
 	backups.SetSender(actions)
 	backups.SetParcels(outbox)
 	backups.SetGuests(db)
@@ -222,6 +227,12 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	roles.SetWatcher(bus)
 	hypervisors := proxmox.New(db, machines, logger)
 	hypervisors.SetClock(func() time.Time { return testNow })
+	hypervisors.SetLifetime(lifetime)
+	t.Cleanup(func() {
+		stopServer()
+		backups.WaitBackground()
+		hypervisors.WaitBackground()
+	})
 	hypervisors.SetWatcher(bus)
 	hypervisors.SetAuditor(journal)
 	firewalls := firewall.New(db, logger)

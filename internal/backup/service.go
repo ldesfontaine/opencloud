@@ -149,6 +149,10 @@ func (s *Service) SetClock(now func() time.Time)      { s.now = now }
 // en arrière-plan s'arrêtent.
 func (s *Service) SetLifetime(lifetime context.Context) { s.lifetime = lifetime }
 
+// WaitBackground attend les passages et les suivis en cours : l'arrêt du
+// serveur, ou un test.
+func (s *Service) WaitBackground() { s.background.Wait() }
+
 // SetWorkFactor baisse le coût de scrypt : pour les tests seulement.
 func (s *Service) SetWorkFactor(workFactor int) { s.workFactor = workFactor }
 

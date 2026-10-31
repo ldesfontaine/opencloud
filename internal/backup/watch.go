@@ -13,7 +13,7 @@ import (
 func (s *Service) Watch(ctx context.Context) {
 	// Un plan machine lancé à la main court encore : la base ne ferme pas
 	// dessous.
-	defer s.background.Wait()
+	defer s.WaitBackground()
 	ticker := time.NewTicker(watchPeriod)
 	defer ticker.Stop()
 	for {
