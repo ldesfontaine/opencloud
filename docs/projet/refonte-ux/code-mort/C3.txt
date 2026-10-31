@@ -1,0 +1,5 @@
+# C3 : code mort avant / après (#407)
+
+deadcode -test ./... avant : 0 résultat ; après : 0
+deadcode ./... (ce que seuls les tests appellent) avant : 79 ; après : 79 (les mêmes lignes, aux numéros près : bancs de test et listes fermées déjà classés faux positifs au cadrage §2.1)
+knip 5.88.1, entrées src/main.tsx, src/statut/main.tsx, public/theme.js et les tests : avant 0, après 0
