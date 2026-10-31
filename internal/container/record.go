@@ -128,6 +128,9 @@ func planChanges(machineID string, stored []Container, report Report, now time.T
 	if report.NetworksComplete {
 		plan.applyNetworks(report.Networks)
 	}
+	if report.VolumesComplete {
+		plan.applyVolumes(report.Volumes)
+	}
 	for _, event := range report.Events {
 		plan.applyEvent(event)
 	}
@@ -179,6 +182,16 @@ func (p *planner) applyNetworks(networks []NetworkReport) {
 		p.changes.Networks = append(p.changes.Networks, Network{
 			MachineID: p.machineID, NetworkID: network.NetworkID, Name: network.Name, Driver: network.Driver,
 			Internal: network.Internal, Group: network.Group, SeenAt: p.now,
+		})
+	}
+}
+
+func (p *planner) applyVolumes(volumes []VolumeReport) {
+	p.changes.ReplaceVolumes = true
+	p.changes.Volumes = make([]Volume, 0, len(volumes))
+	for _, volume := range volumes {
+		p.changes.Volumes = append(p.changes.Volumes, Volume{
+			MachineID: p.machineID, Name: volume.Name, Driver: volume.Driver, UsedBy: volume.UsedBy, SeenAt: p.now,
 		})
 	}
 }

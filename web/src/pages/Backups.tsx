@@ -30,6 +30,7 @@ import { isBackedUp, passphraseProblem } from "../lib/backups";
 import type { Tone } from "../lib/tone";
 import { formatWhen } from "../lib/time";
 import { PlanCard } from "./backups/PlanCard";
+import { Inventory } from "./backups/Inventory";
 import { PlanForm } from "./backups/PlanForm";
 
 const rightTones: Record<BackupRight, Tone> = { ok: "ok", missing: "danger", unavailable: "warn", unknown: "neutral" };
@@ -50,6 +51,7 @@ export function Backups() {
             <KeyringCard overview={overview} />
             <DestinationsCard overview={overview} />
             <PlansSection overview={overview} />
+            <Inventory />
           </div>
         )}
       </Loaded>

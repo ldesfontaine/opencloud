@@ -144,6 +144,8 @@ GET /api/audit/forwarding
 GET /api/actions
 GET /api/agents/server-key
 GET /api/backups
+GET /api/backups/inventory
+GET /api/backups/runs
 POST /api/backups/keyring
 POST /api/backups/destinations
 DELETE /api/backups/destinations/{id}

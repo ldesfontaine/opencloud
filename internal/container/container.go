@@ -61,6 +61,8 @@ const (
 	MaxPathLength          = 4096
 	// Les réseaux d'une machine et ceux qu'un conteneur joint ; les alias
 	// et les dépendances déclarées d'un conteneur.
+	MaxVolumesPerMachine    = 512
+	MaxVolumeUsers          = 64
 	MaxNetworksPerMachine   = 256
 	MaxNetworksPerContainer = 32
 	MaxAliasesPerNetwork    = 16
@@ -277,6 +279,17 @@ const (
 	DependencyCompose DependencySource = "compose"
 	DependencyLink    DependencySource = "link"
 )
+
+// Volume est un volume nommé Docker d'une machine : son nom, son pilote et les
+// conteneurs qui le montent. Aucune donnée du volume n'est lue.
+type Volume struct {
+	MachineID string
+	Name      string
+	Driver    string
+	// Les noms des conteneurs qui le montent, vivants ou arrêtés.
+	UsedBy []string
+	SeenAt time.Time
+}
 
 // Network est un réseau Docker d'une machine. Les réseaux bridge, host et
 // none existent sur toute machine : ils ne font jamais un groupe.

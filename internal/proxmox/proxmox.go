@@ -92,6 +92,11 @@ type Guest struct {
 	// Zéro : aucune sauvegarde connue.
 	LastBackupAt    time.Time
 	LastBackupBytes int64
+	// Le stockage de la plus récente, et ce que tous les stockages gardent de
+	// cet invité : le nombre d'archives et leur taille totale.
+	LastBackupStorage string
+	BackupCount       int
+	BackupTotalBytes  int64
 }
 
 type Storage struct {

@@ -180,6 +180,11 @@ func (db *DB) ApplyChanges(ctx context.Context, changes container.Changes) error
 				return err
 			}
 		}
+		if changes.ReplaceVolumes {
+			if err := replaceMachineVolumes(ctx, tx, changes.MachineID, changes.Volumes); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 }
@@ -295,6 +300,53 @@ func replaceMachineNetworks(ctx context.Context, tx *sql.Tx, machineID string, n
 		}
 	}
 	return nil
+}
+
+// replaceMachineVolumes remplace la liste des volumes de la machine.
+func replaceMachineVolumes(ctx context.Context, tx *sql.Tx, machineID string, volumes []container.Volume) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_volumes WHERE machine_id = ?`, machineID); err != nil {
+		return fmt.Errorf("clear machine volumes: %w", err)
+	}
+	for _, volume := range volumes {
+		usedBy, err := encodeList(volume.UsedBy)
+		if err != nil {
+			return fmt.Errorf("encode volume users: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO machine_volumes (machine_id, name, driver, used_by, seen_at) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (machine_id, name) DO UPDATE SET driver = excluded.driver, used_by = excluded.used_by,
+				seen_at = excluded.seen_at`,
+			machineID, volume.Name, volume.Driver, usedBy, volume.SeenAt.Unix())
+		if err != nil {
+			return fmt.Errorf("insert machine volume %s: %w", volume.Name, err)
+		}
+	}
+	return nil
+}
+
+// ListVolumes rend les volumes d'une machine, par nom.
+func (db *DB) ListVolumes(ctx context.Context, machineID string) ([]container.Volume, error) {
+	rows, err := db.sql.QueryContext(ctx, `
+		SELECT machine_id, name, driver, used_by, seen_at FROM machine_volumes
+		WHERE machine_id = ? ORDER BY name`, machineID)
+	if err != nil {
+		return nil, fmt.Errorf("list machine volumes: %w", err)
+	}
+	return collect(rows, scanVolume)
+}
+
+func scanVolume(row scanner) (container.Volume, error) {
+	var volume container.Volume
+	var usedBy string
+	var seenAt int64
+	if err := row.Scan(&volume.MachineID, &volume.Name, &volume.Driver, &usedBy, &seenAt); err != nil {
+		return container.Volume{}, err
+	}
+	if err := json.Unmarshal([]byte(usedBy), &volume.UsedBy); err != nil {
+		return container.Volume{}, fmt.Errorf("decode volume users: %w", err)
+	}
+	volume.SeenAt = time.Unix(seenAt, 0).UTC()
+	return volume, nil
 }
 
 // ListNetworks rend les réseaux d'une machine, par nom.

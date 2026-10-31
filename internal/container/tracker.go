@@ -21,6 +21,8 @@ type Store interface {
 	LatestContainerSamples(ctx context.Context) ([]Sample, error)
 	// ListNetworks rend les réseaux d'une machine, par nom.
 	ListNetworks(ctx context.Context, machineID string) ([]Network, error)
+	// ListVolumes rend les volumes d'une machine, par nom.
+	ListVolumes(ctx context.Context, machineID string) ([]Volume, error)
 	PurgeContainers(ctx context.Context, transitionsBefore, archivedBefore, samplesBefore time.Time) error
 	// SetContainerUnits écrit le rattachement des fiches nommées, et rien
 	// d'autre ; une unité disparue entre-temps s'écrit comme « non déclaré ».
@@ -66,8 +68,11 @@ type Changes struct {
 	// liste complète fait foi, un réseau détruit disparaît.
 	ReplaceNetworks bool
 	Networks        []Network
-	Transitions     []Transition
-	Samples         []Sample
+	// ReplaceVolumes remplace de même les volumes de la machine.
+	ReplaceVolumes bool
+	Volumes        []Volume
+	Transitions    []Transition
+	Samples        []Sample
 	// Les plafonds de la machine, appliqués par le store dans la même
 	// transaction que l'écriture : les fiches archivées les plus anciennes, puis
 	// les transitions les plus anciennes, partent au-delà. Zéro : pas de plafond.

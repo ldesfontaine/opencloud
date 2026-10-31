@@ -106,6 +106,12 @@ func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
 		w.deliverNetworks(ctx)
 		return
 	}
+	// Qui monte quoi ne se lit que dans l'inventaire des conteneurs : un volume
+	// créé ou détruit le fait relire en entier.
+	if raw.Type == "volume" && (raw.Action == "create" || raw.Action == "destroy") {
+		w.deliverInventory(ctx)
+		return
+	}
 	w.noteStopRequest(raw)
 	event, wanted := translate(raw)
 	if !wanted {

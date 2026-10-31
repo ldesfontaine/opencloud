@@ -26,7 +26,7 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 	if err != nil {
 		return Reading{}, err
 	}
-	latest := map[int]BackupEntry{}
+	seen := map[int]archives{}
 	for _, storage := range storages {
 		// Un stockage hors ligne répond par une erreur : il n'a rien à dire.
 		if !storage.Active || !storage.AcceptsBackups() {
@@ -36,23 +36,42 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 		if err != nil {
 			return Reading{}, err
 		}
-		keepNewest(latest, entries)
+		for index := range entries {
+			entries[index].Storage = storage.Name
+		}
+		addArchives(seen, entries)
 	}
 	for index := range guests {
-		if entry, found := latest[guests[index].VMID]; found {
-			guests[index].LastBackupAt = entry.CreatedAt
-			guests[index].LastBackupBytes = entry.Size
+		if found, ok := seen[guests[index].VMID]; ok {
+			guests[index].LastBackupAt = found.newest.CreatedAt
+			guests[index].LastBackupBytes = found.newest.Size
+			guests[index].LastBackupStorage = found.newest.Storage
+			guests[index].BackupCount = found.count
+			guests[index].BackupTotalBytes = found.totalBytes
 		}
 	}
 	return Reading{Version: version, Guests: guests, Storages: storages}, nil
 }
 
-// keepNewest retient, par VM, l'archive la plus récente de toutes celles vues.
-func keepNewest(latest map[int]BackupEntry, entries []BackupEntry) {
+// archives est ce que les stockages gardent d'une VM : la plus récente, le
+// nombre d'archives et leur taille totale.
+type archives struct {
+	newest     BackupEntry
+	count      int
+	totalBytes int64
+}
+
+// addArchives rattache chaque archive à sa VM (le numéro du nom du fichier) et
+// retient, par VM, la plus récente de toutes celles vues.
+func addArchives(seen map[int]archives, entries []BackupEntry) {
 	for _, entry := range entries {
-		if known, found := latest[entry.VMID]; !found || entry.CreatedAt.After(known.CreatedAt) {
-			latest[entry.VMID] = entry
+		known := seen[entry.VMID]
+		if known.count == 0 || entry.CreatedAt.After(known.newest.CreatedAt) {
+			known.newest = entry
 		}
+		known.count++
+		known.totalBytes += entry.Size
+		seen[entry.VMID] = known
 	}
 }
 
