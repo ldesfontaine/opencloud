@@ -10,7 +10,7 @@ import type { IconName } from "../components/Icon";
 export type ModuleID = "containers" | "hypervisor" | "guest" | "ssh_keys" | "probes" | "firewall" | "backups" | "jobs" | "status";
 
 // Un chiffre du menu, et s'il demande attention (rouge).
-export interface Counter {
+interface Counter {
   value: number;
   hot: boolean;
 }
