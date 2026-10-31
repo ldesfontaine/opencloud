@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
@@ -59,10 +58,27 @@ type agentPass struct {
 // targetRun est une cible dont l'ordre backup.produce est parti : le colis
 // que la machine source remplit, et l'ordre.
 type targetRun struct {
-	target  string
-	prefix  string
-	upload  *action.Upload
-	produce action.Run
+	target    string
+	prefix    string
+	upload    *action.Upload
+	produce   action.Run
+	startedAt time.Time
+	// size est celle de l'archive remise à la destination ; zéro tant qu'elle
+	// n'a pas été vue.
+	size int64
+}
+
+// targetOutcome est ce qu'une cible a donné : de quoi noter le passage et
+// écrire sa ligne d'historique. sent dit qu'un ordre est parti pour elle.
+type targetOutcome struct {
+	target     string
+	startedAt  time.Time
+	sent       bool
+	received   action.Run
+	size       int64
+	receiveErr error
+	pruneErr   error
+	produceID  string
 }
 
 // passOutcome est ce que le passage a vu jusqu'ici : les cibles reçues, celles
@@ -83,12 +99,12 @@ func (s *Service) startAgentPass(ctx context.Context, plan Plan) (action.Run, er
 	at := s.now()
 	pass, err := s.prepareAgentPass(ctx, plan, at)
 	if err != nil {
-		s.noteFailure(ctx, plan.Subject, at, err)
+		s.noteFailure(ctx, plan, at, err)
 		return action.Run{}, err
 	}
 	first, err := pass.begin(ctx, pass.targets[0])
 	if err != nil {
-		s.noteFailure(ctx, plan.Subject, at, err)
+		s.noteFailure(ctx, plan, at, err)
 		return action.Run{}, err
 	}
 	pass.started(ctx, first)
@@ -110,7 +126,7 @@ func (s *Service) runAgentPass(ctx context.Context, plan Plan) (action.Run, erro
 	at := s.now()
 	pass, err := s.prepareAgentPass(ctx, plan, at)
 	if err != nil {
-		s.noteFailure(ctx, plan.Subject, at, err)
+		s.noteFailure(ctx, plan, at, err)
 		return action.Run{}, err
 	}
 	return pass.walk(ctx, nil), nil
@@ -218,6 +234,7 @@ func listedTargets(selector string) []string {
 // backup.produce à la machine source. Rien ne reste si l'ordre ne part pas.
 func (p *agentPass) begin(ctx context.Context, target string) (*targetRun, error) {
 	s := p.service
+	began := s.now()
 	upload, err := s.parcels.CreateForUpload(p.destination.MachineID, p.plan.SourceMachineID)
 	if err != nil {
 		return nil, fmt.Errorf("create upload parcel: %w", err)
@@ -245,7 +262,7 @@ func (p *agentPass) begin(ctx context.Context, target string) (*targetRun, error
 		upload.Discard()
 		return nil, &targetFailure{reason: runReason(produce), cause: action.ErrMachineOffline}
 	}
-	return &targetRun{target: target, prefix: prefix, upload: upload, produce: produce}, nil
+	return &targetRun{target: target, prefix: prefix, upload: upload, produce: produce, startedAt: began}, nil
 }
 
 // sendFailure dit, pour une cible, pourquoi un ordre n'a pas pu partir. Le
@@ -272,7 +289,6 @@ func (p *agentPass) started(ctx context.Context, first *targetRun) {
 	if err := s.store.NoteBackupAttempt(ctx, p.plan.Subject, p.at, "", runID); err != nil {
 		s.logger.Error("note backup attempt", "subject", p.plan.Subject, "error", err)
 	}
-	s.passes.set(p.plan.Subject, 0, 0)
 	s.logger.Info("backup pass started", "plan_id", p.plan.ID, "subject", p.plan.Subject, "run_id", runID,
 		"destination_id", p.plan.DestinationID, "targets", len(p.targets))
 	s.auditor.Record(ctx, audit.Event{
@@ -291,6 +307,7 @@ func (p *agentPass) walk(ctx context.Context, first *targetRun) action.Run {
 		current := first
 		if index > 0 || current == nil {
 			var err error
+			beganAt := p.service.now()
 			current, err = p.begin(ctx, target)
 			if index == 0 {
 				// La nuit : le passage commence, et s'audite, même si sa
@@ -298,7 +315,8 @@ func (p *agentPass) walk(ctx context.Context, first *targetRun) action.Run {
 				p.started(ctx, current)
 			}
 			if err != nil {
-				p.settle(ctx, &outcome, target, action.Run{}, err, nil)
+				// Aucun ordre n'est parti pour cette cible : elle est refusée.
+				p.settle(ctx, &outcome, targetOutcome{target: target, startedAt: beganAt, receiveErr: err})
 				continue
 			}
 		}
@@ -312,7 +330,10 @@ func (p *agentPass) walk(ctx context.Context, first *targetRun) action.Run {
 			p.service.logger.Warn("backup pass interrupted", "subject", p.plan.Subject, "target", target)
 			return outcome.lastRun
 		}
-		p.settle(ctx, &outcome, target, received, err, pruneErr)
+		p.settle(ctx, &outcome, targetOutcome{
+			target: target, startedAt: current.startedAt, sent: true, received: received, size: current.size,
+			receiveErr: err, pruneErr: pruneErr, produceID: current.produce.ID,
+		})
 	}
 	p.service.logger.Info("backup pass done", "plan_id", p.plan.ID, "subject", p.plan.Subject, "received", outcome.received, "failed", outcome.failed)
 	return outcome.lastRun
@@ -333,6 +354,7 @@ func (p *agentPass) finish(ctx context.Context, current *targetRun) (action.Run,
 		return action.Run{}, &targetFailure{reason: runReason(produced)}
 	}
 	files := current.upload.Handover()
+	current.size = archiveSize(files, current.prefix)
 	if !holdsOnlyTheTarget(files, current.prefix, agentwire.BackupKeyFileName(p.keyring.Fingerprint)) {
 		// L'agent a dit avoir envoyé, le colis n'a pas l'archive de sa cible,
 		// ou autre chose avec : rien ne part à la destination.
@@ -416,31 +438,52 @@ func (s *Service) waitFor(ctx context.Context, runID string) (action.Run, error)
 }
 
 // settle note la fin d'une cible : le compte, la clé du premier souci du
-// passage, le dernier ordre. receiveErr dit que la cible n'est pas reçue ;
-// pruneErr, qu'elle l'est mais que son élagage n'a pas eu lieu.
-func (p *agentPass) settle(ctx context.Context, outcome *passOutcome, target string, received action.Run, receiveErr, pruneErr error) {
+// passage, le dernier ordre, et la ligne de l'historique. receiveErr dit que la
+// cible n'est pas reçue ; pruneErr, qu'elle l'est mais que son élagage n'a pas
+// eu lieu.
+func (p *agentPass) settle(ctx context.Context, tally *passOutcome, done targetOutcome) {
 	s := p.service
-	if received.ID != "" {
-		outcome.lastRun = received
+	if done.received.ID != "" {
+		tally.lastRun = done.received
+	}
+	record := RunRecord{
+		Source: GuestSourceKey(p.plan.SourceMachineID, targetNumber(done.target)), StartedAt: done.startedAt,
+		ActionRunID: done.received.ID,
+	}
+	if record.ActionRunID == "" {
+		record.ActionRunID = done.produceID
 	}
 	switch {
-	case receiveErr != nil:
-		outcome.failed++
-		outcome.keepProblem(TargetFailedKey + ":" + target + ":" + failureReason(receiveErr))
-		s.logger.Warn("backup target failed", "subject", p.plan.Subject, "target", target, "error", receiveErr)
-	case pruneErr != nil:
-		outcome.received++
-		outcome.keepProblem(pruneProblem(target, pruneErr))
-		s.logger.Warn("backup target received, not pruned", "subject", p.plan.Subject, "target", target, "error", pruneErr)
+	case done.receiveErr != nil:
+		tally.failed++
+		tally.keepProblem(TargetFailedKey + ":" + done.target + ":" + failureReason(done.receiveErr))
+		record.Result, record.Reason = ResultFailed, failureReason(done.receiveErr)
+		if !done.sent {
+			record.Result = ResultRefused
+		}
+		s.logger.Warn("backup target failed", "subject", p.plan.Subject, "target", done.target, "error", done.receiveErr)
+	case done.pruneErr != nil:
+		tally.received++
+		tally.keepProblem(pruneProblem(done.target, done.pruneErr))
+		record.Result, record.Reason, record.SizeBytes = ResultOK, pruneProblem(done.target, done.pruneErr), &done.size
+		s.logger.Warn("backup target received, not pruned", "subject", p.plan.Subject, "target", done.target, "error", done.pruneErr)
 	default:
-		outcome.received++
-		s.logger.Info("backup target received", "subject", p.plan.Subject, "target", target, "run_id", received.ID)
+		tally.received++
+		record.Result, record.SizeBytes = ResultOK, &done.size
+		s.logger.Info("backup target received", "subject", p.plan.Subject, "target", done.target, "run_id", done.received.ID)
 	}
-	s.passes.set(p.plan.Subject, outcome.received, outcome.failed)
-	if err := s.store.NoteBackupAttempt(ctx, p.plan.Subject, p.at, outcome.problem, outcome.lastRun.ID); err != nil {
+	s.recordRun(ctx, p.plan, p.destination, p.at, record)
+	if err := s.store.NoteBackupAttempt(ctx, p.plan.Subject, p.at, tally.problem, tally.lastRun.ID); err != nil {
 		s.logger.Error("note backup attempt", "subject", p.plan.Subject, "error", err)
 	}
 	s.changed()
+}
+
+// targetNumber lit le numéro d'une cible ; resolveTargets n'en rend que de
+// valides.
+func targetNumber(target string) int {
+	number, _ := strconv.Atoi(target)
+	return number
 }
 
 // keepProblem garde le premier souci du passage : c'est celui qui explique les
@@ -490,42 +533,4 @@ func isAgentReason(reason string) bool {
 		return slices.Contains(machine.CapabilityNames(), capability)
 	}
 	return slices.Contains(agentwire.RefusalReasons(), reason)
-}
-
-// passSummaries garde, en mémoire, les comptes du dernier passage de chaque
-// plan machine. Une colonne de plus aurait gardé ces deux nombres après un
-// redémarrage ; ils ne servent qu'à lire le passage qui vient de finir.
-type passSummaries struct {
-	mu        sync.Mutex
-	bySubject map[string]passSummary
-}
-
-type passSummary struct {
-	received int
-	failed   int
-}
-
-func (p *passSummaries) set(subject string, received, failed int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.bySubject == nil {
-		p.bySubject = map[string]passSummary{}
-	}
-	p.bySubject[subject] = passSummary{received: received, failed: failed}
-}
-
-func (p *passSummaries) forget(subject string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	delete(p.bySubject, subject)
-}
-
-// applyTo pose sur le plan les comptes de son dernier passage, s'il en a un
-// depuis le démarrage.
-func (p *passSummaries) applyTo(plan Plan) Plan {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	summary := p.bySubject[plan.Subject]
-	plan.LastTargetsOK, plan.LastTargetsFailed = summary.received, summary.failed
-	return plan
 }
