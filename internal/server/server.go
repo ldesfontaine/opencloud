@@ -142,6 +142,9 @@ type DirectoryService interface {
 	// DeleteService refuse avec un *deletion.RefusedError tant que des
 	// sondes ou des composants de statut visent le service.
 	DeleteService(ctx context.Context, id string) error
+	// DeleteServiceAndIgnore retire le service puis ignore les clés que ses
+	// conteneurs laissent non déclarés : ils ne reviennent pas en proposition.
+	DeleteServiceAndIgnore(ctx context.Context, id string) error
 	DeleteServicePlan(ctx context.Context, id string) (deletion.Plan, error)
 	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) (directory.Service, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)

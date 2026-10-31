@@ -1295,6 +1295,7 @@ ignore_invalid = "Cette clé ne peut pas être ignorée : machine inconnue, genr
 ignore_not_found = "Cette clé n'était pas ignorée."
 container_not_found = "Ce conteneur n'existe plus, ou la machine ne l'a pas montré."
 container_declared = "Ce conteneur appartient déjà à un service déclaré."
+container_ignored = "Ce conteneur est ignoré : ne plus l'ignorer avant de l'accepter."
 update_policy_label = "Mises à jour"
 update_policy_invalid = "Cette politique n'existe pas, ou ne vaut que pour un conteneur."
 bound_title = "Ce qui le lie"

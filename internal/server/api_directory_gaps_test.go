@@ -256,3 +256,108 @@ func TestAPI_ServiceSheet_SaysWhatTheDirectoryKnows(t *testing.T) {
 		t.Fatalf("la liste des services porte l'annuaire: %s", got.Body.String())
 	}
 }
+
+// Une proposition ignorée ne se lit plus : l'écran qui la montrait encore
+// apprend par un 409 qu'il faut relire la liste. Ne plus l'ignorer la rend.
+func TestAPI_Proposal_IgnoredAnswers409(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	server.seedContainers(t)
+	server.seedGaps(t)
+	path := "/api/directory/proposal?container=" + nextcloudDBContainerID()
+
+	ignore := ignoredRequest{MachineID: remoteID, Kind: "compose_project", Value: "nextcloud"}
+	if got := callAPI(server.Server, http.MethodPost, "/api/directory/ignored", ignore); got.Code != http.StatusNoContent {
+		t.Fatalf("ignorer: %d %s", got.Code, got.Body.String())
+	}
+	got := callAPI(server.Server, http.MethodGet, path, nil)
+	if got.Code != http.StatusConflict || errorCode(t, got) != "directory.container_ignored" {
+		t.Fatalf("proposition ignorée: %d %s", got.Code, got.Body.String())
+	}
+
+	query := "/api/directory/ignored?machine=" + remoteID + "&kind=compose_project&value=nextcloud"
+	if got := callAPI(server.Server, http.MethodDelete, query, nil); got.Code != http.StatusNoContent {
+		t.Fatalf("ne plus ignorer: %d %s", got.Code, got.Body.String())
+	}
+	if got := callAPI(server.Server, http.MethodGet, path, nil); got.Code != http.StatusOK {
+		t.Fatalf("proposition rendue: %d %s", got.Code, got.Body.String())
+	}
+}
+
+// Accepter, c'est POST /api/directory/services avec le corps de la
+// proposition : le chemin unique de la création. Un second clic reçoit un
+// conflit, jamais un doublon, et la proposition relue dit que c'est fait.
+func TestAPI_Proposal_AcceptedTwiceAnswers409AndMakesOneService(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	server.seedContainers(t)
+	path := "/api/directory/proposal?container=" + nextcloudContainerID()
+
+	var proposal proposalResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, path, nil), &proposal)
+	if proposal.ServiceID != "" {
+		t.Fatalf("une déclaration neuve: %+v", proposal)
+	}
+	first := callAPI(server.Server, http.MethodPost, "/api/directory/services", proposal.Definition)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("accepter: %d %s", first.Code, first.Body.String())
+	}
+	var created declaredServiceJSON
+	decodeAPI(t, first, &created)
+	if created.DeclaredBy != "operator" {
+		t.Fatalf("déclaré par %q", created.DeclaredBy)
+	}
+	second := callAPI(server.Server, http.MethodPost, "/api/directory/services", proposal.Definition)
+	if second.Code != http.StatusConflict || errorCode(t, second) != "directory.name_taken" {
+		t.Fatalf("second clic: %d %s", second.Code, second.Body.String())
+	}
+	var services declaredServicesResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/directory/services", nil), &services)
+	if len(services.Services) != 1 {
+		t.Fatalf("un seul service: %+v", services.Services)
+	}
+	got := callAPI(server.Server, http.MethodGet, path, nil)
+	if got.Code != http.StatusConflict || errorCode(t, got) != "directory.container_declared" {
+		t.Fatalf("proposition relue: %d %s", got.Code, got.Body.String())
+	}
+}
+
+// Supprimer un service accepté le rend à la liste des propositions ;
+// ?ignore=true le supprime et dit voulus ses conteneurs, en un geste.
+func TestAPI_DeleteService_BackToAProposalOrIgnoredWithIt(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	server.seedContainers(t)
+	path := "/api/directory/proposal?container=" + nextcloudContainerID()
+	accept := func() string {
+		t.Helper()
+		var proposal proposalResponse
+		decodeAPI(t, callAPI(server.Server, http.MethodGet, path, nil), &proposal)
+		var created declaredServiceJSON
+		decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/directory/services", proposal.Definition), &created)
+		return created.ID
+	}
+	undeclared := func() []undeclaredJSON {
+		t.Helper()
+		var gaps gapsResponse
+		decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/directory/gaps?machine="+remoteID, nil), &gaps)
+		return gaps.Undeclared
+	}
+
+	if got := callAPI(server.Server, http.MethodDelete, "/api/directory/services/"+accept(), nil); got.Code != http.StatusNoContent {
+		t.Fatalf("supprimer: %d %s", got.Code, got.Body.String())
+	}
+	if groups := undeclared(); len(groups) != 1 || groups[0].Ignored || !groups[0].Adoptable {
+		t.Fatalf("redevenu proposition: %+v", groups)
+	}
+
+	if got := callAPI(server.Server, http.MethodDelete, "/api/directory/services/"+accept()+"?ignore=true", nil); got.Code != http.StatusNoContent {
+		t.Fatalf("supprimer et ignorer: %d %s", got.Code, got.Body.String())
+	}
+	if groups := undeclared(); len(groups) != 1 || !groups[0].Ignored {
+		t.Fatalf("ignoré avec lui: %+v", groups)
+	}
+	if got := callAPI(server.Server, http.MethodDelete, "/api/directory/services/svc_inconnu?ignore=true", nil); got.Code != http.StatusNotFound {
+		t.Fatalf("service inconnu: %d", got.Code)
+	}
+}

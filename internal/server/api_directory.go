@@ -264,8 +264,15 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 
 // Supprimer un service que des sondes ou des composants de statut visent
 // encore est refusé, avec le plan : l'opérateur les détache d'abord.
+// Avec ?ignore=true, les conteneurs que le service laisse sont dits voulus :
+// « Supprimer et ignorer », un geste. Sans, ils reviennent en proposition.
 func (s *Server) deleteDeclaredService(w http.ResponseWriter, r *http.Request) {
-	s.finishAPIAction(w, r, s.directory.DeleteService(r.Context(), r.PathValue("id")), directory.ErrNotFound)
+	id := r.PathValue("id")
+	if r.URL.Query().Get("ignore") == "true" {
+		s.finishAPIAction(w, r, s.directory.DeleteServiceAndIgnore(r.Context(), id), directory.ErrNotFound)
+		return
+	}
+	s.finishAPIAction(w, r, s.directory.DeleteService(r.Context(), id), directory.ErrNotFound)
 }
 
 // La politique de mise à jour se règle sur l'unité : ses conteneurs, ceux

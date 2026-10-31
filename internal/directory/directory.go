@@ -107,9 +107,9 @@ var (
 	ErrUnitKeyDuplicate      = refusal.Invalid("directory.unit_key_duplicate", "two units of the service declare the same container name or systemd unit")
 	ErrPortsInvalid          = refusal.Invalid("directory.ports_invalid", "unit ports must be port, host:port, with an optional /tcp or /udp")
 	ErrDataPathInvalid       = refusal.Invalid("directory.data_path_invalid", "unit data path must be a clean absolute path inside the container, never /, and only for a container")
-	ErrNameTaken             = refusal.Invalid("directory.name_taken", "declared service name already used on this machine")
-	ErrComposeProjectTaken   = refusal.Invalid("directory.compose_project_taken", "compose project already declared on this machine")
-	ErrMatchKeyTaken         = refusal.Invalid("directory.match_key_taken", "container name or systemd unit already declared on this machine")
+	ErrNameTaken             = refusal.Conflict("directory.name_taken", "declared service name already used on this machine")
+	ErrComposeProjectTaken   = refusal.Conflict("directory.compose_project_taken", "compose project already declared on this machine")
+	ErrMatchKeyTaken         = refusal.Conflict("directory.match_key_taken", "container name or systemd unit already declared on this machine")
 	ErrUnitInvalid           = refusal.Invalid("directory.unit_invalid", "unit does not belong to this service")
 	ErrProjectInvalid        = refusal.Invalid("directory.project_invalid", "project must exist")
 	ErrProjectNotFound       = errors.New("project not found")
@@ -122,6 +122,10 @@ var (
 	ErrIgnoredNotFound   = errors.New("ignored key not found")
 	ErrContainerNotFound = errors.New("container not found, or already gone")
 	ErrContainerDeclared = refusal.Conflict("directory.container_declared", "container already belongs to a declared service")
+	// L'opérateur a dit ce conteneur voulu : sa proposition ne se lit ni ne
+	// s'accepte tant que la clé est ignorée. Un état, d'où un conflit : la
+	// liste se relit.
+	ErrContainerIgnored = refusal.Conflict("directory.container_ignored", "container is ignored: stop ignoring it before accepting it")
 	// Le conteneur porte un label qui ne vise aucune unité de sa machine :
 	// l'adopter créerait une unité que ce label empêcherait de rattacher.
 	// Un état que l'opérateur corrige par le label, d'où un conflit.
