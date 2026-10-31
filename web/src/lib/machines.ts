@@ -216,3 +216,22 @@ export function machineSeen(t: Translate, machine: Pick<Machine, "online" | "las
   }
   return seenAgo(t, machine.last_seen_at, now);
 }
+
+// Une machine archivée : son agent est révoqué (supprimée en gardant
+// l'historique), tout le reste demeure. Ré-enrôler la remet en service.
+export function isArchived(machine: Pick<Machine, "agent">): boolean {
+  return machine.agent !== null && machine.agent.revoked_at !== null;
+}
+
+// Les machines que l'on attend : les archivées restent dans la liste, mais ne
+// comptent ni parmi les machines en ligne ni parmi celles en défaut.
+export function liveMachines<M extends Pick<Machine, "agent">>(machines: M[]): M[] {
+  return machines.filter((machine) => !isArchived(machine));
+}
+
+// Le bouton qui supprime dans la fenêtre « Supprimer la machine » : garder
+// l'historique se défait (ré-enrôler), il part tout de suite ; effacer ne se
+// défait pas, il attend le nom de la machine tapé tel quel.
+export function canConfirmDeletion(machineName: string, typedName: string, keepHistory: boolean): boolean {
+  return keepHistory || typedName === machineName;
+}

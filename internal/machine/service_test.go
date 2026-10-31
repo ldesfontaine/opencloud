@@ -445,7 +445,7 @@ func TestRemove_ClosesTheOpenSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.service.Remove(context.Background(), m.ID); err != nil {
+	if err := h.service.Remove(context.Background(), m.ID, RemoveOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	select {

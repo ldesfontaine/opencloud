@@ -31,17 +31,7 @@ interface Props {
 export function DeletePlanDialog({ question, confirmLabel, loadPlan, perform, topic, onDone, onClose }: Props) {
   const { t, language } = useI18n();
   const action = useAction();
-  const [loaded, setLoaded] = useState<DeletionPlan | null>(null);
-  const [loadError, setLoadError] = useState<ApiError | null>(null);
-
-  // Le plan se lit une fois, à l'ouverture : la boîte est montée pour lui,
-  // et la page la démonte en la fermant. loadPlan est une flèche refaite à
-  // chaque rendu de la page : la suivre relirait le plan sans fin.
-  useEffect(() => {
-    loadPlan().then(setLoaded, (failure: unknown) => setLoadError(failureOf(failure)));
-  }, []);
-
-  const plan = planOfRefusal(action.error) ?? loaded;
+  const { plan, loadError } = useDeletionPlan(loadPlan, action.error);
   const confirm = () => {
     action.run(perform, { topic, onDone });
   };
@@ -67,7 +57,21 @@ export function DeletePlanDialog({ question, confirmLabel, loadPlan, perform, to
   );
 }
 
-function PlanBody({ plan, t, language }: { plan: DeletionPlan; t: Translate; language: string }) {
+// Le plan d'une suppression, lu une fois à l'ouverture de la fenêtre : elle
+// est montée pour lui, et la page la démonte en la fermant. loadPlan est une
+// flèche refaite à chaque rendu de la page : la suivre relirait le plan sans
+// fin. Un refus de la suppression (error) rend le plan d'aujourd'hui, qui
+// remplace celui qu'on avait lu.
+export function useDeletionPlan(loadPlan: () => Promise<DeletionPlan>, error: ApiError | null): { plan: DeletionPlan | null; loadError: ApiError | null } {
+  const [loaded, setLoaded] = useState<DeletionPlan | null>(null);
+  const [loadError, setLoadError] = useState<ApiError | null>(null);
+  useEffect(() => {
+    loadPlan().then(setLoaded, (failure: unknown) => setLoadError(failureOf(failure)));
+  }, []);
+  return { plan: planOfRefusal(error) ?? loaded, loadError };
+}
+
+export function PlanBody({ plan, t, language }: { plan: DeletionPlan; t: Translate; language: string }) {
   if (isBarePlan(plan)) {
     return <p className="muted">{t("deletion.nothing")}</p>;
   }

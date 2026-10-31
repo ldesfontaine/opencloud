@@ -198,7 +198,7 @@ func TestDeleteDestination_IsHeldBackWhileThePlanUsesIt(t *testing.T) {
 	_, destination := b.ready()
 	err := b.backups.DeleteDestination(operator(), destination.ID)
 	requireRefusal(t, err, backup.ErrDestinationInUse)
-	if err := b.machines.Remove(operator(), machineID); !errors.Is(err, machine.ErrHasBackupDestinations) {
+	if err := b.machines.Remove(operator(), machineID, machine.RemoveOptions{}); !errors.Is(err, machine.ErrHasBackupDestinations) {
 		t.Fatalf("remove the machine: %v", err)
 	}
 	if err := b.backups.DeletePlan(operator(), backup.SubjectDatabase); err != nil {

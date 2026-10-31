@@ -288,7 +288,7 @@ func TestVerbRequests_RepeatedUnknownAndMalformedRequests(t *testing.T) {
 	if got := callBearerBody(server.Server, http.MethodDelete, "/api/machines/inconnue", bearer, ""); got.Code != http.StatusNotFound {
 		t.Fatalf("unknown machine: %d", got.Code)
 	}
-	for name, body := range map[string]string{"unknown field": `{"keep_history":true}`, "not an object": `[1]`, "not json": `oups`} {
+	for name, body := range map[string]string{"unknown field": `{"purge":true}`, "not an object": `[1]`, "not json": `oups`} {
 		if got := callBearerBody(server.Server, http.MethodDelete, "/api/machines/"+remoteID, bearer, body); got.Code != http.StatusBadRequest || errorCode(t, got) != codeBadJSON {
 			t.Errorf("%s: %d %s", name, got.Code, got.Body.String())
 		}
@@ -369,5 +369,91 @@ func TestVerbRequests_AReachLimitedTokenCannotAskForAnotherMachine(t *testing.T)
 	}
 	if len(server.pendingRequests(t)) != 0 {
 		t.Fatal("a request was filed out of scope")
+	}
+}
+
+// askDeletionWith fait demander la suppression avec un corps : keep_history est
+// le seul champ du verbe.
+func (ts *testServer) askDeletionWith(t *testing.T, bearer, machineID, body string) verbRequestReplyJSON {
+	t.Helper()
+	got := callBearerBody(ts.Server, http.MethodDelete, "/api/machines/"+machineID, bearer, body, onBehalfOfHeader, "alice-sub")
+	if got.Code != http.StatusAccepted {
+		t.Fatalf("ask: %d %s", got.Code, got.Body.String())
+	}
+	var reply verbRequestReplyJSON
+	decodeAPI(t, got, &reply)
+	return reply
+}
+
+// L'opérateur voit ce qu'il va confirmer : le corps déposé par le jeton, tel
+// que la confirmation le rejouera ({} quand le jeton n'a rien envoyé).
+func TestVerbRequests_TheOperatorSeesTheBodyTheTokenSent(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	const otherID = "99999999-2222-4333-8444-555555555555"
+	server.enroll(t, "vps-lyon-2", otherID)
+	bearer, _ := server.issueWriteToken(t, "agent", "machine.delete")
+	kept := server.askDeletionWith(t, bearer, remoteID, `{"keep_history": true}`)
+	bare := server.askDeletionWith(t, bearer, otherID, "")
+
+	bodies := map[string]string{}
+	for _, request := range server.pendingRequests(t) {
+		bodies[request.ID] = string(request.Body)
+	}
+	if bodies[kept.RequestID] != `{"keep_history":true}` || bodies[bare.RequestID] != `{}` {
+		t.Fatalf("bodies %v", bodies)
+	}
+}
+
+// Confirmer une demande keep_history rejoue exactement ce corps : la machine
+// reste, archivée, l'audit porte agent.revoke sous l'opérateur avec la
+// demande et le jeton, jamais machine.delete.
+func TestVerbRequests_ConfirmingKeepHistoryArchivesTheMachine(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	bearer, _ := server.issueWriteToken(t, "agent", "machine.delete")
+	reply := server.askDeletionWith(t, bearer, remoteID, `{"keep_history":true}`)
+	before := server.latestAuditID(t)
+
+	got := callAPI(server.Server, http.MethodPost, "/api/verb-requests/"+reply.RequestID+"/actions/confirm", nil)
+
+	if got.Code != http.StatusNoContent {
+		t.Fatalf("confirm: %d %s", got.Code, got.Body.String())
+	}
+	var archived machineJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/machines/"+remoteID, nil), &archived)
+	if archived.Agent == nil || archived.Agent.RevokedAt == nil {
+		t.Fatalf("machine %+v, want archived", archived)
+	}
+	var revoke *audit.Event
+	for _, event := range server.auditSince(t, before) {
+		if event.Action == audit.MachineDelete {
+			t.Fatalf("machine.delete audited for an archive: %+v", event)
+		}
+		if event.Action == audit.AgentRevoke {
+			revoke = &event
+		}
+	}
+	if revoke == nil || revoke.Actor.Kind != audit.ActorOperator || revoke.Details["request_id"] != reply.RequestID || revoke.Details["on_behalf_of"] != "alice-sub" {
+		t.Fatalf("revoke event %+v", revoke)
+	}
+}
+
+// Un champ du bon nom mais du mauvais type est déposé (le registre ne type
+// pas les champs) ; à la confirmation la route d'opérateur le refuse en 400,
+// l'opérateur voit l'échec, et rien n'est retiré.
+func TestVerbRequests_AWrongTypedFieldIsRefusedByTheRouteAtConfirmation(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	bearer, _ := server.issueWriteToken(t, "agent", "machine.delete")
+	reply := server.askDeletionWith(t, bearer, remoteID, `{"keep_history":"oui"}`)
+
+	got := callAPI(server.Server, http.MethodPost, "/api/verb-requests/"+reply.RequestID+"/actions/confirm", nil)
+
+	if got.Code != http.StatusBadRequest || errorCode(t, got) != codeBadJSON {
+		t.Fatalf("confirm: %d %s", got.Code, got.Body.String())
+	}
+	if !server.machineExists(t, remoteID) {
+		t.Fatal("a refused replay removed the machine")
 	}
 }

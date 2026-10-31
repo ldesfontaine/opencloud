@@ -1,14 +1,13 @@
 import { useState } from "react";
 
-import { fetchMachineDeletePlan } from "../api/machines";
 import { confirmVerbRequest, rejectVerbRequest, useVerbRequests, type VerbRequest } from "../api/verbRequests";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
-import { requestedBy, requestExpiry, requestPhrase } from "../lib/verbRequests";
+import { requestedBy, requestExpiry, requestKeepsHistory, requestPhrase } from "../lib/verbRequests";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader } from "./Card";
-import { DeletePlanDialog } from "./DeletePlanDialog";
+import { DeleteMachineDialog } from "./DeleteMachineDialog";
 import { Failure } from "./Failure";
 import "./VerbRequestsCard.scss";
 
@@ -61,12 +60,10 @@ function VerbRequestRow({ request }: { request: VerbRequest }) {
         </Button>
       </span>
       {confirming && (
-        <DeletePlanDialog
-          question={t("machine.remove_confirm", request.object.name)}
-          confirmLabel={t("verb_request.confirm_label")}
-          loadPlan={() => fetchMachineDeletePlan(request.object.id)}
+        <DeleteMachineDialog
+          machine={request.object}
+          fixedKeepHistory={requestKeepsHistory(request)}
           perform={() => confirmVerbRequest(request.id)}
-          topic="all"
           onDone={() => setConfirming(false)}
           onClose={() => setConfirming(false)}
         />

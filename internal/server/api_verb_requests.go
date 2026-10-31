@@ -130,8 +130,11 @@ type verbRequestJSON struct {
 	Object     verbRequestObjectJSON `json:"object"`
 	TokenName  string                `json:"token_name"`
 	OnBehalfOf string                `json:"on_behalf_of"`
-	CreatedAt  time.Time             `json:"created_at"`
-	ExpiresAt  time.Time             `json:"expires_at"`
+	// Les champs que le jeton a envoyés, tels que la confirmation les
+	// rejouera : l'opérateur voit ce qu'il confirme (keep_history).
+	Body      json.RawMessage `json:"body"`
+	CreatedAt time.Time       `json:"created_at"`
+	ExpiresAt time.Time       `json:"expires_at"`
 }
 
 type verbRequestsResponse struct {
@@ -139,9 +142,13 @@ type verbRequestsResponse struct {
 }
 
 func verbRequestToJSON(request verbrequest.Request) verbRequestJSON {
+	body := json.RawMessage(request.Body)
+	if request.Body == "" {
+		body = json.RawMessage("{}")
+	}
 	return verbRequestJSON{
 		ID: request.ID, Verb: request.Verb, Object: verbRequestObjectJSON{ID: request.ObjectID(), Name: request.ObjectName},
-		TokenName: request.TokenName, OnBehalfOf: request.OnBehalfOf,
+		TokenName: request.TokenName, OnBehalfOf: request.OnBehalfOf, Body: body,
 		CreatedAt: request.CreatedAt.UTC(), ExpiresAt: request.ExpiresAt.UTC(),
 	}
 }

@@ -23,7 +23,6 @@ export const writes = [
   "POST /api/machines/local-enrollment",
   "DELETE /api/machines/{id}",
   "POST /api/machines/{id}/actions/reenroll",
-  "POST /api/machines/{id}/actions/revoke",
   "POST /api/machines/{id}/actions/ping",
   "POST /api/machines/{id}/actions/update-agent",
   "POST /api/machines/{id}/actions/rollback-agent",

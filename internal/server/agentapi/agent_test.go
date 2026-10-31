@@ -40,7 +40,7 @@ func TestAgentEnroll_FromTheServerMachine_TakesTheStableID(t *testing.T) {
 	server := newBench(t)
 	// Le banc a déjà l'agent de la machine openCloud : révoqué, le suivant
 	// reprend sa ligne.
-	if err := server.machines.Revoke(context.Background(), machine.LocalID); err != nil {
+	if err := server.machines.Remove(context.Background(), machine.LocalID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	server.machines.SetServerHost("f00d", "oc-host")
@@ -137,7 +137,7 @@ func TestAgentRemoval_ClosesTheStream(t *testing.T) {
 	resp, _, _, cancel := server.openStream(t, enrolled.ID, private)
 	defer cancel()
 	defer resp.Body.Close()
-	if err := server.machines.Remove(context.Background(), enrolled.ID); err != nil {
+	if err := server.machines.Remove(context.Background(), enrolled.ID, machine.RemoveOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	rest, _ := readAll(resp, 2*time.Second)
@@ -367,7 +367,7 @@ func TestAgentStream_StoresTheReportedRightsThenRefusesTheRevokedAgent(t *testin
 		t.Fatalf("reported root %q", status.Agent.RootDir)
 	}
 
-	if err := server.machines.Revoke(context.Background(), enrolled.ID); err != nil {
+	if err := server.machines.Remove(context.Background(), enrolled.ID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	rest, _ := readAll(resp, 2*time.Second)

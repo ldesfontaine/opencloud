@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/version"
@@ -664,28 +665,63 @@ func TestAPI_CreateMachineToken_ProduceRightReachesTheCommandAndThePreparation(t
 	}
 }
 
-// Révoquer garde la machine : 204, la fiche dit l'agent révoqué ; une
-// seconde fois, 409 machine.no_agent ; la machine openCloud ne se révoque
-// pas.
-func TestAPI_RevokeAgent_KeepsTheMachineAndSaysTheAgentIsRevoked(t *testing.T) {
+// Supprimer sans corps (ou avec keep_history à faux) efface la machine ;
+// avec keep_history elle reste, archivée : 204, la fiche dit l'agent révoqué,
+// l'audit garde agent.revoke et jamais machine.delete ; une seconde fois, 409
+// machine.no_agent. Ce qui retient le retrait (une sonde) ne retient pas
+// l'archive. L'ancienne route de révocation n'existe plus. Ré-enrôler la désarchive :
+// c'est TestRemove_KeepHistory_RefusesTheAgent…, au niveau du composant.
+func TestAPI_RemoveMachine_KeepHistory_ArchivesItAndErasesNothing(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/revoke", nil); got.Code != http.StatusNoContent {
-		t.Fatalf("revoke: %d %s", got.Code, got.Body.String())
+	if got := callAPI(server.Server, http.MethodPost, "/api/probes", probeRequest{Name: "site", Kind: "http", Target: "https://a.fr/", MachineID: remoteID}); got.Code != http.StatusCreated {
+		t.Fatalf("probe: %d %s", got.Code, got.Body.String())
 	}
-	var revoked machineJSON
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/machines/"+remoteID, nil), &revoked)
-	if revoked.Agent == nil || revoked.Agent.RevokedAt == nil {
-		t.Fatalf("machine after revoke %+v", revoked)
+	before := server.latestAuditID(t)
+
+	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/"+remoteID, removeMachineRequest{}); got.Code != http.StatusConflict {
+		t.Fatalf("without history, held back by the probe: %d %s", got.Code, got.Body.String())
 	}
-	if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/revoke", nil); got.Code != http.StatusConflict || errorCode(t, got) != "machine.no_agent" {
-		t.Fatalf("revoke twice: %d %s", got.Code, got.Body.String())
+	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/"+remoteID, removeMachineRequest{KeepHistory: true}); got.Code != http.StatusNoContent {
+		t.Fatalf("keep history: %d %s", got.Code, got.Body.String())
 	}
-	if got := callAPI(server.Server, http.MethodPost, "/api/machines/nobody/actions/revoke", nil); got.Code != http.StatusNotFound {
+
+	var archived machineJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/machines/"+remoteID, nil), &archived)
+	if archived.Agent == nil || archived.Agent.RevokedAt == nil || archived.Online {
+		t.Fatalf("machine after archive %+v", archived)
+	}
+	actions := []audit.Action{}
+	for _, event := range server.auditSince(t, before) {
+		actions = append(actions, event.Action)
+	}
+	if !slices.Equal(actions, []audit.Action{audit.AgentRevoke}) {
+		t.Fatalf("audit %v, want agent.revoke alone", actions)
+	}
+	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/"+remoteID, removeMachineRequest{KeepHistory: true}); got.Code != http.StatusConflict || errorCode(t, got) != "machine.no_agent" {
+		t.Fatalf("archive twice: %d %s", got.Code, got.Body.String())
+	}
+	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/nobody", removeMachineRequest{KeepHistory: true}); got.Code != http.StatusNotFound {
 		t.Fatalf("unknown machine: %d", got.Code)
 	}
-	if got := callAPI(server.Server, http.MethodPost, "/api/machines/local/actions/revoke", nil); got.Code != http.StatusNoContent {
-		t.Fatalf("revoke local: %d %s", got.Code, got.Body.String())
+	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/local", removeMachineRequest{KeepHistory: true}); got.Code != http.StatusNoContent {
+		t.Fatalf("archive local: %d %s", got.Code, got.Body.String())
+	}
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/revoke", nil); got.Code < 400 {
+		t.Fatalf("the revoke route is gone: %d", got.Code)
+	}
+}
+
+// Un corps de retrait qui n'est pas celui du geste est refusé, rien n'est
+// retiré.
+func TestAPI_RemoveMachine_RefusesAnUnknownField(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/"+remoteID, map[string]bool{"purge": true}); got.Code != http.StatusBadRequest {
+		t.Fatalf("unknown field: %d %s", got.Code, got.Body.String())
+	}
+	if !server.machineExists(t, remoteID) {
+		t.Fatal("a refused body removed the machine")
 	}
 }
 
