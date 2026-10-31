@@ -37,7 +37,8 @@ func sampleReading() proxmox.Reading {
 		Node:    "pve",
 		Guests: []proxmox.Guest{
 			{VMID: 5012, Kind: proxmox.KindQEMU, Name: "docker1", Status: "running", CPUs: 2, MaxMem: 2 << 30, MaxDisk: 32 << 30, Node: "pve",
-				LinkedMachineID: "docker", LastBackupAt: proxmoxAt.Add(-time.Hour), LastBackupBytes: 244318208},
+				LinkedMachineID: "docker", LastBackupAt: proxmoxAt.Add(-time.Hour), LastBackupBytes: 244318208,
+				LastBackupStorage: "local", BackupCount: 3, BackupTotalBytes: 700000000},
 			{VMID: 200, Kind: proxmox.KindLXC, Name: "dns", Status: "stopped", CPUs: 0.5, MaxMem: 512 << 20, Node: "pve"},
 			{VMID: 9000, Kind: proxmox.KindQEMU, Name: "debian-12", Status: "stopped", Template: true, Node: "pve"},
 		},
@@ -80,7 +81,8 @@ func TestProxmox_DeclareReadAndView(t *testing.T) {
 		t.Fatalf("guests must come by vmid: %+v", view.Guests)
 	}
 	docker := view.Guests[1]
-	if docker.LinkedMachineID != "docker" || docker.CPUs != 2 || docker.MaxMem != 2<<30 || docker.LastBackupBytes != 244318208 || !docker.LastBackupAt.Equal(proxmoxAt.Add(-time.Hour)) {
+	if docker.LinkedMachineID != "docker" || docker.CPUs != 2 || docker.MaxMem != 2<<30 || docker.LastBackupBytes != 244318208 || !docker.LastBackupAt.Equal(proxmoxAt.Add(-time.Hour)) ||
+		docker.LastBackupStorage != "local" || docker.BackupCount != 3 || docker.BackupTotalBytes != 700000000 {
 		t.Errorf("docker guest: %+v", docker)
 	}
 	if view.Guests[0].CPUs != 0.5 || !view.Guests[0].LastBackupAt.IsZero() || view.Guests[0].LinkedMachineID != "" || !view.Guests[2].Template {

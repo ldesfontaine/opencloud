@@ -147,10 +147,11 @@ func (db *DB) ReplaceProxmoxReading(ctx context.Context, machineID string, readi
 func insertProxmoxGuest(ctx context.Context, tx *sql.Tx, machineID string, guest proxmox.Guest) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO proxmox_guests (machine_id, vmid, kind, name, status, template, cpus, maxmem, maxdisk, node,
-			linked_machine_id, last_backup_at, last_backup_bytes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			linked_machine_id, last_backup_at, last_backup_bytes, last_backup_storage, backup_count, backup_total_bytes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		machineID, guest.VMID, guest.Kind, guest.Name, guest.Status, guest.Template, guest.CPUs, guest.MaxMem, guest.MaxDisk,
-		guest.Node, nullableString(guest.LinkedMachineID), nullableTime(guest.LastBackupAt), guest.LastBackupBytes)
+		guest.Node, nullableString(guest.LinkedMachineID), nullableTime(guest.LastBackupAt), guest.LastBackupBytes,
+		guest.LastBackupStorage, guest.BackupCount, guest.BackupTotalBytes)
 	if err != nil {
 		return fmt.Errorf("insert proxmox guest %d: %w", guest.VMID, err)
 	}
@@ -170,7 +171,7 @@ func insertProxmoxStorage(ctx context.Context, tx *sql.Tx, machineID string, sto
 }
 
 const proxmoxGuestColumns = `g.vmid, g.kind, g.name, g.status, g.template, g.cpus, g.maxmem, g.maxdisk, g.node,
-	g.linked_machine_id, g.last_backup_at, g.last_backup_bytes`
+	g.linked_machine_id, g.last_backup_at, g.last_backup_bytes, g.last_backup_storage, g.backup_count, g.backup_total_bytes`
 
 // guestRow lit les colonnes de proxmoxGuestColumns ; une requête qui en ajoute
 // d'autres les scanne après destinations().
@@ -183,7 +184,8 @@ type guestRow struct {
 func (row *guestRow) destinations() []any {
 	guest := &row.guest
 	return []any{&guest.VMID, &guest.Kind, &guest.Name, &guest.Status, &guest.Template, &guest.CPUs, &guest.MaxMem,
-		&guest.MaxDisk, &guest.Node, &row.linked, &row.lastBackupAt, &guest.LastBackupBytes}
+		&guest.MaxDisk, &guest.Node, &row.linked, &row.lastBackupAt, &guest.LastBackupBytes, &guest.LastBackupStorage,
+		&guest.BackupCount, &guest.BackupTotalBytes}
 }
 
 func (row *guestRow) result() proxmox.Guest {
