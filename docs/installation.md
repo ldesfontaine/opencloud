@@ -917,7 +917,7 @@ jetons d'enrôlement, chemin d'un webhook, mot de passe d'une cible de sonde).
 Un jeton **en écriture** lit de même et ne déclenche que les **verbes** que
 vous cochez à sa création (pause ou reprise d'une sonde ou d'une tâche, ping
 d'un agent, démarrage, arrêt propre et instantané d'une VM Proxmox) ; sans verbe coché, il n'agit sur rien (`403
-api_token.verb_forbidden`). Aucune validation humaine avant chaque geste, mais
+api_token.verb_forbidden`). Vous pouvez aussi **limiter un jeton à certaines machines**, et, pour Proxmox, à certains invités : un geste visant une autre machine est refusé (`403 api_token.out_of_scope`) ; sans limite, le jeton agit partout, comme avant. Aucune validation humaine avant chaque geste, mais
 un débit borné et chaque geste est journalisé avec le jeton et la personne
 pour qui l'agent appelle. Ni suppression de machine, ni déploiement, ni réglage. Le
 détail, les refus et le journal d'audit :

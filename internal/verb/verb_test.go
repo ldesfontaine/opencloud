@@ -7,7 +7,7 @@ import (
 )
 
 func valid() Verb {
-	return Verb{ID: "thing.start", Route: "POST /api/things/{id}/actions/start", Params: []string{"id"}, Label: "l", Summary: "s", Reverse: "thing.stop"}
+	return Verb{ID: "thing.start", Route: "POST /api/things/{id}/actions/start", Params: []string{"id"}, Target: TargetMachine, Label: "l", Summary: "s", Reverse: "thing.stop"}
 }
 
 func TestRegister_RefusesAVerbWithoutReverse(t *testing.T) {
@@ -24,6 +24,8 @@ func TestRegister_RefusesMalformedVerbs(t *testing.T) {
 		"id uppercase":   func(v *Verb) { v.ID = "Thing.Start" },
 		"read route":     func(v *Verb) { v.Route = "GET /api/things" },
 		"outside api":    func(v *Verb) { v.Route = "POST /agent/things" },
+		"no target":      func(v *Verb) { v.Target = "" },
+		"unknown target": func(v *Verb) { v.Target = "disk" },
 		"no label":       func(v *Verb) { v.Label = "" },
 		"no summary":     func(v *Verb) { v.Summary = "" },
 		"missing param":  func(v *Verb) { v.Params = nil },

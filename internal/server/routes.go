@@ -163,6 +163,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/token/verbs", s.listTokenVerbs},
 		{"GET", "/api/settings/api-tokens", s.listAPITokens},
 		{"POST", "/api/settings/api-tokens", s.grantsAuthority(s.createAPIToken)},
+		{"PUT", "/api/settings/api-tokens/{id}/reach", s.grantsAuthority(s.setAPITokenReach)},
 		{"DELETE", "/api/settings/api-tokens/{id}", s.revokeAPIToken},
 		{"GET", "/api/settings/mcp", s.getMCPCheck},
 		{"GET", "/api/settings/disk", s.getDiskSettings},

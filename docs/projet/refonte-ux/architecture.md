@@ -624,7 +624,7 @@ commit par fonctionnalité, la doc `22-fonctionnement.md` mise à jour.
 | Branche | Fichiers qui comptent ici | Commande |
 | --- | --- | --- |
 | `fix/redemarrage-demande` | `internal/container/*`, `internal/dockerwatch/*`, `internal/alert/source_container.go`, `internal/store/containers.go`, `internal/server/api_containers.go`, `web/src/pages/Container.tsx`, `web/src/lib/containers.ts`, `internal/lang/*.toml`, `docs/projet/22-fonctionnement.md`, **`migrations/022_container_stop_requested.sql`** | `git diff --stat origin/dev...origin/fix/redemarrage-demande` |
-| `feat/jeton-portee-machines` | `internal/apitoken/*`, **`internal/verb/*`**, **`internal/server/routes.go`**, **`testdata/routes.txt`**, `internal/server/api_tokens.go`, `web/src/pages/settings/*`, `web/src/api/apiTokens.ts`, `internal/lang/*.toml`, `docs/projet/22-fonctionnement.md`, **`migrations/022_api_token_reach.sql`** | `git diff --stat origin/dev...origin/feat/jeton-portee-machines` |
+| `feat/jeton-portee-machines` | `internal/apitoken/*`, **`internal/verb/*`**, **`internal/server/routes.go`**, **`testdata/routes.txt`**, `internal/server/api_tokens.go`, `web/src/pages/settings/*`, `web/src/api/apiTokens.ts`, `internal/lang/*.toml`, `docs/projet/22-fonctionnement.md`, **`migrations/023_api_token_reach.sql`** | `git diff --stat origin/dev...origin/feat/jeton-portee-machines` |
 | `orca/sauvegardes-inventaire` | — : déjà fusionnée dans `dev` (`git merge-base --is-ancestor`) | |
 
 **Les deux branches réservent `022`.** Les noms diffèrent : git ne verra pas
