@@ -29,6 +29,9 @@ const (
 	pveGoldenPinHex = "abababababababababababababababababababababababababababababababab"
 )
 
+// L'adresse de la carte de la VM 5012, telle que l'hôte la dit dans sa configuration.
+const pveGuestMAC = "BC:24:11:AA:BB:CC"
+
 // fakeProxmox joue l'API d'un hôte Proxmox sur une adresse locale : aucun test
 // ne joint un vrai hôte.
 type fakeProxmox struct {
@@ -67,6 +70,10 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 				{"type":"lxc","vmid":200,"name":"dns","node":"pve","status":"stopped","template":0,"maxcpu":1,"maxmem":536870912,"maxdisk":8589934592}]}`
 		case r.URL.Path == "/api2/json/cluster/resources" && r.URL.Query().Get("type") == "storage":
 			body = `{"data":[{"type":"storage","storage":"local","node":"pve","plugintype":"dir","status":"available","content":"iso,backup","maxdisk":1000,"disk":400}]}`
+		case r.URL.Path == "/api2/json/cluster/status":
+			body = `{"data":[{"type":"cluster","name":"homelab","nodes":1},{"type":"node","name":"pve","local":1}]}`
+		case r.URL.Path == "/api2/json/nodes/pve/qemu/5012/config":
+			body = `{"data":{"name":"` + runningName + `","net0":"virtio=` + pveGuestMAC + `,bridge=vmbr0,firewall=1"}}`
 		case r.URL.Path == "/api2/json/nodes/pve/storage/local/content":
 			body = `{"data":[{"vmid":5012,"ctime":1790086400,"size":244318208}]}`
 		default:

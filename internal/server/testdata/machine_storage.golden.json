@@ -1,0 +1,1 @@
+{"disks":[{"name":"nvme0n1","model":"Samsung SSD 980","size":500107862016,"media":"nvme","removable":false},{"name":"sda","model":"WDC WD10EZEX","size":1000204886016,"media":"hdd","removable":false}],"pools":[{"name":"md0","kind":"md","level":"raid1","state":"degraded","size":1000204886016,"members":["sda"]}]}

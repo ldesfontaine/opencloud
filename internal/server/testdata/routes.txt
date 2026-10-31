@@ -19,6 +19,8 @@ GET /api/agent-updates
 GET /api/agent-migration
 PUT /api/machines/{id}/update-last
 PUT /api/machines/{id}/role
+PUT /api/machines/{id}/placement
+GET /api/machines/{id}/storage
 POST /api/machines/{id}/actions/check-updates
 GET /api/machines/{id}/resources
 GET /api/machines/{id}/resources/history

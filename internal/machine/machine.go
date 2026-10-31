@@ -34,6 +34,14 @@ type Machine struct {
 	// Ce que l'opérateur en fait : choisi à l'ajout, il fixe les modules que
 	// la machine porte (Role).
 	Role Role
+	// Où elle tourne : le type que l'agent a rapporté, la correction de
+	// l'opérateur, et l'hôte qu'il lui a désigné (l'identifiant d'une autre
+	// machine). Vides sans rapport, sans correction.
+	Kind         Kind
+	KindOverride Kind
+	HostOverride string
+	// Les adresses MAC des cartes que l'agent a rapportées, en minuscules.
+	MACs []string
 	// L'agent courant : l'actif, sinon le dernier révoqué ; vide sans agent.
 	Agent Agent
 }

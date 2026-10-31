@@ -66,7 +66,7 @@ func newBench(t *testing.T) *bench {
 	actions.SetAuditor(audit.New(db, logger))
 	sshKeys := sshkeys.New(db, logger)
 	roles := role.New(db, logger)
-	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates, Actions: actions, SSHKeys: sshKeys, Roles: roles})
+	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates, Actions: actions, SSHKeys: sshKeys, Roles: roles, Host: machines})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,13 +87,18 @@ func newBench(t *testing.T) *bench {
 const benchTimeout = 30 * time.Second
 
 func (b *bench) options(token string) Options {
-	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, SampleInterval: 20 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles}
+	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, SampleInterval: 20 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles, readHost: benchHost}
 }
 
 // benchSSHKeys est le relevé des bancs : les tests ne lisent pas les comptes
 // de l'hôte.
 func benchSSHKeys() (sshkeys.Report, bool) {
 	return sshkeys.Report{Accounts: []sshkeys.Account{{Name: "root", State: sshkeys.StateNone, Keys: []sshkeys.Key{}}}}, true
+}
+
+// benchHost : les tests ne lisent pas non plus où tourne la machine qui les joue.
+func benchHost(context.Context) hostinfo.Report {
+	return hostinfo.Report{Virt: "none"}
 }
 
 // benchRoles : les tests ne lisent pas la machine qui les joue.
@@ -157,7 +162,7 @@ func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	// Second démarrage : plus de jeton, l'identité suffit.
 	ctx, cancel = context.WithCancel(context.Background())
 	go func() {
-		done <- Run(ctx, Options{StateDir: b.stateDir, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles})
+		done <- Run(ctx, Options{StateDir: b.stateDir, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles, readHost: benchHost})
 	}()
 	b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return s.Online })
 	cancel()

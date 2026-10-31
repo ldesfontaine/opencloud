@@ -23,7 +23,10 @@ function machine(over: Partial<Machine> = {}): Machine {
     update_last: false,
     last_seen_at: null,
     agent: null,
-    proxmox: { declared: false, guests: 0, last_error: "", hosted: null },
+    proxmox: { declared: false, guests: 0, last_error: "", node: "", cluster: null, guest_list: [], hosted: null },
+    kind: "unknown",
+    kind_override: "",
+    host: null,
     roles: [],
     role: "generic",
     modules: [],
@@ -60,7 +63,7 @@ test("une machine sans rôle garde l'encart d'avant", () => {
 });
 
 test("un hôte reconnu et déjà déclaré ne propose plus rien : l'état du relevé reste seul", () => {
-  const markup = render(machine({ roles: [{ name: "proxmox_ve", version: "8.2.4" }], proxmox: { declared: true, guests: 2, last_error: "", hosted: null } }));
+  const markup = render(machine({ roles: [{ name: "proxmox_ve", version: "8.2.4" }], proxmox: { declared: true, guests: 2, last_error: "", node: "", cluster: null, guest_list: [], hosted: null } }));
   expect(markup).not.toContain("machine.proxmox_detected");
   expect(markup).toContain("machine.proxmox_open");
 });

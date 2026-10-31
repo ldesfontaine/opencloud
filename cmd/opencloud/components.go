@@ -221,6 +221,7 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		Actions:        c.actions,
 		SSHKeys:        c.sshKeys,
 		Roles:          c.roles,
+		Host:           c.machines,
 		Proxmox:        c.proxmox,
 		Firewalls:      c.firewalls,
 		Backups:        c.backups,

@@ -63,6 +63,8 @@ export interface ProxmoxHost {
 export interface ProxmoxHosted {
   host_machine_id: string;
   host_machine_name: string;
+  // Le nœud de l'hôte qui l'héberge.
+  node: string;
   vmid: number;
   kind: ProxmoxKind;
   name: string;
@@ -73,11 +75,37 @@ export interface ProxmoxHosted {
   last_backup_bytes: number;
 }
 
+// La grappe que plusieurs hôtes déclarés partagent.
+export interface ProxmoxCluster {
+  id: string;
+  name: string;
+}
+
+// Un invité vu depuis la liste des machines : de quoi le placer dans l'arbre,
+// qu'une machine enrôlée le porte ou non.
+export interface ProxmoxMember {
+  vmid: number;
+  kind: ProxmoxKind;
+  name: string;
+  status: string;
+  template: boolean;
+  node: string;
+  cpus: number;
+  max_memory: number;
+  max_disk: number;
+  linked_machine_id: string | null;
+}
+
 // Ce que la liste des machines dit de Proxmox pour chacune.
 export interface ProxmoxSummary {
   declared: boolean;
   guests: number;
   last_error: string;
+  // Pour un hôte déclaré : son nœud, sa grappe (null pour un nœud seul) et ses
+  // invités. Vides pour une machine sans hôte.
+  node: string;
+  cluster: ProxmoxCluster | null;
+  guest_list: ProxmoxMember[];
   hosted: ProxmoxHosted | null;
 }
 

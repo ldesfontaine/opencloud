@@ -84,6 +84,7 @@ type Options struct {
 	// detectRoles reconnaît ce que la machine est ; nil vaut la lecture de la
 	// vraie machine. Non exporté, pour la même raison que readSSHKeys.
 	detectRoles func() role.Report
+	readHost    func(ctx context.Context) hostinfo.Report
 	// GuardVersion est la version du lanceur stable sous lequel l'agent tourne
 	// (GuardVersionFromEnv), 0 s'il n'en a pas : l'agent ne rapporte alors pas
 	// de retour arrière, et refuse de basculer son lien.
@@ -212,8 +213,15 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	roleReported := &roleReports{}
 	go rolesLoop(ctx, detectMachineRoles, roleReported, rolesPeriod, opts.Logger)
+	// Où tourne la machine et ses disques : lus de même, à part du flux.
+	readMachineHost := opts.readHost
+	if readMachineHost == nil {
+		readMachineHost = hostinfo.Read
+	}
+	hostReported := &hostReports{}
+	go hostLoop(ctx, readMachineHost, hostReported, hostPeriod, opts.Logger)
 	err = keepConnected(ctx, client, identity, &pending{
-		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported,
+		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported, host: hostReported,
 		logs: watcher, probes: prober, updates: updater, orders: orders, outcome: outcome,
 	}, catalogs.For(identity.Language), opts)
 	if updated.Load() {
@@ -233,6 +241,7 @@ type pending struct {
 	actions  *actionResults
 	sshKeys  *sshReports
 	roles    *roleReports
+	host     *hostReports
 	logs     container.LogSource
 	probes   probe.Assignable
 	updates  update.Assignable
@@ -403,6 +412,7 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	pending.images.markReplayed()
 	pending.sshKeys.markReplayed()
 	pending.roles.markReplayed()
+	pending.host.markReplayed()
 
 	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, pending.orders, opts.Logger)
 	lost := make(chan error, 1)
@@ -446,6 +456,7 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 			actions:    pending.actions.take(),
 			sshKeys:    pending.sshKeys.take(),
 			roles:      pending.roles.take(),
+			host:       pending.host.take(),
 		}
 		rejected, err := client.Signal(ctx, session, sent.request())
 		var refused *ServerError
@@ -487,10 +498,11 @@ type signalBatch struct {
 	actions    *agentwire.ActionReport
 	sshKeys    *sshkeys.Report
 	roles      *role.Report
+	host       *hostinfo.Report
 }
 
 func (b signalBatch) request() agentwire.SignalRequest {
-	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys, Roles: b.roles}
+	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys, Roles: b.roles, Host: b.host}
 }
 
 // restoreAfter remet dans le tampon les sections qui suivent celle
@@ -527,6 +539,8 @@ func (b signalBatch) restore(pending *pending, section string) {
 		pending.sshKeys.restore(b.sshKeys)
 	case agentwire.SectionRoles:
 		pending.roles.restore(b.roles)
+	case agentwire.SectionHost:
+		pending.host.restore(b.host)
 	}
 }
 
