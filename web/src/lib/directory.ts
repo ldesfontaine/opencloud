@@ -225,6 +225,21 @@ export function unitKeyOf(unit: ServiceUnit, origin: Origin): string {
   }
 }
 
+// L'unité en une ligne, pour le récapitulatif : ce qui la retrouve parmi ce
+// que la machine montre (selon l'origine), l'image, la version.
+export function unitSummary(unit: UnitFormValues, origin: Origin): string {
+  const key = origin === "container" ? unit.containerName : origin === "binary" ? unit.systemdUnit : unit.name;
+  const image = origin === "binary" ? "" : unit.image;
+  return [key, image, unit.version].filter((part) => part.trim() !== "").join(" · ");
+}
+
+// Les réglages techniques d'une unité (version, ports, dossier de données,
+// empreinte, politique) sont-ils remplis ? Le pli « Avancé » s'ouvre alors :
+// ce qu'une proposition a rempli ne reste pas caché.
+export function hasAdvancedUnitValues(unit: UnitFormValues): boolean {
+  return [unit.version, unit.ports, unit.dataPath, unit.digest].some((value) => value.trim() !== "") || unit.updatePolicy !== "watch";
+}
+
 export function toggled<Value>(values: readonly Value[], value: Value): Value[] {
   return values.includes(value) ? values.filter((candidate) => candidate !== value) : [...values, value];
 }

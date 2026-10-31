@@ -142,7 +142,7 @@ export function Overview() {
             <Stat
               compact
               icon="box"
-              label={t("services.tab_containers")}
+              label={t("module.containers")}
               value={counts.data?.containers.total ?? "–"}
               foot={
                 counts.data && counts.data.containers.attention > 0 ? (

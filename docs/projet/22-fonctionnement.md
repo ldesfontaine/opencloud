@@ -2220,7 +2220,13 @@ le rapprochement des deux est dit dans la section suivante.
   …/{id}/delete-plan`. Les refus sont des clés de catalogue
   (`directory.*`, `project.*`) en 422, 404 si l'objet n'existe pas.
 - **L'interface** : l'onglet Annuaire et l'onglet Projets de la page Services,
-  la fiche d'un service et le formulaire (déclaration et édition).
+  la fiche d'un service et l'assistant (déclaration et édition, « Les fenêtres
+  d'une saisie »). **Il n'y a plus d'onglet Conteneurs** : la liste des
+  services montre, par service, le nombre de ses conteneurs
+  (`declared_service_id` de `GET /api/containers`, groupés par
+  `lib/containers.ts`) et les déplie sous sa ligne ; un conteneur qu'aucun
+  service ne porte est sous « Non déclarés ». `/services/conteneurs` mène à
+  `/services` ; la fiche d'un conteneur (`/services/conteneurs/{id}`) reste.
 
 **La reprise de l'existant** (l'ancienne migration 024, qui repointait sur
 l'annuaire les sondes, composants et politiques qui visaient un conteneur, et
@@ -4304,7 +4310,7 @@ se perd d'un clic à côté.
 | Un geste qui se défait, question courte (lever un silence) | La question prend la place du bouton : « Confirmer », « Annuler » | `ConfirmInline` |
 | Un geste qui ne se défait pas, ou dont la question est longue (régénérer un jeton, remplacer la clé de sauvegarde, révoquer un agent, mettre un agent à jour, supprimer un canal, un incident, un plan) | Une fenêtre qui nomme la conséquence | `ConfirmModal`, `ConfirmDialog` |
 | Une suppression qui peut en emporter d'autres | La fenêtre lit le plan avant de laisser confirmer ; un refus tardif le remplace | `DeletePlanDialog` |
-| Une saisie à plusieurs champs (« Ajouter une machine », l'ordre de déploiement) | Une fenêtre à son adresse ; fermer avec une saisie modifiée demande « Abandonner la saisie ? » | `Modal`, `lib/modal.ts` |
+| Une saisie à plusieurs champs (« Ajouter une machine », « Déclarer un service », l'ordre de déploiement) | Une fenêtre à son adresse ; fermer avec une saisie modifiée demande « Abandonner la saisie ? » | `Modal`, `lib/modal.ts` |
 
 La règle de `Modal` : un clic sur le voile ne ferme rien ; Échap, la croix et
 « Annuler » posent la même demande ; une saisie propre ferme, une saisie
@@ -4313,7 +4319,8 @@ confirme pas, c'est la fenêtre qui précède l'écriture.
 
 **Une fenêtre garde son adresse.** C'est une route fille de la page qui reste
 en fond, et la fermer y ramène (la navigation est remplacée : le retour
-arrière ne rouvre pas la fenêtre). Les fenêtres des machines :
+arrière ne rouvre pas la fenêtre). Les fenêtres des machines, puis celles des
+services, des sondes et des tâches (« Les fenêtres d'une saisie ») :
 
 | Adresse | Fond | Fenêtre |
 | --- | --- | --- |
@@ -4332,6 +4339,23 @@ d'avant. Un jeton expiré sans agent le dit, au lieu d'attendre.
 Coût : une fenêtre à plusieurs champs se perd d'un rechargement (aucun
 brouillon n'est gardé) ; le flou du voile demande un navigateur récent
 (`backdrop-filter`), sans lui le voile reste uni.
+
+**Les fenêtres d'une saisie.** Déclarer un
+service, ajouter une sonde et surveiller une tâche sont des `Wizard` dans une
+`Modal` (`pages/services/ServiceWizard.tsx`, `pages/probes/ProbeWizard.tsx`,
+`pages/jobs/JobWizard.tsx`). En création, l'assistant part de la première
+étape ; en édition, du récapitulatif, d'où « Modifier » mène à l'étape. Les
+réglages techniques sont sous « Avancé » (`Fold`). Ce qu'ils écrivent n'a pas
+changé : le même corps, la même route (`POST` ou `PUT`), les mêmes refus.
+
+| Adresse | Fond | Fenêtre |
+| --- | --- | --- |
+| `/services/annuaire/nouveau` | la liste des services | Déclarer un service : trois étapes (l'identité ; les unités, leurs réglages techniques sous « Avancé » ; les projets). Avec `?container=`, partie de la proposition du serveur pour ce conteneur |
+| `/services/annuaire/{id}/modifier` | la fiche du service | Le même assistant, ouvert sur le récapitulatif |
+| `/disponibilite/nouvelle` | la liste des sondes | Ajouter une sonde : deux étapes (la cible ; le rythme, ce qui est propre à HTTP ou à TCP sous « Avancé »). Avec `?service=` et `?container=`, pré-remplie |
+| `/disponibilite/{id}/modifier` | la fiche de la sonde | Le même assistant, ouvert sur le récapitulatif ; une note dit ce qui remet la sonde à « Nouveau » |
+| `/taches/nouvelle` | la liste des tâches | Surveiller une tâche : une étape (nom, machine, intervalle, grâce) puis le récapitulatif |
+| `/taches/{id}/modifier` | la fiche de la tâche | Le même assistant, ouvert sur le récapitulatif |
 
 ## Comment l'interface se met à jour sans recharger
 

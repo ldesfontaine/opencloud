@@ -195,9 +195,8 @@ function Sidebar({ access, inert }: { access: AuthState | null; inert: boolean }
 function NavItem({ entry }: { entry: MenuEntry }) {
   const { t } = useI18n();
   const counter = entry.counter;
-  const href = counter?.hot === true && entry.attentionHref !== undefined ? entry.attentionHref : entry.href;
   return (
-    <NavLink className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")} to={href} end={entry.href === "/"}>
+    <NavLink className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")} to={entry.href} end={entry.href === "/"}>
       <Icon name={entry.icon} />
       <span>{t(entry.label)}</span>
       {counter && <span className={counter.hot ? "count hot" : "count"}>{counter.value}</span>}

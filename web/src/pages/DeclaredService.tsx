@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, Outlet, useNavigate, useParams } from "react-router";
 
 import { useAlerts } from "../api/alerts";
 import {
@@ -168,6 +168,8 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
       </Card>
       <AttachedContainers gap={gap} />
       {service.origin === "compose" && <DeployCard serviceID={service.id} />}
+      {/* La fenêtre de l'adresse : modifier le service. */}
+      <Outlet />
     </>
   );
 }

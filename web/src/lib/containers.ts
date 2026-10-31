@@ -198,26 +198,18 @@ export function lastStateText(t: Translate, container: PillFacts & Pick<Containe
   return t("container.last_state", state, formatDuration(t, since(container.machine_last_seen_at, now)));
 }
 
-// Le sous-titre de la page Services : rien, un, plusieurs, ce qui demande
-// attention, et ce dont l'état est inconnu : « tous actifs » ne se dit pas
-// de conteneurs que leur machine ne confirme plus.
-export function servicesSubtitle(t: Translate, total: number, attention: number, unknown: number): string {
-  if (total === 0) {
-    return t("services.subtitle_none");
-  }
-  if (unknown > 0) {
-    if (total === 1) {
-      return t("services.subtitle_one_unknown");
+// Les conteneurs de chaque service déclaré, par identifiant du service : ce
+// que la liste des services déplie sous chaque ligne. Un conteneur qu'aucun
+// service ne porte (declared_service_id vide) n'y figure pas.
+export function containersByService(containers: readonly Container[]): Map<string, Container[]> {
+  const grouped = new Map<string, Container[]>();
+  for (const container of containers) {
+    if (container.declared_service_id === "") {
+      continue;
     }
-    return attention === 0 ? t("services.subtitle_unknown", total, unknown) : t("services.subtitle_attention_unknown", total, attention, unknown);
+    grouped.set(container.declared_service_id, [...(grouped.get(container.declared_service_id) ?? []), container]);
   }
-  if (total === 1) {
-    return t(attention === 0 ? "services.subtitle_one" : "services.subtitle_one_attention");
-  }
-  if (attention === 0) {
-    return t("services.subtitle_ok", total);
-  }
-  return t("services.subtitle_attention", total, attention);
+  return grouped;
 }
 
 // Ce qu'on dit d'une machine sans conteneur : la raison, si elle l'a dite.

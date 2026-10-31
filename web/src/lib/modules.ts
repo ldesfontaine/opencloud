@@ -19,8 +19,6 @@ interface MenuDef {
   href: string;
   icon: IconName;
   rank: number;
-  // Où mène l'entrée quand son compteur demande attention.
-  attentionHref?: string;
   counter?: (counts: Counts) => Counter | null;
   // Le premier geste du module, là où Paramètres › Modules et la vue d'ensemble
   // envoient quand rien n'est encore configuré.
@@ -88,7 +86,6 @@ export interface MenuEntry {
   label: string;
   href: string;
   icon: IconName;
-  attentionHref?: string;
   counter: Counter | null;
   rank: number;
 }
@@ -96,7 +93,7 @@ export interface MenuEntry {
 // Les entrées qui ne sont pas des modules. « Clés SSH » y reste tant que sa
 // vue globale n'est pas un onglet de Machines : sans elle, la page serait
 // sans porte.
-const fixedEntries: { key: string; label: string; href: string; icon: IconName; rank: number; attentionHref?: string; counter?: (counts: Counts) => Counter | null }[] = [
+const fixedEntries: { key: string; label: string; href: string; icon: IconName; rank: number; counter?: (counts: Counts) => Counter | null }[] = [
   { key: "overview", label: "nav.overview", href: "/", icon: "grid", rank: 10 },
   {
     key: "machines",
@@ -113,8 +110,6 @@ const fixedEntries: { key: string; label: string; href: string; icon: IconName; 
     href: "/services",
     icon: "box",
     rank: 50,
-    // Les conteneurs du compteur ne sont plus la première page de Services.
-    attentionHref: "/services/conteneurs",
     counter: (counts) => (counts.containers.total > 0 ? { value: counts.containers.total, hot: counts.containers.attention > 0 } : null),
   },
   {
@@ -143,7 +138,6 @@ export function menuEntries(counts: Counts | null): MenuEntry[] {
     href: entry.href,
     icon: entry.icon,
     rank: entry.rank,
-    ...(entry.attentionHref !== undefined && { attentionHref: entry.attentionHref }),
     counter: counts !== null && entry.counter !== undefined ? entry.counter(counts) : null,
   }));
   for (const module of modules) {
@@ -156,7 +150,6 @@ export function menuEntries(counts: Counts | null): MenuEntry[] {
       href: module.menu.href,
       icon: module.menu.icon,
       rank: module.menu.rank,
-      ...(module.menu.attentionHref !== undefined && { attentionHref: module.menu.attentionHref }),
       counter: counts !== null && module.menu.counter !== undefined ? module.menu.counter(counts) : null,
     });
   }

@@ -34,3 +34,40 @@
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
+
+// Le bouton qui déplie les conteneurs d'un service : le chevron tourne à
+// l'ouverture.
+.svc-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ink);
+  }
+
+  svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.12s;
+  }
+
+  &.unfolded svg {
+    transform: rotate(90deg);
+  }
+}
+
+// Les conteneurs d'un service déplié : une liste en retrait sous sa ligne,
+// sur le fond des cartes imbriquées.
+.table .svc-containers > td {
+  padding: 0 0 0 28px;
+  background: var(--surface-2);
+}

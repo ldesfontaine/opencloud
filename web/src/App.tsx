@@ -14,22 +14,22 @@ import { SSHKeyMatrix } from "./pages/SSHKeyMatrix";
 import { Backups } from "./pages/Backups";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
-import { DeclaredServiceForm } from "./pages/DeclaredServiceForm";
 import { FirewallPage } from "./pages/Firewall";
 import { FirewallForm } from "./pages/FirewallForm";
 import { Firewalls } from "./pages/Firewalls";
 import { JobPage } from "./pages/Job";
-import { JobForm } from "./pages/JobForm";
 import { Jobs } from "./pages/Jobs";
+import { JobWizard } from "./pages/jobs/JobWizard";
 import { MachinePage } from "./pages/Machine";
 import { AddMachine } from "./pages/machines/AddMachine";
 import { DeclareProxmoxHost } from "./pages/machines/DeclareProxmoxHost";
 import { PlacementMachine } from "./pages/machines/PlacementMachine";
 import { ReenrollMachine } from "./pages/machines/ReenrollMachine";
+import { ProbeWizard } from "./pages/probes/ProbeWizard";
+import { ServiceWizard } from "./pages/services/ServiceWizard";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
 import { ProbePage } from "./pages/Probe";
-import { ProbeForm } from "./pages/ProbeForm";
 import { Probes } from "./pages/Probes";
 import { ProjectForm } from "./pages/ProjectForm";
 import { Overview } from "./pages/Overview";
@@ -80,26 +80,30 @@ export function App() {
           <Route path="emplacement" element={<PlacementMachine />} />
         </Route>
         <Route path="machines/:id/:tab" element={<MachinePage />} />
-        <Route path="services" element={<Services tab="annuaire" />} />
-        <Route path="services/conteneurs" element={<Services tab="conteneurs" />} />
-        {/* L'ancienne adresse de l'onglet : les liens enregistrés suivent. */}
+        <Route path="services" element={<Services tab="annuaire" />}>
+          <Route path="annuaire/nouveau" element={<ServiceWizard />} />
+        </Route>
+        {/* Les anciennes adresses des onglets Conteneurs et Annuaire : les liens enregistrés suivent. */}
+        <Route path="services/conteneurs" element={<Navigate to="/services" replace />} />
         <Route path="services/annuaire" element={<Navigate to="/services" replace />} />
-        <Route path="services/annuaire/nouveau" element={<DeclaredServiceForm />} />
         {/* Le journal des fichiers appliqués : des segments fixes, avant l'identifiant d'un service. */}
         <Route path="services/annuaire/journal" element={<Applies />} />
         <Route path="services/annuaire/journal/:id" element={<ApplyDetail />} />
-        <Route path="services/annuaire/:id/modifier" element={<DeclaredServiceForm />} />
-        <Route path="services/annuaire/:id" element={<DeclaredServicePage />} />
+        <Route path="services/annuaire/:id" element={<DeclaredServicePage />}>
+          <Route path="modifier" element={<ServiceWizard />} />
+        </Route>
         <Route path="services/projets" element={<Services tab="projets" />} />
         <Route path="services/projets/nouveau" element={<ProjectForm />} />
         <Route path="services/projets/:id" element={<ProjectForm />} />
         <Route path="services/conteneurs/:id" element={<ContainerPage />} />
         {/* L'ancienne adresse d'une fiche de conteneur, gardée pour les liens déjà partagés. */}
         <Route path="services/:id" element={<ContainerRedirect />} />
-        <Route path="disponibilite" element={<Probes />} />
-        <Route path="disponibilite/nouvelle" element={<ProbeForm />} />
-        <Route path="disponibilite/:id/modifier" element={<ProbeForm />} />
-        <Route path="disponibilite/:id" element={<ProbePage />} />
+        <Route path="disponibilite" element={<Probes />}>
+          <Route path="nouvelle" element={<ProbeWizard />} />
+        </Route>
+        <Route path="disponibilite/:id" element={<ProbePage />}>
+          <Route path="modifier" element={<ProbeWizard />} />
+        </Route>
         {/* L'ancien nom de la page : les liens enregistrés suivent, chemin, query et ancre gardés. */}
         <Route path="domaines/*" element={<ProbesRedirect />} />
         <Route path="sauvegardes" element={<Backups />} />
@@ -107,10 +111,12 @@ export function App() {
         <Route path="pare-feu/nouveau" element={<FirewallForm />} />
         <Route path="pare-feu/:id" element={<FirewallPage />} />
         <Route path="pare-feu/:id/modifier" element={<FirewallForm />} />
-        <Route path="taches" element={<Jobs />} />
-        <Route path="taches/nouvelle" element={<JobForm />} />
-        <Route path="taches/:id/modifier" element={<JobForm />} />
-        <Route path="taches/:id" element={<JobPage />} />
+        <Route path="taches" element={<Jobs />}>
+          <Route path="nouvelle" element={<JobWizard />} />
+        </Route>
+        <Route path="taches/:id" element={<JobPage />}>
+          <Route path="modifier" element={<JobWizard />} />
+        </Route>
         <Route path="page-statut" element={<StatusAdmin />} />
         <Route path="page-statut/pages/nouvelle" element={<StatusPageForm />} />
         <Route path="page-statut/pages/:id" element={<StatusPageForm />} />

@@ -247,7 +247,7 @@ function MachineContainers({ machineID }: { machineID: string }) {
         </CardBody>
       )}
       {containers.data && all.length === 0 && note === null && <Empty text={t("services.empty_title")} />}
-      {shown.length > 0 && <ContainerTable containers={shown} withMachine={false} />}
+      {shown.length > 0 && <ContainerTable containers={shown} />}
       {all.length > 0 && shown.length === 0 && <Empty text={t("services.empty_title")} />}
     </Card>
   );

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, Outlet, useNavigate, useParams } from "react-router";
 
 import { deleteJob, fetchJobDeletePlan, pauseJob, regenerateJobToken, resumeJob, useJob, type Job, type JobResponse, type Ping, type Run } from "../api/jobs";
 import { Button } from "../components/Button";
@@ -83,6 +83,8 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
       <Runs runs={response.runs} now={now} />
       <Pings pings={response.pings} />
       {!installsFirst && <Installation response={response} reload={reload} initiallyOpen={false} />}
+      {/* La fenêtre de l'adresse : modifier la tâche. */}
+      <Outlet />
     </>
   );
 }

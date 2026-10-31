@@ -1,5 +1,7 @@
+import { Outlet } from "react-router";
+
 import { useProbes } from "../api/probes";
-import { Button } from "../components/Button";
+import { ActionButton } from "../components/ActionButton";
 import { Card, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
@@ -20,9 +22,9 @@ export function Probes() {
         title={t("module.probes")}
         subtitle={probes.data ? probesSubtitle(t, list.length, attention) : ""}
         actions={
-          <Button variant="primary" icon="plus" to={newProbePath()}>
+          <ActionButton route="POST /api/probes" icon="plus" to={newProbePath()}>
             {t("probe.add")}
-          </Button>
+          </ActionButton>
         }
       />
       {probes.data && list.length > 0 && <p className="secondary">{t("probes.intro")}</p>}
@@ -35,6 +37,8 @@ export function Probes() {
           <ProbeTable probes={list} days={probes.data.days} withMachine />
         </Card>
       )}
+      {/* La fenêtre de l'adresse : ajouter une sonde. */}
+      <Outlet />
     </>
   );
 }
