@@ -48,6 +48,9 @@ func TestMigration025_AddsVerbRequestsToAnExistingBase(t *testing.T) {
 	if err := db.InsertVerbRequest(ctx, request); err != nil {
 		t.Fatal(err)
 	}
+	for _, state := range []verbrequest.State{verbrequest.StateAwaiting, verbrequest.StateConfirmed, verbrequest.StateRejected, verbrequest.StateExpired} {
+		exec(t, db, `UPDATE verb_requests SET state = ? WHERE id = 'r1'`, string(state))
+	}
 	if _, err := db.sql.Exec(`UPDATE verb_requests SET state = 'perdue' WHERE id = 'r1'`); err == nil {
 		t.Fatal("un état hors liste est accepté")
 	}

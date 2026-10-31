@@ -8,7 +8,8 @@ import (
 )
 
 // State est où en est une demande. Seule « awaiting_confirmation » attend
-// quelqu'un ; les trois autres sont des fins.
+// quelqu'un ; les trois autres sont des fins. La contrainte CHECK de la
+// migration 025 est la liste fermée.
 type State string
 
 const (
@@ -17,11 +18,6 @@ const (
 	StateRejected  State = "rejected"
 	StateExpired   State = "expired"
 )
-
-// States rend la liste fermée des états, dans l'ordre de la vie d'une demande.
-func States() []State {
-	return []State{StateAwaiting, StateConfirmed, StateRejected, StateExpired}
-}
 
 const (
 	// TTL est le temps laissé à l'opérateur : passé ce délai, la demande est
