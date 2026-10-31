@@ -1673,6 +1673,7 @@ lit pas, comme `dev`) ; le plan de la base, lui, part vers n'importe quel agent.
 | Champ JSON inconnu dans ce que l'agent envoie | Ignoré par le serveur |
 | Serveur redémarré | Les agents se reconnectent seuls ; l'interface et les flux aussi |
 | Identité | Gardée : une mise à jour ne demande jamais de ré-enrôler, sauf une fois, pour les ordres (ci-dessous) |
+| Volumes Docker (`volumes`, `volumes_complete` dans le signal) | Un agent plus ancien n'en envoie pas : l'inventaire des sauvegardes ne montre aucun volume de sa machine tant qu'il n'est pas mis à jour. Un serveur plus ancien ignore le champ d'un agent plus récent |
 
 **Les ordres signés demandent un ré-enrôlement, une fois.** Un agent enrôlé
 avant eux n'a pas épinglé la clé d'openCloud : il observe comme avant, mais

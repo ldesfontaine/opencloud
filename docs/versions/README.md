@@ -9,6 +9,7 @@ elles vivent dans ce dossier (lien depuis la page de la version :
 | Version | Notes |
 | --- | --- |
 | v0.3.0 | [v0.3.0.md](v0.3.0.md) |
+| À venir (pas publiée) | [a-venir.md](a-venir.md) |
 
 Les versions antérieures (`v0.0.1`, `v0.1.0`, `v0.2.0`) n'ont pas de notes.
 Pour installer et mettre à jour : [`../installation.md`](../installation.md).
