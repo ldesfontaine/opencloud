@@ -66,6 +66,14 @@ type Container struct {
 	Config       ContainerConfig
 	Host         HostConfig      `json:"HostConfig"`
 	Network      NetworkSettings `json:"NetworkSettings"`
+	Mounts       []Mount
+}
+
+// Mount est ce qu'un conteneur monte ; on ne lit que les volumes nommés (Type
+// « volume »), jamais un dossier de l'hôte.
+type Mount struct {
+	Type string
+	Name string
 }
 
 // HostConfig est ce que le démon a reçu à la création ; on n'en lit que ce

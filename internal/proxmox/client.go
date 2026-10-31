@@ -266,6 +266,9 @@ type BackupEntry struct {
 	VMID      int
 	CreatedAt time.Time
 	Size      int64
+	// Storage n'est pas dit par l'API : le relevé le pose, il sait quel
+	// stockage il vient de lire.
+	Storage string
 }
 
 // Backups liste les archives de sauvegarde d'un stockage d'un nœud. Un nœud et

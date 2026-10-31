@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackupPlan, Backups } from "../api/backups";
+import type { BackupPlan, BackupRun, BackupSource, Backups } from "../api/backups";
 import type { Translate } from "../i18n/context";
-import { emptyPlanForm, isBackedUp, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
+import { emptyPlanForm, failedAttemptOf, isBackedUp, lastBackupOf, protectionOf, runReasonText, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -233,5 +233,71 @@ describe("the choice of virtual machines", () => {
     expect(toggleSelectorId("100,200", 200, true)).toBe("100,200");
     expect(toggleSelectorId("100,200", 100, false)).toBe("200");
     expect(toggleSelectorId("200", 200, false)).toBe("");
+  });
+});
+
+const run = (overrides: Partial<BackupRun>): BackupRun => ({
+  plan: "pve",
+  source: "guest:m1:100",
+  pass_at: "2026-10-30T03:00:00Z",
+  started_at: "2026-10-30T03:00:00Z",
+  finished_at: "2026-10-30T03:10:00Z",
+  result: "ok",
+  reason: "",
+  size_bytes: 1000,
+  destination_id: "bkd_1",
+  destination_name: "store-1",
+  action_run_id: "run_1",
+  ...overrides,
+});
+
+const source = (overrides: Partial<BackupSource>): BackupSource => ({
+  key: "guest:m1:100",
+  kind: "vm",
+  name: "web",
+  machine_id: "m1",
+  machine_name: "pve",
+  id: "100",
+  driver: "",
+  used_by: [],
+  covered_by: [],
+  observed: null,
+  last_run: null,
+  last_ok: null,
+  ...overrides,
+});
+
+const observed = { storage: "nfs", count: 3, total_bytes: 900, last_at: "2026-10-31T02:00:00Z", last_bytes: 300 };
+const coverage = { subject: "pve", plan_name: "", destination_id: "bkd_1", destination_name: "store-1" };
+
+describe("inventory protection", () => {
+  it("tells apart a source nothing saves, one only Proxmox keeps, and one a plan covers", () => {
+    expect(protectionOf(source({}))).toBe("none");
+    expect(protectionOf(source({ observed }))).toBe("observed");
+    expect(protectionOf(source({ observed, covered_by: [coverage] }))).toBe("covered");
+  });
+
+  it("shows the most recent of the last plan success and the newest archive Proxmox keeps", () => {
+    const older = run({ finished_at: "2026-10-30T03:10:00Z" });
+    expect(lastBackupOf(source({}))).toBeNull();
+    expect(lastBackupOf(source({ last_ok: older }))).toEqual({ at: "2026-10-30T03:10:00Z", bytes: 1000, target: "store-1", origin: "plan" });
+    expect(lastBackupOf(source({ observed }))).toEqual({ at: "2026-10-31T02:00:00Z", bytes: 300, target: "nfs", origin: "observed" });
+    expect(lastBackupOf(source({ observed, last_ok: older }))?.origin).toBe("observed");
+    expect(lastBackupOf(source({ observed, last_ok: run({ finished_at: "2026-11-01T03:10:00Z" }) }))?.origin).toBe("plan");
+  });
+
+  it("reports an attempt only when it failed after the last success", () => {
+    const success = run({ finished_at: "2026-10-30T03:10:00Z" });
+    const failure = run({ result: "failed", reason: "timeout", finished_at: "2026-10-31T03:10:00Z" });
+    expect(failedAttemptOf(source({ last_run: success, last_ok: success }))).toBeNull();
+    expect(failedAttemptOf(source({ last_run: failure, last_ok: success }))).toBe(failure);
+    expect(failedAttemptOf(source({ last_run: failure }))).toBe(failure);
+    expect(failedAttemptOf(source({ last_run: run({ result: "refused", finished_at: "2026-10-29T03:10:00Z" }), last_ok: success }))).toBeNull();
+  });
+
+  it("translates a refusal key as is and sends a closed word to the order decoder", () => {
+    expect(runReasonText(t, "", () => "decoded")).toBe("");
+    expect(runReasonText(t, "backup.machine_offline", () => "decoded")).toBe("backup.machine_offline");
+    expect(runReasonText(t, "disk_full", (reason) => `decoded ${reason}`)).toBe("decoded disk_full");
   });
 });

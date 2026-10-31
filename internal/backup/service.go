@@ -48,6 +48,21 @@ type Store interface {
 	// SnapshotDatabase écrit dans un fichier neuf une copie cohérente de la
 	// base (VACUUM INTO).
 	SnapshotDatabase(ctx context.Context, path string) error
+	// RecordBackupRun écrit une ligne de l'historique et purge ce que le plan
+	// garde au-delà de MaxRunsPerPlan.
+	RecordBackupRun(ctx context.Context, record RunRecord) error
+	// ListBackupRuns rend l'historique, les plus récentes d'abord.
+	ListBackupRuns(ctx context.Context, query RunQuery) ([]RunRecord, error)
+	// LastPassCounts rend, par plan, les cibles reçues et en échec de sa
+	// dernière tentative.
+	LastPassCounts(ctx context.Context) (map[string]PassCounts, error)
+	// Ce que l'inventaire lit de ce que les machines ont rapporté : les invités
+	// des hôtes Proxmox, leurs stockages de sauvegardes, les volumes Docker, et
+	// la dernière exécution de chaque source.
+	ListObservedGuests(ctx context.Context) ([]ObservedGuest, error)
+	ListObservedStorages(ctx context.Context) ([]ObservedStorage, error)
+	ListObservedVolumes(ctx context.Context) ([]ObservedVolume, error)
+	LatestRunsBySource(ctx context.Context) (LatestRuns, error)
 }
 
 // Machines est ce que le composant lit des machines : si elles sont en
@@ -117,9 +132,6 @@ type Service struct {
 	// passages, que Watch attend en finissant (la base ne ferme pas dessous).
 	lifetime   context.Context
 	background sync.WaitGroup
-
-	// passes garde, par sujet, les comptes du dernier passage d'un plan machine.
-	passes passSummaries
 }
 
 func New(store Store, machines Machines, stateDir *os.Root, logger *slog.Logger) *Service {
@@ -297,7 +309,11 @@ func (s *Service) SavePlan(ctx context.Context, definition PlanDefinition) (Plan
 	if err != nil {
 		return Plan{}, fmt.Errorf("read backup plan: %w", err)
 	}
-	saved = s.passes.applyTo(saved)
+	counts, err := s.store.LastPassCounts(ctx)
+	if err != nil {
+		return Plan{}, fmt.Errorf("count last backup pass: %w", err)
+	}
+	saved = withCounts(saved, counts)
 	s.logger.Info("backup plan saved", "plan_id", saved.ID, "subject", saved.Subject, "destination_id", saved.DestinationID, "keep", saved.Keep)
 	s.auditor.Record(ctx, audit.Event{
 		Action: audit.BackupPlanUpdate, ObjectID: saved.ID, ObjectName: saved.Subject,
@@ -344,7 +360,6 @@ func (s *Service) DeletePlan(ctx context.Context, subject string) error {
 	if err := s.store.DeleteBackupPlan(ctx, subject); err != nil {
 		return err
 	}
-	s.passes.forget(plan.Subject)
 	s.logger.Info("backup plan deleted", "plan_id", plan.ID, "subject", plan.Subject)
 	s.auditor.Record(ctx, audit.Event{
 		Action: audit.BackupPlanDelete, ObjectID: plan.ID, ObjectName: plan.Subject,
@@ -380,10 +395,30 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if err != nil {
 		return Overview{}, fmt.Errorf("list backup plans: %w", err)
 	}
+	counts, err := s.store.LastPassCounts(ctx)
+	if err != nil {
+		return Overview{}, fmt.Errorf("count last backup pass: %w", err)
+	}
 	for index, plan := range overview.Plans {
-		overview.Plans[index] = s.passes.applyTo(plan)
+		overview.Plans[index] = withCounts(plan, counts)
 	}
 	return overview, nil
+}
+
+// withCounts pose sur le plan les cibles de son dernier passage, lues dans
+// l'historique.
+func withCounts(plan Plan, counts map[string]PassCounts) Plan {
+	plan.LastTargetsOK, plan.LastTargetsFailed = counts[plan.Subject].OK, counts[plan.Subject].Failed
+	return plan
+}
+
+// Runs rend l'historique des exécutions, les plus récentes d'abord.
+func (s *Service) Runs(ctx context.Context, query RunQuery) ([]RunRecord, error) {
+	records, err := s.store.ListBackupRuns(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list backup runs: %w", err)
+	}
+	return records, nil
 }
 
 // rightOf juge si l'agent de la machine peut écrire dans ce dossier : « ok »

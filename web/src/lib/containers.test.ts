@@ -18,6 +18,9 @@ test("containerPill dérive la pastille des faits", () => {
   expect(containerPill({ state: "exited", exit_code: 137, health: "", oom_killed: false }).key).toBe("stopped");
   // docker kill sans arrêt demandé : 137 aussi, mais « Tué » ; sans le fait (agent ancien), « Arrêté ».
   expect(containerPill({ state: "exited", exit_code: 137, health: "", killed: true })).toEqual({ key: "killed", tone: "danger" });
+  expect(containerPill({ state: "exited", exit_code: 1, health: "", stop_requested: true })).toEqual({ key: "stopped", tone: "neutral" });
+  expect(containerPill({ state: "exited", exit_code: 1, health: "", stop_requested: false }).key).toBe("failing");
+  expect(containerPill({ state: "exited", exit_code: 1, health: "", stop_requested: true, oom_killed: true }).key).toBe("out_of_memory");
   expect(containerPill({ state: "exited", exit_code: 137, health: "" }).key).toBe("stopped");
   expect(containerPill({ state: "restarting", exit_code: 1, health: "" }).key).toBe("restarting");
   expect(containerPill({ state: "paused", exit_code: 0, health: "" }).key).toBe("paused");
@@ -167,6 +170,7 @@ const transition: Transition = {
   exit_code: null,
   oom_killed: false,
   killed: false,
+  stop_requested: false,
   replayed: false,
   snippet: "",
 };

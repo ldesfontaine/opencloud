@@ -28,7 +28,7 @@
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
 | mcp-maison | Un serveur MCP à part, sur la machine openCloud, dans Docker (`network_mode: host`) | Il identifie chaque personne par l'IdP OIDC de l'opérateur, sert ses outils, et lit l'API d'openCloud en direct sur l'adresse de `listen` avec un **jeton d'API en lecture** (`Authorization: Bearer ock_…`), en posant `X-MCP-Maison-User` ; openCloud lit son `/health` à la demande (Paramètres) et marche sans lui |
-| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 32 lectures, secrets masqués. Avec un jeton en lecture, jamais une écriture ; avec un jeton en écriture, seulement les verbes cochés (« Les verbes d'un jeton en écriture ») ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
+| Un agent IA | Claude, Claude Code, tout client MCP | Rien dans openCloud : il parle à mcp-maison. Ce qu'il lit est ce que l'API rend à un jeton : 32 lectures, secrets masqués. Avec un jeton en lecture, jamais une écriture ; avec un jeton en écriture, seulement les verbes cochés, sur les machines et les invités que sa portée admet (« Les verbes d'un jeton en écriture », « La portée d'un jeton ») ; les journaux bruts des conteneurs, eux, partent chez le fournisseur du modèle |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud fait tourner
 les deux : le serveur, et son agent, qui en fait une machine comme les autres
@@ -135,9 +135,9 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | L'envoi du journal : la table `audit_deliveries`, une ligne par (événement, canal qui reçoit le journal) : `status` (`pending`, `delivered`, `failed`), `attempts`, `reason` et `code` du dernier essai, `next_attempt_at`. Réservée dans la transaction de l'événement. **Aucun contenu** : le message se refait de l'événement, relu à l'envoi (« Le journal d'audit › Envoi aux canaux ») | Part avec son événement (la purge à un an) et avec son canal (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ordres envoyés aux agents : `action_runs` (identifiant, genre `action`, paramètres sans secret `params`, machine et agent en `set null` avec `machine_name` recopié, état, `refusal_reason`, `not_after`, rang `seq` unique par agent, `requested_by` recopié de l'acteur, `requested_at`, `finished_at`) et leur sortie, `run_logs` (rang, instant, flux, ligne ; 64 lignes au plus par run), partie avec son run (`cascade`). Écrit **avant** que l'ordre ne parte (« Comment un ordre part et revient ») | Un run survit à sa machine et à son agent : c'est une trace. Purgé à 90 jours (`action.Retention`) avec sa sortie, par la boucle des ordres. La sortie est ce que l'agent a écrit : rien n'y est masqué |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
-| Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille ; depuis la migration `020`, le stockage de la plus récente, le nombre d'archives vzdump vues et leur taille totale) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les rôles que l'agent reconnaît sur sa machine (migration `014_machine_roles.sql`) : `machine_roles` (machine, rôle de la liste fermée `proxmox_ve`, version trouvée ; aujourd'hui le seul rôle). **Aucun secret, aucun droit** : un rôle se montre, il n'ouvre rien | Un reflet du dernier rapport, remplacé en entier à chaque rapport retenu : un rôle que l'agent ne voit plus disparaît. Pas d'historique, pas de purge d'âge. La machine retirée l'emporte (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le retour arrière des agents (migration `018_agent_rollback.sql`) : `agents.rollback_version` (la version du retour arrière que l'agent a dite à l'ouverture de son flux, 0 tant qu'il ne la dit pas) et `machines.update_last` (« à mettre à jour en dernier », 0 par défaut) | Aucun secret. `rollback_version` se réécrit à chaque ouverture de flux ; `update_last` ne change que par l'opérateur |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pare-feu que l'opérateur déclare et ce que leur API en a dit (migration `015_firewalls.sql`) : `firewalls` (nom unique sans casse, connecteur `opnsense`, adresse de l'API, clé d'API, **secret d'API chiffré**, empreinte épinglée, version, instants de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `firewall_interfaces`, `firewall_rules` (dans l'ordre où le pare-feu les rend), `firewall_leases` et `firewall_gateways`. **Jamais le trafic, jamais un journal de filtrage** | Le secret est chiffré comme les autres (« Ce que le chiffrement couvre »), lié à sa ligne ; il ne sort jamais de l'API ni des journaux. Les quatre tables de relevé sont remplacées en entier à chaque relevé réussi, dans une transaction ; un relevé qui échoue garde le précédent. Une autre adresse d'API ou un autre connecteur à la redéclaration efface le relevé (il décrivait un autre appareil). Pas d'historique, pas de purge d'âge. Le pare-feu retiré emporte son relevé (`ON DELETE CASCADE`). Un pare-feu n'appartient à aucune machine : le plan de suppression d'une machine n'en compte aucun. Au plus 20 pare-feu |
@@ -147,11 +147,12 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pages de statut dans `status_pages` (adresse `slug` unique, titre, annonce en texte brut, langue, projet facultatif, une page par projet au plus, en `restrict` vers lui) ; les composants dans `status_components` (leur page, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), les objets qu'ils visent dans `incident_targets` (quatre clés étrangères, exactement une remplie, en `cascade` : un lien seul, l'incident reste), leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens ; la page supprimée emporte ses composants de même. Un incident ne vise pas un composant : il vise des objets, et l'objet supprimé détache l'incident (compté dans le plan), qui garde son texte et son fil. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`) | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne et ses verbes ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`), leur portée dans `api_tokens.machines_limited` et `guests_limited` et les tables `api_token_machines` et `api_token_guests` (migration `023_api_token_reach.sql` : « La portée d'un jeton ») | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne, ses verbes et sa portée ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le SSO n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
 | Machine openCloud, `state_dir` | `server.key` | La clé qui **signe les ordres** envoyés aux agents : une ligne `ed25519-v1:<graine>`, Ed25519, tirée au premier démarrage de `serve`, jamais en base ; une seconde ligne, la clé précédente, le temps d'une rotation (`opencloud secrets rotate-server-key`, puis `finish-server-key`). Sa moitié publique est livrée à chaque agent à l'enrôlement, qui l'épingle | Les règles de `secret.key` : mode 0600 jugé sur le descripteur, refusée si un autre compte peut la lire, création exclusive (deux `serve` lancés ensemble gardent la même). Illisible ou abîmée, `serve` refuse de démarrer plutôt que d'en tirer une autre. **Qui l'a commande toutes les machines** ; perdue, chaque agent refuse les ordres (`bad_signature`) jusqu'à son ré-enrôlement ; volée, aussi : une rotation se fait sous la signature de l'ancienne clé, elle ne chasse pas qui la tient. À sauvegarder avec `secret.key` |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'historique des exécutions des plans de sauvegarde dans `backup_runs` (migration `019` : une ligne par cible d'un passage : plan, source, début, fin, résultat `ok`/`failed`/`refused`, raison fermée, taille de l'archive, nom de la destination), lu par l'inventaire et par `GET /api/backups/runs`. Les volumes Docker de chaque machine dans `machine_volumes` (migration `021` : nom, pilote, noms des conteneurs qui le montent ; **jamais le contenu ni la taille**) | L'historique est borné à 400 lignes par plan, purgé à l'écriture ; il survit au plan et à la destination qu'il nomme. Les volumes sont remplacés à chaque inventaire de l'agent ; la machine retirée emporte les siens. Aucun secret dans l'un ni l'autre |
 | Machine openCloud, `state_dir` | `opencloud.db` | La sauvegarde de la base : `backup_keyring` (une ligne : la clé **publique** `age1…` en clair, la privée `identity_sealed` scellée par la phrase de passe, l'empreinte), `backup_destinations` (nom, machine en `restrict`, chemin), `backup_plans` (le sujet, unique, le libellé, le type de source `database` ou `agent`, la machine source en `restrict`, le producteur, la sélection, la destination en `restrict`, combien garder, la dernière tentative, la clé de son refus, le dernier ordre en `set null`). **La phrase de passe n'est écrite nulle part** : ni base, ni journal, ni audit | La clé privée n'est lisible qu'avec la phrase ; la publique ne chiffre que |
 | Machine openCloud, `state_dir` | `outgoing/<colis>/` | Les colis des ordres longs, de deux sortes. *À télécharger* (la base, `backup.receive`) : l'instantané de la base (`VACUUM INTO`) le temps de l'emballer, puis l'archive chiffrée jusqu'à son téléchargement par l'agent, **la vie de son ordre au plus** (`action.ParcelLifetime` : 2 min pour être pris, une heure pour finir). *À téléverser* (`backup.produce`, `Outbox.CreateForUpload`) : un colis que la machine **source** remplit par `PUT /agent/parcels/{colis}/{nom}` (l'archive chiffrée d'une VM, 64 Gio au plus, 1 Gio libre de marge ; la clé scellée y est déposée par `serve`), jusqu'à ce que la destination l'ait téléchargé ; `serve` le jette dès la cible traitée, et **un seul vit à la fois**. Vidé au démarrage de `serve`. Aucune sauvegarde n'est gardée sur cette machine | `0700`, `0600`, même disque et mêmes droits que la base ; l'instantané en clair est effacé avant l'envoi ; un téléversement n'apporte que du chiffré |
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
@@ -1260,9 +1261,10 @@ qu'un agent a écrit** : tout ce que `serve` ne reconnaît pas devient `unknown`
 pas dans `last_error`. Aucun secret n'y entre : ni la phrase, ni la clé, ni une
 ligne de `vzdump`. Le plan ajoute à son état le **nombre de cibles reçues et en
 échec** du dernier passage (`last_targets_ok`, `last_targets_failed`).
-Ces deux nombres sont **gardés en mémoire** (aucune colonne de plus) : ils
-valent 0 et 0 pour la base et après un redémarrage de `serve`, tant que le plan
-n'a pas repassé.
+Ces deux nombres **se lisent dans l'historique** (`backup_runs`, « L'inventaire
+et l'historique ») : les lignes dont l'instant de passage est celui de la
+dernière tentative du plan. Ils survivent à un redémarrage de `serve` ; ils
+valent 0 et 0 pour la base et pour un plan qui n'a pas encore passé.
 
 *Le rythme.* « Sauvegarder maintenant » rend le premier ordre `backup.produce`
 dès qu'il est parti et mène la suite derrière la requête ; la page suit
@@ -1317,6 +1319,104 @@ que les sauvegardes. Qui a la machine openCloud n'a pas besoin des
 sauvegardes. Une destination qui perd son disque perd ses sauvegardes : en
 avoir deux est à la charge de l'opérateur (huit au plus ; plusieurs plans
 peuvent viser des destinations différentes).
+
+### L'inventaire et l'historique
+
+Deux lectures, sans geste : ce qui existe à sauvegarder avec où cela peut aller
+(l'**inventaire**), et ce qui s'est réellement passé (l'**historique**). Elles
+fondent la matrice « quoi → où » qui viendra ensuite. Rien n'est demandé à une
+machine ni à Proxmox quand on les lit : tout vient de ce que `serve` a déjà en
+base (le dernier relevé de chaque hôte, le dernier inventaire Docker de chaque
+agent, les plans, les destinations, l'historique).
+
+**Les sources** sont calculées, jamais saisies :
+
+| Genre | D'où elle vient | Clé |
+| --- | --- | --- |
+| `database` | la base d'openCloud ; toujours présente | `database` |
+| `vm`, `lxc` | les invités du dernier relevé de chaque hôte Proxmox déclaré, **modèles exclus** (vzdump n'en sauvegarde pas ; c'est aussi la règle du sélecteur `all`) | `guest:<machine de l'hôte>:<numéro>` |
+| `docker_volume` | les volumes nommés que l'agent d'une machine a listés : nom, pilote, noms des conteneurs qui le montent. **Ni le contenu, ni la taille, ni le point de montage** | `volume:<machine>:<nom>` |
+
+**La couverture** dit quels plans d'openCloud couvrent la source aujourd'hui :
+le plan `database` couvre la base ; un plan `agent` `proxmox-vzdump` couvre les
+invités de l'hôte qu'il nomme, tous pour `all` (ceux du dernier relevé), ceux de
+la liste sinon. Aucun producteur ne sauvegarde encore un volume Docker : un
+volume n'est couvert par rien.
+
+**Les archives vues sur Proxmox.** Chaque relevé d'hôte liste les fichiers
+vzdump des stockages qui acceptent des sauvegardes et les rattache à l'invité de
+leur numéro (`vmid`, que l'API donne). Par invité, il garde le nombre d'archives,
+leur taille totale, la date et la taille de la plus récente et **le stockage**
+qui la porte (`proxmox_guests`, migration `020`). C'est ainsi qu'une tâche vzdump
+nocturne de l'hôte apparaît sans y toucher. Une archive dont le numéro ne
+correspond à aucun invité du relevé n'est rattachée à personne et ne s'affiche
+pas. La limite : on voit les fichiers, pas la tâche qui les a faits.
+
+**Les cibles** sont de deux genres, **séparés** : les **destinations** d'openCloud
+(une machine avec agent et un dossier, avec l'état du droit de réception) et les
+**stockages Proxmox** qui acceptent des sauvegardes (nœud, type, capacité, s'ils
+répondent). Un même endroit physique peut figurer sous les deux formes (un
+partage NFS monté sur l'hôte Proxmox **et** destination d'un plan) : l'inventaire
+ne les fusionne pas, rien dans ce que `serve` sait ne dit qu'ils sont le même.
+Les rapprocher est une décision à prendre ensuite.
+
+**L'ordre.** Les sources dont rien ne répond viennent en tête (ni plan, ni archive
+vue), puis celles que seul Proxmox sauvegarde, puis celles qu'un plan couvre.
+Coût : une VM sauvegardée chaque nuit par Proxmox seul n'est pas « non couverte »
+mais n'est pas non plus parmi les couvertes ; la page la marque « Proxmox
+seulement ».
+
+**L'historique** (`backup_runs`, migration `019`) a une ligne par cible d'un
+passage, écrite par le service des sauvegardes à la fin de la cible :
+
+| Colonne | Sens |
+| --- | --- |
+| `subject`, `pass_at` | le plan, et l'instant de sa tentative (`backup_plans.last_attempt_at`) : les lignes d'un passage le partagent, c'est ce qui compte les cibles du dernier passage |
+| `source` | la clé de la source (`database`, `guest:…`) ; **vide** quand le plan entier est refusé avant toute cible |
+| `started_at`, `finished_at` | le début et la fin de la cible |
+| `result` | `ok` (reçue ; l'élagage manqué laisse `ok` et pose sa clé dans `reason`), `failed` (l'ordre est parti, quelque chose a manqué), `refused` (rien n'est parti) |
+| `reason` | la clé d'un refus (`backup.machine_offline`, `backup.prepare_failed`…) ou un mot fermé des ordres ; jamais le texte d'un agent |
+| `size_bytes` | la taille de l'archive remise ; NULL quand elle n'est pas connue |
+| `destination_id`, `destination_name` | la cible, nom recopié (la destination peut disparaître) |
+| `action_run_id` | l'ordre `backup.receive` (à défaut `backup.produce`) |
+
+*Pour la base, la ligne attend la réponse.* L'ordre `backup.receive` part, puis
+`serve` suit son état derrière la requête : la ligne n'est écrite qu'à sa fin, `ok`
+seulement si l'agent de la destination a écrit l'archive. Un `serve` arrêté
+entre-temps n'écrit pas de ligne (comme un passage machine interrompu).
+
+*La purge.* Chaque écriture garde les **400 dernières lignes du plan**
+(`backup.MaxRunsPerPlan`) et efface les plus anciennes dans la même transaction.
+Aucune autre purge, aucune jointure : l'historique survit au plan supprimé et à la
+destination retirée, avec ses 400 lignes au plus.
+
+**Les routes** (lecture seule, ouvertes à l'opérateur **et** au jeton d'API en
+lecture ; aucune n'accepte d'écriture) :
+
+| Route | Rend |
+| --- | --- |
+| `GET /api/backups/inventory` | `sources` (clé, genre, nom, machine, numéro, pilote et conteneurs d'un volume, plans qui la couvrent, archives vues sur Proxmox, dernière exécution et dernière réussie) et `targets` |
+| `GET /api/backups/runs?plan=&source=&limit=` | `runs`, les plus récentes d'abord ; `limit` 50 par défaut, 400 au plus ; `limit` < 1 ou illisible : `400 bad_query` |
+
+`GET /api/backups` (la clé publique, les plans) reste fermé aux jetons.
+
+**L'interface** : sur la page Sauvegardes, la section **Inventaire** : un tableau
+des sources (source, genre, machine, couverte par, dernière sauvegarde, taille,
+cible), les moins protégées en tête, puis un tableau des cibles. « Dernière
+sauvegarde » est la plus récente entre la dernière exécution réussie d'un plan et
+la plus récente archive vue sur un stockage Proxmox, avec son origine. Un dernier
+essai échoué ou refusé après la dernière réussite s'y lit.
+
+**Les volumes dans l'agent.** Le rapport de l'agent (section `services` du signal)
+porte, à côté des réseaux, `volumes_complete` et `volumes` : chaque inventaire
+(au démarrage, à chaque volume créé ou détruit) liste les volumes et les noms des
+conteneurs qui les montent, lus à l'inspection des conteneurs (`Mounts`, type
+`volume`). Un dossier de l'hôte monté n'en est pas un. La liste complète remplace
+celle de la machine (`machine_volumes`, migration `021`), comme les réseaux. Un
+démon qui ne liste pas les volumes ne fait pas perdre l'inventaire : la liste
+n'est pas dite complète et `serve` garde celle qu'il avait. Compatibilité : un
+agent plus ancien n'envoie pas de volumes (la machine n'en montre aucun jusqu'à sa
+mise à jour) ; un serveur plus ancien ignore le champ (`installation.md`).
 
 ## Comment un service se déploie
 
@@ -1732,7 +1832,16 @@ machine suit toujours le flux, pas cette règle.
    demande d'arrêt dans le délai d'arrêt du conteneur plus une minute
    (10 s par défaut), sans manque de mémoire, et sur un conteneur qui
    n'est pas en train d'être retiré (`rm -f`, `compose down`), est
-   marqué **tué** (`killed`). Un `start` efface la demande en attente.
+   marqué **tué** (`killed`). Un `die` précédé d'une demande d'arrêt dans
+   cette même fenêtre (délai borné à 10 min, plus une minute) est marqué
+   **arrêt demandé** (`stop_requested`), **quel que soit son code** : un
+   service qui dépasse son propre délai d'arrêt sort en 1 après le signal,
+   ce n'est pas un plantage. L'historique du conteneur garde le code et le
+   dit : « arrêt demandé, sortie en code N : arrêt trop lent ». Le manque
+   de mémoire passe avant. Docker émet `kill` (15), `die`, puis `stop` et
+   `start` pour un `restart` : la demande est le `kill` ou, à défaut, le
+   `stop`. Un agent plus vieux ne rapporte pas `stop_requested` : le code
+   décide seul. Un `start` efface la demande en attente.
    Chaque événement repart avec le conteneur réinspecté. Sur un `die` à
    code hors 0, 137 ou 143, tué faute de mémoire ou tué, l'agent capture les 50
    dernières lignes du journal. Une coupure du flux repart de l'horodatage
@@ -1801,10 +1910,11 @@ machine suit toujours le flux, pas cette règle.
    qui écrit le rapport (`internal/store`).
    La machine openCloud passe par son agent, comme les autres.
 7. Le serveur rend des faits : l'état Docker brut, le code de sortie, la
-   santé, `oom_killed` et `killed`. Le navigateur en fait les pastilles :
+   santé, `oom_killed`, `killed` et `stop_requested`. Le navigateur en fait les pastilles :
    Actif, Démarre, Défaillant, Manque de mémoire, Tué, Redémarre, En pause,
    Arrêté ; un
-   `exited` à 0, 137 ou 143 est « Arrêté », tout autre code « Défaillant ».
+   `exited` à 0, 137 ou 143, ou un arrêt demandé (`stop_requested`), est
+   « Arrêté », tout autre code « Défaillant ».
    Un conteneur tué par le noyau faute de mémoire sort aussi en 137 :
    Docker le dit par `State.OOMKilled`, l'agent le remonte avec l'état
    (`oom_killed`, absent chez un agent plus vieux, lu comme faux), et la
@@ -3292,7 +3402,7 @@ liste vit dans `internal/alert`.
 | Alerte | Source | S'ouvre quand | Se résout quand | Gravité |
 | --- | --- | --- | --- | --- |
 | Machine perdue | `machine`, toutes les 15 s | dernier signal de plus de **2 min** (`machine.Observed`), **flux ouvert ou non** : une machine coupée à chaud garde son flux ; la machine openCloud comprise ; jamais une machine sans agent actif (révoqué, ou en attente de son agent) | l'agent rouvre son flux, ou ses signaux reprennent sur le flux resté ouvert (le passage de 15 s la résout) | danger |
-| Service arrêté sans qu'on l'ait demandé | `container`, après chaque rapport | état final `exited` avec un code hors 0, 137 et 143, ou tué faute de mémoire (motif `oom` : « arrêté par manque de mémoire »), ou tué en SIGKILL sans arrêt demandé (motif `killed` : « arrêté brutalement (signal KILL), sans arrêt demandé » ; chercher un `docker kill`, un `kill -9` sur l'hôte, un outil d'administration), ou `dead`. Un `docker stop` dont le délai expire (137) et le 143 (SIGTERM) restent des arrêts demandés | il tourne de nouveau depuis **2 min**, ou devient « redémarrage non demandé » s'il a été relancé (la même alerte) ; fiche archivée | danger |
+| Service arrêté sans qu'on l'ait demandé | `container`, après chaque rapport | état final `exited` avec un code hors 0, 137 et 143, ou tué faute de mémoire (motif `oom` : « arrêté par manque de mémoire »), ou tué en SIGKILL sans arrêt demandé (motif `killed` : « arrêté brutalement (signal KILL), sans arrêt demandé » ; chercher un `docker kill`, un `kill -9` sur l'hôte, un outil d'administration), ou `dead`. Un `docker stop` dont le délai expire (137), le 143 (SIGTERM) et tout arrêt demandé (`stop_requested`, même en code 1) restent des arrêts demandés | il tourne de nouveau depuis **2 min**, ou devient « redémarrage non demandé » s'il a été relancé (la même alerte) ; fiche archivée | danger |
 | Service défaillant | `container` | `running` avec santé `unhealthy` | santé revenue depuis **2 min**, ou arrêt ; un échec qui revient avant reprend la même alerte | attention |
 | Redémarrage non demandé | `container` | un arrêt non demandé suivi d'un `start`, dans le rapport ou depuis le précédent, ou un passage par `restarting` | **10 min** sans nouveau redémarrage ; un nouvel arrêt la repasse en « arrêté » sans en ouvrir une autre | attention |
 | Boucle de redémarrage | `container` | **3** redémarrages non demandés en 10 min : la même alerte, aggravée une seule fois, le compteur dans ses détails ; à l'arrêt comme relancé, elle se dit « Boucle de redémarrage » | idem | danger |
@@ -3622,7 +3732,8 @@ telle que la commande la lit, que `serve` ait été redémarré ou non).
 
 openCloud ne parle pas MCP. **mcp-maison**, un serveur MCP à part
 (`installation.md`, « Brancher un agent IA »), sert les outils à l'agent IA
-et lit l'API d'openCloud avec un **jeton d'API**. Ce qu'openCloud fournit :
+et lit l'API d'openCloud avec un **jeton d'API** (dont l'inventaire des
+sauvegardes et leur historique, « L'inventaire et l'historique »). Ce qu'openCloud fournit :
 le jeton, l'admission de ce jeton sur une liste fermée de lectures et, pour un
 jeton en écriture, sur les seuls verbes qu'il porte, le masquage des secrets,
 l'acteur du journal, et un moyen de voir si mcp-maison répond.
@@ -3802,6 +3913,7 @@ de verbes écrite en dur :
 | --- | --- |
 | `scope` | `read` ou `write` |
 | `verbs` | `[]` pour un jeton `read`, ou `write` sans verbe |
+| `reach` | `{"machines": …, "guests": …}` : `null` pour toutes, une liste sinon (« La portée d'un jeton ») |
 | `path`, `params` | Le motif de la route et ses segments `{…}`, dans l'ordre |
 | `body` | Les champs JSON attendus (`["snapshot"]` pour `proxmox.vm.snapshot_delete`, `[]` sinon) |
 | `reverse` | Le verbe qui défait celui-ci |
@@ -3828,6 +3940,84 @@ pas reçoit `403 api_token.verb_forbidden`, et l'événement `api_token.deny` es
 propre limite par jeton (`apiVerbDenyBurst` = 5, puis une par minute) pour
 qu'une boucle ne remplisse pas le journal ; le refus lui-même n'est jamais
 limité.
+
+### La portée d'un jeton : quelles machines, quels invités
+
+Un jeton `write` porte ses verbes sur **toutes** les machines, sauf si
+l'opérateur le limite (issue #382). Deux listes, indépendantes, choisies à la
+création et modifiables ensuite :
+
+| Liste | Sens | Valeurs |
+| --- | --- | --- |
+| Machines | Les machines dont l'agent peut recevoir un geste du jeton | Absente : toutes (le cas de tout jeton créé avant la migration `022`). Une liste : celles-là. **Une liste vide : aucune** |
+| Invités | Les numéros (VMID) des VM et conteneurs Proxmox visés, pour les quatre verbes `proxmox.vm.*` | Même règle. Sans verbe Proxmox, la liste ne sert à rien et l'interface ne la propose pas |
+
+**Ce que chaque verbe vise.**
+
+| Verbe | Machine jugée |
+| --- | --- |
+| `agent.ping`, `agent.update`, `agent.rollback` | La machine du chemin (`{id}`) : celle dont l'agent reçoit l'ordre |
+| `probe.pause`, `probe.resume` | La machine **de la sonde** : celle qui sonde (`probes.machine_id`), pas la cible sondée |
+| `job.pause`, `job.resume` | La machine de la tâche. Une tâche **sans machine** n'est dans aucune liste : un jeton limité aux machines est refusé |
+| `proxmox.vm.*` | L'hôte du chemin (`{id}`) jugé par la liste des **machines**, **et** l'invité (`{vmid}`) jugé par la liste des **invités**. Les deux doivent passer |
+
+Le registre porte cette règle : chaque verbe déclare ce que son `{id}`
+désigne (`verb.Target` : `machine`, `probe` ou `job`) et l'enregistrement
+refuse un verbe qui ne le dit pas. Le contrôle est **côté serveur**, dans
+l'admission des jetons (`admitReach`, `internal/server/api_tokens.go`), juste
+après le contrôle du verbe et avant le débit : un refus ne consomme rien. Une
+route d'action ajoutée plus tard est jugée sans autre code, ou n'est pas
+enregistrable.
+
+**Le refus.** `403 api_token.out_of_scope`. L'événement `api_token.deny` est
+écrit, avec l'acteur `api:<id>`, `on_behalf_of`, et `details` : `verb`,
+`reason` = `out_of_scope`, `machine` (l'identifiant visé : celui du chemin, ou
+la machine que la base donne à la sonde ou à la tâche, bornés à 64
+caractères) et `guest` (le numéro, pour un geste Proxmox). La trace a la même
+limite par jeton que les refus de verbe (5 puis une par minute) ; le refus
+lui-même n'est jamais limité. Le contrôle passe **avant** que le serveur
+cherche l'objet visé pour le verbe : une sonde ou une tâche inconnue d'un jeton
+limité répond aussi `403`, jamais `404`, pour qu'un jeton limité n'apprenne pas
+qu'un objet existe sur une machine hors de sa portée. Un jeton sans limite garde
+le `404` d'avant, et ne coûte aucune lecture de plus.
+
+**La modifier.** `PUT /api/settings/api-tokens/{id}/reach`, corps
+`{"machines": […], "guests": […]}` : il **remplace** la portée, une clé absente
+ou `null` redevient « toutes ». Route d'opérateur : un jeton, même `write` avec
+tous les verbes, la reçoit en `403 api_token.route_forbidden`, pour le sien
+comme pour un autre ; il ne peut donc ni élargir sa portée ni créer un jeton
+plus large. Elle vaut à la requête suivante du jeton, est journalisée
+(`api_token.update`, `details.reach`) et exige que le jeton soit `write`
+(`422 api_token.reach_needs_write`), que les machines existent
+(`422 api_token.machine_unknown`) et que les numéros soient des entiers de 1 à
+999999999 (`422 api_token.guest_invalid`). La création accepte les mêmes clés
+`machines` et `guests`.
+
+**Stockage.** Migration `023_api_token_reach.sql` : les colonnes
+`api_tokens.machines_limited` et `guests_limited` (0 par défaut : les jetons
+existants gardent « toutes »), et les tables `api_token_machines`
+(clé étrangère vers `machines`) et `api_token_guests`, vidées avec le jeton
+(`ON DELETE CASCADE`). Le drapeau dit « limité » ; sans lui, la liste ne compte
+pas, ce qui distingue « aucune » (drapeau, liste vide) de « toutes ».
+
+**`GET /api/token/verbs`** rend aussi la portée du jeton qui l'appelle, pour
+que l'outil MCP n'offre pas à l'agent ce qui sera refusé :
+`"reach": {"machines": null, "guests": null}` (`null` : toutes ; une liste,
+vide comprise : celles-là).
+
+**Ce que la portée ne couvre pas, et ce qu'elle coûte.**
+
+- Les **lectures** n'ont pas de portée dans ce chantier : un jeton limité à une
+  machine lit encore toutes les autres. La limite ne vaut que pour les gestes.
+- Un numéro d'invité vaut sur **chaque hôte** admis par la liste des machines :
+  deux hôtes Proxmox qui portent le même VMID ne se distinguent pas. Pour les
+  séparer, un jeton par hôte.
+- Retirer une machine la retire des listes qui la nomment, **sans élargir** :
+  un jeton limité à une seule machine retirée n'agit plus sur rien.
+- Une portée qui ne dit rien est « toutes ». L'interface ne coche rien d'avance
+  une fois « Certaines machines » choisi, et dit qu'une liste vide n'agit sur
+  rien ; mais « Toutes les machines » reste le choix par défaut, par
+  compatibilité avec les jetons d'avant.
 
 ### Ce qu'un jeton ne voit pas
 
@@ -4179,7 +4369,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 
 | Supprimer | Retenue tant que (restrict) — clé du 409 | Emporte (cascade, compté) | Détache (compté) | Ensuite |
 | --- | --- | --- | --- | --- |
-| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; destinations de sauvegarde qu'elle porte `machine.has_backup_destinations` ; plans de sauvegarde dont elle est la source `machine.has_backup_plans` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés SSH relevées, hôte Proxmox déclaré (compté ; ses VM et ses stockages partent avec lui, non comptés), clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul), VM Proxmox rapprochées d'elle (le lien seul : la VM reste dans l'hôte) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
+| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; destinations de sauvegarde qu'elle porte `machine.has_backup_destinations` ; plans de sauvegarde dont elle est la source `machine.has_backup_plans` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux et volumes Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés SSH relevées, hôte Proxmox déclaré (compté ; ses VM et ses stockages partent avec lui, non comptés), clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul), VM Proxmox rapprochées d'elle (le lien seul : la VM reste dans l'hôte) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
 | Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur), incidents (le lien seul) | rapprochement refait ; rien ne touche la machine |
 | Projet | sa page de statut : `project.has_status_page` | — | liens de projet (les services restent) | — |
 | Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes, incidents (le lien seul) | jeu de sondes renvoyé à sa machine |
@@ -4806,3 +4996,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Déploiement Docker Compose (06) | La migration `007_deploy.sql` (`service_units.data_path`, `action_runs.service_id` en `set null`), le paquet `internal/deploy` (le `compose.yml` généré, le plan, `Deploy`/`Redeploy`), les ordres `docker.deploy` et `docker.update` et leurs sept raisons (`agentwire`, `internal/agent/docker.go`), `action.SendForService`, `-root-dir` et l'en-tête `OpenCloud-Agent-Root` (`agents.root_dir`), `data_path` dans l'annuaire, le fichier d'`apply` et l'export, les trois routes `deploy-plan`, `actions/deploy` et `actions/redeploy`, `service_id` dans les ordres, la carte Déploiement et le champ « Dossier de données » du formulaire |
 | Retour arrière des mises à jour d'agent | La migration `018_agent_rollback.sql` (`agents.rollback_version`, `machines.update_last`), le paquet `internal/rollback` (le marqueur `update.json`, `Arm`, `SwitchLink`, `Guard` et son lanceur de processus), la sous-commande `opencloud guard`, l'ordre `agent.rollback` (`agentwire.KindAgentRollback`, droit `agent.update`), l'en-tête `OpenCloud-Agent-Rollback`, `internal/agent/outcome.go` (confirmer, rapporter), `action.RollbackAgent`/`UpdatePlan`/`refuseWhileUpdating`, les refus `action.rollback_unavailable` et `action.update_in_progress`, l'audit `action.rolled_back` et `machine.update_last`, l'alerte `agent_rolled_back`, les verbes `agent.update` et `agent.rollback`, `GET /api/agent-updates`, `GET /api/agent-migration`, `PUT /api/machines/{id}/update-last`, la fiche (état de la mise à jour, retour arrière, drapeau, migration) et la pastille de la vue d'ensemble, `docs/installation/opencloud-agent.service` (lanceur), « Migrer l'agent vers le retour arrière automatique » |
 | Gestes sur Proxmox (#266) | Les droits `proxmox.power` et `proxmox.snapshot`, quatre ordres `proxmox.vm.*`, le jeton local de l'agent, la route `POST …/proxmox/guests/{vmid}/actions/{geste}`, l'événement d'audit `machine.proxmox_guest` (« Comment un hôte Proxmox agit ») |
+| Inventaire et historique des sauvegardes (#368) | Les migrations `019_backup_runs.sql` (`backup_runs`), `020_proxmox_backup_observed.sql` (archives vues par invité) et `021_machine_volumes.sql` (`machine_volumes`), `internal/backup/history.go` et `inventory.go` (`Inventory`, `Runs`, les clés de source), `store/backup_runs.go` et `backup_inventory.go`, la purge à 400 lignes par plan, `dockerapi.ListVolumes` et `Mounts`, `container.VolumeReport` (`volumes_complete`, `volumes`), `deletion.KindMachineVolumes`, `GET /api/backups/inventory` et `/runs` (ouvertes aux jetons en lecture), les goldens `backups_inventory` et `backups_runs`, la section Inventaire de la page Sauvegardes. `last_targets_ok` et `last_targets_failed` ne sont plus en mémoire |

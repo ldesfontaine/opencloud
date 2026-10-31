@@ -110,8 +110,8 @@ type Plan struct {
 	// purge des runs l'a emporté.
 	LastRunID string
 	// Les cibles du dernier passage d'un plan machine : reçues, et en échec.
-	// Gardées en mémoire (pas de colonne) : zéro après un redémarrage de
-	// serve, et pour un plan qui n'a pas encore passé.
+	// Lues dans l'historique (backup_runs) : zéro pour un plan qui n'a pas
+	// encore passé.
 	LastTargetsOK     int
 	LastTargetsFailed int
 	CreatedAt         time.Time

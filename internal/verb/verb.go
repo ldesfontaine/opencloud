@@ -13,16 +13,34 @@ import (
 // Label et Summary sont des clés de catalogue (fr et en). Reverse est le
 // verbe qui défait celui-ci : obligatoire, un verbe sans inverse reste
 // réservé à l'opérateur. Params sont les segments {…} du chemin, dans
-// l'ordre ; Body les champs JSON que la route attend. Ils sont déclarés et
+// l'ordre ; Target dit ce que le segment {id} désigne, pour juger la portée
+// d'un jeton ; Body les champs JSON que la route attend. Ils sont déclarés et
 // non déduits : le client d'un jeton les lit tels quels, sans parser de texte.
 type Verb struct {
 	ID      string
 	Route   string
 	Params  []string
+	Target  Target
 	Body    []string
 	Label   string
 	Summary string
 	Reverse string
+}
+
+// Target dit ce que le segment {id} d'un verbe désigne : la machine dont
+// l'agent reçoit l'ordre, ou une sonde ou une tâche, qu'on rattache à sa
+// machine. Un verbe de Proxmox vise en plus l'invité du segment {vmid}.
+type Target string
+
+const (
+	TargetMachine Target = "machine"
+	TargetProbe   Target = "probe"
+	TargetJob     Target = "job"
+)
+
+// TargetsGuest dit si le verbe vise un invité Proxmox, en plus de sa machine.
+func (v Verb) TargetsGuest() bool {
+	return slices.Contains(v.Params, "vmid")
 }
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
@@ -44,6 +62,7 @@ var (
 	ErrCatalogMissing = errors.New("verb: label and summary keys are required")
 	ErrNoReverse      = errors.New("verb: a verb without a reverse cannot be registered")
 	ErrParamsMismatch = errors.New("verb: params do not match the route path")
+	ErrTargetInvalid  = errors.New("verb: target must be machine, probe or job, and the route must carry {id}")
 	ErrDuplicate      = errors.New("verb: already registered")
 	ErrUnknownReverse = errors.New("verb: reverse is not registered")
 )
@@ -72,6 +91,9 @@ func (r *Registry) Register(v Verb) error {
 	}
 	if !slices.Equal(v.Params, PathParams(v.Route)) {
 		return fmt.Errorf("%w: %s", ErrParamsMismatch, v.ID)
+	}
+	if !slices.Contains([]Target{TargetMachine, TargetProbe, TargetJob}, v.Target) || !slices.Contains(v.Params, "id") {
+		return fmt.Errorf("%w: %s", ErrTargetInvalid, v.ID)
 	}
 	if _, found := r.Lookup(v.ID); found {
 		return fmt.Errorf("%w: %s", ErrDuplicate, v.ID)

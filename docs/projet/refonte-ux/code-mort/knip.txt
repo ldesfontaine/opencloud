@@ -1,0 +1,64 @@
+# knip@5.88.1, sans configuration (npx knip --reporter compact), web/
+Unused files (4)
+public/theme.js
+src/statut/StatusPage.tsx
+src/statut/main.tsx
+src/statut/statut.scss
+Unused exports (17)
+src/api/actions.ts: actionsPath, agentUpdatePath
+src/api/audit.ts: noActorFilter
+src/api/refresh.tsx: countedTopics
+src/components/Field.tsx: Select
+src/components/MachineSSHKeys.tsx: AccountState
+src/lib/alerts.ts: muteTargetOf
+src/lib/backups.ts: minPassphrase, databaseSubject
+src/lib/containers.ts: isCleanExit, transitionTitle
+src/lib/directory.ts: unitFormOf
+src/lib/machineTabs.ts: hypervisorTab
+src/lib/machines.ts: workspaceRoot
+src/lib/manifest.ts: applyStates
+src/lib/network.ts: minScale, maxScale, overviewFrameGap
+src/lib/probes.ts: attentionProbeStatuses
+src/lib/proxmox.ts: hostsProxmox
+src/lib/select.ts: searchThreshold
+src/lib/status.ts: incidentStatuses, maintenanceStatuses, isMaintenance
+Unused exported types (39)
+src/api/audit.ts: AuditActorFilter
+src/api/auth.ts: AuthEnableRequest
+src/api/backups.ts: DestinationRequest
+src/api/firewalls.ts: FirewallDefinition
+src/api/proxmox.ts: ProxmoxDefinition
+src/api/refresh.tsx: Versions
+src/api/status.ts: StatusDay
+src/components/EntityCard.tsx: EntityFact, EntityMeter
+src/components/SettingRow.tsx: SettingWidth
+src/components/TabNav.tsx: Tab
+src/hooks/useAction.ts: RunOptions, Action, Outcome
+src/hooks/useForm.ts: Filling, Form
+src/hooks/useResource.ts: ResourcePath
+src/hooks/useSize.ts: Size
+src/hooks/useTheme.ts: Theme
+src/lib/alertSelection.ts: AlertGroup
+src/lib/alerts.ts: AlertText, AlertState, MuteFormValues, ChannelFormValues
+src/lib/apiTokens.ts: TokenFormValues
+src/lib/audit.ts: ActorParts
+src/lib/auth.ts: AccessLabel, CredentialsFormValues
+src/lib/backups.ts: PlanFormValues, Protection, LastBackup
+src/lib/containers.ts: PillKey, ContainerPillInfo
+src/lib/directory.ts: ProjectFormValues
+src/lib/disks.ts: DiskFormValues
+src/lib/firewalls.ts: FirewallState
+src/lib/jobs.ts: Streak, JobFormValues
+src/lib/machineTabs.ts: Tab
+src/lib/machines.ts: MachineFormValues
+src/lib/mail.ts: MailFormValues
+src/lib/network.ts: Peers, OverviewLayout
+src/lib/proxmox.ts: GestureStep
+src/lib/rowLink.ts: RowClick
+src/lib/select.ts: Box, Viewport, MenuPlace
+src/lib/sshkeys.ts: MatrixRow
+src/lib/status.ts: IncidentKind, IncidentFormValues, IncidentUpdateFormValues, IncidentEditFormValues, ComponentFormValues, PublicStatusPaths
+src/lib/time.ts: Rounding
+src/lib/units.ts: Quantity
+src/lib/updates.ts: LineChange
+src/lib/wizard.ts: StepMark, WizardMove

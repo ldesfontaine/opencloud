@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Machines v2 — maquette</title>
+<style>
+:root{--bg:#141518;--panel:#1b1c20;--panel2:#202126;--line:#2a2b31;--txt:#e7e7ea;--mut:#8b8c94;--dim:#5d5e66;--acc:#8b7cf6;--ok:#3ecf7a;--warn:#f0b43c;--bad:#ef5d5d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.45 Inter,system-ui,sans-serif}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.app{display:flex;min-height:100vh}
+.side{width:210px;border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{font-weight:600;margin:0 8px 18px}.brand b{font-weight:700}
+.nav{padding:7px 10px;border-radius:7px;color:var(--mut);display:flex;justify-content:space-between}
+.nav.on{background:var(--panel2);color:var(--txt)}
+.side .sp{flex:1}
+.main{flex:1;padding:24px 28px;display:flex;flex-direction:column;gap:18px}
+h1{font-size:22px;margin:0;font-weight:600}
+.head{display:flex;align-items:center;justify-content:space-between}
+.btn{background:var(--txt);color:#111;border:0;border-radius:8px;padding:8px 14px;font-weight:600;font-size:13px}
+.btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+.health{display:flex;gap:10px}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.chip b{font-size:18px}.chip span{color:var(--mut)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--ok)}
+.dot.warn{background:var(--warn)}.dot.off{background:var(--dim)}.dot.bad{background:var(--bad)}
+.tree{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.row{display:grid;grid-template-columns:minmax(260px,1.4fr) 110px 1fr 1fr 1fr 70px;gap:14px;align-items:center;padding:9px 16px;border-top:1px solid var(--line)}
+.row.hd{border-top:0;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:10px 16px}
+.row.host{background:var(--panel2)}
+.name{display:flex;align-items:center;gap:9px}
+.name .n{font-weight:600}
+.kid .name{padding-left:26px;position:relative}
+.kid .name:before{content:"";position:absolute;left:9px;top:-10px;bottom:50%;border-left:1px solid var(--line);border-bottom:1px solid var(--line);width:10px;border-bottom-left-radius:4px}
+.badge{font-size:10.5px;padding:1px 7px;border-radius:5px;border:1px solid var(--line);color:var(--mut);font-weight:600;letter-spacing:.03em}
+.b-phy{color:#c9b8ff;border-color:#4a3f7a}.b-vm{color:#8fc2ff;border-color:#2c4766}.b-lxc{color:#7fe0c0;border-color:#285446}.b-vps{color:#ffcf8a;border-color:#5e4a26}
+.gauge{display:flex;align-items:center;gap:8px}.gauge i{flex:1;height:4px;background:#2c2d33;border-radius:3px;position:relative;overflow:hidden}
+.gauge i b{position:absolute;inset:0 auto 0 0;background:var(--acc);border-radius:3px}.gauge i b.w{background:var(--warn)}
+.gauge em{font-style:normal;color:var(--mut);width:34px;text-align:right;font-size:12px}
+.share{color:var(--dim);font-size:11px}
+.muted{color:var(--mut)}.off{opacity:.45}
+.sep{height:6px}
+/* fiche */
+.grid{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.card h3{margin:0;font-size:13px;padding:12px 16px;border-bottom:1px solid var(--line);font-weight:600}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}.tile b{font-size:20px}.tile small{color:var(--mut);display:block}
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--line);padding:0 2px}.tabs a{padding:8px 0;color:var(--mut)}.tabs a.on{color:var(--txt);border-bottom:2px solid var(--acc)}
+.todo{border-color:#5e4a26;background:#221d14}.todo .it{display:flex;justify-content:space-between;align-items:center;padding:12px 16px}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:9px 10px;padding:14px 16px}.kv dt{color:var(--mut)}.kv dd{margin:0}
+.chart{height:120px;padding:14px 16px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.chart div{border-bottom:1px solid var(--line);position:relative}.chart div span{position:absolute;top:0;left:0;color:var(--dim);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+.chart svg{position:absolute;bottom:0;width:100%;height:70%}
+.disk{padding:6px 16px 14px}.disk .d{display:grid;grid-template-columns:1fr 90px 120px 46px;gap:12px;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line)}.disk .d:last-child{border:0}
+.ok{color:var(--ok)}
+.label{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:4px 0 -8px}
+.menu{border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--mut)}
+</style></head><body>
+
+<!-- ÉCRAN 1 : LISTE -->
+<div class="app" id="liste">
+<aside class="side">
+ <div class="brand">open<b>Cloud</b></div>
+ <div class="nav">Vue d'ensemble</div><div class="nav on">Machines <span>9</span></div><div class="nav">Services <span>6</span></div>
+ <div class="nav">Supervision web</div><div class="nav">Tâches planifiées</div><div class="nav">Alertes</div>
+ <div class="nav">Pare-feu</div><div class="nav">Sauvegardes</div><div class="nav">Journal</div>
+ <div class="sp"></div><div class="nav">Paramètres</div><div class="nav muted">☀ ☾ · FR EN</div>
+</aside>
+<main class="main">
+ <div class="head"><h1>Machines</h1><button class="btn">+ Ajouter une machine</button></div>
+ <div class="health">
+  <div class="chip"><span class="dot"></span><b>9</b><span>en ligne</span></div>
+  <div class="chip"><span class="dot warn"></span><b>1</b><span>à surveiller · RAM raph 88 %</span></div>
+  <div class="chip"><span class="dot off"></span><b>2</b><span>invités arrêtés</span></div>
+  <div class="chip"><span class="muted">Proxmox pve · 12 cœurs · 31 Go · alloué 26 Go RAM (84 %)</span></div>
+ </div>
+ <div class="tree">
+  <div class="row hd"><div>Machine</div><div>Adresse</div><div>Processeur</div><div>Mémoire</div><div>Stockage</div><div></div></div>
+
+  <div class="row host"><div class="name"><span class="dot"></span><span class="n">pve</span><span class="badge b-phy">PHYSIQUE</span><span class="share">Proxmox · 8 invités</span></div><div class="mono muted">10.10.11.2</div>
+   <div class="gauge"><i><b style="width:1%"></b></i><em>1 %</em></div><div class="gauge"><i><b style="width:78%"></b></i><em>78 %</em></div><div class="gauge"><i><b style="width:4%"></b></i><em>4 %</em></div><div class="muted">›</div></div>
+  <div class="row kid"><div class="name"><span class="dot warn"></span><span class="n">raph</span><span class="badge b-vm">VM</span></div><div class="mono muted">10.10.80.10</div>
+   <div class="gauge"><i><b style="width:1%"></b></i><em>1 %</em></div><div class="gauge"><i><b class="w" style="width:88%"></b></i><em>88 %</em></div><div class="gauge"><i><b style="width:33%"></b></i><em>33 %</em></div><div class="muted">›</div></div>
+  <div class="row kid"><div class="name"><span class="dot"></span><span class="n">orca</span><span class="badge b-vm">VM</span></div><div class="mono muted">10.10.80.11</div>
+   <div class="gauge"><i><b style="width:1%"></b></i><em>0 %</em></div><div class="gauge"><i><b style="width:66%"></b></i><em>66 %</em></div><div class="gauge"><i><b style="width:32%"></b></i><em>32 %</em></div><div class="muted">›</div></div>
+  <div class="row kid"><div class="name"><span class="dot"></span><span class="n">edge</span><span class="badge b-vm">VM</span><span class="share">6010</span></div><div class="mono muted">10.10.60.10</div>
+   <div class="gauge"><i><b style="width:1%"></b></i><em>0 %</em></div><div class="gauge"><i><b style="width:33%"></b></i><em>33 %</em></div><div class="gauge"><i><b style="width:21%"></b></i><em>21 %</em></div><div class="muted">›</div></div>
+  <div class="row kid"><div class="name"><span class="dot"></span><span class="n">opencloud</span><span class="badge b-vm">VM</span><span class="share">5014</span></div><div class="mono muted">10.10.50.14</div>
+   <div class="gauge"><i><b style="width:1%"></b></i><em>0 %</em></div><div class="gauge"><i><b style="width:29%"></b></i><em>29 %</em></div><div class="gauge"><i><b style="width:16%"></b></i><em>16 %</em></div><div class="muted">›</div></div>
+  <div class="row kid"><div class="name"><span class="dot"></span><span class="n">vaultwarden</span><span class="badge b-vm">VM</span><span class="share">5010</span></div><div class="mono muted">10.10.50.10</div>
+   <div class="gauge"><i><b style="width:1%"></b></i><em>0 %</em></div><div class="gauge"><i><b style="width:33%"></b></i><em>33 %</em></div><div class="gauge"><i><b style="width:17%"></b></i><em>17 %</em></div><div class="muted">›</div></div>
+  <div class="row kid"><div class="name"><span class="dot"></span><span class="n">forgejo</span><span class="badge b-lxc">LXC</span><span class="share">5011</span></div><div class="mono muted">10.10.50.11</div>
+   <div class="gauge"><i><b style="width:1%"></b></i><em>1 %</em></div><div class="gauge"><i><b style="width:8%"></b></i><em>8 %</em></div><div class="gauge"><i><b style="width:2%"></b></i><em>2 %</em></div><div class="muted">›</div></div>
+  <div class="row kid off"><div class="name"><span class="dot off"></span><span class="n">projets</span><span class="badge b-vm">VM</span><span class="share">7010 · arrêtée · sans agent</span></div><div class="mono muted">10.10.70.10</div><div class="muted">—</div><div class="muted">—</div><div class="muted">—</div><div class="muted">›</div></div>
+  <div class="row kid off"><div class="name"><span class="dot off"></span><span class="n">glance</span><span class="badge b-lxc">LXC</span><span class="share">5012 · arrêté</span></div><div class="mono muted">10.10.50.12</div><div class="muted">—</div><div class="muted">—</div><div class="muted">—</div><div class="muted">›</div></div>
+
+  <div class="row host"><div class="name"><span class="dot"></span><span class="n">pi</span><span class="badge b-phy">PHYSIQUE</span><span class="share">arm64 · cible de sauvegarde</span></div><div class="mono muted">10.10.90.2</div>
+   <div class="gauge"><i><b style="width:1%"></b></i><em>0 %</em></div><div class="gauge"><i><b style="width:29%"></b></i><em>29 %</em></div><div class="gauge"><i><b style="width:11%"></b></i><em>11 %</em></div><div class="muted">›</div></div>
+  <div class="row host"><div class="name"><span class="dot"></span><span class="n">vps</span><span class="badge b-vps">VPS</span><span class="share">hébergeur externe</span></div><div class="mono muted">51.161.32.240</div>
+   <div class="gauge"><i><b style="width:1%"></b></i><em>0 %</em></div><div class="gauge"><i><b style="width:26%"></b></i><em>26 %</em></div><div class="gauge"><i><b style="width:16%"></b></i><em>16 %</em></div><div class="muted">›</div></div>
+ </div>
+</main></div>
+
+<!-- ÉCRAN 2 : FICHE -->
+<div class="app" id="fiche">
+<aside class="side">
+ <div class="brand">open<b>Cloud</b></div>
+ <div class="nav">Vue d'ensemble</div><div class="nav on">Machines <span>9</span></div><div class="nav">Services <span>6</span></div>
+ <div class="nav">Supervision web</div><div class="nav">Tâches planifiées</div><div class="nav">Alertes</div>
+ <div class="nav">Pare-feu</div><div class="nav">Sauvegardes</div><div class="nav">Journal</div>
+ <div class="sp"></div><div class="nav">Paramètres</div><div class="nav muted">☀ ☾ · FR EN</div>
+</aside>
+<main class="main">
+ <div class="muted">Machines › pve ›</div>
+ <div class="head"><div style="display:flex;gap:10px;align-items:center"><h1>edge</h1><span class="badge b-vm">VM</span><span class="dot"></span><span class="muted">En ligne</span></div>
+  <div style="display:flex;gap:8px"><span class="menu">Ré-enrôler · Supprimer… ▾</span></div></div>
+ <div class="tabs"><a class="on">Résumé</a><a>Conteneurs 3</a><a>Réseau</a><a>Journaux</a><a>Agent</a></div>
+ <div class="grid">
+  <div style="display:flex;flex-direction:column;gap:14px">
+   <div class="card todo"><div class="it"><div><b>Agent v0.2.0 → v0.3.0 disponible</b><div class="muted">Une préparation unique est nécessaire avant la mise à jour automatique.</div></div><button class="btn">Préparer et mettre à jour</button></div></div>
+   <div class="tiles">
+    <div class="tile"><b>0 %</b><small>Processeur · 2 cœurs</small></div>
+    <div class="tile"><b>0,6 <span class="muted" style="font-size:13px">/ 1,9 Go</span></b><small>Mémoire · 33 %</small></div>
+    <div class="tile"><b>4,0 <span class="muted" style="font-size:13px">/ 19 Go</span></b><small>Stockage · 21 %</small></div>
+    <div class="tile"><b>12 Ko/s</b><small>Réseau · ↓5,9 ↑6,5</small></div>
+   </div>
+   <div class="card"><h3>Historique <span class="muted" style="float:right;font-weight:400">1 h · 24 h · 7 j · 30 j</span></h3>
+    <div class="chart">
+     <div><span>Processeur</span><svg viewBox="0 0 100 40" preserveAspectRatio="none"><polyline fill="none" stroke="#8b7cf6" stroke-width="1" points="0,39 10,38 20,39 30,38 40,39 50,39 60,38 70,39 80,39 90,38 100,39"/></svg></div>
+     <div><span>Mémoire</span><svg viewBox="0 0 100 40" preserveAspectRatio="none"><polygon fill="#8b7cf633" stroke="#8b7cf6" stroke-width="1" points="0,40 0,26 30,26 60,25 100,26 100,40"/></svg></div>
+     <div><span>Réseau</span><svg viewBox="0 0 100 40" preserveAspectRatio="none"><polyline fill="none" stroke="#3ecf7a" stroke-width="1" points="0,39 5,20 8,39 12,15 15,39 20,10 24,39 30,25 33,39 60,39 70,34 72,39 100,39"/></svg></div>
+     <div><span>Stockage</span><svg viewBox="0 0 100 40" preserveAspectRatio="none"><polygon fill="#8b7cf633" stroke="#8b7cf6" stroke-width="1" points="0,40 0,32 100,32 100,40"/></svg></div>
+    </div></div>
+   <div class="card"><h3>Stockage</h3><div class="disk">
+    <div class="d"><div>scsi0 · disque système <span class="muted">(sur rpool de pve)</span></div><div class="muted">19 Go</div><div class="gauge"><i><b style="width:21%"></b></i></div><div class="muted">21 %</div></div>
+   </div></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:14px">
+   <div class="card"><h3>Identité</h3><dl class="kv">
+    <dt>Type</dt><dd>VM Proxmox · 6010</dd><dt>Hôte</dt><dd><a style="color:var(--acc)">pve</a></dd>
+    <dt>Adresse</dt><dd class="mono">10.10.60.10</dd><dt>Zone</dt><dd>EDGE · VLAN 60</dd>
+    <dt>Système</dt><dd>Debian 13 <span class="ok">· maintenu → 2030</span></dd><dt>Agent</dt><dd>v0.2.0 · vu à l'instant</dd>
+   </dl></div>
+   <div class="card"><h3>Alloué par l'hôte</h3><dl class="kv"><dt>vCPU</dt><dd>2 / 12 de pve</dd><dt>RAM</dt><dd>2 Go / 31 Go de pve</dd><dt>Démarrage</dt><dd>avec l'hôte</dd></dl></div>
+   <div class="card"><h3>Services</h3><dl class="kv"><dt><span class="dot"></span> traefik</dt><dd class="muted">:80 :443 · màj v3.7.17</dd><dt><span class="dot"></span> authelia</dt><dd class="muted">interne</dd><dt><span class="dot"></span> crowdsec</dt><dd class="muted">interne · màj v1.8.2</dd></dl></div>
+  </div>
+ </div>
+</main></div>
+</body></html>

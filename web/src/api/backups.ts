@@ -91,10 +91,106 @@ export interface PlanRequest {
   keep: number;
 }
 
+// Ce que la section Inventaire lit : calculé par le serveur de ce qu'il a déjà
+// en base, en lecture seule (le même contenu pour un jeton d'API).
+export type InventoryKind = "database" | "vm" | "lxc" | "docker_volume";
+
+// ok : reçue ; failed : l'ordre est parti, quelque chose a manqué ; refused :
+// rien n'est parti.
+export type RunResult = "ok" | "failed" | "refused";
+
+// Une ligne de l'historique : une cible d'un passage d'un plan.
+export interface BackupRun {
+  plan: string;
+  // La clé de la source ; vide quand le plan entier est refusé avant toute cible.
+  source: string;
+  pass_at: string;
+  started_at: string;
+  finished_at: string;
+  result: RunResult;
+  // Un mot fermé, ou la clé d'un refus (« backup.machine_offline ») ; vide
+  // pour une cible reçue sans souci.
+  reason: string;
+  // null tant que la taille de l'archive n'est pas connue.
+  size_bytes: number | null;
+  destination_id: string;
+  destination_name: string;
+  action_run_id: string;
+}
+
+export interface BackupCoverage {
+  subject: string;
+  plan_name: string;
+  destination_id: string;
+  destination_name: string;
+}
+
+// Ce que les stockages de Proxmox gardent d'une VM : vu sur le stockage, pas fait par un plan.
+export interface BackupObserved {
+  storage: string;
+  count: number;
+  total_bytes: number;
+  last_at: string;
+  last_bytes: number;
+}
+
+export interface BackupSource {
+  // La clé qui relie la source à son historique.
+  key: string;
+  kind: InventoryKind;
+  name: string;
+  machine_id: string;
+  machine_name: string;
+  // Le numéro de l'invité ; vide pour la base et un volume.
+  id: string;
+  // Pour un volume : son pilote et les conteneurs qui le montent.
+  driver: string;
+  used_by: string[];
+  covered_by: BackupCoverage[];
+  observed: BackupObserved | null;
+  last_run: BackupRun | null;
+  last_ok: BackupRun | null;
+}
+
+export type InventoryTargetKind = "destination" | "storage";
+
+export interface BackupTarget {
+  key: string;
+  kind: InventoryTargetKind;
+  name: string;
+  machine_id: string;
+  machine_name: string;
+  // Destination : son dossier et le droit de l'agent ; vides pour un stockage.
+  path: string;
+  right?: BackupRight;
+  right_reason?: string;
+  // Stockage Proxmox : son nœud, son type et sa capacité ; vides pour une destination.
+  node: string;
+  type: string;
+  total_bytes: number;
+  used_bytes: number;
+  avail_bytes: number;
+  active: boolean;
+  plans: string[];
+}
+
+export interface BackupInventory {
+  sources: BackupSource[];
+  targets: BackupTarget[];
+}
+
+export interface BackupRuns {
+  runs: BackupRun[];
+}
+
 const backupsPath = "/api/backups";
 
 export function useBackups(): Resource<Backups> {
   return useResource<Backups>(backupsPath);
+}
+
+export function useBackupInventory(): Resource<BackupInventory> {
+  return useResource<BackupInventory>(`${backupsPath}/inventory`);
 }
 
 // La phrase part ici et nulle part ailleurs : le serveur scelle la clé

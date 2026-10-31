@@ -30,6 +30,10 @@ func (r *reports) Deliver(report container.Report) {
 		r.pending.NetworksComplete = true
 		r.pending.Networks = report.Networks
 	}
+	if report.VolumesComplete {
+		r.pending.VolumesComplete = true
+		r.pending.Volumes = report.Volumes
+	}
 	r.pending.Events = appendBounded(r.pending.Events, report.Events, container.MaxEventsPerReport)
 	r.pending.Stats = appendBounded(r.pending.Stats, report.Stats, container.MaxStatsPerReport)
 }
@@ -70,6 +74,9 @@ func (r *reports) restore(report *container.Report) {
 	}
 	if !r.pending.NetworksComplete && report.NetworksComplete {
 		r.pending.NetworksComplete, r.pending.Networks = true, report.Networks
+	}
+	if !r.pending.VolumesComplete && report.VolumesComplete {
+		r.pending.VolumesComplete, r.pending.Volumes = true, report.Volumes
 	}
 	r.pending.Events = appendBounded(report.Events, r.pending.Events, container.MaxEventsPerReport)
 	r.pending.Stats = appendBounded(report.Stats, r.pending.Stats, container.MaxStatsPerReport)

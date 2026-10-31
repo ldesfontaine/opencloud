@@ -11,13 +11,24 @@ type Report struct {
 	Inventory        []Observed      `json:"inventory,omitempty"`
 	NetworksComplete bool            `json:"networks_complete,omitempty"`
 	Networks         []NetworkReport `json:"networks,omitempty"`
-	Events           []Event         `json:"events,omitempty"`
-	Stats            []Stat          `json:"stats,omitempty"`
+	// VolumesComplete dit que Volumes est la liste entière, même vide. Un
+	// agent plus vieux ne l'envoie pas : le serveur garde alors ce qu'il avait.
+	VolumesComplete bool           `json:"volumes_complete,omitempty"`
+	Volumes         []VolumeReport `json:"volumes,omitempty"`
+	Events          []Event        `json:"events,omitempty"`
+	Stats           []Stat         `json:"stats,omitempty"`
 }
 
 // IsEmpty dit si le signal ne porte rien sur les conteneurs.
 func (r Report) IsEmpty() bool {
-	return r.Engine == nil && !r.Complete && !r.NetworksComplete && len(r.Events) == 0 && len(r.Stats) == 0
+	return r.Engine == nil && !r.Complete && !r.NetworksComplete && !r.VolumesComplete && len(r.Events) == 0 && len(r.Stats) == 0
+}
+
+// VolumeReport est un volume nommé de la machine tel que l'agent l'a listé.
+type VolumeReport struct {
+	Name   string   `json:"name"`
+	Driver string   `json:"driver"`
+	UsedBy []string `json:"used_by,omitempty"`
 }
 
 // NetworkReport est un réseau de la machine tel que l'agent l'a listé.
@@ -82,10 +93,14 @@ type Event struct {
 	ExitCode    *int      `json:"exit_code,omitempty"`
 	// Tué en SIGKILL sans arrêt demandé juste avant ; un agent plus vieux
 	// ne le dit pas, et 137 reste alors un arrêt propre.
-	Killed    bool      `json:"killed,omitempty"`
-	Replayed  bool      `json:"replayed,omitempty"`
-	Snippet   string    `json:"snippet,omitempty"`
-	Container *Observed `json:"container,omitempty"`
+	Killed bool `json:"killed,omitempty"`
+	// Un arrêt a été demandé juste avant (signal d'arrêt, docker stop) : quel
+	// que soit le code de sortie, ce n'est pas un plantage. Un agent plus
+	// vieux ne le dit pas, et le code décide seul.
+	StopRequested bool      `json:"stop_requested,omitempty"`
+	Replayed      bool      `json:"replayed,omitempty"`
+	Snippet       string    `json:"snippet,omitempty"`
+	Container     *Observed `json:"container,omitempty"`
 }
 
 // ActionDestroy est la seule action qui ferme une fiche. Les actions de

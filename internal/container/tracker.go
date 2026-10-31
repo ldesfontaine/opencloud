@@ -21,6 +21,8 @@ type Store interface {
 	LatestContainerSamples(ctx context.Context) ([]Sample, error)
 	// ListNetworks rend les réseaux d'une machine, par nom.
 	ListNetworks(ctx context.Context, machineID string) ([]Network, error)
+	// ListVolumes rend les volumes d'une machine, par nom.
+	ListVolumes(ctx context.Context, machineID string) ([]Volume, error)
 	PurgeContainers(ctx context.Context, transitionsBefore, archivedBefore, samplesBefore time.Time) error
 	// SetContainerUnits écrit le rattachement des fiches nommées, et rien
 	// d'autre ; une unité disparue entre-temps s'écrit comme « non déclaré ».
@@ -66,8 +68,11 @@ type Changes struct {
 	// liste complète fait foi, un réseau détruit disparaît.
 	ReplaceNetworks bool
 	Networks        []Network
-	Transitions     []Transition
-	Samples         []Sample
+	// ReplaceVolumes remplace de même les volumes de la machine.
+	ReplaceVolumes bool
+	Volumes        []Volume
+	Transitions    []Transition
+	Samples        []Sample
 	// Les plafonds de la machine, appliqués par le store dans la même
 	// transaction que l'écriture : les fiches archivées les plus anciennes, puis
 	// les transitions les plus anciennes, partent au-delà. Zéro : pas de plafond.
@@ -216,7 +221,7 @@ func NeedsAttention(container Container) bool {
 	case StateRestarting, StateDead:
 		return true
 	case StateExited:
-		return !IsCleanStop(container.ExitCode, container.OOMKilled, container.Killed)
+		return !IsCleanStop(container.ExitCode, container.OOMKilled, container.Killed, container.StopRequested)
 	}
 	return false
 }
@@ -230,9 +235,11 @@ func IsCleanExit(code int) bool {
 // IsCleanStop : un code propre ne suffit pas. Le noyau qui tue faute de
 // mémoire envoie aussi SIGKILL (137), Docker le dit par OOMKilled ; un
 // docker kill aussi, l'agent le dit par killed quand aucun arrêt n'a été
-// demandé juste avant.
-func IsCleanStop(code int, oomKilled, killed bool) bool {
-	return !oomKilled && !killed && IsCleanExit(code)
+// demandé juste avant. À l'inverse, un arrêt demandé (stopRequested) est
+// propre quel que soit le code : un service qui met trop de temps à
+// s'arrêter sort en 1 après le signal. Le manque de mémoire passe avant.
+func IsCleanStop(code int, oomKilled, killed, stopRequested bool) bool {
+	return !oomKilled && !killed && (stopRequested || IsCleanExit(code))
 }
 
 // Purge efface chaque table au-delà de sa rétention.

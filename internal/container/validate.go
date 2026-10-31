@@ -38,7 +38,7 @@ func validate(report Report, now time.Time) (Report, []discard, error) {
 	if len(report.Inventory) > MaxContainersPerReport || len(report.Events) > MaxEventsPerReport || len(report.Stats) > MaxStatsPerReport {
 		return Report{}, nil, ErrReportInvalid
 	}
-	if len(report.Networks) > MaxNetworksPerMachine {
+	if len(report.Networks) > MaxNetworksPerMachine || len(report.Volumes) > MaxVolumesPerMachine {
 		return Report{}, nil, ErrReportInvalid
 	}
 	if report.Engine != nil && !report.Engine.Present && report.Engine.Reason == "" {
@@ -53,6 +53,14 @@ func validate(report Report, now time.Time) (Report, []discard, error) {
 			continue
 		}
 		kept.Networks = append(kept.Networks, network)
+	}
+	kept.Volumes = nil
+	for _, volume := range report.Volumes {
+		if err := validateVolume(volume); err != nil {
+			discards = append(discards, discard{"volume " + volume.Name, err.Error()})
+			continue
+		}
+		kept.Volumes = append(kept.Volumes, volume)
 	}
 	kept.Inventory = nil
 	for _, container := range report.Inventory {
@@ -83,6 +91,24 @@ func validate(report Report, now time.Time) (Report, []discard, error) {
 		kept.Stats = append(kept.Stats, stat)
 	}
 	return kept, discards, nil
+}
+
+func validateVolume(volume VolumeReport) error {
+	if volume.Name == "" || len(volume.Name) > MaxNameLength || hasControlOrBadUTF8(volume.Name) {
+		return invalid("nom du volume")
+	}
+	if volume.Driver == "" || len(volume.Driver) > MaxNameLength || hasControlOrBadUTF8(volume.Driver) {
+		return invalid("pilote du volume")
+	}
+	if len(volume.UsedBy) > MaxVolumeUsers {
+		return invalid("conteneurs du volume")
+	}
+	for _, user := range volume.UsedBy {
+		if user == "" || len(user) > MaxNameLength || hasControlOrBadUTF8(user) {
+			return invalid("nom d'un conteneur du volume")
+		}
+	}
+	return nil
 }
 
 func validateNetwork(network NetworkReport) error {

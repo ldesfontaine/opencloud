@@ -137,8 +137,13 @@ func TestClient_ReadsTheHostWithThePinnedCertificate(t *testing.T) {
 	if want := time.Unix(1790086400, 0).UTC(); !docker.LastBackupAt.Equal(want) || docker.LastBackupBytes != 244318208 {
 		t.Errorf("last backup %v / %d", docker.LastBackupAt, docker.LastBackupBytes)
 	}
-	if !reading.Guests[1].LastBackupAt.IsZero() {
-		t.Errorf("a guest without archive must have no backup: %v", reading.Guests[1].LastBackupAt)
+	// Les deux archives sont rattachées à la VM de leur numéro, avec le stockage
+	// de la plus récente et la taille de toutes ; celle sans numéro n'est à personne.
+	if docker.LastBackupStorage != "local" || docker.BackupCount != 2 || docker.BackupTotalBytes != 244318308 {
+		t.Errorf("archives of the guest: %q, %d, %d bytes", docker.LastBackupStorage, docker.BackupCount, docker.BackupTotalBytes)
+	}
+	if !reading.Guests[1].LastBackupAt.IsZero() || reading.Guests[1].BackupCount != 0 {
+		t.Errorf("a guest without archive must have no backup: %+v", reading.Guests[1])
 	}
 	if len(reading.Storages) != 3 {
 		t.Fatalf("storages: %+v", reading.Storages)

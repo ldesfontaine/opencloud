@@ -13,6 +13,10 @@ export interface APIToken {
   scope: "read" | "write";
   // Les verbes déclenchés, vide pour une lecture ou une écriture sans case cochée.
   verbs: string[];
+  // Où les verbes portent : null pour toutes les machines (les invités
+  // Proxmox), une liste sinon, vide pour aucune.
+  machines: string[] | null;
+  guests: number[] | null;
   created_at: string;
   // Nul pour un jeton créé sans échéance.
   expires_at: string | null;
@@ -34,8 +38,16 @@ export interface APITokenEnv {
   opencloud_url: string;
 }
 
+// Une machine que la liste à cocher offre.
+export interface ReachMachine {
+  id: string;
+  name: string;
+}
+
 export interface APITokensState {
   tokens: APIToken[];
+  // Les machines connues, par nom, pour limiter un jeton.
+  machines: ReachMachine[];
   limit: number;
   // Les échéances offertes, en jours ; 0 pour sans échéance.
   lifetimes: { days: number[]; default_days: number };
@@ -51,11 +63,17 @@ export interface APITokenResponse {
 export type APITokenScope = APIToken["scope"];
 
 // 0 jour : un jeton sans échéance. Les verbes ne vont qu'avec l'écriture.
-export interface APITokenRequest {
+export interface APITokenRequest extends ReachRequest {
   name: string;
   expires_in_days: number;
   scope: APITokenScope;
   verbs?: string[];
+}
+
+// Une clé absente vaut « toutes » ; une liste, même vide, limite.
+export interface ReachRequest {
+  machines?: string[];
+  guests?: number[];
 }
 
 const apiTokensPath = "/api/settings/api-tokens";
@@ -71,4 +89,9 @@ export async function createAPIToken(body: APITokenRequest): Promise<APITokenRes
 
 export async function deleteAPIToken(id: string): Promise<void> {
   return api.delete(`${apiTokensPath}/${segment(id)}`);
+}
+
+// Remplace la portée du jeton : ce que la requête ne dit pas redevient « toutes ».
+export async function setAPITokenReach(id: string, body: ReachRequest): Promise<APIToken> {
+  return api.put<APIToken>(`${apiTokensPath}/${segment(id)}/reach`, body);
 }

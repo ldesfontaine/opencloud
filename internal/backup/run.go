@@ -95,14 +95,16 @@ func (s *Service) readPlan(ctx context.Context, subject string) (Plan, error) {
 // celui dont l'état dit si la sauvegarde est arrivée.
 func (s *Service) runDatabase(ctx context.Context, plan Plan) (action.Run, error) {
 	at := s.now()
-	run, err := s.send(ctx, plan, at)
+	sent, err := s.send(ctx, plan, at)
 	if err != nil {
-		s.noteFailure(ctx, plan.Subject, at, err)
+		s.noteFailure(ctx, plan, at, err)
 		return action.Run{}, err
 	}
+	run := sent.run
 	if err := s.store.NoteBackupAttempt(ctx, plan.Subject, at, "", run.ID); err != nil {
 		return run, fmt.Errorf("note backup attempt: %w", err)
 	}
+	s.followDatabase(plan, at, sent)
 	s.logger.Info("backup sent", "plan_id", plan.ID, "subject", plan.Subject, "run_id", run.ID, "destination_id", plan.DestinationID)
 	s.auditor.Record(ctx, audit.Event{
 		Action: audit.BackupPlanRun, ObjectID: plan.ID, ObjectName: plan.Subject,
@@ -112,19 +114,85 @@ func (s *Service) runDatabase(ctx context.Context, plan Plan) (action.Run, error
 	return run, nil
 }
 
+// followDatabase écrit dans l'historique ce que devient la sauvegarde de la
+// base : l'ordre backup.receive est parti, mais c'est son état qui dit si
+// l'archive est arrivée. Le suivi vit avec le serveur, pas avec la requête.
+func (s *Service) followDatabase(plan Plan, at time.Time, sent delivery) {
+	if sent.run.State.IsFinished() {
+		// L'ordre n'est pas parti : il n'y a rien à attendre.
+		s.recordDatabase(s.lifetime, plan, at, sent, sent.run)
+		return
+	}
+	s.background.Add(1)
+	go func() {
+		defer s.background.Done()
+		finished, err := s.waitFor(s.lifetime, sent.run.ID)
+		if err != nil {
+			if s.lifetime.Err() == nil {
+				s.logger.Warn("backup receive not followed", "subject", plan.Subject, "run_id", sent.run.ID, "error", err)
+			}
+			return
+		}
+		s.recordDatabase(s.lifetime, plan, at, sent, finished)
+	}()
+}
+
+func (s *Service) recordDatabase(ctx context.Context, plan Plan, at time.Time, sent delivery, finished action.Run) {
+	record := RunRecord{
+		Source: SourceDatabaseKey, StartedAt: at, Result: ResultOK, SizeBytes: &sent.size, ActionRunID: sent.run.ID,
+	}
+	if finished.State != action.StateSucceeded {
+		record.Result, record.Reason, record.SizeBytes = ResultFailed, runReason(finished), nil
+	}
+	s.recordRun(ctx, plan, sent.destination, at, record)
+	s.changed()
+}
+
+// recordRun écrit une ligne de l'historique du plan ; une écriture qui échoue
+// se journalise sans arrêter le passage.
+func (s *Service) recordRun(ctx context.Context, plan Plan, destination Destination, passAt time.Time, record RunRecord) {
+	record.Subject, record.PassAt = plan.Subject, passAt
+	record.DestinationID, record.DestinationName = destination.ID, destination.Name
+	record.FinishedAt = s.now()
+	if record.FinishedAt.Before(record.StartedAt) {
+		record.FinishedAt = record.StartedAt
+	}
+	if err := s.store.RecordBackupRun(ctx, record); err != nil {
+		s.logger.Error("record backup run", "subject", plan.Subject, "error", err)
+	}
+}
+
 // noteFailure écrit dans le plan pourquoi la tentative n'est pas partie : la
 // clé du refus, ou celle d'une préparation qui a échoué. Elle n'est pas
-// rejouée avant la nuit suivante ou le bouton.
-func (s *Service) noteFailure(ctx context.Context, subject string, at time.Time, cause error) {
+// rejouée avant la nuit suivante ou le bouton. L'historique la garde aussi.
+func (s *Service) noteFailure(ctx context.Context, plan Plan, at time.Time, cause error) {
 	key, isRefusal := refusal.KeyOf(cause)
+	result := ResultRefused
 	if !isRefusal {
-		s.logger.Error("backup not prepared", "subject", subject, "error", cause)
-		key = PrepareFailedKey
+		s.logger.Error("backup not prepared", "subject", plan.Subject, "error", cause)
+		key, result = PrepareFailedKey, ResultFailed
 	}
-	if err := s.store.NoteBackupAttempt(ctx, subject, at, key, ""); err != nil {
+	if err := s.store.NoteBackupAttempt(ctx, plan.Subject, at, key, ""); err != nil {
 		s.logger.Error("note backup attempt", "error", err)
 	}
+	// Un plan machine refusé avant sa première cible n'a pas de source : c'est
+	// le plan entier.
+	source := ""
+	if plan.SourceKind == SourceDatabase {
+		source = SourceDatabaseKey
+	}
+	s.recordRun(ctx, plan, s.destinationOf(ctx, plan), at, RunRecord{Source: source, StartedAt: at, Result: result, Reason: key})
 	s.changed()
+}
+
+// destinationOf rend la destination du plan pour l'historique ; si elle ne se
+// lit pas, son identifiant seul.
+func (s *Service) destinationOf(ctx context.Context, plan Plan) Destination {
+	destination, err := s.store.GetBackupDestination(ctx, plan.DestinationID)
+	if err != nil {
+		return Destination{ID: plan.DestinationID}
+	}
+	return destination
 }
 
 // prepareDelivery juge ce que tout plan demande de la destination avant de
@@ -154,32 +222,52 @@ func (s *Service) prepareDelivery(ctx context.Context, plan Plan) (Keyring, Dest
 	return keyring, destination, target, nil
 }
 
+// delivery est ce qu'un envoi a lancé : l'ordre de réception, la destination, et
+// la taille de l'archive qui part.
+type delivery struct {
+	run         action.Run
+	destination Destination
+	size        int64
+}
+
 // send juge ce qu'il faut pour partir (clé, destination, machine, droit),
 // prépare le colis de la base, puis envoie les deux ordres. Un colis dont
 // l'ordre n'est pas parti est jeté.
-func (s *Service) send(ctx context.Context, plan Plan, at time.Time) (action.Run, error) {
+func (s *Service) send(ctx context.Context, plan Plan, at time.Time) (delivery, error) {
 	keyring, destination, _, err := s.prepareDelivery(ctx, plan)
 	if err != nil {
-		return action.Run{}, err
+		return delivery{}, err
 	}
 
 	writer, err := s.parcels.Create(destination.MachineID)
 	if err != nil {
-		return action.Run{}, fmt.Errorf("create parcel: %w", err)
+		return delivery{}, fmt.Errorf("create parcel: %w", err)
 	}
 	if err := s.stage(ctx, writer, keyring, plan.Subject, at); err != nil {
 		writer.Discard()
-		return action.Run{}, err
+		return delivery{}, err
 	}
 	parcelID, files := writer.Seal()
-	receive, err := s.sendReceive(ctx, destination, parcelID, files)
-	if err != nil || receive.State.IsFinished() {
+	sent := delivery{destination: destination, size: archiveSize(files, plan.FilePrefix())}
+	sent.run, err = s.sendReceive(ctx, destination, parcelID, files)
+	if err != nil || sent.run.State.IsFinished() {
 		// L'ordre n'est pas parti : personne ne viendra chercher le colis.
 		writer.Discard()
-		return receive, err
+		return sent, err
 	}
 	s.sendPrune(ctx, destination, plan.FilePrefix(), plan.Keep)
-	return receive, nil
+	return sent, nil
+}
+
+// archiveSize rend la taille de l'archive du colis, celle dont le nom porte le
+// préfixe du plan ; la clé scellée qui l'accompagne n'y compte pas.
+func archiveSize(files []agentwire.ParcelFile, prefix string) int64 {
+	for _, file := range files {
+		if agentwire.IsBackupFileOf(file.Name, prefix) {
+			return file.Size
+		}
+	}
+	return 0
 }
 
 func (s *Service) sendReceive(ctx context.Context, destination Destination, parcelID string, files []agentwire.ParcelFile) (action.Run, error) {

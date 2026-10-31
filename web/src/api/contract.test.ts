@@ -4,7 +4,7 @@ import type { ActionsResponse, ActionRun, AgentMigration, AgentUpdateOffer, RunL
 import type { APITokensState } from "./apiTokens";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
-import type { BackupDestination, BackupKeyring, BackupPlan, Backups } from "./backups";
+import type { BackupCoverage, BackupDestination, BackupInventory, BackupKeyring, BackupObserved, BackupPlan, BackupRun, BackupRuns, BackupSource, BackupTarget, Backups } from "./backups";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
@@ -197,6 +197,7 @@ const container = shape<ContainerJSON>("Container", {
   exit_code: value,
   oom_killed: value,
   killed: value,
+  stop_requested: value,
   health: value,
   restart_count: value,
   ports: shape("Port", { ip: value, host_port: value, container_port: value, protocol: value }),
@@ -230,6 +231,7 @@ const containerResponse = shape<ContainerResponse>("ContainerResponse", {
     exit_code: value,
     oom_killed: value,
     killed: value,
+    stop_requested: value,
     replayed: value,
     snippet: value,
   }),
@@ -659,7 +661,8 @@ const apply = shape<Apply>("Apply", {
 });
 
 const apiTokens = shape<APITokensState>("APITokensState", {
-  tokens: shape("APIToken", { id: value, name: value, masked: value, scope: value, verbs: value, created_at: value, expires_at: value, last_used_at: value }),
+  tokens: shape("APIToken", { id: value, name: value, masked: value, scope: value, verbs: value, machines: value, guests: value, created_at: value, expires_at: value, last_used_at: value }),
+  machines: shape("ReachMachine", { id: value, name: value }),
   limit: value,
   lifetimes: shape("APITokensState.lifetimes", { days: value, default_days: value }),
   verbs: shape("VerbOffer", { id: value, label: value, summary: value, reverse: value }),
@@ -847,6 +850,56 @@ const backups = shape<Backups>("Backups", {
   }),
 });
 
+const backupRun = shape<BackupRun>("BackupRun", {
+  plan: value,
+  source: value,
+  pass_at: value,
+  started_at: value,
+  finished_at: value,
+  result: value,
+  reason: value,
+  size_bytes: value,
+  destination_id: value,
+  destination_name: value,
+  action_run_id: value,
+});
+
+const backupInventory = shape<BackupInventory>("BackupInventory", {
+  sources: shape<BackupSource>("BackupSource", {
+    key: value,
+    kind: value,
+    name: value,
+    machine_id: value,
+    machine_name: value,
+    id: value,
+    driver: value,
+    used_by: value,
+    covered_by: shape<BackupCoverage>("BackupCoverage", { subject: value, plan_name: value, destination_id: value, destination_name: value }),
+    observed: shape<BackupObserved>("BackupObserved", { storage: value, count: value, total_bytes: value, last_at: value, last_bytes: value }),
+    last_run: backupRun,
+    last_ok: backupRun,
+  }),
+  targets: shape<BackupTarget>("BackupTarget", {
+    key: value,
+    kind: value,
+    name: value,
+    machine_id: value,
+    machine_name: value,
+    path: value,
+    right: optional(value),
+    right_reason: optional(value),
+    node: value,
+    type: value,
+    total_bytes: value,
+    used_bytes: value,
+    avail_bytes: value,
+    active: value,
+    plans: value,
+  }),
+});
+
+const backupRuns = shape<BackupRuns>("BackupRuns", { runs: backupRun });
+
 const firewallFields = {
   id: value,
   name: value,
@@ -922,6 +975,8 @@ const contract: Record<string, Shape<unknown>> = {
   "audit_forwarding.golden.json": auditForwarding,
   "backups.golden.json": backups,
   "backups_empty.golden.json": backups,
+  "backups_inventory.golden.json": backupInventory,
+  "backups_runs.golden.json": backupRuns,
   "backups_plans.golden.json": backups,
   "backups_unavailable.golden.json": backups,
   "auth.golden.json": auth,

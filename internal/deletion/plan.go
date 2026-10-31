@@ -25,6 +25,7 @@ const (
 	KindEnrollmentTokens Kind = "enrollment_tokens"
 	KindMachineSamples   Kind = "machine_samples"
 	KindMachineNetworks  Kind = "machine_networks"
+	KindMachineVolumes   Kind = "machine_volumes"
 	KindContainers       Kind = "containers"
 	KindContainerEvents  Kind = "container_events"
 	KindImageChecks      Kind = "image_checks"
@@ -50,7 +51,7 @@ const (
 func Kinds() []Kind {
 	return []Kind{
 		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindStatusPages, KindBackupDestinations, KindBackupPlans,
-		KindAgents, KindEnrollmentTokens, KindMachineSamples, KindMachineNetworks, KindContainers,
+		KindAgents, KindEnrollmentTokens, KindMachineSamples, KindMachineNetworks, KindMachineVolumes, KindContainers,
 		KindContainerEvents, KindImageChecks, KindSSHKeys, KindProxmoxHosts, KindProxmoxLinks, KindIgnoredKeys, KindSilences,
 		KindProbeResults, KindProbeDays, KindHeartbeatPings, KindHeartbeatRuns,
 		KindUnits, KindMembers, KindAlerts, KindProjectLinks, KindIncidentLinks,

@@ -85,7 +85,7 @@ func (e *Engine) judgeCrash(ctx context.Context, found container.Container, obje
 			if transition.ExitCode != nil {
 				code = *transition.ExitCode
 			}
-			pendingStop = isUnexpectedStop(transition.NewState, code, transition.OOMKilled, transition.Killed)
+			pendingStop = isUnexpectedStop(transition.NewState, code, transition.OOMKilled, transition.Killed, transition.StopRequested)
 			if pendingStop {
 				details.ExitCode = code
 				details.Reason = reasonOf(transition.OOMKilled, transition.Killed)
@@ -99,7 +99,7 @@ func (e *Engine) judgeCrash(ctx context.Context, found container.Container, obje
 			pendingStop = false
 		}
 	}
-	down := isUnexpectedStop(found.State, found.ExitCode, found.OOMKilled, found.Killed)
+	down := isUnexpectedStop(found.State, found.ExitCode, found.OOMKilled, found.Killed, found.StopRequested)
 	if !alive && !down && restarts == 0 {
 		return
 	}
@@ -189,9 +189,9 @@ func ServiceDownReasons() []string {
 	return []string{ReasonOOM, ReasonKilled}
 }
 
-func isUnexpectedStop(state container.State, exitCode int, oomKilled, killed bool) bool {
+func isUnexpectedStop(state container.State, exitCode int, oomKilled, killed, stopRequested bool) bool {
 	if state == container.StateDead {
 		return true
 	}
-	return state == container.StateExited && !container.IsCleanStop(exitCode, oomKilled, killed)
+	return state == container.StateExited && !container.IsCleanStop(exitCode, oomKilled, killed, stopRequested)
 }
