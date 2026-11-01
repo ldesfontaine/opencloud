@@ -46,6 +46,13 @@ export function everyOnce(t: Translate, ms: number): string | null {
   }
 }
 
+// La période en une phrase, la même partout : « chaque minute », « toutes
+// les 5 min ». Un formulaire qui saisit des secondes ou des minutes la dit
+// ainsi, comme la fiche qui la relit.
+export function describeEvery(t: Translate, ms: number): string {
+  return everyOnce(t, ms) ?? `${t("time.every")} ${formatDuration(t, ms)}`;
+}
+
 // Ce qu'il reste avant une échéance, arrondi vers le haut : jamais plus
 // court que vrai. Entre une heure et un jour les minutes comptent :
 // « 1 h 10 min », pas « 2 h ».

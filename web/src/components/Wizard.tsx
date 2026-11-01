@@ -7,6 +7,7 @@ import {
   forwardTarget,
   furthestReached,
   initialPosition,
+  isOneScreen,
   isSummary,
   moveTo,
   previousPosition,
@@ -36,26 +37,11 @@ export interface WizardStep {
   title: string;
   render: () => ReactNode;
   validate?: () => string | null;
-  summary: () => SummaryLine[];
+  // Sans objet pour un assistant d'un seul écran : il n'a pas de récapitulatif.
+  summary?: () => SummaryLine[];
 }
 
-// L'assistant : une étape à l'écran, Précédent et Suivant, puis le
-// récapitulatif et l'action finale. Entrée dans un champ vaut Suivant ;
-// seule l'action du récapitulatif écrit. L'erreur du serveur (error) se dit
-// sur le récapitulatif.
-// L'assistant est le contenu d'une fenêtre (Modal), qui fait le cadre :
-// « Annuler » est celui de la fenêtre, qui demande avant d'abandonner une
-// saisie.
-export function Wizard({
-  steps,
-  mode,
-  onSubmit,
-  submitLabel,
-  submitIcon,
-  busy,
-  error,
-  errorGesture,
-}: {
+interface WizardProps {
   steps: WizardStep[];
   mode: WizardMode;
   onSubmit: () => void;
@@ -65,7 +51,67 @@ export function Wizard({
   error: ApiError | string | null;
   // Où mène un refus de droit de l'écriture finale : voir Failure.
   errorGesture?: RightGesture | undefined;
-}) {
+}
+
+// L'assistant. Ce qui tient en un écran n'est pas un assistant : une seule
+// étape se rend en un formulaire, avec l'action finale (OneScreen). Les
+// réglages dont les valeurs par défaut suffisent s'y replient dans un
+// « Réglages » (SettingsFold), plutôt que de former une étape de plus.
+export function Wizard(props: WizardProps) {
+  return isOneScreen(props.steps.length) ? <OneScreen {...props} /> : <SteppedWizard {...props} />;
+}
+
+// Le second clic d'un double-clic sur l'action finale n'écrit pas : Suivant
+// de la dernière étape et l'action finale sont à la même place.
+function ignoreRepeatedClick(event: MouseEvent) {
+  if (event.detail > 1) {
+    event.preventDefault();
+  }
+}
+
+// Un écran : les champs, l'action finale, « Annuler » (celui de la fenêtre).
+// La validation de l'étape passe avant l'écriture ; l'erreur du serveur se
+// dit au même endroit.
+function OneScreen({ steps, onSubmit, submitLabel, submitIcon, busy, error, errorGesture }: WizardProps) {
+  const [stepError, setStepError] = useState<string | null>(null);
+  const step = steps[0];
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const problem = step?.validate?.() ?? null;
+    setStepError(problem);
+    if (problem === null) {
+      onSubmit();
+    }
+  };
+  const shownError = stepError ?? error;
+  return (
+    <div className="wizard">
+      <form className="wizard-modal" onSubmit={submit} aria-label={step?.title}>
+        {step?.render()}
+        {shownError !== null && (
+          <div role="alert">
+            <Failure error={shownError} gesture={stepError === null ? errorGesture : undefined} />
+          </div>
+        )}
+        <div className="cluster">
+          <Button type="submit" variant="primary" icon={submitIcon} disabled={busy} onClick={ignoreRepeatedClick}>
+            {submitLabel}
+          </Button>
+          <ModalCancel />
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// L'assistant pas à pas : une étape à l'écran, Précédent et Suivant, puis le
+// récapitulatif et l'action finale. Entrée dans un champ vaut Suivant ;
+// seule l'action du récapitulatif écrit. L'erreur du serveur (error) se dit
+// sur le récapitulatif.
+// L'assistant est le contenu d'une fenêtre (Modal), qui fait le cadre :
+// « Annuler » est celui de la fenêtre, qui demande avant d'abandonner une
+// saisie.
+function SteppedWizard({ steps, mode, onSubmit, submitLabel, submitIcon, busy, error, errorGesture }: WizardProps) {
   const t = useT();
   const stepCount = steps.length;
   const [position, setPosition] = useState(() => initialPosition(mode, stepCount));
@@ -100,14 +146,6 @@ export function Wizard({
       return;
     }
     go(forwardTarget(position, stepCount, reached));
-  };
-
-  // Suivant de la dernière étape et l'action finale sont à la même place :
-  // le second clic d'un double-clic n'écrit pas.
-  const ignoreRepeatedClick = (event: MouseEvent) => {
-    if (event.detail > 1) {
-      event.preventDefault();
-    }
   };
 
   const onSummary = isSummary(position, stepCount);
@@ -205,7 +243,7 @@ function WizardSummary({ steps, onEdit }: { steps: WizardStep[]; onEdit: (target
   return (
     <div className="wizard-summary">
       {steps.map((step, index) => {
-        const lines = step.summary();
+        const lines = step.summary?.() ?? [];
         if (lines.length === 0) {
           return null;
         }

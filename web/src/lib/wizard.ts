@@ -16,6 +16,12 @@ interface WizardMove {
 // validate rend la clé du refus d'une étape, ou null quand elle est bonne.
 export type StepValidator = (index: number) => string | null;
 
+// Une seule étape ne se parcourt pas : elle tient en un écran, sans barre
+// d'étapes, sans récapitulatif.
+export function isOneScreen(stepCount: number): boolean {
+  return stepCount === 1;
+}
+
 export function summaryPosition(stepCount: number): number {
   return stepCount;
 }

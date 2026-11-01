@@ -6,7 +6,7 @@ import { useDeclaredServices } from "../../api/directory";
 import { useMachines, type Machine } from "../../api/machines";
 import { saveProbe, useProbe, type ProbeResponse } from "../../api/probes";
 import { Note } from "../../components/Card";
-import { Fold } from "../../components/Disclosure";
+import { Fold, SettingsFold } from "../../components/Disclosure";
 import { Failure } from "../../components/Failure";
 import { Field, Input } from "../../components/Field";
 import { MachineSelect } from "../../components/MachineSelect";
@@ -18,18 +18,18 @@ import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
 import { isFormModified } from "../../lib/modal";
 import { unfitFor } from "../../lib/rights";
-import { emptyProbeForm, probeFormOf, probeKinds, probeListPath, probePath, probeRequestOf, probeSuggestionOf, type ProbeFormValues } from "../../lib/probes";
+import { emptyProbeForm, probeFormOf, probeKinds, probeListPath, probePath, probeRequestOf, probeSettingsHint, probeSuggestionOf, type ProbeFormValues } from "../../lib/probes";
 
 // « Ajouter une sonde » : la fenêtre de la liste des sondes, à l'adresse
 // /disponibilite/nouvelle, ou de la fiche d'une sonde, à
-// /disponibilite/:id/modifier. Deux étapes : la cible (ce qu'il faut joindre,
-// depuis quelle machine), puis le rythme (tous les combien, après combien
-// d'échecs) ; ce qui est propre à HTTP ou à TCP est sous « Avancé ». La sonde
-// vise un service déclaré de l'annuaire, sur n'importe quelle machine : venue
-// de sa fiche (?service=), ou d'un conteneur (?service=&container=),
-// l'assistant arrive déjà rempli. En édition, il s'ouvre sur le récapitulatif
-// et remplace la sonde entière ; ce qui change ce qu'elle mesure la remet à
-// « Nouveau ». Le serveur valide et répond par la clé du refus.
+// /disponibilite/:id/modifier. Un seul écran : le nom et l'adresse, puis
+// Créer. Le reste (type, machine qui sonde, service, rythme, seuils, requête
+// HTTP) est replié sous « Réglages », avec ses valeurs par défaut dites en
+// clair. La sonde vise un service déclaré de l'annuaire, sur n'importe quelle
+// machine : venue de sa fiche (?service=), ou d'un conteneur
+// (?service=&container=), l'écran arrive déjà rempli. En édition, il remplace
+// la sonde entière ; ce qui change ce qu'elle mesure la remet à « Nouveau ».
+// Le serveur valide et répond par la clé du refus.
 export function ProbeWizard() {
   const { id } = useParams();
   const isEditing = id !== undefined;
@@ -91,7 +91,7 @@ export function ProbeWizard() {
       <p className="secondary">{isEditing ? t("probe.edit_subtitle") : t("probe.new_subtitle")}</p>
       {isEditing && <Note tone="warn">{t("probe.edit_reset_note")}</Note>}
       {existing.error && <Failure error={existing.error} />}
-      {form.isFilled && (
+      {form.isFilled && (isEditing || machines.data !== null) && (
         <Wizard
           steps={stepsOf(t, form, machines.data?.machines ?? [], declared.data?.services ?? [])}
           mode={isEditing ? "edit" : "create"}
@@ -116,11 +116,11 @@ function stepsOf(
 ): WizardStep[] {
   const { values, change } = form;
   const isHTTP = values.kind === "http";
-  const service = services.find((candidate) => candidate.id === values.serviceID);
+  const machineName = machines.find((machine) => machine.id === values.machineID)?.name ?? "—";
   return [
     {
-      id: "target",
-      title: t("probe.step_target"),
+      id: "probe",
+      title: t("probe.step_probe"),
       render: () => (
         <>
           <Field label={t("probe.name_label")} htmlFor="probe-name" help={t("probe.name_help")}>
@@ -136,28 +136,6 @@ function stepsOf(
               required
             />
           </Field>
-          <div className="grid-2">
-            <Field label={t("probe.kind_label")} htmlFor="probe-kind">
-              <EnumSelect id="probe-kind" value={values.kind} values={probeKinds} labelKey="probe.kind_" onChange={(kind) => change("kind", kind)} />
-            </Field>
-            <Field label={t("probe.machine_label")} htmlFor="probe-machine" help={t("probe.machine_help")}>
-              <MachineSelect id="probe-machine" icon="server" machines={machines} fit={(machine) => unfitFor(t, machine, null)} value={values.machineID} onChange={(machineID) => change("machineID", machineID)} />
-            </Field>
-          </div>
-          <Field label={t("probe.service_label")} htmlFor="probe-service" help={t("probe.service_help")}>
-            <Select
-              id="probe-service"
-              value={values.serviceID}
-              options={[
-                { value: "", label: t("probe.service_none") },
-                ...services.map((candidate) => ({
-                  value: candidate.id,
-                  label: t("probe.service_option", candidate.title !== "" ? candidate.title : candidate.name, candidate.machine_name),
-                })),
-              ]}
-              onChange={(chosen) => change("serviceID", chosen)}
-            />
-          </Field>
           <Field label={t("probe.target_label")} htmlFor="probe-target" help={t(isHTTP ? "probe.target_help_http" : "probe.target_help_tcp")}>
             <Input
               id="probe-target"
@@ -171,56 +149,52 @@ function stepsOf(
               required
             />
           </Field>
+          {/* Sans machine qui puisse sonder, le choix manque : il s'ouvre sur lui. */}
+          <SettingsFold hint={probeSettingsHint(t, values, machineName)} initiallyOpen={values.machineID === ""}>
+            <div className="grid-2">
+              <Field label={t("probe.kind_label")} htmlFor="probe-kind">
+                <EnumSelect id="probe-kind" value={values.kind} values={probeKinds} labelKey="probe.kind_" onChange={(kind) => change("kind", kind)} />
+              </Field>
+              <Field label={t("probe.machine_label")} htmlFor="probe-machine" help={t("probe.machine_help")}>
+                <MachineSelect id="probe-machine" icon="server" machines={machines} fit={(machine) => unfitFor(t, machine, null)} value={values.machineID} onChange={(machineID) => change("machineID", machineID)} />
+              </Field>
+            </div>
+            <Field label={t("probe.service_label")} htmlFor="probe-service" help={t("probe.service_help")}>
+              <Select
+                id="probe-service"
+                value={values.serviceID}
+                options={[
+                  { value: "", label: t("probe.service_none") },
+                  ...services.map((candidate) => ({
+                    value: candidate.id,
+                    label: t("probe.service_option", candidate.title !== "" ? candidate.title : candidate.name, candidate.machine_name),
+                  })),
+                ]}
+                onChange={(chosen) => change("serviceID", chosen)}
+              />
+            </Field>
+            <div className="grid-2">
+              <Field label={t("probe.interval_label")} htmlFor="probe-interval" help={t("probe.interval_help")}>
+                <Input id="probe-interval" mono type="number" value={values.interval} onChange={(event) => change("interval", event.target.value)} min={30} max={86400} />
+              </Field>
+              <Field label={t("probe.timeout_label")} htmlFor="probe-timeout" help={t("probe.timeout_help")}>
+                <Input id="probe-timeout" mono type="number" value={values.timeout} onChange={(event) => change("timeout", event.target.value)} min={1} max={30} />
+              </Field>
+            </div>
+            <div className="grid-2">
+              <Field label={t("probe.failure_label")} htmlFor="probe-failure" help={t("probe.failure_help")}>
+                <Input id="probe-failure" mono type="number" value={values.failure} onChange={(event) => change("failure", event.target.value)} min={1} max={10} />
+              </Field>
+              <Field label={t("probe.recovery_label")} htmlFor="probe-recovery" help={t("probe.recovery_help")}>
+                <Input id="probe-recovery" mono type="number" value={values.recovery} onChange={(event) => change("recovery", event.target.value)} min={1} max={10} />
+              </Field>
+            </div>
+            <Fold label={t("wizard.advanced")} initiallyOpen={false}>
+              {isHTTP ? <HTTPFields form={form} /> : <TCPFields form={form} />}
+            </Fold>
+          </SettingsFold>
         </>
       ),
-      summary: () => [
-        { label: t("probe.name_label"), value: values.name },
-        { label: t("probe.kind_label"), value: t(`probe.kind_${values.kind}`) },
-        { label: t("probe.machine_label"), value: machines.find((machine) => machine.id === values.machineID)?.name ?? "—" },
-        { label: t("probe.service_label"), value: service === undefined ? t("probe.service_none") : service.title !== "" ? service.title : service.name },
-        { label: t("probe.target_label"), value: values.target, mono: true },
-      ],
-    },
-    {
-      id: "rhythm",
-      title: t("probe.step_rhythm"),
-      render: () => (
-        <>
-          <div className="grid-2">
-            <Field label={t("probe.interval_label")} htmlFor="probe-interval" help={t("probe.interval_help")}>
-              <Input id="probe-interval" mono type="number" value={values.interval} onChange={(event) => change("interval", event.target.value)} min={30} max={86400} required autoFocus />
-            </Field>
-            <Field label={t("probe.timeout_label")} htmlFor="probe-timeout" help={t("probe.timeout_help")}>
-              <Input id="probe-timeout" mono type="number" value={values.timeout} onChange={(event) => change("timeout", event.target.value)} min={1} max={30} required />
-            </Field>
-          </div>
-          <div className="grid-2">
-            <Field label={t("probe.failure_label")} htmlFor="probe-failure" help={t("probe.failure_help")}>
-              <Input id="probe-failure" mono type="number" value={values.failure} onChange={(event) => change("failure", event.target.value)} min={1} max={10} required />
-            </Field>
-            <Field label={t("probe.recovery_label")} htmlFor="probe-recovery" help={t("probe.recovery_help")}>
-              <Input id="probe-recovery" mono type="number" value={values.recovery} onChange={(event) => change("recovery", event.target.value)} min={1} max={10} required />
-            </Field>
-          </div>
-          <Fold label={t("wizard.advanced")} initiallyOpen={false}>
-            {isHTTP ? <HTTPFields form={form} /> : <TCPFields form={form} />}
-          </Fold>
-        </>
-      ),
-      summary: () => [
-        { label: t("probe.interval_label"), value: values.interval, mono: true },
-        { label: t("probe.timeout_label"), value: values.timeout, mono: true },
-        { label: t("probe.failure_label"), value: values.failure, mono: true },
-        { label: t("probe.recovery_label"), value: values.recovery, mono: true },
-        ...(isHTTP
-          ? [
-              { label: t("probe.method_label"), value: values.method, mono: true },
-              { label: t("probe.expected_status_label"), value: values.expectedStatus === "" ? "—" : values.expectedStatus, mono: true },
-              { label: t("probe.expected_body_label"), value: values.expectedBody === "" ? "—" : values.expectedBody },
-              { label: t("probe.follow_redirects_label"), value: t(values.redirects === "yes" ? "probe.on" : "probe.off") },
-            ]
-          : [{ label: t("probe.tls_label"), value: t(values.useTLS === "yes" ? "probe.on" : "probe.off") }]),
-      ],
     },
   ];
 }

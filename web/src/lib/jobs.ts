@@ -233,6 +233,14 @@ export const emptyJobForm: JobFormValues = { name: "", machineID: "", interval: 
 
 const secondsPerMinute = 60;
 
+// Ce que les réglages repliés d'une tâche acceptent, en clair : « 10 min de
+// grâce, aucune machine ». L'intervalle, lui, est un champ de l'écran.
+export function jobSettingsHint(t: Translate, values: Pick<JobFormValues, "grace">, machineName: string | null): string {
+  const grace = Number(values.grace);
+  const graceText = values.grace.trim() !== "" && Number.isFinite(grace) ? formatDuration(t, grace * secondsPerMinute * 1000) : "—";
+  return t("job.settings_hint", graceText, machineName === null ? t("job.hint_no_machine") : t("job.hint_on_machine", machineName));
+}
+
 export function jobFormOf(job: Job): JobFormValues {
   return {
     name: job.name,
