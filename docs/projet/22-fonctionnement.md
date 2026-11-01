@@ -784,7 +784,13 @@ cette empreinte, sans quoi rien n'est envoyé à l'hôte, jeton compris. C'est l
 cas d'un Proxmox livré avec son certificat auto-signé. L'empreinte se saisit
 avec ou sans deux-points, avec ou sans `sha256:`, ou en collant la ligne
 d'openssl entière (`sha256 Fingerprint=AA:BB:…`). Aucune redirection n'est
-suivie : une API qui redirige n'est pas celle qu'on a déclarée.
+suivie : une API qui redirige n'est pas celle qu'on a déclarée. **L'assistant
+relève l'empreinte lui-même** : « Tester l'accès » à l'étape de l'adresse, puis,
+à l'étape Certificat, l'empreinte que le serveur voit (`POST
+/api/certificate/inspect`, voir « Comment un pare-feu se lit ») ; l'opérateur la
+compare à celle de Proxmox (*Nœud › Système › Certificats*) et confirme d'un clic.
+La saisie à la main reste en repli. Le fichier du jeton local de l'agent est
+l'exception : l'empreinte s'y écrit à la main, sur la machine.
 
 **Les destinations.** Le client sort par la garde d'`egress` (`DialWith`, réseau
 local ouvert : c'est le cas normal d'un Proxmox ; le lien-local, qui porte les
@@ -1025,7 +1031,7 @@ en `GET`, authentifiés par HTTP Basic (clé et secret de l'utilisateur d'API) :
 | `/api/interfaces/overview/interfacesInfo` | Par interface assignée : identifiant, carte, description (le **rôle** : WAN, LAN…), adresse IPv4 sinon IPv6, état | `Status: Interfaces` |
 | `/api/firewall/filter/searchRule` | Les règles écrites par l'opérateur : interface, action, sens, protocole, source, destination, ports, description, activée | `Firewall: Rules [new]` |
 | `/api/routes/gateway/status` | Par passerelle : nom, adresse, état (`none` = en ligne, `down` = hors ligne, `delay`/`loss` = dégradée), délai, perte ; `~` = non sondée | `System: Gateways` |
-| `/api/dnsmasq/leases/search`, `/api/kea/leases4/search`, `/api/dhcpv4/leases/searchLease` | Les baux DHCP du serveur que le pare-feu fait tourner (dnsmasq, Kea, ou le greffon ISC) : adresse, MAC, nom d'hôte, interface, réservé ou non, échéance | `Services: Dnsmasq DNS/DHCP: Settings`, `Services: DHCP: Kea(v4)` ou `Services: ISC DHCPv4: Leases` |
+| `/api/dnsmasq/leases/search`, `/api/kea/leases4/search`, `/api/dhcpv4/leases/searchLease` | Les baux DHCP du serveur que le pare-feu fait tourner (dnsmasq, Kea, ou le greffon ISC d'un OPNsense plus ancien) : adresse, MAC, nom d'hôte, interface, réservé ou non, échéance | **Un seul**, celui du serveur DHCP : `Services: Dnsmasq DNS/DHCP: Settings` ou `Services: DHCP: Kea(v4)`. L'assistant ne propose pas ISC (voir plus bas) |
 
 Un serveur DHCP absent (`404`) ou non couvert par le privilège (`403`) n'a rien à
 dire ; si aucun ne répond et qu'un a refusé, le relevé est refusé
@@ -1044,22 +1050,54 @@ française** (ils ne sont pas dans son catalogue de traduction). **Non vérifié
 un OPNsense réel** : les formes de réponse viennent de la documentation et des
 sources ; les tests jouent un faux serveur.
 
-**Les gestes dans OPNsense, et d'où viennent leurs chemins.** L'assistant
+**Les gestes dans OPNsense, et d'où viennent leurs libellés.** L'assistant
 construit chaque lien depuis l'origine de l'adresse saisie (hôte et port ; ni
 chemin ni identifiants) et ouvre la page dans un autre onglet. Tout est relevé
-dans les sources d'OPNsense (`opnsense/core`, étiquette `26.1`) :
+dans les sources d'OPNsense (`opnsense/core`, étiquettes `26.1` et `26.7`) :
 
-| Geste | Page | Source |
+| Quoi | Où | Source |
 | --- | --- | --- |
-| Créer l'utilisateur, lui donner ses privilèges (champs `Username`, `Password`, `Privileges`), générer la clé | `/ui/auth/user` (menu `System ‣ Access ‣ Users`) | `Core/Menu/Menu.xml` ; `Auth/forms/dialogUser.xml` |
-| Générer la clé | Sur la ligne de l'utilisateur, bouton « Create and download API key for this user », puis `Yes` ; le fichier téléchargé s'appelle `<hôte>_<utilisateur>_apikey.txt` et porte `key=` et `secret=` | `views/OPNsense/Auth/user.volt` |
-| Les privilèges | `Lobby: Dashboard`, `Status: Interfaces`, `System: Gateways` | `Core/ACL/ACL.xml` |
-| | `Firewall: Rules [new]` | `Firewall/ACL/ACL.xml` |
-| | `Services: Dnsmasq DNS/DHCP: Settings`, `Services: DHCP: Kea(v4)` | `Dnsmasq/ACL/ACL.xml`, `Kea/ACL/ACL.xml` |
-| | `Services: ISC DHCPv4: Leases` (greffon, menu « ISC DHCPv4 [legacy] ») | dépôt `opnsense/plugins`, `net/isc-dhcp`, branche `master` |
+| Le chemin de la page des utilisateurs, `/ui/auth/user` | Menu *System › Access › Users* | `Core/Menu/Menu.xml` |
+| Les **libellés de menu et de champ** | **Dans la langue de l'interface openCloud** (français ou anglais) : `Système : Accès : Utilisateurs`, `Système : Gestion des certificats : Certificats`, champs `Nom d'utilisateur`, `Mot de passe`, `Privilèges`, onglet `Clés Api`, bouton `Créer et télécharger la clé API pour cet utilisateur`, puis `Oui`. Catalogues : `firewall.menu_*`, `firewall.label_*` | Traductions officielles d'OPNsense : dépôt `opnsense/lang`, `fr_FR.po` (étiquette `26.1`, msgid `Users`, `Access`, `Trust`, `Certificates`, `Privileges`, `Username`, `Password`, `ApiKeys`, `Create and download API key for this user`, `Yes`) ; vues `views/OPNsense/Auth/user.volt` |
+| La clé | Sur la ligne de l'utilisateur, bouton « Create and download API key for this user », puis confirmation ; le fichier téléchargé s'appelle `<hôte>_<utilisateur>_apikey.txt` et porte `key=` et `secret=` ; les clés créées se listent dans l'onglet `ApiKeys` | `views/OPNsense/Auth/user.volt` |
+| Les **noms de privilèges** : `Lobby: Dashboard`, `Status: Interfaces`, `System: Gateways` | **En anglais, tels que le champ « Privilèges » les affiche** : `PrivField` rend le `<name>` de chaque `ACL.xml` sans le traduire, et aucun n'est dans `fr_FR.po` | `Core/ACL/ACL.xml` ; `Auth/FieldTypes/PrivField.php` |
+| `Firewall: Rules [new]` | Idem. Existe en `26.1` et `26.7` (en `25.7`, la même page s'appelait `Firewall: Automation: Filter`) | `Firewall/ACL/ACL.xml` |
+| `Services: Dnsmasq DNS/DHCP: Settings` (couvre `api/dnsmasq/*`, donc les baux), `Services: DHCP: Kea(v4)` (couvre `api/kea/leases4/*`) | Idem. **Un seul des deux**, selon le serveur DHCP : Dnsmasq par défaut dans la configuration d'un OPNsense neuf (`config.xml.sample`, section `dnsmasq` avec `dhcp_ranges`, depuis `25.7`), sinon Kea | `Dnsmasq/ACL/ACL.xml`, `Kea/ACL/ACL.xml` ; `config.xml.sample` |
+| **`Services: ISC DHCPv4: Leases` n'est plus proposé** | ISC DHCP n'est plus dans le cœur depuis `26.1` : `api/dhcpv4/leases/*` et « Status: DHCP leases » ont disparu de `opnsense/core`. Le privilège n'existe que si le greffon `os-isc-dhcp` est installé ; sans lui, OPNsense ne l'offre pas dans la liste, d'où « No results matched ». Le connecteur lit encore ce point d'accès en repli, pour un OPNsense plus ancien | `opnsense/plugins`, `net/isc-dhcp/…/DHCPv4/ACL/ACL.xml` ; `opnsense/core` `25.7` (`DHCPv4/Api/LeasesController.php`), absent en `26.1` |
 
-La page des utilisateurs est la seule que les trois gestes demandent : il n'y a
-pas de lien plus précis, la source ne donne pas d'ancre vers l'onglet des clés.
+L'assistant dit aussi que l'utilisateur est **dédié** à openCloud (jamais un
+compte existant) et que l'adresse est **celle par laquelle la machine openCloud
+joint** OPNsense. Les menus suivent la langue de l'interface openCloud, pas
+celle du compte OPNsense : un OPNsense réglé dans l'autre langue montre d'autres
+mots. Les pages ne s'ouvrent que si l'adresse saisie est celle que le
+navigateur de l'opérateur atteint aussi.
+
+**Tester l'accès, et l'empreinte du certificat.** `POST /api/certificate/inspect`
+(`{url}`, composant `internal/tlsinspect`, réservé à l'opérateur : pas dans la
+liste d'un jeton) joint l'adresse **depuis le serveur, sans clé** : un handshake
+TLS, aucune requête HTTP. Joignable ou non, la réponse est un `200` ; une adresse
+mal formée est refusée (`certificate.url_invalid`).
+
+| `outcome` | Sens | Ce que l'assistant dit |
+| --- | --- | --- |
+| `trusted` | Le magasin du système reconnaît le certificat pour cet hôte | « L'adresse répond et son certificat est reconnu » ; rien à confirmer |
+| `untrusted` | Joint, certificat non reconnu (auto-signé, autorité inconnue, autre nom) | L'empreinte SHA-256 relevée (`fingerprint`, hexadécimal), affichée par paires ; l'opérateur la compare à celle d'OPNsense (ou de Proxmox), puis **confirme d'un clic** : elle devient l'empreinte épinglée. La saisie à la main reste en repli |
+| `unreachable` + `cause` | `timeout` (filtrage : règle de pare-feu manquante, mauvaise interface), `refused` (rien n'écoute sur ce port), `unresolved`, `no_route`, `forbidden` (lien-local), `not_tls` (port http) | Une phrase par cause |
+
+**Le coût, dit franchement.** Relever l'empreinte par le réseau, c'est faire
+confiance à ce que l'adresse présente *à cet instant* : seule la comparaison par
+l'opérateur avec l'empreinte affichée dans OPNsense prouve que c'est le bon
+appareil. Le même traitement vaut pour l'hôte Proxmox (étape Certificat de
+« Déclarer l'hôte Proxmox ») ; l'empreinte du fichier du jeton de l'agent
+Proxmox local reste une saisie hors de l'application (fichier sur la machine).
+
+**Clés et jetons relus.** Le serveur ne rend jamais une clé ou un identifiant
+de jeton en entier : `api_key_hint` (pare-feu) et `token_id_hint` (hôte Proxmox)
+portent leurs **quatre premiers caractères** (`AbCd…`, `credential.Mask`).
+Le récapitulatif de l'assistant et les fiches font de même. Une modification
+redemande donc la clé (ou l'identifiant) **avec** son secret : le champ est vide,
+le début enregistré est rappelé sous le champ. Un jeton d'API ne voit même pas ce
+début pour un pare-feu.
 
 **Le transport.** HTTPS seulement. Sans empreinte, le magasin du système juge le
 certificat ; avec une empreinte SHA-256 (la ligne d'openssl se colle telle
@@ -4499,7 +4537,7 @@ mêmes corps, mêmes refus.
 
 | Adresse | Fond | Fenêtre |
 | --- | --- | --- |
-| `/pare-feu/nouveau` | la liste des pare-feu | Déclarer un pare-feu : quatre étapes (l'identité et l'adresse ; les gestes à faire dans OPNsense, à cocher, avec leurs liens ; la clé et le secret ; le certificat) puis le récapitulatif |
+| `/pare-feu/nouveau` | la liste des pare-feu | Déclarer un pare-feu : quatre étapes (l'identité et l'adresse, avec « Tester l'accès » ; les gestes à faire dans OPNsense, à cocher, avec leurs liens ; la clé et le secret ; le certificat : empreinte relevée à confirmer) puis le récapitulatif, où la clé n'est jamais en entier |
 | `/pare-feu/{id}/modifier` | la fiche du pare-feu | Le même assistant, ouvert sur le récapitulatif ; le secret se ressaisit |
 | `/sauvegardes/cle` | la page Sauvegardes | Créer ou remplacer la clé : la phrase de passe, deux fois ; remplacer demande confirmation |
 | `/sauvegardes/destinations/nouvelle` | la page Sauvegardes | Ajouter une destination : nom, machine, dossier |
@@ -4930,7 +4968,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Enrôlement par l'agent | `agent.enroll` (avant la table `agents` : `machine.enroll`, que les lignes déjà écrites gardent) | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
 | Archiver une machine (garder l'historique) | `agent.revoke` | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
 | Retirer une machine (sans historique) | `machine.delete` | La machine | `hostname`, `address` |
-| Déclarer, retirer l'hôte Proxmox d'une machine | `machine.proxmox_set`, `machine.proxmox_unset` | La machine qui porte l'hôte | `token_id`, `host` (l'hôte et le port, sans le schéma ni le chemin), `pinned` (`yes` ou `no`) ; au retrait, rien. **Ni l'adresse complète ni le secret** |
+| Déclarer, retirer l'hôte Proxmox d'une machine | `machine.proxmox_set`, `machine.proxmox_unset` | La machine qui porte l'hôte | `token_id` (ses quatre premiers caractères), `host` (l'hôte et le port, sans le schéma ni le chemin), `pinned` (`yes` ou `no`) ; au retrait, rien. **Ni l'adresse complète ni le secret** |
 | Projet | `project.create`, `.update`, `.delete` | Le projet | `title` |
 | Service déclaré | `service.create`, `.update`, `.delete`, `.review` | Le service | `machine_id`, `nature`, `origin`, `units` |
 | Politique d'une unité | `unit.update_policy` | L'unité, nommée `service/unité` | `service_id`, `policy` |
@@ -5448,3 +5486,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Gestes sur Proxmox (#266) | Les droits `proxmox.power` et `proxmox.snapshot`, quatre ordres `proxmox.vm.*`, le jeton local de l'agent, la route `POST …/proxmox/guests/{vmid}/actions/{geste}`, l'événement d'audit `machine.proxmox_guest` (« Comment un hôte Proxmox agit ») |
 | Inventaire et historique des sauvegardes (#368) | Les migrations `019_backup_runs.sql` (`backup_runs`), `020_proxmox_backup_observed.sql` (archives vues par invité) et `021_machine_volumes.sql` (`machine_volumes`), `internal/backup/history.go` et `inventory.go` (`Inventory`, `Runs`, les clés de source), `store/backup_runs.go` et `backup_inventory.go`, la purge à 400 lignes par plan, `dockerapi.ListVolumes` et `Mounts`, `container.VolumeReport` (`volumes_complete`, `volumes`), `deletion.KindMachineVolumes`, `GET /api/backups/inventory` et `/runs` (ouvertes aux jetons en lecture), les goldens `backups_inventory` et `backups_runs`, la section Inventaire de la page Sauvegardes. `last_targets_ok` et `last_targets_failed` ne sont plus en mémoire |
 | Registre de modules et rôle de machine (#407) | Le paquet `internal/module`, `machine.Roles()` et `RolePreset`, la migration `024_machine_role.sql`, `store/modules.go`, `PUT /api/machines/{id}/role`, `role` et `modules` dans les machines, `modules` dans les compteurs, `roles` dans la session, `web/src/lib/modules.ts` (menu, onglets, carte « à configurer »), Paramètres › Modules, la carte « Rôle de la machine » (« Comment les modules et le rôle d'une machine décident de l'écran ») |
+| Type de machine, puce MCP, assistant OPNsense (v0.5.2 U4, #456) | `machine.IsPublicAddress` et `Placement.Address` (une VM sans hôte n'est un VPS que sur une adresse publique), la puce MCP retirée (`useAgentHint` : une infobulle, `action.agent_hint`), `internal/tlsinspect` et `POST /api/certificate/inspect`, `credential.Mask` (`api_key_hint`, `token_id_hint`), les libellés OPNsense dans les catalogues (`firewall.menu_*`, `firewall.label_*`), les privilèges DHCP réduits à Dnsmasq ou Kea. Aucune migration |

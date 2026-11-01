@@ -1,8 +1,8 @@
-package httpx
+package credential
 
 import "testing"
 
-func TestMaskCredential(t *testing.T) {
+func TestMask(t *testing.T) {
 	cases := map[string]string{
 		"AbCdEfGhIjKl":        "AbCd…",
 		"lecteur@pve!lecture": "lect…",
@@ -11,7 +11,7 @@ func TestMaskCredential(t *testing.T) {
 		"":                    "…",
 	}
 	for in, want := range cases {
-		if got := MaskCredential(in); got != want {
+		if got := Mask(in); got != want {
 			t.Errorf("%q : got %q, want %q", in, got, want)
 		}
 	}

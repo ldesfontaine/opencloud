@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/credential"
+
 	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
@@ -132,7 +134,7 @@ func (request firewallRequest) definition() firewall.Definition {
 
 func firewallToJSON(declared firewall.Firewall, counts firewallCountsJSON) firewallJSON {
 	return firewallJSON{
-		ID: declared.ID, Name: declared.Name, Kind: declared.Kind, APIURL: declared.APIURL, APIKeyHint: httpx.MaskCredential(declared.APIKey),
+		ID: declared.ID, Name: declared.Name, Kind: declared.Kind, APIURL: declared.APIURL, APIKeyHint: credential.Mask(declared.APIKey),
 		Pin: declared.Pin, IsPinned: declared.Pin != "", Version: declared.Version, VerifiedAt: declared.VerifiedAt.UTC(),
 		LastReadAt: httpx.TimeOrNil(declared.LastReadAt), LastError: declared.LastError, Counts: counts,
 	}

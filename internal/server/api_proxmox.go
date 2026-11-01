@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/credential"
+
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -129,7 +131,7 @@ type proxmoxRequest struct {
 func proxmoxViewToJSON(view proxmox.View, runs []action.Run) proxmoxHostJSON {
 	host := view.Host
 	return proxmoxHostJSON{
-		APIURL: host.APIURL, TokenIDHint: httpx.MaskCredential(host.TokenID), Pin: host.Pin, Node: host.Node, Version: host.Version,
+		APIURL: host.APIURL, TokenIDHint: credential.Mask(host.TokenID), Pin: host.Pin, Node: host.Node, Version: host.Version,
 		VerifiedAt: host.VerifiedAt.UTC(), LastReadAt: httpx.TimeOrNil(host.LastReadAt), LastError: host.LastError,
 		Guests: httpx.ConvertAll(view.Guests, func(guest proxmox.Guest) proxmoxGuestJSON {
 			return proxmoxGuestToJSON(guest, proxmox.OwnSnapshots(runs, guest.VMID))

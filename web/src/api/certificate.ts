@@ -5,10 +5,10 @@ import { route } from "./routes";
 // non, et le certificat qu'elle présente. Le serveur joint l'adresse (le
 // navigateur ne le peut pas), pour les assistants Pare-feu et Proxmox.
 
-export type CertificateOutcome = "trusted" | "untrusted" | "unreachable";
+type CertificateOutcome = "trusted" | "untrusted" | "unreachable";
 
 // Pourquoi une adresse est injoignable (seulement pour « unreachable »).
-export type UnreachableCause = "timeout" | "refused" | "unresolved" | "no_route" | "forbidden" | "not_tls" | "other";
+type UnreachableCause = "timeout" | "refused" | "unresolved" | "no_route" | "forbidden" | "not_tls" | "other";
 
 export interface CertificateInspection {
   outcome: CertificateOutcome;

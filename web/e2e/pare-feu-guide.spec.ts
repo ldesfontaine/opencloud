@@ -54,7 +54,6 @@ for (const theme of ["light", "dark"] as const) {
       "Firewall: Rules [new]",
       "Services: Dnsmasq DNS/DHCP: Settings",
       "Services: DHCP: Kea(v4)",
-      "Services: ISC DHCPv4: Leases",
     ]);
     for (const copy of await dialog.locator(".copy-list button").all()) {
       await copy.click();

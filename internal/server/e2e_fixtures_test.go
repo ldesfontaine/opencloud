@@ -13,6 +13,8 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense/opnsensetest"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 )
 
@@ -66,6 +68,19 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2EBackups(t, ts)
 	seedE2EFirewall(t, ts)
 	seedE2EApply(t, ts)
+	seedE2EVirtualized(t, ts)
+}
+
+// seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
+// sans hôte connu : la distante, jointe par une adresse publique, est un VPS ;
+// la machine openCloud, sur un réseau privé, une VM.
+func seedE2EVirtualized(t *testing.T, ts *testServer) {
+	t.Helper()
+	for _, id := range []string{remoteID, machine.LocalID} {
+		if _, err := ts.db.ReplaceHostReport(context.Background(), id, machine.KindVM, hostinfo.Report{}); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // seedE2EBackups pose la clé, une destination sur la machine distante et le
