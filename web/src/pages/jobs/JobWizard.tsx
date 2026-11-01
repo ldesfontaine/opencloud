@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from "react-router";
 
 import { saveJob, useJob, type JobResponse } from "../../api/jobs";
-import { useMachines } from "../../api/machines";
+import { useMachines, type Machine } from "../../api/machines";
 import { Note } from "../../components/Card";
 import { Failure } from "../../components/Failure";
 import { Field, Input } from "../../components/Field";
@@ -61,7 +61,7 @@ export function JobWizard() {
   );
 }
 
-function stepsOf(t: Translate, form: ReturnType<typeof useForm<JobFormValues, JobResponse>>, machines: { id: string; name: string }[]): WizardStep[] {
+function stepsOf(t: Translate, form: ReturnType<typeof useForm<JobFormValues, JobResponse>>, machines: Pick<Machine, "id" | "name" | "kind">[]): WizardStep[] {
   const { values, change } = form;
   return [
     {

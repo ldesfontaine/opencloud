@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { Machine } from "../api/machines";
 import type { Translate } from "../i18n/context";
-import { backupProducer, canConfirmDeletion, capabilitiesOf, isArchived, liveMachines, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, isRightsModified, machineSeen, machinesSubtitle, rightsFormOf, rolePatch, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
+import { backupProducer, canConfirmDeletion, capabilitiesOf, isArchived, liveMachines, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, isRightsModified, kindsByID, machineOption, machineSeen, machinesSubtitle, rightsFormOf, rolePatch, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -188,4 +188,13 @@ test("garder l'historique part tout de suite ; effacer attend le nom tapé tel q
   expect(canConfirmDeletion("vps-paris-1", "vps-paris", false)).toBe(false);
   expect(canConfirmDeletion("vps-paris-1", "VPS-PARIS-1", false)).toBe(false);
   expect(canConfirmDeletion("vps-paris-1", "vps-paris-1", false)).toBe(true);
+});
+
+test("l'option d'une machine porte son type en discret, rien sans type", () => {
+  expect(machineOption(t, { id: "m", name: "web", kind: "lxc" })).toEqual({ value: "m", label: "web", hint: "machine.kind_lxc" });
+  expect(machineOption(t, { id: "m", name: "web" }).hint).toBeUndefined();
+});
+
+test("le type de chaque machine se retrouve par identifiant", () => {
+  expect(kindsByID([{ id: "a", kind: "vm" }]).get("a")).toBe("vm");
 });

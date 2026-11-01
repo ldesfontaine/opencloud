@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useContainer } from "../../api/containers";
 import { useDeclaredServices } from "../../api/directory";
-import { useMachines } from "../../api/machines";
+import { useMachines, type Machine } from "../../api/machines";
 import { saveProbe, useProbe, type ProbeResponse } from "../../api/probes";
 import { Note } from "../../components/Card";
 import { Fold } from "../../components/Disclosure";
@@ -109,7 +109,7 @@ type ProbeForm = ReturnType<typeof useForm<ProbeFormValues, ProbeResponse>>;
 function stepsOf(
   t: Translate,
   form: ProbeForm,
-  machines: { id: string; name: string }[],
+  machines: Pick<Machine, "id" | "name" | "kind">[],
   services: { id: string; name: string; title: string; machine_name: string }[],
 ): WizardStep[] {
   const { values, change } = form;

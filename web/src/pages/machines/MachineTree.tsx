@@ -3,7 +3,8 @@ import { Link } from "react-router";
 import type { Current } from "../../api/resources";
 import { Button } from "../../components/Button";
 import { Icon } from "../../components/Icon";
-import { MachineKindPill, MachineStatePill, Pill } from "../../components/Pill";
+import { MachineKind } from "../../components/MachineKind";
+import { MachineStatePill, Pill } from "../../components/Pill";
 import { MachineMeters } from "../../components/Resources";
 import { Subject } from "../../components/Table";
 import { useI18n } from "../../i18n/context";
@@ -52,7 +53,7 @@ function MachineRow({ row, current, now }: { row: Extract<TreeRow, { type: "mach
           <Link className="svc" to={`/machines/${machine.id}`}>
             <Subject icon="server">{machine.name}</Subject>
           </Link>
-          <MachineKindPill kind={machine.kind} />
+          <MachineKind machine={machine} />
         </span>
       </td>
       <td className="num wide-only">{machine.address}</td>

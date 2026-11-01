@@ -1,4 +1,6 @@
 import type { Machine } from "../api/machines";
+import { useT } from "../i18n/context";
+import { machineOption } from "../lib/machines";
 import { Select, type SelectProps } from "./Select";
 
 // Le choix d'une machine, par son nom. noneLabel ajoute en tête l'option
@@ -9,10 +11,11 @@ export function MachineSelect({
   noneLabel,
   ...rest
 }: Omit<SelectProps, "options" | "placeholder"> & {
-  machines: readonly Pick<Machine, "id" | "name">[];
+  machines: readonly Pick<Machine, "id" | "name" | "kind">[];
   noneLabel?: string;
 }) {
-  const options = machines.map((machine) => ({ value: machine.id, label: machine.name }));
+  const t = useT();
+  const options = machines.map((machine) => machineOption(t, machine));
   if (noneLabel !== undefined) {
     options.unshift({ value: "", label: noneLabel });
   }

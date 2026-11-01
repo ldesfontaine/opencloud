@@ -12,6 +12,7 @@ import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
 import { TodoCard } from "../components/TodoCard";
 import { VerbRequestsCard } from "../components/VerbRequestsCard";
+import { MachineKind } from "../components/MachineKind";
 import { MachineStatePill, Pill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
@@ -200,10 +201,12 @@ export function Overview() {
             </div>
             <div className="overview-machines-grid">
               {list.map((machine) => (
-                <Link className="card machine-card" key={machine.id} to={`/machines/${machine.id}`}>
+                <div className="card machine-card" key={machine.id}>
                   <div className="machine-card-head">
                     <span className="machine-card-title">
-                      <span className="card-t">{machine.name}</span>
+                      <Link className="card-t machine-card-link" to={`/machines/${machine.id}`}>
+                        {machine.name}
+                      </Link>
                       <span className="mono muted" title={machine.address !== "" ? machine.address : machine.os}>
                         {machine.address !== "" ? machine.address : machine.os}
                       </span>
@@ -217,12 +220,13 @@ export function Overview() {
                       <MachineStatePill machine={machine} />
                     </span>
                   </div>
+                  <MachineKind machine={machine} />
                   <MachineMeters current={currentOf(machine.id)} />
                   <div className="machine-card-foot secondary">
                     <span>{machine.os}</span>
                     <span>{machineSeen(t, machine, now)}</span>
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
           </div>

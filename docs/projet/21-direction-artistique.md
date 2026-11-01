@@ -83,9 +83,15 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
 
 ## Composants
 
-- **Barre latérale** : marque en haut, sections « Vue » et « Administration »,
+- **Barre latérale** : marque en haut, 24 px plus haut que le premier item
+  (« Vue d'ensemble » ne la touche pas), sections « Vue » et « Administration »,
   compteurs en mono à droite (rouge quand il y a une alerte), en bas le
   commutateur clair/sombre puis le compte.
+- **Type de machine** (`MachineKind`) : partout où une machine est listée, une
+  pastille `small` sans point (Matériel, VM, LXC, VPS) ; dans un menu
+  déroulant, le mot en discret après le nom (`SelectOption.hint`). Un type
+  **inconnu** reste neutre mais ne se tait pas : « Type inconnu » avec, à côté,
+  le lien du geste qui le résout, et la cause en info-bulle.
 - **En-tête de page** : titre, sous-titre d'une phrase, actions à droite. Une
   seule action principale par écran. La vue d'ensemble n'a pas de sous-titre
   tant qu'elle montre des machines : la tuile Machines dit déjà le compte.

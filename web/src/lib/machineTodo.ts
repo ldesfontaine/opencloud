@@ -1,5 +1,6 @@
 import type { Machine } from "../api/machines";
 import { agentBehindServer } from "./agentUpdate";
+import { kindFix, type KindFix } from "./machineKind";
 import { isArchived } from "./machines";
 import { detectedProxmox } from "./proxmox";
 
@@ -10,14 +11,14 @@ export type MachineTodo =
   | { kind: "agent_behind"; serverVersion: string }
   | { kind: "rights_unavailable"; count: number }
   | { kind: "support_ended" }
-  | { kind: "kind_unknown" }
+  | { kind: "kind_unknown"; fix: KindFix }
   | { kind: "proxmox_to_declare"; version: string }
   | { kind: "proxmox_read_failed"; key: string };
 
 // Ce que la fiche signale, dans l'ordre où l'opérateur doit s'en occuper : sans
 // agent d'abord (rien d'autre ne se lit), puis ce que l'agent ne peut pas faire.
 // Une machine archivée n'a rien à faire : son agent est coupé exprès.
-export function machineTodos(machine: Machine, serverVersion: string): MachineTodo[] {
+export function machineTodos(machine: Machine, all: readonly Machine[], serverVersion: string): MachineTodo[] {
   if (isArchived(machine)) {
     return [];
   }
@@ -36,8 +37,10 @@ export function machineTodos(machine: Machine, serverVersion: string): MachineTo
   if (machine.lifecycle?.status === "eol") {
     todos.push({ kind: "support_ended" });
   }
-  if (machine.kind === "unknown" && machine.kind_override === "") {
-    todos.push({ kind: "kind_unknown" });
+  // Un agent en retard a déjà son geste plus haut : le même bouton ne se pose pas deux fois.
+  const fix = kindFix(machine, all, serverVersion);
+  if (fix !== null && fix.action !== "update_agent") {
+    todos.push({ kind: "kind_unknown", fix });
   }
   todos.push(...proxmoxTodos(machine));
   return todos;

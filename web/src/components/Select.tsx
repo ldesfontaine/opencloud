@@ -149,7 +149,7 @@ export function Select({ value, options, onChange, id, icon, disabled = false, "
         }}
       >
         {icon && <Icon name={icon} />}
-        <span className={chosen ? "select-value" : "select-value select-placeholder"}>{chosen ? chosen.label : (placeholder ?? t("select.choose"))}</span>
+        <span className={chosen ? "select-value" : "select-value select-placeholder"}>{chosen ? <OptionText option={chosen} /> : (placeholder ?? t("select.choose"))}</span>
         <span className="chev">
           <Icon name="chevron-down" />
         </span>
@@ -190,7 +190,9 @@ export function Select({ value, options, onChange, id, icon, disabled = false, "
                   onMouseMove={() => setMenu((current) => (current.active === index ? current : { ...current, active: index }))}
                   onClick={() => choose(option)}
                 >
-                  <span className="select-option-label">{option.label}</span>
+                  <span className="select-option-label">
+                    <OptionText option={option} />
+                  </span>
                   {option.value === value && <Icon name="check" />}
                 </div>
               ))}
@@ -199,6 +201,15 @@ export function Select({ value, options, onChange, id, icon, disabled = false, "
           </div>,
           overlayHost(triggerRef.current),
         )}
+    </>
+  );
+}
+
+function OptionText({ option }: { option: SelectOption }) {
+  return (
+    <>
+      {option.label}
+      {option.hint !== undefined && <span className="select-hint"> {option.hint}</span>}
     </>
   );
 }

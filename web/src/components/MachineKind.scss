@@ -1,0 +1,15 @@
+.machine-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+
+  .kind-fix {
+    font-size: 12px;
+    white-space: nowrap;
+    // Posé au-dessus du lien étendu d'une carte cliquable.
+    position: relative;
+    z-index: 1;
+  }
+}
