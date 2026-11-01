@@ -1,9 +1,8 @@
 # Étude : le modèle de « service » et la découverte des liens
 
-> Ticket #437. **Étude seule : aucun code, aucune migration écrite.** Rien ici
-> n'est décidé : chaque choix est proposé avec sa contrepartie, **la décision
-> est à Lucas** (« Questions pour Lucas »). Relevé du 01/11/2026 sur `dev` à
-> `db62e78`. Les sources externes sont citées avec leur adresse ; ce qui n'a
+> Ticket #437. **Étude seule : aucun code, aucune migration écrite.** Les cinq
+> questions ont été tranchées par Lucas le 01/11/2026 (« Décisions de Lucas ») ;
+> le document les intègre. Relevé du 01/11/2026 sur `dev` à `db62e78`. Les sources externes sont citées avec leur adresse ; ce qui n'a
 > pas pu être relu est dans « Non vérifié ».
 
 ## Résumé
@@ -14,7 +13,8 @@
 | Cause | `ProposeAll` propose **un service par projet Compose** ; un index unique interdit deux services sur le même projet sur une machine ; un service tient à **une** machine |
 | Trou majeur | Les **binaires systemd** (Forgejo, openCloud) ne sont **jamais observés** ; les liens lus aujourd'hui sont **déclarés** (`depends_on`, `--link`) ou de **joignabilité** (réseau partagé), jamais **observés** |
 | Proposition | Trois niveaux : **instance** (observée, identité stable) · **service** (nommé par l'opérateur) · **regroupements** (groupe d'exécution lu, projet openCloud déclaré). Un **lien** porte sa **preuve** (observé, déclaré, déduit) et sa **fraîcheur** |
-| Sans root | Réalisable : unités systemd, labels, réseaux, hôtes cités dans l'environnement, connexions **de l'hôte**. **Pas** les connexions entre conteneurs (voir §2.3) |
+| Sans root | Réalisable : unités systemd, labels, réseaux, hôtes cités dans l'environnement, connexions **de l'hôte**. **Pas** les connexions entre conteneurs (voir §2.3) : décidé, pas de droit élevé |
+| Décisions | Une ligne = un service Compose ; instances regroupées par nom et image ; environnement par liste blanche ; Traefik plus tard (#361) ; connexions sans root |
 | Chantiers | 7, sans code ici (§4) |
 
 ---
@@ -109,7 +109,7 @@ Limite : ni Docker ni Podman ne sont installés ici ; **rien n'a été essayé c
 | 2 | **Alias / `DNSNames`** | Le nom sous lequel B s'appelle sur un réseau ; sert à **résoudre** les signaux 4 et 5 | Aucun (déjà lu) | Bonne pour nommer. [Sur le pont par défaut, pas de résolution par nom](https://docs.docker.com/engine/network/drivers/bridge/) | Nul | Nul |
 | 3 | **`depends_on`, `--link`** | **Déclaré** : ordre de démarrage, pas communication | Aucun (déjà lu) | Moyenne : peut manquer (un lien réel non déclaré) ou sur-déclarer | Nul | Nul |
 | 4 | **Variables d'environnement qui nomment un hôte** (`DB_HOST=db`, `REDIS_URL=redis://cache:6379`) | **Déduit** : A est configuré pour joindre B | Aucun : même appel d'inspection, mais il faut **déclarer `Env`** dans le décodeur | Moyenne à bonne pour les images à la douzaine-de-facteurs ; muette pour celles qui lisent un fichier de config | Faible | **Élevé** : `Config.Env` est « `["VAR=value", ...]` » en clair, secrets compris ; **les valeurs entreraient dans la mémoire de l'agent** (§2.4) |
-| 5 | **Routes Traefik** (labels Docker) | **Déclaré** : `Host(…)` → service → port | Aucun, mais **lève une règle** : aucun label Traefik ne part aujourd'hui | Excellente pour « public → service » : c'est la configuration réellement chargée par Traefik | Faible | Moyen : les labels contiennent aussi des **hachages de mots de passe** (`…basicauth.users`) et des domaines ; liste blanche de clés obligatoire |
+| 5 | **Routes Traefik** (labels Docker) | **Déclaré** : `Host(…)` → service → port | Aucun, mais **la règle est maintenue** (décision 4) : aucun label Traefik ne part ; le lien viendra du module #361 | Excellente pour « public → service » : c'est la configuration réellement chargée par Traefik | Faible | Moyen : les labels contiennent aussi des **hachages de mots de passe** (`…basicauth.users`) et des domaines ; liste blanche de clés obligatoire |
 | 6 | **Provider fichier de Traefik** | Idem | **Oui** : lire le fichier (souvent root) | Excellente | Moyen | Le fichier peut porter des secrets |
 | 7 | **API Traefik** (`/api/http/routers`, `/services`) | Idem, **telle que chargée** | **Oui** : désactivée par défaut, à protéger ([doc](https://doc.traefik.io/traefik/reference/install-configuration/api-dashboard/)) ; l'agent aurait un accès et un secret en plus | Excellente | Moyen | Un secret de plus à garder ; c'est le terrain du module #361 |
 | 8 | **Unités systemd** (`Requires`, `Wants`, `After`, `BindsTo`) | **Déclaré** entre unités ; donne aussi `MainPID`, `ControlGroup`, état | **Aucun** : lecture ouverte (mesuré ; la [doc D-Bus](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html) : « Read access is generally granted to all clients ») | Bonne pour l'existence et l'état ; moyenne pour la communication (beaucoup d'unités d'ordre) | Faible | Faible : noms d'unités. Les `Environment=` d'une unité peuvent porter des secrets : on ne lit pas ces propriétés |
@@ -118,6 +118,8 @@ Limite : ni Docker ni Podman ne sont installés ici ; **rien n'a été essayé c
 | 11 | **conntrack** | **Observé**, y compris NAT | **Oui** : `/proc/net/nf_conntrack` illisible (mesuré) ; netlink demande `CAP_NET_ADMIN` sauf lecture de table ([libnetfilter_conntrack](https://netfilter.org/projects/libnetfilter_conntrack/doxygen/html/), résumé) | Excellente | Moyen | Élevé : tout le trafic de la machine |
 | 12 | **eBPF** | **Observé**, fin (par connexion, par processus) | **Oui, lourd** : `CAP_BPF` + `CAP_PERFMON` (+ `CAP_SYS_PTRACE` chez Beyla) ; ici `unprivileged_bpf_disabled=2` | Excellente | Élevé (noyau ≥ 5.8, code à maintenir) | **Très élevé** : un agent qui charge du code noyau |
 | 13 | **DNS** | Les requêtes d'un conteneur vers `127.0.0.11` | Capture de paquets (`CAP_NET_RAW`) | Bonne mais bruyante | Élevé | Élevé |
+
+**Retenu (décisions 3 à 5) :** lignes 1 à 3, 4 (avec liste blanche et droit par machine), 8 et 9. Ligne 5 : plus tard, par #361 (lignes 6 et 7 avec elle). **Écartées : lignes 10 à 13** (droit élevé, jamais eBPF).
 
 **Pourquoi la ligne 10 est la limite du « sans root ».** Un conteneur a son propre espace de noms réseau. Selon [proc_net(5)](https://man7.org/linux/man-pages/man5/proc_net.5.html), le contenu de `/proc/net/tcp` reflète celui du processus qui lit. Pour lire celui d'un conteneur, il faudrait entrer dans `/proc/<pid>/net/` d'un processus qui n'est pas à l'agent, donc passer le contrôle `PTRACE_MODE_READ_FSCREDS` ([proc_pid_fd(5)](https://man7.org/linux/man-pages/man5/proc_pid_fd.5.html)), soit `CAP_SYS_PTRACE` ou root. La table de l'hôte, elle, ne montre pas le trafic pont-à-pont (déduit de ces pages, **non essayé avec Docker**). Netdata l'avoue : « needs privileged access to enumerate all process sockets », et ses plugins demandent `cap_sys_ptrace` et `cap_dac_read_search`.
 
@@ -136,7 +138,7 @@ Aujourd'hui l'agent **ne peut pas** fuir `Env` : le champ n'est pas déclaré. L
 | **Pas de journal** | L'agent n'écrit jamais `Env` dans ses logs (test) |
 | **Test de non-fuite** | Un banc inspecte le rapport complet pour une fixture portant `PASSWORD=hunter2`, `URL=https://u:p@db/x?token=abc` : aucune de ces chaînes ne doit apparaître. Même esprit que `TestLabels_NeverWriteTheDirectory` |
 | **Le serveur borne encore** | Comme pour les labels : « la borne est reposée côté serveur parce qu'un agent n'est pas une preuve » (`24-modele-cible.md:1140`) |
-| **Droit à part** | Voir la question 3 : un droit `links.observe` visible à l'enrôlement |
+| **Droit à part** | Décision 3 : un droit d'observation, coché **par machine** à l'enrôlement ; sans lui, `Env` n'est pas lu |
 
 Coût franc : même avec ces règles, les valeurs transitent par la mémoire d'un processus qui a déjà la socket Docker (donc root de fait). Le gain de sécurité de la liste blanche est de **ne rien envoyer ni stocker**, pas de ne pas lire.
 
@@ -177,9 +179,9 @@ flowchart TD
 
 Le **projet openCloud existant est déjà** « l'application logique déclarée par l'opérateur » : **aucune entité nouvelle** n'est proposée pour ce niveau (le dire est la contrepartie du coût d'un quatrième mot).
 
-Le **même service sur plusieurs machines** : une instance par machine, **distinguées par la machine dans leur identité**. Le regroupement « tous les traefik » se **dérive** (même nom de service, ou même image sans étiquette de version, `service_units.image`) ; il ne s'écrit pas. Contrepartie : un service renommé sur une machine sort du regroupement ; on ne l'y remet qu'à la main.
+Le **même service sur plusieurs machines** (décision 2) : une instance par machine, **distinguées par la machine dans leur identité**. Le regroupement « tous les traefik » est **automatique** : même nom de service **et** même image sans étiquette de version (`service_units.image`). Il se **dérive**, il ne s'écrit pas, et aucun niveau « service logique » n'est saisi à la main. Contrepartie : un service renommé, ou dont l'image change, sur une machine sort du regroupement ; il redevient une ligne à part.
 
-**Ce qui change pour « edge = traefik + authelia + crowdsec »** (question 1) :
+**Ce qui change pour « edge = traefik + authelia + crowdsec »** (décision 1) :
 
 | | Aujourd'hui | Proposé |
 | --- | --- | --- |
@@ -227,7 +229,7 @@ Cohérent avec la refonte (architecture §3.1 : menu dérivé du registre de mod
 
 | Écran | Une ligne par… | Les liens |
 | --- | --- | --- |
-| **Services** (liste) | **Service** ; les instances se déplient dessous (une par machine) ; regroupement visuel optionnel par projet | Une **pastille** « n liens » ; pas de graphe |
+| **Services** (liste) | **Service Compose** (traefik, authelia, crowdsec), **regroupés sous leur projet Compose** ; les instances d'un même nom et d'une même image sur plusieurs machines forment une ligne dépliable (une instance par machine) | Une **pastille** « n liens » ; pas de graphe |
 | **Fiche service** | — ; onglet **Instances** (une ligne = une machine) | Onglet **Liens** : entrants / sortants, chaque ligne avec sa **preuve** (pastille *observé / déclaré / déduit*) et sa **fraîcheur** ; boutons *Confirmer*, *Écarter*, *Ajouter un lien* |
 | **Fiche machine > Réseau** | Instance de la machine | Le dessin actuel, **alimenté par les liens stockés** et non plus recalculé |
 | **Machines** (hôte > invités) | Inchangé | — |
@@ -244,10 +246,10 @@ Pastille de preuve : trois états, sur le patron de `GapPill` (`web/src/componen
 
 | Couche | Changement |
 | --- | --- |
-| **Tables** | `declared_services` : lever l'index unique du projet Compose (si question 1 acceptée) ; un service à plusieurs instances = **pas de colonne**, c'est le rattachement par unité. **Nouvelles** : instances observées de systemd (`machine_systemd_units`), liens observés (`observed_links`, remplacés par rapport de machine), liens déclarés (`declared_links`). Numéros : `027` est la dernière sur `dev`, à revérifier au démarrage |
+| **Tables** | `declared_services` : lever l'index unique du projet Compose (décision 1) ; un service à plusieurs instances = **pas de colonne**, c'est le rattachement par unité. **Nouvelles** : instances observées de systemd (`machine_systemd_units`), liens observés (`observed_links`, remplacés par rapport de machine), liens déclarés (`declared_links`). Numéros : `027` est la dernière sur `dev`, à revérifier au démarrage |
 | **Agent** | Lire systemd en lecture (`list-units`, `show`) ; déclarer `Env` avec le type de §2.4 ; (option) lire la table `/proc/net/tcp` de l'hôte. **Chaque lecture neuve est une classe de donnée neuve** : `22-fonctionnement.md` (« ce qui est stocké ») et le pare-feu de bornes du serveur se mettent à jour |
 | **Protocole** | Champs optionnels dans le signal, `ProtocolVersion` inchangée (règle d'`agentwire`) ; bornes posées aussi côté serveur |
-| **Droits** | Une nouvelle capacité d'observation (question 3), visible à l'enrôlement ; machines existantes : ré-enrôlement pour l'avoir |
+| **Droits** | Une nouvelle capacité d'observation (décision 3), cochée **par machine** à l'enrôlement ; machines existantes : ré-enrôlement pour l'avoir. **Aucun droit élevé** (décision 5) |
 | **`directory`** | `ProposeAll` : une proposition par **service Compose** ; `Match` : rattachement par `(projet, service)` ; refus déclarés (`internal/refusal`) pour les liens (cible inconnue, doublon, soi-même) |
 | **Routes** | Lecture des liens (par service, par machine) ; écriture des liens déclarés ; confirmer / écarter. Toutes dans `routes.txt` et la parité UI / MCP (architecture §3.7) |
 | **Écrans** | Liste Services (instances dépliées), fiche service (Instances, Liens), Réseau de la machine (liens stockés), propositions (une par service) |
@@ -260,28 +262,39 @@ Une branche `feat/…` chacun, un commit par fonctionnalité (`12-methode.md`). 
 
 | # | Chantier | Contenu | Dépend de | Droit de plus |
 | --- | --- | --- | --- | --- |
-| L1 | **Un service par service Compose** | Proposition par service, index levé, rattachement `(projet, service)`, groupe d'exécution affiché ; services existants intacts | Question 1 | Aucun |
+| L1 | **Un service par service Compose** | Proposition par service, index levé, rattachement `(projet, service)`, groupe d'exécution affiché ; services existants intacts ; regroupement automatique des instances de même nom et même image (décision 2) | — | Aucun |
 | L2 | **Instances systemd** | L'agent relève les unités ; unité binaire rapprochée de l'unité déclarée (`systemd_unit`) ; état visible ; port à déclarer | — | Aucun (mesuré) |
 | L3 | **Liens stockés, déclarés et d'ordre** | Tables, routes, fiche service > Liens ; `depends_on` et `--link` passent en liens `declared` ; l'opérateur ajoute les siens ; Réseau lit les liens stockés | L1 | Aucun |
 | L4 | **Liens déduits** | `public_url` + capacité `proxy` → `route` déduit ; confirmer / écarter | L3 | Aucun |
-| L5 | **Environnement** | `Env` lu avec la liste blanche de §2.4, banc de non-fuite | L3, question 3 | Nouveau droit d'observation |
-| L6 | **Connexions de l'hôte** | Table de l'hôte → liens `observed` pour les binaires et les ports publiés | L2, L3 | Aucun (table) ; processus non attribué |
-| L7 | **Traefik** | Routes lues par le module #361 (labels, fichier ou API) → liens `route` | #361, L3 | Selon le choix de #361 |
-| — | **À part, pas proposé** | conntrack, ptrace, eBPF : étude séparée si Lucas veut des liens entre conteneurs observés | — | Oui (§2.3 lignes 10-12) |
+| L5 | **Environnement** | `Env` lu avec la liste blanche de §2.4, banc de non-fuite | L3 | Nouveau droit d'observation, coché par machine |
+| L6 | **Connexions de l'hôte** | Table de l'hôte → liens `observed` pour les binaires et les ports publiés ; **pas** de connexion entre conteneurs (décision 5) | L2, L3 | Aucun (table) ; processus non attribué |
+| L7 | **Traefik, plus tard** | Routes lues par le module #361 → liens `route` ; d'ici là, **aucun label Traefik ne quitte la machine** (décision 4) | #361, L3 | Selon #361 |
 
 Le **MCP** et la **vue des flux** (#375) se branchent sur L3 ; leur chiffrage attend la lecture du ticket et du code de mcp-maison.
 
 ---
 
-## Questions pour Lucas
+## Décisions de Lucas
 
-| # | Question | Ma recommandation | Contrepartie |
-| --- | --- | --- | --- |
-| 1 | **Un service = un service Compose** (trois pour `edge`) ou **un projet Compose** (un seul, trois unités, comme aujourd'hui) ? | **Un service Compose**, projet Compose = groupe d'exécution affiché. L'opérateur regroupe lui-même s'il veut un service à plusieurs unités | Lever l'index unique et refaire le rattachement ; `edge` n'existe plus comme service tant qu'on ne le crée pas comme **projet** |
-| 2 | Le même service sur plusieurs machines : un **niveau « service logique »** à part, ou rester à un service par machine avec regroupement **dérivé** du nom et de l'image ? | **Dérivé** : une instance par machine, aucun niveau de plus | Un service renommé sur une machine sort du groupe ; on n'ajoute une table que si ce cas arrive |
-| 3 | Lire les **variables d'environnement** pour en tirer des hôtes (signal 4), derrière un **droit d'observation** visible à l'enrôlement ? | **Oui**, avec la liste blanche de §2.4 et son banc de non-fuite ; sinon, pas du tout | Les secrets passent par la mémoire de l'agent (qui a déjà la socket Docker) ; un ré-enrôlement par machine pour le droit |
-| 4 | Lever la règle « aucun label Traefik ne quitte la machine » pour trois clés (`rule`, `service`, `loadbalancer.server.port`) ? | **Pas avant #361** : le lien Traefik vient du module, pas de l'agent générique | Les routes publiques restent invisibles tant que #361 n'est pas livré ; le lien `public_url` + `proxy` (L4) donne un repli faible |
-| 5 | Les connexions **entre conteneurs** (observées) : rester **sans root** (hôte seulement) ou ouvrir un droit élevé optionnel (ptrace, conntrack) ? | **Sans root d'abord** (L6), le droit élevé en étude séparée, **jamais eBPF** | Les liens conteneur-à-conteneur restent **déclarés ou déduits**, pas observés |
+Tranchées le 01/11/2026 (questions de la première version de cette étude).
+
+| # | Décision | Où elle entre |
+| --- | --- | --- |
+| 1 | Une ligne = un service Compose (traefik, authelia, crowdsec), regroupés sous leur projet Compose | §3.1, §3.4, L1 |
+| 2 | Le même service sur deux machines = deux instances, regroupées automatiquement par nom et image ; aucun niveau « service logique » saisi à la main | §3.1, §3.4, L1 |
+| 3 | Variables d'environnement : oui, seulement les noms d'hôtes et adresses (liste blanche §2.4, banc de non-fuite), jamais les valeurs secrètes, derrière un droit d'observation coché par machine | §2.4, §4.1, L5 |
+| 4 | Routes publiques : plus tard, par le module Traefik (#361) ; aucun label Traefik ne quitte la machine d'ici là | §2.3, L7 |
+| 5 | Connexions observées : sans root (hôte seulement) ; pas de droit élevé, jamais eBPF | §2.3, L6 |
+
+Coûts assumés par ces décisions :
+
+| Décision | Ce que ça coûte |
+| --- | --- |
+| 1 | L'index unique du projet Compose se lève ; `edge` n'existe plus comme service, seulement comme groupe d'exécution (ou comme projet si l'opérateur le crée) |
+| 2 | Un service renommé, ou dont l'image change, sur une machine sort du regroupement |
+| 3 | Les valeurs passent par la mémoire de l'agent (qui a déjà la socket Docker) ; un ré-enrôlement par machine pour le droit |
+| 4 | Les routes publiques restent invisibles tant que #361 n'est pas livré ; le lien `public_url` + capacité `proxy` (L4) donne un repli faible |
+| 5 | Les liens conteneur-à-conteneur restent déclarés ou déduits, jamais observés |
 
 ## Non vérifié
 
@@ -290,9 +303,8 @@ Le **MCP** et la **vue des flux** (#375) se branchent sur L3 ; leur chiffrage at
 | **Tickets #361 (module Traefik) et #375 (vue des flux)** | Absents du dépôt, aucun accès au forge dans cet espace de travail ; leur contenu n'a pas été lu |
 | **Source de mcp-maison** | Le dossier `workspaces/mcp-maison` est vide ; l'architecture cite `src/tools/opencloud/tools.ts`, non relu. Tout l'impact MCP est déduit de `22-fonctionnement.md` |
 | **Rien n'a été essayé contre Docker ou Podman** | Aucun des deux n'est installé sur la machine de l'étude ; l'API compatible Docker de Podman (champs réseau, `DNSNames`) n'est pas validée |
-| **Les connexions entre conteneurs ne figurent pas dans la table de l'hôte** | Déduit de `proc_net(5)` et du principe des espaces de noms ; **à mesurer** avec un pont Docker réel avant L6 |
+| **Les connexions entre conteneurs ne figurent pas dans la table de l'hôte** | Déduit de `proc_net(5)` et du principe des espaces de noms ; **à mesurer** avec un pont Docker réel au début de L6 |
 | **Port → unité sans ptrace** | Déduit de `proc_pid_fd(5)` ; mesuré seulement pour sshd (port 22 sans processus) |
-| **Lecture de `/proc/net/nf_conntrack` et du netlink conntrack sans `CAP_NET_ADMIN`** | Fichier illisible mesuré ; le netlink vient d'un résumé de recherche de la doc libnetfilter, non relu |
 | **Champs exacts de l'API Traefik** (`rule`, `service`, `usedBy`, `servers[].url`) | La doc lue ne les détaille pas ; à confirmer par un GET sur une instance |
 | **Format de `com.docker.compose.depends_on`** | Non lu à la source de Compose ; openCloud le parse déjà (`inspect.go:192-230`), testé |
 | **Citations externes** | Les pages ont été lues par un outil qui rend des **résumés** : les guillemets ne sont pas relus sur la page d'origine, sauf `labels.go`, la spec OpenAPI Docker et `podman_compose.py`, lus en entier. Pages tronquées par l'outil : `systemd.unit`, `systemctl`, D-Bus `systemd1`, Kubernetes `Service` |
