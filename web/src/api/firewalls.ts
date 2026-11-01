@@ -24,7 +24,8 @@ export interface Firewall {
   name: string;
   kind: FirewallKind;
   api_url: string;
-  api_key: string;
+  // Les quatre premiers caractères de la clé : le serveur ne la rend jamais en entier.
+  api_key_hint: string;
   // L'empreinte SHA-256 épinglée ; vide : le magasin du système juge.
   pin: string;
   is_pinned: boolean;

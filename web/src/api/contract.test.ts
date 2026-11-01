@@ -308,7 +308,7 @@ const sshReport = shape<SSHReport>("SSHReport", {
 
 const proxmoxHost = shape<ProxmoxHost>("ProxmoxHost", {
   api_url: value,
-  token_id: value,
+  token_id_hint: value,
   pin: value,
   node: value,
   version: value,
@@ -953,7 +953,7 @@ const firewallFields = {
   name: value,
   kind: value,
   api_url: value,
-  api_key: value,
+  api_key_hint: value,
   pin: value,
   is_pinned: value,
   version: value,
