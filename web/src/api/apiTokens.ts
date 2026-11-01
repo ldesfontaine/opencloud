@@ -25,12 +25,15 @@ export interface APIToken {
 }
 
 // Un verbe offert à la création : label et summary sont des clés de
-// catalogue, reverse l'identifiant du verbe qui le défait.
+// catalogue, reverse l'identifiant du verbe qui le défait. Un verbe à
+// confirmation n'a pas d'inverse : le jeton dépose une demande, l'opérateur
+// la confirme.
 export interface VerbOffer {
   id: string;
   label: string;
   summary: string;
   reverse: string;
+  confirm: boolean;
 }
 
 // Ce que mcp-maison lit dans son .env, tiré de l'adresse d'écoute.

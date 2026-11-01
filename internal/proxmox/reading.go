@@ -26,6 +26,13 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 	if err != nil {
 		return Reading{}, err
 	}
+	if err := c.readGuestMACs(ctx, guests); err != nil {
+		return Reading{}, err
+	}
+	cluster, err := c.readClusterName(ctx)
+	if err != nil {
+		return Reading{}, err
+	}
 	seen := map[int]archives{}
 	for _, storage := range storages {
 		// Un stockage hors ligne répond par une erreur : il n'a rien à dire.
@@ -50,7 +57,7 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 			guests[index].BackupTotalBytes = found.totalBytes
 		}
 	}
-	return Reading{Version: version, Guests: guests, Storages: storages}, nil
+	return Reading{Version: version, Cluster: cluster, Guests: guests, Storages: storages}, nil
 }
 
 // archives est ce que les stockages gardent d'une VM : la plus récente, le
@@ -99,22 +106,56 @@ func hostNode(reading Reading, hostname string) string {
 	return ""
 }
 
-// link rapproche chaque VM de la machine enrôlée qui porte son nom d'hôte :
-// le nom exact d'abord, puis, faute de mieux, une casse différente si une
-// seule machine convient. La machine de l'hôte n'est jamais sa propre VM.
+// link rapproche chaque VM de la machine enrôlée qui la porte, par clés
+// ordonnées, la plus forte gagnant :
+//
+//  1. la correction de l'opérateur : une machine qu'il a posée sur un autre
+//     hôte n'est jamais la VM de celui-ci ;
+//  2. une adresse MAC de la machine est celle d'une carte de la VM ;
+//  3. le nom d'hôte, gardé en repli : exact d'abord, puis une casse
+//     différente si une seule machine convient.
+//
+// La machine de l'hôte n'est jamais sa propre VM.
 func link(guests []Guest, machines []machine.Status, hostID string) {
 	candidates := make([]machine.Status, 0, len(machines))
 	for _, candidate := range machines {
-		if candidate.ID != hostID && candidate.Hostname != "" {
+		isElsewhere := candidate.HostOverride != "" && candidate.HostOverride != hostID
+		if candidate.ID != hostID && !isElsewhere {
 			candidates = append(candidates, candidate)
 		}
 	}
 	for index := range guests {
-		guests[index].LinkedMachineID = linkedMachine(guests[index].Name, candidates)
+		guests[index].LinkedMachineID = linkedMachine(guests[index], candidates)
 	}
 }
 
-func linkedMachine(name string, candidates []machine.Status) string {
+func linkedMachine(guest Guest, candidates []machine.Status) string {
+	if id := linkedByMAC(guest.MACs, candidates); id != "" {
+		return id
+	}
+	return linkedByName(guest.Name, candidates)
+}
+
+// linkedByMAC rend la machine qui porte une des adresses de l'invité, si une
+// seule le fait : deux machines pour une adresse, c'est une adresse copiée, qui
+// ne prouve rien.
+func linkedByMAC(macs []string, candidates []machine.Status) string {
+	found := ""
+	for _, candidate := range candidates {
+		for _, mac := range candidate.MACs {
+			if !slices.Contains(macs, mac) {
+				continue
+			}
+			if found != "" && found != candidate.ID {
+				return ""
+			}
+			found = candidate.ID
+		}
+	}
+	return found
+}
+
+func linkedByName(name string, candidates []machine.Status) string {
 	if name == "" {
 		return ""
 	}
@@ -123,7 +164,7 @@ func linkedMachine(name string, candidates []machine.Status) string {
 		if candidate.Hostname == name {
 			return candidate.ID
 		}
-		if strings.EqualFold(candidate.Hostname, name) {
+		if candidate.Hostname != "" && strings.EqualFold(candidate.Hostname, name) {
 			folded = append(folded, candidate.ID)
 		}
 	}

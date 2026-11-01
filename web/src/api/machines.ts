@@ -4,6 +4,7 @@ import { route } from "./routes";
 import type { DeletionPlan } from "./deletion";
 import type { Lifecycle } from "./lifecycle";
 import type { ProxmoxSummary } from "./proxmox";
+import type { ModuleID } from "../lib/modules";
 
 // Les machines et leurs jetons d'enrôlement, sur le modèle d'api/probes.
 // Sujet du direct : « machines », que topicsOf devine du chemin. Ce qu'une
@@ -33,7 +34,32 @@ export interface Machine {
   // Ce que l'agent reconnaît sur la machine par ses signes locaux ; vide sans
   // agent ou quand rien n'est reconnu. Un rôle ne donne aucun droit.
   roles: MachineRole[];
+  // Ce que l'opérateur en fait, choisi à l'ajout ; et les modules qu'elle porte,
+  // ceux de son rôle et ceux que l'agent observe.
+  role: RoleID;
+  modules: ModuleID[];
+  // Où elle tourne : le type retenu, la correction de l'opérateur seule (vide
+  // sans), et l'hôte qui la porte, null s'il n'est pas connu.
+  kind: KindID;
+  kind_override: KindID | "";
+  host: MachineHost | null;
 }
+
+// Les types de machine (liste fermée du serveur). « vps » se déduit : virtualisée
+// sans hôte connu.
+export type KindID = "physical" | "vm" | "lxc" | "vps" | "unknown";
+
+// L'hôte d'une machine : celui que l'opérateur a désigné (override), sinon
+// celui dont l'API de l'hyperviseur rapproche la machine d'un invité (guest).
+export interface MachineHost {
+  machine_id: string;
+  machine_name: string;
+  node: string;
+  source: "override" | "guest";
+}
+
+// Les rôles qu'une machine peut recevoir (liste fermée du serveur).
+export type RoleID = "generic" | "docker" | "proxmox";
 
 // Un rôle de la liste fermée du serveur (« proxmox_ve »), avec la version
 // trouvée, vide si elle n'est pas lisible.
@@ -123,8 +149,19 @@ export function useMachines(wanted = true): Resource<MachinesResponse> {
 
 // Un jeton à usage unique pour enrôler une machine neuve, avec les droits
 // cochés ; observe s'y ajoute toujours.
-export async function createMachineToken(name: string, capabilities: Capability[]): Promise<TokenResponse> {
-  return api.send<TokenResponse>(route("POST /api/machines/tokens"), { name, capabilities });
+export async function createMachineToken(name: string, role: RoleID, capabilities: Capability[]): Promise<TokenResponse> {
+  return api.send<TokenResponse>(route("POST /api/machines/tokens"), { name, role, capabilities });
+}
+
+// Change le rôle de la machine, donc ses modules ; ses droits ne bougent pas.
+export async function setMachineRole(machineID: string, role: RoleID): Promise<void> {
+  await api.send(route("PUT /api/machines/{id}/role", { id: machineID }), { role });
+}
+
+// Corrige où tourne la machine : son type (vide : le type déduit) et l'hôte qui
+// la porte (vide : aucun désigné).
+export async function setMachinePlacement(machineID: string, kindOverride: KindID | "", hostOverride: string): Promise<Machine> {
+  return api.send<Machine>(route("PUT /api/machines/{id}/placement", { id: machineID }), { kind_override: kindOverride, host_override: hostOverride });
 }
 
 export async function deleteMachineToken(id: string): Promise<void> {
@@ -137,19 +174,16 @@ export async function offerLocalEnrollment(): Promise<TokenResponse> {
   return api.send<TokenResponse>(route("POST /api/machines/local-enrollment"));
 }
 
-// Un nouveau jeton pour le même identifiant de machine. Avec des droits,
-// c'est changer ceux de son agent ; sans, il garde ceux d'avant.
-export async function reenrollMachine(id: string, capabilities?: Capability[]): Promise<TokenResponse> {
-  return api.send<TokenResponse>(route("POST /api/machines/{id}/actions/reenroll", { id }), capabilities === undefined ? {} : { capabilities });
+// Un nouveau jeton pour le même identifiant de machine, avec les droits de son
+// nouvel agent : c'est ainsi qu'on change ceux d'un agent.
+export async function reenrollMachine(id: string, capabilities: Capability[]): Promise<TokenResponse> {
+  return api.send<TokenResponse>(route("POST /api/machines/{id}/actions/reenroll", { id }), { capabilities });
 }
 
-// L'agent est refusé et s'arrête ; la machine et son historique restent.
-export async function revokeAgent(id: string): Promise<void> {
-  return api.send(route("POST /api/machines/{id}/actions/revoke", { id }));
-}
-
-export async function deleteMachine(id: string): Promise<void> {
-  return api.send(route("DELETE /api/machines/{id}", { id }));
+// Supprimer la machine : effacée avec son historique, ou, avec keepHistory,
+// archivée (l'agent est refusé et s'arrête, rien n'est effacé).
+export async function deleteMachine(id: string, keepHistory: boolean): Promise<void> {
+  return api.send(route("DELETE /api/machines/{id}", { id }), { keep_history: keepHistory });
 }
 
 // Ce que le retrait ferait, lu avant de le confirmer.

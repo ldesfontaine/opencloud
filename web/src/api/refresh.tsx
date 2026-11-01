@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 // c'est ajouter son nom ici, puis sa ligne dans initialVersions (le
 // compilateur la réclame) : l'écoute du direct suit seule.
 // Le type Topic se lit dans la liste.
-export const topics = ["machines", "jobs", "resources", "containers", "probes", "status", "alerts", "directory", "actions", "backups", "firewalls"] as const;
+export const topics = ["machines", "jobs", "resources", "containers", "probes", "status", "alerts", "directory", "actions", "backups", "firewalls", "verb_requests"] as const;
 
 export type Topic = (typeof topics)[number];
 
@@ -12,7 +12,7 @@ type Versions = Record<Topic, number>;
 
 // Un littéral typé : un sujet ajouté à topics et oublié ici ne compile pas.
 export function initialVersions(): Versions {
-  return { machines: 0, jobs: 0, resources: 0, containers: 0, probes: 0, status: 0, alerts: 0, directory: 0, actions: 0, backups: 0, firewalls: 0 };
+  return { machines: 0, jobs: 0, resources: 0, containers: 0, probes: 0, status: 0, alerts: 0, directory: 0, actions: 0, backups: 0, firewalls: 0, verb_requests: 0 };
 }
 
 // Le compteur du sujet demandé avance d'un cran, ou tous sans argument.
@@ -28,8 +28,9 @@ export function bumpVersions(versions: Versions, topic?: Topic): Versions {
 
 // Les sujets qui changent un compteur de /api/counts : tous sauf les
 // mesures. L'annuaire en est : la politique d'une unité change le compte
-// des mises à jour ; le statut aussi : les incidents ouverts.
-const countedTopics: readonly Topic[] = ["machines", "jobs", "containers", "probes", "status", "alerts", "directory"];
+// des mises à jour ; le statut aussi : les incidents ouverts ; les pare-feu et les
+// sauvegardes aussi : le premier objet configure son module.
+const countedTopics: readonly Topic[] = ["machines", "jobs", "containers", "probes", "status", "alerts", "directory", "firewalls", "backups"];
 
 interface Refresh {
   // Relit un sujet, ou tout sans argument.
@@ -96,6 +97,10 @@ export function topicsOf(path: string): readonly Topic[] {
   }
   if (path.startsWith("/api/backups")) {
     return ["backups", "actions"];
+  }
+  // Les demandes de verbe à confirmation ont leur sujet.
+  if (path.startsWith("/api/verb-requests")) {
+    return ["verb_requests"];
   }
   // Les pare-feu et leurs relevés ont leur sujet.
   if (path.startsWith("/api/firewalls")) {

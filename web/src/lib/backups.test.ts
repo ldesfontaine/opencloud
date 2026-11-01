@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BackupPlan, BackupRun, BackupSource, Backups } from "../api/backups";
 import type { Translate } from "../i18n/context";
-import { emptyPlanForm, failedAttemptOf, isBackedUp, lastBackupOf, protectionOf, runReasonText, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
+import { backupsPath, editPlanPath, emptyPlanForm, failedAttemptOf, isBackedUp, lastBackupOf, protectionOf, runReasonText, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -299,5 +299,13 @@ describe("inventory protection", () => {
     expect(runReasonText(t, "", () => "decoded")).toBe("");
     expect(runReasonText(t, "backup.machine_offline", () => "decoded")).toBe("backup.machine_offline");
     expect(runReasonText(t, "disk_full", (reason) => `decoded ${reason}`)).toBe("decoded disk_full");
+  });
+});
+
+describe("les adresses des fenêtres de Sauvegardes", () => {
+  it("s'ouvrent sur la page, le plan à corriger porte son sujet", () => {
+    expect(backupsPath).toBe("/sauvegardes");
+    expect(editPlanPath("pve-nuit")).toBe("/sauvegardes/plans/pve-nuit/modifier");
+    expect(editPlanPath("a b")).toBe("/sauvegardes/plans/a%20b/modifier");
   });
 });

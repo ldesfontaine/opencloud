@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 )
 
 func TestStatusPublic_CatalogServesOnlyThePageKeysInItsLanguage(t *testing.T) {
 	server := newBench(t)
-	if _, err := server.status.UpdatePage(context.Background(), server.pageID, status.PageDefinition{Slug: "statut", Language: "en"}); err != nil {
+	if _, err := server.directory.UpdateProject(context.Background(), server.pageID, directory.ProjectDefinition{Name: "statut", Publication: directory.PublicationDefinition{Slug: "statut", Language: "en"}}); err != nil {
 		t.Fatal(err)
 	}
 	recorder := server.get("/statut/statut/api/i18n")

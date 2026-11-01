@@ -30,14 +30,13 @@ export function ContainerFilter({ value, onChange }: { value: Filter; onChange: 
 // mono avec la pastille de mise à jour quand le registre en publie une,
 // pastille d'état, domaine (les ports publiés en attendant les domaines),
 // processeur et mémoire de la mesure courante, un tiret sans mesure.
-export function ContainerTable({ containers, withMachine }: { containers: Container[]; withMachine: boolean }) {
+export function ContainerTable({ containers }: { containers: Container[] }) {
   const { t, language } = useI18n();
   return (
     <Table>
       <thead>
         <tr>
           <th>{t("services.col_container")}</th>
-          {withMachine && <th className="wide-only">{t("services.col_machine")}</th>}
           <th className="wide-only">{t("services.col_image")}</th>
           <th>{t("services.col_state")}</th>
           <th className="wide-only">{t("services.col_exposure")}</th>
@@ -60,11 +59,6 @@ export function ContainerTable({ containers, withMachine }: { containers: Contai
                   </Subject>
                 </Link>
               </td>
-              {withMachine && (
-                <td className="wide-only">
-                  <Link to={`/machines/${container.machine_id}`}>{container.machine_name}</Link>
-                </td>
-              )}
               <td className="num wide-only">
                 <span className="image-cell">
                   {container.image}

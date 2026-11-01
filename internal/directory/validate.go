@@ -323,6 +323,7 @@ func isPortNumber(text string) bool {
 func (d ProjectDefinition) Complete() ProjectDefinition {
 	d.Name = strings.TrimSpace(d.Name)
 	d.Title = strings.TrimSpace(d.Title)
+	d.Publication = d.Publication.Complete()
 	return d
 }
 
@@ -333,5 +334,5 @@ func (d ProjectDefinition) Validate() error {
 	if utf8.RuneCountInString(d.Title) > MaxTitleLength {
 		return ErrProjectTitleInvalid
 	}
-	return nil
+	return d.Publication.Validate()
 }

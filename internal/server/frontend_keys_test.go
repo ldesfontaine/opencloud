@@ -28,6 +28,7 @@ var literalsNotKeys = map[string]string{
 	"proxmox.snapshot": "un droit d'agent (machine.CapabilityProxmoxSnapshot), que le front envoie au serveur",
 	"backup.receive":   "un droit d'agent (machine.CapabilityBackupReceive), que le front envoie au serveur",
 	"probe.lan":        "un droit d'agent (machine.CapabilityProbeLAN), que le front envoie au serveur",
+	"machine.delete":   "un verbe du registre (internal/verb), que le front reconnaît dans une demande à confirmer",
 }
 
 // frontKeys rend les clés que le texte d'un fichier du front demande en

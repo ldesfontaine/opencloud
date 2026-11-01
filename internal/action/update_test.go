@@ -92,7 +92,7 @@ func newUpdateBench(t *testing.T, options updateOptions) *updateBench {
 func enrollWithArch(t *testing.T, machines *machine.Service, arch string) machine.Machine {
 	t.Helper()
 	ctx := context.Background()
-	cleartext, _, err := machines.CreateToken(ctx, "vps-paris-1", nil)
+	cleartext, _, err := machines.CreateToken(ctx, "vps-paris-1", machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

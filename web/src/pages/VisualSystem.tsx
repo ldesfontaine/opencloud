@@ -308,7 +308,7 @@ export function VisualSystem() {
 
           <section>
             <h2 className="side-label section-label">{t("visual.settings.title")}</h2>
-            <SectionHead id="vs-settings-title" title={t("settings.section_alerts")} text={t("settings.disk_intro")} />
+            <SectionHead id="vs-settings-title" title={t("settings.section_notifications")} text={t("settings.disk_intro")} />
             <Card className="setting-stack">
               <SettingRow label={t("settings.disk_attention_label")} description={t("settings.disk_percent_help", 50, 99)} htmlFor="vs-attention" width="short">
                 <Input id="vs-attention" type="number" defaultValue={85} />
@@ -416,11 +416,11 @@ export function VisualSystem() {
                 <nav className="tabs">
                   <span className="tab active">{t("tab.summary")}</span>
                   <span className="tab">
-                    {t("tab.services")}
+                    {t("module.containers")}
                     <span className="n">6</span>
                   </span>
                   <span className="tab">
-                    {t("tab.availability")}
+                    {t("module.probes")}
                     <span className="n">5</span>
                   </span>
                   <span className="tab">{t("tab.network")}</span>
@@ -540,13 +540,14 @@ function ModalSample() {
   );
 }
 
-// Un assistant de démonstration : trois étapes, une validation qui bloque
-// (le nom vide, l'intervalle hors bornes), le récapitulatif. Le mode se
-// change pour voir la modification, qui part du récapitulatif ; la clé
-// remonte l'assistant à chaque changement.
+// Un assistant de démonstration, dans sa fenêtre : trois étapes, une
+// validation qui bloque (le nom vide, l'intervalle hors bornes), le
+// récapitulatif. Le mode se choisit avant d'ouvrir, pour voir la
+// modification, qui part du récapitulatif.
 function WizardSample() {
   const { t } = useI18n();
   const [mode, setMode] = useState<WizardMode>("create");
+  const [open, setOpen] = useState(false);
   const filled = { name: "sauvegarde-nocturne", interval: "1440", notify: true };
   const empty = { name: "", interval: "60", notify: false };
   return (
@@ -563,12 +564,19 @@ function WizardSample() {
           </label>
         </span>
       </div>
-      <SampleWizard key={mode} mode={mode} initial={mode === "edit" ? filled : empty} />
+      <div>
+        <Button onClick={() => setOpen(true)}>{t("visual.wizard.open")}</Button>
+      </div>
+      {open && (
+        <Modal title={t("visual.wizard.title")} onClose={() => setOpen(false)} wide>
+          <SampleWizard mode={mode} initial={mode === "edit" ? filled : empty} onDone={() => setOpen(false)} />
+        </Modal>
+      )}
     </div>
   );
 }
 
-function SampleWizard({ mode, initial }: { mode: WizardMode; initial: { name: string; interval: string; notify: boolean } }) {
+function SampleWizard({ mode, initial, onDone }: { mode: WizardMode; initial: { name: string; interval: string; notify: boolean }; onDone: () => void }) {
   const { t } = useI18n();
   const { values, change } = useForm(initial);
   const steps: WizardStep[] = [
@@ -611,13 +619,11 @@ function SampleWizard({ mode, initial }: { mode: WizardMode; initial: { name: st
     <Wizard
       steps={steps}
       mode={mode}
-      onSubmit={() => undefined}
+      onSubmit={onDone}
       submitLabel={t("visual.wizard.submit")}
       submitIcon={mode === "edit" ? "check" : "plus"}
       busy={false}
       error={null}
-      cancelLabel={t("confirm.cancel")}
-      onCancel={() => undefined}
     />
   );
 }

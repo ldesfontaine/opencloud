@@ -1,37 +1,40 @@
-import { useState } from "react";
-import { Navigate, useLocation, useNavigate, useParams } from "react-router";
+import { useEffect, useState } from "react";
+import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router";
 
 import { useMachineContainers } from "../api/containers";
 import type { Lifecycle } from "../api/lifecycle";
-import { deleteMachine, fetchMachineDeletePlan, reenrollMachine, revokeAgent, useMachines, type Agent, type Machine } from "../api/machines";
+import { deleteMachine, useMachines, type Agent, type Machine } from "../api/machines";
 import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
 import { ActionsCard } from "../components/ActionsCard";
 import { AgentUpdate } from "../components/AgentUpdate";
 import { Button } from "../components/Button";
-import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
-import { DeletePlanDialog } from "../components/DeletePlanDialog";
+import { DeleteMachineDialog } from "../components/DeleteMachineDialog";
 import { Failure } from "../components/Failure";
 import { MachineHead, Tabs } from "../components/MachineHead";
-import { HostedCard, MachineHypervisor, ProxmoxCard } from "../components/MachineHypervisor";
+import { McpChip } from "../components/McpChip";
+import { MachineHypervisor } from "../components/MachineHypervisor";
+import { MachineIdentity } from "../components/MachineIdentity";
+import { MachineStorage } from "../components/MachineStorage";
+import { MachineTodoCard } from "../components/MachineTodoCard";
 import { MachineSSHKeys } from "../components/MachineSSHKeys";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
+import { RoleCard } from "../components/RoleCard";
 import { ProbeTable } from "../components/ProbeTable";
-import { DiskVolumesCard, ResourceHistory, ResourceStats } from "../components/Resources";
+import { ResourceHistory, ResourceStats } from "../components/Resources";
 import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
 import { SupportDetails } from "../components/SupportBlock";
 import { ContainerPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
-import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { renamedMachineTabs, resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
 import { lifecycleHasDetails } from "../lib/lifecycle";
-import { describeAccount, describeCapability, tokenPageState, unavailableRights } from "../lib/machines";
+import { describeAccount, describeCapability, isArchived, unavailableRights } from "../lib/machines";
 import { formatWhen } from "../lib/time";
 import { NotFound } from "./NotFound";
 import "./Machine.scss";
@@ -66,43 +69,64 @@ function KnownMachinePage({ id, tab, known }: { id: string; tab: string; known: 
 }
 
 // 16 px entre les blocs de la page (.content, global, garde ses 24 px) : en
-// tête, tuiles et historique tiennent sur un écran de portable (#141).
+// tête, tuiles et historique tiennent sur un écran de portable (#141). Deux
+// colonnes : l'identité fixe à droite (où tourne la machine), les onglets à
+// gauche ; sous 1100 px l'identité passe devant.
 function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; tab: string }) {
   const now = useNow();
   const resources = useMachineResources(tab === "" ? current.id : null);
+  // Un lien « détail du support » mène à son ancre sur la page même.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash !== "") {
+      document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
+    }
+  }, [hash]);
   return (
     <div className="machine-page">
       <PageHead title={current.name} actions={<Actions machine={current} />} />
       <Card>
         <CardBody gap={12}>
           <MachineHead current={current} all={all} />
-          <Tabs machineID={current.id} hostsProxmox={current.proxmox.declared} />
+          <Tabs machineID={current.id} modules={current.modules} />
         </CardBody>
       </Card>
-      {tab === "" ? (
-        <>
-          <ResourceStats current={resources.data} />
-          <ResourceHistory machineID={current.id} />
-          <DiskVolumesCard current={resources.data} />
-          {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
-          {current.proxmox.hosted !== null && <HostedCard hosted={current.proxmox.hosted} />}
-          <ProxmoxCard machine={current} />
-          <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} online={current.online} now={now} />
-          <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
-        </>
-      ) : tab === "services" ? (
-        <MachineContainers machineID={current.id} />
-      ) : tab === "reseau" ? (
-        <NetworkView machineID={current.id} />
-      ) : tab === "ssh" ? (
-        <MachineSSHKeys machine={current} />
-      ) : tab === "hyperviseur" ? (
-        <MachineHypervisor machine={current} />
-      ) : tab === "journaux" ? (
-        <MachineLogs machineID={current.id} />
-      ) : (
-        <MachineProbes machineID={current.id} />
-      )}
+      <div className="machine-columns">
+        <div className="machine-main">
+          {tab === "" ? (
+            <>
+              <MachineTodoCard machine={current} />
+              <ResourceStats current={resources.data} />
+              <ResourceHistory machineID={current.id} />
+              <MachineStorage machine={current} current={resources.data} />
+              {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
+              <RoleCard machine={current} />
+            </>
+          ) : tab === "agent" ? (
+            <>
+              <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} online={current.online} now={now} />
+              <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
+            </>
+          ) : tab === "services" ? (
+            <MachineContainers machineID={current.id} />
+          ) : tab === "reseau" ? (
+            <NetworkView machineID={current.id} />
+          ) : tab === "ssh" ? (
+            <MachineSSHKeys machine={current} />
+          ) : tab === "hyperviseur" ? (
+            <MachineHypervisor machine={current} />
+          ) : tab === "journaux" ? (
+            <MachineLogs machineID={current.id} />
+          ) : (
+            <MachineProbes machineID={current.id} />
+          )}
+        </div>
+        <aside className="machine-aside">
+          <MachineIdentity machine={current} all={all} />
+        </aside>
+      </div>
+      {/* Les fenêtres de l'adresse : ré-enrôler, déclarer l'hôte Proxmox, corriger le type et l'hôte. */}
+      <Outlet />
     </div>
   );
 }
@@ -112,19 +136,21 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
 function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
   const t = useT();
   return (
-    <Card>
-      <CardHeader title={t("lifecycle.title_system")} />
-      <CardBody gap={8}>
-        <SupportDetails lifecycle={lifecycle} />
-      </CardBody>
-    </Card>
+    <div id="support">
+      <Card>
+        <CardHeader title={t("lifecycle.title_system")} />
+        <CardBody gap={8}>
+          <SupportDetails lifecycle={lifecycle} />
+        </CardBody>
+      </Card>
+    </div>
   );
 }
 
 // L'agent de la machine : sa version, depuis quand, s'il est révoqué, et ses
 // droits, tels qu'il les rapporte et tels que sa commande d'installation les
 // demandait. Il applique ceux de son fichier ; les changer, c'est le
-// ré-enrôler, par la page des droits.
+// ré-enrôler, dans la fenêtre du même nom.
 function AgentCard({ machineID, agent, updateLast, online, now }: { machineID: string; agent: Agent | null; updateLast: boolean; online: boolean; now: number }) {
   const t = useT();
   if (agent === null) {
@@ -168,13 +194,6 @@ function AgentCard({ machineID, agent, updateLast, online, now }: { machineID: s
           </Note>
         )}
         <p className="secondary">{t("machine.agent_rights_note")}</p>
-        {agent.revoked_at === null && (
-          <div>
-            <Button small icon="settings" to={`/machines/${machineID}/droits`}>
-              {t("machine.change_rights")}
-            </Button>
-          </div>
-        )}
       </CardBody>
     </Card>
   );
@@ -215,7 +234,7 @@ function MachineContainers({ machineID }: { machineID: string }) {
   const note = containers.data && all.length === 0 ? engineNote(t, containers.data.engines[0]) : null;
   return (
     <Card className="scroll-x">
-      <CardHeader title={t("tab.services")} aside={containers.data ? t("services.machine_subtitle", all.length) : ""} />
+      <CardHeader title={t("module.containers")} aside={containers.data ? t("services.machine_subtitle", all.length) : ""} />
       {containers.error && <Failure error={containers.error} />}
       {all.length > 0 && (
         <div className="table-bar">
@@ -228,7 +247,7 @@ function MachineContainers({ machineID }: { machineID: string }) {
         </CardBody>
       )}
       {containers.data && all.length === 0 && note === null && <Empty text={t("services.empty_title")} />}
-      {shown.length > 0 && <ContainerTable containers={shown} withMachine={false} />}
+      {shown.length > 0 && <ContainerTable containers={shown} />}
       {all.length > 0 && shown.length === 0 && <Empty text={t("services.empty_title")} />}
     </Card>
   );
@@ -290,57 +309,38 @@ function MachineLogs({ machineID }: { machineID: string }) {
   );
 }
 
-// Ré-enrôler donne un nouveau jeton pour le même id ; révoquer refuse l'agent
-// et garde tout le reste ; retirer coupe l'agent et efface l'historique,
-// après confirmation sur le plan : ce qui le retient (services, sondes,
-// tâches, page de statut), ce qui part avec la machine.
+// Ré-enrôler (une fenêtre, aussi pour changer les droits) donne un nouveau
+// jeton pour le même id et remet une machine archivée en service. Supprimer la
+// machine est un seul geste : garder l'historique l'archive, sinon elle est
+// effacée après confirmation sur le plan (ce qui la retient, ce qui part avec
+// elle). C'est aussi un verbe : un agent peut le demander, l'opérateur confirme.
 function Actions({ machine }: { machine: Machine }) {
   const t = useT();
   const navigate = useNavigate();
-  const action = useAction();
-  const [removing, setRemoving] = useState(false);
-
-  const reenroll = () => {
-    action.run(() => reenrollMachine(machine.id), {
-      topic: "all",
-      onDone: (token) => void navigate("/machines/jeton", { state: tokenPageState(token, machine.agent?.requested ?? []) }),
-    });
-  };
-
-  const revoke = () => {
-    action.run(() => revokeAgent(machine.id), { topic: "all" });
-  };
+  const [deleting, setDeleting] = useState(false);
+  const archived = isArchived(machine);
 
   return (
     <>
-      <Failure error={action.error} />
-      <Button icon="refresh" onClick={reenroll}>
+      <Button icon="refresh" to={`/machines/${machine.id}/reenroller`}>
         {t("machine.reenroll")}
       </Button>
-      {machine.agent !== null && machine.agent.revoked_at === null && (
-        <ConfirmModal
-          title={t("machine.revoke")}
-          question={t("machine.revoke_confirm", machine.name)}
-          confirmLabel={t("machine.revoke")}
-          onConfirm={revoke}
-          variant="danger"
-          icon="x"
-        >
-          {t("machine.revoke")}
-        </ConfirmModal>
-      )}
-      <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
-        {t("machine.remove")}
+      <Button variant="danger" icon="x" onClick={() => setDeleting(true)}>
+        {t("machine.delete")}
+        <McpChip route="DELETE /api/machines/{id}" />
       </Button>
-      {removing && (
-        <DeletePlanDialog
-          question={t("machine.remove_confirm", machine.name)}
-          confirmLabel={t("machine.remove")}
-          loadPlan={() => fetchMachineDeletePlan(machine.id)}
-          perform={() => deleteMachine(machine.id)}
-          topic="all"
-          onDone={() => void navigate("/machines")}
-          onClose={() => setRemoving(false)}
+      {deleting && (
+        <DeleteMachineDialog
+          machine={machine}
+          archived={archived}
+          perform={(keepHistory) => deleteMachine(machine.id, keepHistory)}
+          onDone={(keptHistory) => {
+            setDeleting(false);
+            if (!keptHistory) {
+              void navigate("/machines");
+            }
+          }}
+          onClose={() => setDeleting(false)}
         />
       )}
     </>

@@ -148,3 +148,10 @@ button.wizard-jump {
     display: block;
   }
 }
+
+// L'assistant dans une fenêtre : pas de carte, la fenêtre fait le cadre.
+.wizard-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

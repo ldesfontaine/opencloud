@@ -123,8 +123,8 @@ export function useFirewalls(): Resource<FirewallsResponse> {
   return useResource<FirewallsResponse>("/api/firewalls");
 }
 
-export function useFirewall(id: string): Resource<FirewallDetail> {
-  return useResource<FirewallDetail>(() => `/api/firewalls/${segment(id)}`);
+export function useFirewall(id: string | null): Resource<FirewallDetail> {
+  return useResource<FirewallDetail>(id === null ? null : () => `/api/firewalls/${segment(id)}`);
 }
 
 export function useFirewallInterfaces(id: string): Resource<FirewallInterfacesResponse> {

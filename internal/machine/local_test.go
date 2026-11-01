@@ -48,7 +48,7 @@ func enrollFrom(t *testing.T, machines *machine.Service, cleartext, fingerprint 
 func TestEnroll_FromTheServerMachine_TakesTheStableID(t *testing.T) {
 	ctx := context.Background()
 	machines := newMachines(t)
-	cleartext, _, err := machines.CreateToken(ctx, "oc-host", nil)
+	cleartext, _, err := machines.CreateToken(ctx, "oc-host", machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,13 +57,13 @@ func TestEnroll_FromTheServerMachine_TakesTheStableID(t *testing.T) {
 		t.Fatalf("server machine: %+v %v", local, err)
 	}
 
-	elsewhere, _, _ := machines.CreateToken(ctx, "vps-paris-1", nil)
+	elsewhere, _, _ := machines.CreateToken(ctx, "vps-paris-1", machine.RoleGeneric, nil)
 	remote, err := enrollFrom(t, machines, elsewhere, "sha256:other")
 	if err != nil || remote.ID == machine.LocalID {
 		t.Fatalf("another machine keeps its own id: %+v %v", remote, err)
 	}
 
-	second, _, _ := machines.CreateToken(ctx, "twin", nil)
+	second, _, _ := machines.CreateToken(ctx, "twin", machine.RoleGeneric, nil)
 	if _, err := enrollFrom(t, machines, second, serverFingerprint); !errors.Is(err, machine.ErrLocalAgentActive) {
 		t.Fatalf("a second agent on the server machine: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestEnroll_FromTheServerMachine_TakesTheStableID(t *testing.T) {
 		t.Fatalf("the refused token must stay pending: %+v", pending)
 	}
 
-	if err := machines.Revoke(ctx, machine.LocalID); err != nil {
+	if err := machines.Remove(ctx, machine.LocalID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	again, err := enrollFrom(t, machines, second, serverFingerprint)
@@ -111,7 +111,7 @@ func TestOfferLocalEnrollment_UntilTheServerMachineHasAnAgent(t *testing.T) {
 	if _, _, err := machines.OfferLocalEnrollment(ctx); !errors.Is(err, machine.ErrLocalEnrolled) {
 		t.Fatalf("after the agent: %v", err)
 	}
-	if err := machines.Revoke(ctx, machine.LocalID); err != nil {
+	if err := machines.Remove(ctx, machine.LocalID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := machines.OfferLocalEnrollment(ctx); !errors.Is(err, machine.ErrLocalEnrolled) {

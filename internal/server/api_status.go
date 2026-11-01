@@ -4,24 +4,28 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
-// L'administration des pages de statut, dans la coquille : les pages, leurs
-// composants avec leurs objets nommés, les incidents avec leur fil. Tout ce
-// que le public ne voit pas se lit ici.
+// L'administration de la disponibilité publique, dans la coquille : les
+// composants des projets avec leurs objets nommés, les incidents avec leur fil.
+// Tout ce que le public ne voit pas se lit ici. La page d'un projet se publie
+// par le projet (api_directory.go).
 
 type componentJSON struct {
 	ID        string       `json:"id"`
-	PageID    string       `json:"page_id"`
+	ProjectID string       `json:"project_id"`
 	Name      string       `json:"name"`
 	Position  int          `json:"position"`
 	Members   []memberJSON `json:"members"`
-	Derived   string       `json:"derived"`
-	Effective string       `json:"effective"`
-	CreatedAt time.Time    `json:"created_at"`
+	// Implicit : le composant se lit, il n'est pas saisi (un par service du
+	// projet publié qui n'a aucun composant).
+	Implicit  bool      `json:"implicit"`
+	Derived   string    `json:"derived"`
+	Effective string    `json:"effective"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Un objet rattaché : ce qu'il apporte, et s'il apporte quelque chose.
@@ -34,21 +38,22 @@ type memberJSON struct {
 	Present bool   `json:"present"`
 }
 
-// Les composants d'une page (?page=<id>), ou de toutes sans le paramètre :
+// Les composants d'un projet (?project=<id>), ou de tous sans le paramètre :
 // l'adresse publique est alors vide, l'état global celui de tous.
 type componentsResponse struct {
-	// L'adresse publique de la page, à montrer et à copier.
+	// L'adresse publique de la page du projet, à montrer et à copier ; vide
+	// s'il n'est pas publié.
 	PublicURL  string          `json:"public_url"`
 	Global     string          `json:"global"`
 	Components []componentJSON `json:"components"`
 }
 
-// page_id ne compte qu'à la création : un composant ne change pas de page.
+// project_id ne compte qu'à la création : un composant ne change pas de projet.
 type componentRequest struct {
-	PageID   string             `json:"page_id"`
-	Name     string             `json:"name"`
-	Position int                `json:"position"`
-	Members  []memberRefRequest `json:"members"`
+	ProjectID string             `json:"project_id"`
+	Name      string             `json:"name"`
+	Position  int                `json:"position"`
+	Members   []memberRefRequest `json:"members"`
 }
 
 type memberRefRequest struct {
@@ -85,7 +90,7 @@ type targetJSON struct {
 	Name string `json:"name"`
 }
 
-// Un composant que les cibles de l'incident touchent, toutes pages confondues.
+// Un composant que les cibles de l'incident touchent, tous projets confondus.
 type componentRefJSON struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -117,32 +122,6 @@ type updateRequest struct {
 	Message string `json:"message"`
 }
 
-// Une page de statut ; project_id vide : la page n'est rangée dans aucun
-// projet. La langue est résolue : vide en base, c'est celle de l'interface.
-type pageJSON struct {
-	ID           string    `json:"id"`
-	ProjectID    string    `json:"project_id"`
-	Slug         string    `json:"slug"`
-	Title        string    `json:"title"`
-	Announcement string    `json:"announcement"`
-	Language     string    `json:"language"`
-	PublicURL    string    `json:"public_url"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-type pagesResponse struct {
-	Pages []pageJSON `json:"pages"`
-}
-
-type pageRequest struct {
-	Slug         string `json:"slug"`
-	Title        string `json:"title"`
-	Announcement string `json:"announcement"`
-	Language     string `json:"language"`
-	ProjectID    string `json:"project_id"`
-}
-
 func componentToJSON(component status.Component) componentJSON {
 	members := make([]memberJSON, 0, len(component.Members))
 	for _, member := range component.Members {
@@ -152,7 +131,7 @@ func componentToJSON(component status.Component) componentJSON {
 		})
 	}
 	return componentJSON{
-		ID: component.ID, PageID: component.PageID, Name: component.Name, Position: component.Position, Members: members,
+		ID: component.ID, ProjectID: component.ProjectID, Name: component.Name, Position: component.Position, Members: members, Implicit: component.Implicit,
 		Derived: string(component.Derived), Effective: string(component.Effective), CreatedAt: component.CreatedAt.UTC(),
 	}
 }
@@ -191,82 +170,21 @@ func (s *Server) statusPublicURL(r *http.Request, slug string) string {
 	return base + statusPath + "/" + slug
 }
 
-func (s *Server) pageToJSON(r *http.Request, page status.Page) pageJSON {
-	return pageJSON{
-		ID: page.ID, ProjectID: page.ProjectID, Slug: page.Slug, Title: page.Title,
-		Announcement: page.Announcement, Language: string(page.Language), PublicURL: s.statusPublicURL(r, page.Slug),
-		CreatedAt: page.CreatedAt.UTC(), UpdatedAt: page.UpdatedAt.UTC(),
-	}
-}
-
-func pageDefinitionOf(request pageRequest) status.PageDefinition {
-	return status.PageDefinition{
-		Slug: request.Slug, Title: request.Title, Announcement: request.Announcement,
-		Language: lang.Code(request.Language), ProjectID: request.ProjectID,
-	}
-}
-
-func (s *Server) listPages(w http.ResponseWriter, r *http.Request) {
-	pages, err := s.status.ListPages(r.Context())
-	if s.failed(w, r, err, nil) {
-		return
-	}
-	response := pagesResponse{Pages: make([]pageJSON, 0, len(pages))}
-	for _, page := range pages {
-		response.Pages = append(response.Pages, s.pageToJSON(r, page))
-	}
-	s.writeAPI(w, http.StatusOK, response)
-}
-
-func (s *Server) getPage(w http.ResponseWriter, r *http.Request) {
-	page, err := s.status.GetPage(r.Context(), r.PathValue("id"))
-	if s.failed(w, r, err, status.ErrNotFound) {
-		return
-	}
-	s.writeAPI(w, http.StatusOK, s.pageToJSON(r, page))
-}
-
-func (s *Server) createPage(w http.ResponseWriter, r *http.Request) {
-	var request pageRequest
-	if !s.readAPI(w, r, &request) {
-		return
-	}
-	created, err := s.status.CreatePage(r.Context(), pageDefinitionOf(request))
-	if s.failed(w, r, err, nil) {
-		return
-	}
-	s.writeAPI(w, http.StatusCreated, s.pageToJSON(r, created))
-}
-
-func (s *Server) updatePage(w http.ResponseWriter, r *http.Request) {
-	var request pageRequest
-	if !s.readAPI(w, r, &request) {
-		return
-	}
-	updated, err := s.status.UpdatePage(r.Context(), r.PathValue("id"), pageDefinitionOf(request))
-	if s.failed(w, r, err, status.ErrNotFound) {
-		return
-	}
-	s.writeAPI(w, http.StatusOK, s.pageToJSON(r, updated))
-}
-
-func (s *Server) deletePage(w http.ResponseWriter, r *http.Request) {
-	s.finishAPIAction(w, r, s.status.DeletePage(r.Context(), r.PathValue("id")), status.ErrNotFound)
-}
-
-// listComponents rend les composants d'une page, ?page=<id>, avec son
-// adresse publique et son état global ; sans le paramètre, tous.
+// listComponents rend les composants d'un projet, ?project=<id>, avec l'adresse
+// publique de sa page et l'état global ; sans le paramètre, tous.
 func (s *Server) listComponents(w http.ResponseWriter, r *http.Request) {
-	pageID := r.URL.Query().Get("page")
+	projectID := r.URL.Query().Get("project")
 	response := componentsResponse{}
-	if pageID != "" {
-		page, err := s.status.GetPage(r.Context(), pageID)
-		if s.failed(w, r, err, status.ErrNotFound) {
+	if projectID != "" {
+		project, err := s.reader.GetProject(r.Context(), projectID)
+		if s.failed(w, r, err, directory.ErrProjectNotFound) {
 			return
 		}
-		response.PublicURL = s.statusPublicURL(r, page.Slug)
+		if project.Publication.IsPublished() {
+			response.PublicURL = s.statusPublicURL(r, project.Publication.Slug)
+		}
 	}
-	components, err := s.status.Components(r.Context(), pageID)
+	components, err := s.status.Components(r.Context(), projectID)
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -291,7 +209,7 @@ func (s *Server) getComponent(w http.ResponseWriter, r *http.Request) {
 }
 
 func componentDefinitionOf(request componentRequest) status.ComponentDefinition {
-	return status.ComponentDefinition{PageID: request.PageID, Name: request.Name, Position: request.Position, Members: memberRefsOf(request.Members)}
+	return status.ComponentDefinition{ProjectID: request.ProjectID, Name: request.Name, Position: request.Position, Members: memberRefsOf(request.Members)}
 }
 
 // memberRefsOf rend nil pour une liste vide, comme la définition l'attend.
@@ -332,9 +250,9 @@ func (s *Server) deleteComponent(w http.ResponseWriter, r *http.Request) {
 }
 
 // listIncidents rend tous les incidents, ou ceux qui touchent un composant
-// de la page ?page=<id>.
+// du projet ?project=<id>.
 func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {
-	incidents, err := s.status.Incidents(r.Context(), r.URL.Query().Get("page"))
+	incidents, err := s.status.Incidents(r.Context(), r.URL.Query().Get("project"))
 	if s.failed(w, r, err, status.ErrNotFound) {
 		return
 	}

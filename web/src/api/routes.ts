@@ -23,12 +23,13 @@ export const writes = [
   "POST /api/machines/local-enrollment",
   "DELETE /api/machines/{id}",
   "POST /api/machines/{id}/actions/reenroll",
-  "POST /api/machines/{id}/actions/revoke",
   "POST /api/machines/{id}/actions/ping",
   "POST /api/machines/{id}/actions/update-agent",
   "POST /api/machines/{id}/actions/rollback-agent",
   "POST /api/machines/{id}/actions/check-updates",
   "PUT /api/machines/{id}/update-last",
+  "PUT /api/machines/{id}/role",
+  "PUT /api/machines/{id}/placement",
   "PUT /api/machines/{id}/proxmox",
   "POST /api/machines/{id}/actions/remove-proxmox",
   "POST /api/machines/{id}/proxmox/guests/{vmid}/actions/start",
@@ -61,9 +62,6 @@ export const writes = [
   "POST /api/jobs/{id}/actions/pause",
   "POST /api/jobs/{id}/actions/resume",
   "POST /api/jobs/{id}/actions/regenerate-token",
-  "POST /api/status/pages",
-  "PUT /api/status/pages/{id}",
-  "DELETE /api/status/pages/{id}",
   "POST /api/status/components",
   "PUT /api/status/components/{id}",
   "DELETE /api/status/components/{id}",
@@ -85,6 +83,8 @@ export const writes = [
   "PUT /api/backups/plans/{subject}",
   "DELETE /api/backups/plans/{subject}",
   "POST /api/backups/plans/{subject}/actions/run",
+  "POST /api/verb-requests/{id}/actions/confirm",
+  "POST /api/verb-requests/{id}/actions/reject",
 ] as const;
 
 export type Write = (typeof writes)[number];

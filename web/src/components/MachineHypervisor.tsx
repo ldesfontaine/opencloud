@@ -2,14 +2,13 @@ import { useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { useMachineActions, type ActionRun } from "../api/actions";
-import { actOnGuest, removeMachineProxmox, useMachineProxmox, type ProxmoxGuest, type ProxmoxHost, type ProxmoxHosted, type ProxmoxStorage } from "../api/proxmox";
+import { actOnGuest, removeMachineProxmox, useMachineProxmox, type ProxmoxGuest, type ProxmoxHost, type ProxmoxStorage } from "../api/proxmox";
 import type { Machine } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useI18n, useT } from "../i18n/context";
 import {
   backupLabel,
-  detectedProxmox,
   gestureBlockText,
   gestureLabel,
   gestureQuestion,
@@ -20,7 +19,6 @@ import {
   guestTone,
   kindLabel,
   readErrorLabel,
-  resourcesLabel,
   sortedGuests,
   sortedStorages,
   storagePercent,
@@ -196,9 +194,9 @@ function GuestRow({ machine, guest, runs }: { machine: Machine; guest: ProxmoxGu
     ...(gesture.blocked !== null && { hint: gestureBlockText(t, gesture.blocked, machine.agent) }),
     onSelect: () => choose(gesture),
   }));
-  // Un droit qui manque se change d'ici : la page des droits ré-enrôle l'agent.
+  // Un droit qui manque se donne d'ici : ré-enrôler l'agent, droits pré-cochés.
   if (gestures.some((gesture) => gesture.blocked?.kind === "right_missing")) {
-    actions.push({ label: t("machine.change_rights"), to: `/machines/${machine.id}/droits` });
+    actions.push({ label: t("machine.reenroll"), to: `/machines/${machine.id}/reenroller` });
   }
   const panelOpen = chosen !== null || sent !== null || sending.error !== null;
 
@@ -326,89 +324,5 @@ function StorageRow({ storage }: { storage: ProxmoxStorage }) {
       </td>
       <td className="wide-only mono">{storage.content.join(", ")}</td>
     </tr>
-  );
-}
-
-// Sur la fiche de la machine : de quoi déclarer un hôte, ou l'état du relevé
-// de celui qu'elle porte.
-export function ProxmoxCard({ machine }: { machine: Machine }) {
-  const t = useT();
-  const summary = machine.proxmox;
-  // Une VM d'un hôte déjà déclaré ne se propose pas comme hyperviseur : son
-  // encadré « Sur l'hôte Proxmox » suffit (l'adresse du formulaire reste servie).
-  if (!summary.declared && summary.hosted !== null) {
-    return null;
-  }
-  const detected = detectedProxmox(machine);
-  if (!summary.declared && detected !== null) {
-    return (
-      <Card>
-        <CardHeader title={t("machine.proxmox_title")} />
-        <CardBody gap={10}>
-          <p>{detected.version === "" ? t("machine.proxmox_detected_unversioned") : t("machine.proxmox_detected", detected.version)}</p>
-          <p className="secondary">{t("machine.proxmox_detected_token")}</p>
-          <div>
-            <Button small icon="plus" to={`/machines/${machine.id}/proxmox`}>
-              {t("machine.proxmox_declare")}
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
-    );
-  }
-  if (!summary.declared) {
-    return (
-      <Card>
-        <CardHeader title={t("machine.proxmox_title")} />
-        <CardBody gap={10}>
-          <p className="secondary">{t("machine.proxmox_declare_hint")}</p>
-          <div>
-            <Button small icon="plus" to={`/machines/${machine.id}/proxmox`}>
-              {t("machine.proxmox_declare")}
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
-    );
-  }
-  return (
-    <Card>
-      <CardHeader title={t("machine.proxmox_title")} />
-      <CardBody gap={10}>
-        {summary.last_error !== "" && <Note tone="warn">{readErrorLabel(t, summary.last_error)}</Note>}
-        <KeyValue label={t("machine.proxmox_guests_title")} value={summary.guests} />
-        <div>
-          <Button small icon="server" to={`/machines/${machine.id}/hyperviseur`}>
-            {t("machine.proxmox_open")}
-          </Button>
-        </div>
-      </CardBody>
-    </Card>
-  );
-}
-
-// Sur la fiche d'une machine qui est la VM d'un hôte : son numéro, ce qui lui
-// est alloué, sa dernière sauvegarde.
-export function HostedCard({ hosted }: { hosted: ProxmoxHosted }) {
-  const t = useT();
-  const { language } = useI18n();
-  const now = useNow();
-  return (
-    <Card>
-      <CardHeader title={t("machine.proxmox_hosted_title")} />
-      <CardBody gap={10}>
-        <KeyValue label={t("machine.proxmox_hosted_host")} value={<Link to={`/machines/${hosted.host_machine_id}/hyperviseur`}>{hosted.host_machine_name}</Link>} />
-        <KeyValue
-          label={kindLabel(t, hosted.kind)}
-          value={
-            <>
-              <span className="proxmox-name">{hosted.name}</span> <span className="secondary mono">{hosted.vmid}</span> <Pill tone={guestTone(hosted.status)}>{guestStatusLabel(t, hosted.status)}</Pill>
-            </>
-          }
-        />
-        <KeyValue label={t("machine.proxmox_hosted_resources")} value={resourcesLabel(t, language, hosted.cpus, hosted.max_memory)} />
-        <KeyValue label={t("machine.proxmox_col_backup")} value={backupLabel(t, language, hosted.last_backup_at, hosted.last_backup_bytes, now)} />
-      </CardBody>
-    </Card>
   );
 }

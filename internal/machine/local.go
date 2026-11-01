@@ -71,11 +71,11 @@ func (s *Service) OfferLocalEnrollment(ctx context.Context) (string, Token, erro
 		return s.offer.cleartext, s.offer.token, err
 	}
 	rights := []Capability{{Name: CapabilityObserve}, {Name: CapabilityProbeLAN}}
-	name, machineID := s.localMachineName(), ""
+	name, machineID, role := s.localMachineName(), "", RoleGeneric
 	if hasRow {
-		name, machineID = existing.Name, LocalID
+		name, machineID, role = existing.Name, LocalID, existing.Role
 	}
-	cleartext, token, err := s.issueToken(ctx, name, machineID, rights)
+	cleartext, token, err := s.issueToken(ctx, name, machineID, role, rights)
 	if err != nil {
 		return "", Token{}, err
 	}

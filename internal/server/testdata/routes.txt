@@ -11,7 +11,6 @@ GET /api/machines/{id}
 DELETE /api/machines/{id}
 GET /api/machines/{id}/delete-plan
 POST /api/machines/{id}/actions/reenroll
-POST /api/machines/{id}/actions/revoke
 POST /api/machines/{id}/actions/ping
 GET /api/machines/{id}/agent-update
 POST /api/machines/{id}/actions/update-agent
@@ -19,6 +18,9 @@ POST /api/machines/{id}/actions/rollback-agent
 GET /api/agent-updates
 GET /api/agent-migration
 PUT /api/machines/{id}/update-last
+PUT /api/machines/{id}/role
+PUT /api/machines/{id}/placement
+GET /api/machines/{id}/storage
 POST /api/machines/{id}/actions/check-updates
 GET /api/machines/{id}/resources
 GET /api/machines/{id}/resources/history
@@ -92,12 +94,6 @@ GET /api/jobs/{id}/delete-plan
 POST /api/jobs/{id}/actions/pause
 POST /api/jobs/{id}/actions/resume
 POST /api/jobs/{id}/actions/regenerate-token
-GET /api/status/pages
-POST /api/status/pages
-GET /api/status/pages/{id}
-PUT /api/status/pages/{id}
-DELETE /api/status/pages/{id}
-GET /api/status/pages/{id}/delete-plan
 GET /api/status/components
 POST /api/status/components
 GET /api/status/components/{id}
@@ -124,6 +120,9 @@ POST /api/alerts/actions/acknowledge
 GET /api/alerts/{id}
 POST /api/alerts/{id}/actions/acknowledge
 GET /api/token/verbs
+GET /api/verb-requests
+POST /api/verb-requests/{id}/actions/confirm
+POST /api/verb-requests/{id}/actions/reject
 GET /api/settings/api-tokens
 POST /api/settings/api-tokens
 PUT /api/settings/api-tokens/{id}/reach

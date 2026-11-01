@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { ContainerDirectory, GapsResponse, UndeclaredContainer, UndeclaredGroup } from "../api/directory";
-import { adoptIntoPath, adoptPath, adoptionTarget, containerCount, gapsByService, gapTone, hasProposals, isOrphan, ignoreKeyOf, ignoredCount, orphanKey, orphanText, shownUndeclared } from "./gaps";
+import { acceptanceTarget, containerCount, editBeforeAcceptPath, gapsByService, gapTone, hasProposals, ignoredOf, ignoreKeyOf, isOrphan, orphanKey, orphanText, proposalsOf } from "./gaps";
 
 const undeclaredContainer = (overrides: Partial<UndeclaredContainer>): UndeclaredContainer => ({
   id: "c1",
@@ -63,34 +63,32 @@ test("gapsByService indexe par service et supporte l'absence de réponse", () =>
   expect(gapsByService(null).size).toBe(0);
 });
 
-test("shownUndeclared cache les ignorés tant qu'on ne les demande pas", () => {
+test("une proposition n'est pas un ignoré : deux listes, jamais l'une dans l'autre", () => {
   const groups = [group({}), group({ key_value: "old", ignored: true })];
-  expect(shownUndeclared(groups, false)).toHaveLength(1);
-  expect(shownUndeclared(groups, true)).toHaveLength(2);
-  expect(ignoredCount(groups)).toBe(1);
+  expect(proposalsOf(groups).map((item) => item.key_value)).toEqual(["blog"]);
+  expect(ignoredOf(groups).map((item) => item.key_value)).toEqual(["old"]);
   expect(containerCount(groups)).toBe(2);
 });
 
-test("adopter passe l'identifiant du conteneur, encodé", () => {
-  expect(adoptPath("abc")).toBe("/services/annuaire/nouveau?container=abc");
-  expect(adoptPath("a b&c")).toBe("/services/annuaire/nouveau?container=a%20b%26c");
-  expect(adoptIntoPath("svc_1", "abc")).toBe("/services/annuaire/svc_1/modifier?container=abc");
-  expect(adoptionTarget(group({}))).toBe("c1");
-  expect(adoptionTarget(group({ containers: [] }))).toBe("");
+test("modifier avant d'accepter passe l'identifiant du conteneur, encodé", () => {
+  expect(editBeforeAcceptPath("abc")).toBe("/services/annuaire/nouveau?container=abc");
+  expect(editBeforeAcceptPath("a b&c")).toBe("/services/annuaire/nouveau?container=a%20b%26c");
+  expect(acceptanceTarget(group({}))).toBe("c1");
+  expect(acceptanceTarget(group({ containers: [] }))).toBe("");
 });
 
 test("ignorer envoie la clé d'observation du groupe", () => {
   expect(ignoreKeyOf(group({}))).toEqual({ machine_id: "m1", kind: "compose_project", value: "blog" });
 });
 
-test("un conteneur étiqueté ne s'adopte pas : le groupe passe par un voisin sans label", () => {
+test("un conteneur étiqueté ne s'accepte pas : le groupe passe par un voisin sans label", () => {
   const orphan = undeclaredContainer({ id: "c1", label_service: "svc_x", label_unit: "web", label_problem: "service_unknown" });
   const plain = undeclaredContainer({ id: "c2", name: "blog-db-1" });
-  expect(adoptionTarget(group({ containers: [orphan, plain] }))).toBe("c2");
-  expect(adoptionTarget(group({ containers: [orphan], adoptable: false }))).toBe("");
+  expect(acceptanceTarget(group({ containers: [orphan, plain] }))).toBe("c2");
+  expect(acceptanceTarget(group({ containers: [orphan], adoptable: false }))).toBe("");
 });
 
-test("l'export avec propositions n'est offert que s'il y a un groupe adoptable non ignoré", () => {
+test("l'export avec propositions n'est offert que s'il y a un groupe acceptable non ignoré", () => {
   expect(hasProposals([group({})])).toBe(true);
   expect(hasProposals([group({ adoptable: false }), group({ ignored: true })])).toBe(false);
   expect(hasProposals([])).toBe(false);

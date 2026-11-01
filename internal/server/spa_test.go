@@ -51,7 +51,7 @@ func TestSPA_ServesIndexForEveryClientRoute(t *testing.T) {
 func TestSPA_PagesCarryTheProductName(t *testing.T) {
 	servertest.RequireFront(t)
 	server := newTestServer(t)
-	storetest.StatusPage(t, server.db, "statut")
+	storetest.PublishedProject(t, server.db, "statut")
 	for _, path := range []string{"/", "/statut/statut"} {
 		body := get(server.Server, path).Body.String()
 		for _, want := range []string{"<title>" + brand.ProductName + "</title>", `content="` + brand.ProductName + `"`} {

@@ -14,8 +14,8 @@ vi.mock("../../i18n/context", () => ({
 }));
 
 const offers: VerbOffer[] = [
-  { id: "probe.pause", label: "api_token.verb_probe_pause", summary: "api_token.verb_probe_pause_text", reverse: "probe.resume" },
-  { id: "probe.resume", label: "api_token.verb_probe_resume", summary: "api_token.verb_probe_resume_text", reverse: "probe.pause" },
+  { id: "probe.pause", label: "api_token.verb_probe_pause", summary: "api_token.verb_probe_pause_text", reverse: "probe.resume", confirm: false },
+  { id: "probe.resume", label: "api_token.verb_probe_resume", summary: "api_token.verb_probe_resume_text", reverse: "probe.pause", confirm: false },
 ];
 
 function token(over: Partial<APIToken>): APIToken {
@@ -42,6 +42,13 @@ test("chaque verbe se coche avec son libellé, sa phrase et son inverse, et rien
   expect(markup).toContain("api_token.verb_reverse(api_token.verb_probe_resume)");
   expect(markup).toContain("api_token.verbs_none");
   expect(markup).not.toContain("checked");
+});
+
+test("un verbe à confirmation le dit au lieu de donner un inverse", () => {
+  const confirming: VerbOffer = { id: "machine.delete", label: "api_token.verb_machine_delete", summary: "api_token.verb_machine_delete_text", reverse: "", confirm: true };
+  const markup = renderToStaticMarkup(<VerbChoices offers={[confirming, ...offers]} chosen={[]} onToggle={() => {}} />);
+  expect(markup.match(/api_token\.verb_confirm/g)).toHaveLength(1);
+  expect(markup.match(/api_token\.verb_reverse/g)).toHaveLength(2);
 });
 
 test("un verbe coché est montré coché, et l'avertissement de l'absence de verbe disparaît", () => {

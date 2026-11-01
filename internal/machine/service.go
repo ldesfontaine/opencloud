@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 )
 
 const (
@@ -41,6 +44,14 @@ type Store interface {
 	RecordRootDir(ctx context.Context, agentID, root string) error
 	RecordRollbackVersion(ctx context.Context, agentID string, version int) error
 	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) error
+	SetRole(ctx context.Context, machineID string, role Role) error
+	// SetPlacement pose la correction de type et l'hôte désigné par l'opérateur ;
+	// vides, ils les retirent.
+	SetPlacement(ctx context.Context, machineID string, kindOverride Kind, hostOverride string) error
+	// ReplaceHostReport remplace ce que l'agent a rapporté de l'endroit où
+	// tourne la machine (type, cartes, disques, pools) et dit si quelque chose
+	// a changé.
+	ReplaceHostReport(ctx context.Context, machineID string, kind Kind, report hostinfo.Report) (changed bool, err error)
 	InsertToken(ctx context.Context, token Token) error
 	ListPendingTokens(ctx context.Context, now time.Time) ([]Token, error)
 	DeleteToken(ctx context.Context, id string) error
@@ -170,31 +181,41 @@ func (s *Service) status(machine Machine) Status {
 	return Status{Machine: machine, Online: s.presence.IsOnline(machine, s.now())}
 }
 
-// Count renvoie le nombre de machines et celles en ligne.
+// Count renvoie le nombre de machines et celles en ligne. Une machine
+// archivée (plus d'agent actif) reste dans la liste mais ne compte pas : elle
+// n'est ni attendue ni en défaut.
 func (s *Service) Count(ctx context.Context) (total, online int, err error) {
 	statuses, err := s.List(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
 	for _, status := range statuses {
+		if !status.Agent.IsActive() {
+			continue
+		}
+		total++
 		if status.Online {
 			online++
 		}
 	}
-	return len(statuses), online, nil
+	return total, online, nil
 }
 
 // CreateToken émet le jeton d'une nouvelle machine, nommée par l'opérateur,
-// avec les droits qu'il a cochés ; observe s'y ajoute toujours.
-func (s *Service) CreateToken(ctx context.Context, name string, capabilities []Capability) (string, Token, error) {
+// avec le rôle qu'il lui donne et les droits qu'il a cochés ; observe s'y
+// ajoute toujours.
+func (s *Service) CreateToken(ctx context.Context, name string, role Role, capabilities []Capability) (string, Token, error) {
 	if err := ValidateName(name); err != nil {
 		return "", Token{}, err
+	}
+	if !slices.Contains(Roles(), role) {
+		return "", Token{}, ErrRoleUnknown
 	}
 	normalized, err := NormalizeCapabilities(capabilities)
 	if err != nil {
 		return "", Token{}, err
 	}
-	return s.issueToken(ctx, name, "", normalized)
+	return s.issueToken(ctx, name, "", role, normalized)
 }
 
 // CreateReenrollToken émet un jeton qui installe un nouvel agent sur une
@@ -215,14 +236,15 @@ func (s *Service) CreateReenrollToken(ctx context.Context, machineID string, cap
 	if err != nil {
 		return "", Token{}, err
 	}
-	return s.issueToken(ctx, machine.Name, machine.ID, normalized)
+	return s.issueToken(ctx, machine.Name, machine.ID, machine.Role, normalized)
 }
 
-func (s *Service) issueToken(ctx context.Context, name, machineID string, capabilities []Capability) (string, Token, error) {
+func (s *Service) issueToken(ctx context.Context, name, machineID string, role Role, capabilities []Capability) (string, Token, error) {
 	cleartext, token, err := NewToken(name, machineID)
 	if err != nil {
 		return "", Token{}, fmt.Errorf("generate token: %w", err)
 	}
+	token.Role = role
 	token.Capabilities = capabilities
 	now := s.now()
 	token.CreatedAt = now
@@ -258,12 +280,23 @@ func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, err
 	return s.store.MachineDeletionPlan(ctx, id)
 }
 
+// RemoveOptions dit comment retirer une machine. KeepHistory la garde,
+// archivée : son agent est coupé, tout le reste demeure (Q9).
+type RemoveOptions struct {
+	KeepHistory bool
+}
+
 // Remove retire une machine et coupe son flux, la machine openCloud comme les
-// autres. Tant que son plan est bloqué, le refus porte ce plan.
-func (s *Service) Remove(ctx context.Context, id string) error {
+// autres. Tant que son plan est bloqué, le refus porte ce plan. Avec
+// KeepHistory, rien ne part : la machine est archivée, et le plan ne la
+// retient pas.
+func (s *Service) Remove(ctx context.Context, id string, options RemoveOptions) error {
 	machine, err := s.store.GetMachine(ctx, id)
 	if err != nil {
 		return err
+	}
+	if options.KeepHistory {
+		return s.archive(ctx, machine)
 	}
 	if err := s.store.DeleteMachine(ctx, id); err != nil {
 		return err
@@ -361,25 +394,25 @@ func (s *Service) Enroll(ctx context.Context, request Enrollment) (Machine, erro
 	return machine, nil
 }
 
-// Revoke révoque l'agent actif d'une machine : il est refusé à sa prochaine
+// archive garde la machine et coupe son agent : il est refusé à sa prochaine
 // preuve, son flux est coupé, les jetons de ré-enrôlement en attente sont
-// annulés. La machine, son historique et ses services restent ; ré-enrôler
-// installe un nouvel agent et lève la révocation.
-func (s *Service) Revoke(ctx context.Context, machineID string) error {
-	machine, err := s.store.GetMachine(ctx, machineID)
-	if err != nil {
-		return err
-	}
+// annulés. Son historique, ses conteneurs et ses services restent ; ré-enrôler
+// installe un nouvel agent et la sort de l'archive. Plus d'agent attendu, donc
+// plus de machine perdue : son alerte se résout.
+func (s *Service) archive(ctx context.Context, machine Machine) error {
 	now := s.now()
-	revokedID, err := s.store.RevokeAgent(ctx, machineID, now)
+	revokedID, err := s.store.RevokeAgent(ctx, machine.ID, now)
 	if err != nil {
 		return err
 	}
-	s.sessions.Close(machineID)
+	s.sessions.Close(machine.ID)
 	machine.Agent.ID, machine.Agent.RevokedAt = revokedID, now
-	s.logger.Info("agent revoked", "machine_id", machineID, "agent_id", revokedID, "name", machine.Name)
+	s.logger.Info("agent revoked", "machine_id", machine.ID, "agent_id", revokedID, "name", machine.Name)
 	s.auditor.Record(ctx, agentEvent(audit.AgentRevoke, machine))
-	s.changed(machineID)
+	if s.alerter != nil {
+		s.alerter.MachineBack(ctx, machine.ID)
+	}
+	s.changed(machine.ID)
 	return nil
 }
 
@@ -544,6 +577,112 @@ func (s *Service) SetUpdateLast(ctx context.Context, machineID string, updateLas
 	})
 	s.changed(machineID)
 	return target, nil
+}
+
+// SetRole change le rôle de la machine. Il ne touche ni aux droits de
+// l'agent ni à ses objets : il change les modules que la machine porte. Les
+// droits que le nouveau rôle préréglerait, c'est le ré-enrôlement qui les
+// donne. Réservé à l'opérateur, comme SetUpdateLast.
+func (s *Service) SetRole(ctx context.Context, machineID string, role Role) (Machine, error) {
+	if !slices.Contains(Roles(), role) {
+		return Machine{}, ErrRoleUnknown
+	}
+	target, err := s.store.GetMachine(ctx, machineID)
+	if err != nil {
+		return Machine{}, err
+	}
+	if target.Role == role {
+		return target, nil
+	}
+	if err := s.store.SetRole(ctx, machineID, role); err != nil {
+		return Machine{}, err
+	}
+	previous := target.Role
+	target.Role = role
+	s.auditor.Record(ctx, audit.Event{
+		Action: audit.MachineRole, ObjectID: target.ID, ObjectName: target.Name,
+		Details: audit.Details{"role": string(role), "previous": string(previous)},
+	})
+	s.changed(machineID)
+	return target, nil
+}
+
+// maxHostChain borne la remontée des hôtes désignés : une chaîne plus longue
+// est une boucle qu'on n'a pas su voir.
+const maxHostChain = 16
+
+// SetPlacement corrige où tourne la machine : son type, et l'hôte qui la porte.
+// L'hôte est une autre machine ; il ne peut pas être porté par elle, de près
+// ou de loin. Vides, les deux champs retirent la correction. Réservé à
+// l'opérateur, comme SetRole.
+func (s *Service) SetPlacement(ctx context.Context, machineID string, kindOverride Kind, hostOverride string) (Machine, error) {
+	if kindOverride != "" && !slices.Contains(Kinds(), kindOverride) {
+		return Machine{}, ErrKindUnknown
+	}
+	target, err := s.store.GetMachine(ctx, machineID)
+	if err != nil {
+		return Machine{}, err
+	}
+	if err := s.checkHost(ctx, machineID, hostOverride); err != nil {
+		return Machine{}, err
+	}
+	if target.KindOverride == kindOverride && target.HostOverride == hostOverride {
+		return target, nil
+	}
+	if err := s.store.SetPlacement(ctx, machineID, kindOverride, hostOverride); err != nil {
+		return Machine{}, err
+	}
+	previous := target
+	target.KindOverride, target.HostOverride = kindOverride, hostOverride
+	s.auditor.Record(ctx, audit.Event{
+		Action: audit.MachinePlacement, ObjectID: target.ID, ObjectName: target.Name,
+		Details: audit.Details{
+			"kind": string(kindOverride), "host": hostOverride,
+			"previous_kind": string(previous.KindOverride), "previous_host": previous.HostOverride,
+		},
+	})
+	s.changed(machineID)
+	return target, nil
+}
+
+// checkHost refuse un hôte inconnu, la machine elle-même, ou une machine qu'elle
+// porte déjà : la remontée des hôtes désignés ne revient jamais à elle.
+func (s *Service) checkHost(ctx context.Context, machineID, hostID string) error {
+	for range maxHostChain {
+		if hostID == "" {
+			return nil
+		}
+		if hostID == machineID {
+			return ErrHostInvalid
+		}
+		host, err := s.store.GetMachine(ctx, hostID)
+		if errors.Is(err, ErrNotFound) {
+			return ErrHostInvalid
+		}
+		if err != nil {
+			return err
+		}
+		hostID = host.HostOverride
+	}
+	return ErrHostInvalid
+}
+
+// RecordHost garde ce que l'agent rapporte de l'endroit où tourne sa machine :
+// son type et ses disques. Un rapport hors bornes est refusé en entier. Rien
+// n'est journalisé à l'audit : c'est une lecture de l'agent, qui ne change
+// aucun réglage.
+func (s *Service) RecordHost(ctx context.Context, machineID string, report hostinfo.Report) error {
+	if err := report.Validate(); err != nil {
+		return err
+	}
+	changed, err := s.store.ReplaceHostReport(ctx, machineID, KindOfVirt(report.Virt), report)
+	if err != nil {
+		return err
+	}
+	if changed {
+		s.changed(machineID)
+	}
+	return nil
 }
 
 // isKeyFingerprint : « SHA256: » et 43 caractères de base64 sans

@@ -40,7 +40,6 @@ const (
 	ObjectHeartbeat       ObjectKind = "heartbeat"
 	ObjectStatusComponent ObjectKind = "status_component"
 	ObjectIncident        ObjectKind = "incident"
-	ObjectStatusPage      ObjectKind = "status_page"
 	ObjectChannel         ObjectKind = "channel"
 	ObjectMute            ObjectKind = "mute"
 	ObjectAlert           ObjectKind = "alert"
@@ -56,24 +55,27 @@ const (
 	ObjectBackupPlan        ObjectKind = "backup_plan"
 	// Un pare-feu déclaré, lu en lecture seule.
 	ObjectFirewall ObjectKind = "firewall"
+	// La demande qu'un jeton dépose pour un verbe à confirmation.
+	ObjectVerb ObjectKind = "verb"
 )
 
 func ObjectKinds() []ObjectKind {
 	return []ObjectKind{
 		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
-		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident, ObjectStatusPage,
+		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident,
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectAPIToken, ObjectSecrets, ObjectAction,
 		ObjectBackupKeyring, ObjectBackupDestination, ObjectBackupPlan,
-		ObjectFirewall,
+		ObjectFirewall, ObjectVerb,
 	}
 }
 
 // LegacyObjectKinds sont les sortes d'objet que le MCP écrivait jusqu'au
-// 21 octobre 2026 : lues, plus jamais écrites. Le journal est en ajout seul,
+// 21 octobre 2026, et la page de statut, devenue la publication d'un projet :
+// lues, plus jamais écrites. Le journal est en ajout seul,
 // on ne réécrit pas l'histoire, on la lit.
 func LegacyObjectKinds() []ObjectKind {
-	return []ObjectKind{"mcp", "mcp_token", "mcp_session"}
+	return []ObjectKind{"mcp", "mcp_token", "mcp_session", "status_page"}
 }
 
 // Action est « sorte d'objet.verbe » : la sorte se lit dans l'action, le
@@ -92,6 +94,10 @@ const (
 	MachineProxmoxGuest Action = "machine.proxmox_guest"
 	// Le drapeau « à mettre à jour en dernier », posé ou retiré par l'opérateur.
 	MachineUpdateLast Action = "machine.update_last"
+	// Le rôle de la machine, changé par l'opérateur.
+	MachineRole Action = "machine.role"
+	// Le type et l'hôte que l'opérateur a corrigés pour la machine.
+	MachinePlacement Action = "machine.placement"
 
 	// L'agent est enrôlé (la machine créée ou retrouvée) ou révoqué : l'objet
 	// est l'agent, nommé par sa machine. Avant la table agents, l'enrôlement
@@ -136,10 +142,6 @@ const (
 	IncidentUpdate Action = "incident.update"
 	IncidentPost   Action = "incident.post"
 	IncidentDelete Action = "incident.delete"
-
-	StatusPageCreate Action = "status_page.create"
-	StatusPageUpdate Action = "status_page.update"
-	StatusPageDelete Action = "status_page.delete"
 
 	ChannelCreate Action = "channel.create"
 	ChannelUpdate Action = "channel.update"
@@ -195,11 +197,18 @@ const (
 	FirewallCreate Action = "firewall.create"
 	FirewallUpdate Action = "firewall.update"
 	FirewallDelete Action = "firewall.delete"
+
+	// La demande d'un verbe à confirmation : déposée par un jeton, refusée par
+	// l'opérateur, ou échue sans réponse. La confirmation n'a pas de ligne à
+	// elle : le geste confirmé s'écrit sous l'opérateur, avec request_id.
+	VerbRequest Action = "verb.request"
+	VerbReject  Action = "verb.reject"
+	VerbExpire  Action = "verb.expire"
 )
 
 func Actions() []Action {
 	return []Action{
-		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset, MachineProxmoxGuest, MachineUpdateLast,
+		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset, MachineProxmoxGuest, MachineUpdateLast, MachineRole, MachinePlacement,
 		AgentEnroll, AgentRevoke,
 		EnrollmentTokenCreate, EnrollmentTokenCancel,
 		ProjectCreate, ProjectUpdate, ProjectDelete,
@@ -210,7 +219,6 @@ func Actions() []Action {
 		HeartbeatCreate, HeartbeatUpdate, HeartbeatDelete, HeartbeatPause, HeartbeatResume, HeartbeatRegenerateToken,
 		StatusComponentCreate, StatusComponentUpdate, StatusComponentDelete,
 		IncidentOpen, IncidentUpdate, IncidentPost, IncidentDelete,
-		StatusPageCreate, StatusPageUpdate, StatusPageDelete,
 		ChannelCreate, ChannelUpdate, ChannelDelete,
 		MuteCreate, MuteDelete,
 		AlertAcknowledge,
@@ -222,16 +230,19 @@ func Actions() []Action {
 		BackupKeyringCreate, BackupKeyringReplace, BackupDestinationCreate, BackupDestinationDelete,
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
 		FirewallCreate, FirewallUpdate, FirewallDelete,
+		VerbRequest, VerbReject, VerbExpire,
 	}
 }
 
 // LegacyActions sont les actions que le MCP écrivait jusqu'au 21 octobre
-// 2026 : lues, plus jamais écrites (voir LegacyObjectKinds).
+// 2026, et celles des pages de statut avant qu'elles entrent dans le projet :
+// lues, plus jamais écrites (voir LegacyObjectKinds).
 func LegacyActions() []Action {
 	return []Action{
 		"mcp.enable", "mcp.disable", "mcp.regenerate_secret", "mcp.set_redirect_uris",
 		"mcp_token.create", "mcp_token.revoke",
 		"mcp_session.authorize", "mcp_session.deny", "mcp_session.revoke",
+		"status_page.create", "status_page.update", "status_page.delete",
 	}
 }
 

@@ -248,10 +248,9 @@ func TestVerbs_EveryOtherWriteRouteIsRefusedToAFullWriteToken(t *testing.T) {
 	// Les gestes qui comptent le plus, nommés : le test de table ne les nomme pas.
 	for _, target := range []struct{ method, path string }{
 		{http.MethodPost, "/api/settings/api-tokens"},
-		{http.MethodDelete, "/api/machines/x"},
-		{http.MethodPost, "/api/machines/x/actions/revoke"},
 		{http.MethodPost, "/api/machines/x/actions/reenroll"},
 		{http.MethodPut, "/api/machines/x/update-last"},
+		{http.MethodPut, "/api/machines/x/role"},
 		{http.MethodGet, "/api/agent-migration"},
 		{http.MethodPost, "/api/directory/services/x/actions/deploy"},
 		{http.MethodPut, "/api/firewalls/x"},
@@ -266,10 +265,17 @@ func TestVerbs_EveryOtherWriteRouteIsRefusedToAFullWriteToken(t *testing.T) {
 	}
 }
 
-// Seuls les POST d'action sont des verbes : ni lecture, ni suppression.
-func TestVerbs_RegistryHoldsOnlyActionPosts(t *testing.T) {
+// Seuls les POST d'action sont des verbes que le jeton exécute. Une
+// suppression n'est un verbe qu'à confirmation : le jeton ne la fait jamais.
+func TestVerbs_RegistryHoldsOnlyActionPostsOrVerbsToConfirm(t *testing.T) {
 	for _, v := range verb.Default.All() {
 		method, pattern, _ := strings.Cut(v.Route, " ")
+		if v.Confirm {
+			if method == http.MethodGet {
+				t.Errorf("%s: a read cannot ask for a confirmation", v.ID)
+			}
+			continue
+		}
 		if method != http.MethodPost || !strings.Contains(pattern, "/actions/") {
 			t.Errorf("%s: %q is not an action route", v.ID, v.Route)
 		}
@@ -427,7 +433,7 @@ func TestVerbs_CreateWriteTokenThroughTheAPI(t *testing.T) {
 		request apiTokenRequest
 		key     string
 	}{
-		"unknown verb":  {apiTokenRequest{Name: "x", Scope: "write", Verbs: []string{"machine.delete"}}, "api_token.verb_unknown"},
+		"unknown verb":  {apiTokenRequest{Name: "x", Scope: "write", Verbs: []string{"machine.rename"}}, "api_token.verb_unknown"},
 		"alert ack":     {apiTokenRequest{Name: "x", Scope: "write", Verbs: []string{"alert.acknowledge"}}, "api_token.verb_unknown"},
 		"verbs on read": {apiTokenRequest{Name: "x", Verbs: []string{"probe.pause"}}, "api_token.verbs_need_write"},
 		"unknown scope": {apiTokenRequest{Name: "x", Scope: "admin"}, "api_token.scope_invalid"},

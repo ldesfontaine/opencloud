@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/apitoken"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
@@ -200,7 +201,7 @@ func TestAPIToken_ReadsAreRedacted(t *testing.T) {
 	server.seedManifest(t)
 	server.seedAlerts(t)
 	jobID := server.seedJobs(t)
-	if _, _, err := server.machines.CreateToken(ctx, "vps-lyon", nil); err != nil {
+	if _, _, err := server.machines.CreateToken(ctx, "vps-lyon", machine.RoleGeneric, nil); err != nil {
 		t.Fatal(err)
 	}
 	const password = "hunter2"

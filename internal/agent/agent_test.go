@@ -66,7 +66,7 @@ func newBench(t *testing.T) *bench {
 	actions.SetAuditor(audit.New(db, logger))
 	sshKeys := sshkeys.New(db, logger)
 	roles := role.New(db, logger)
-	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates, Actions: actions, SSHKeys: sshKeys, Roles: roles})
+	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates, Actions: actions, SSHKeys: sshKeys, Roles: roles, Host: machines})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,13 +87,18 @@ func newBench(t *testing.T) *bench {
 const benchTimeout = 30 * time.Second
 
 func (b *bench) options(token string) Options {
-	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, SampleInterval: 20 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles}
+	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, SampleInterval: 20 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles, readHost: benchHost}
 }
 
 // benchSSHKeys est le relevé des bancs : les tests ne lisent pas les comptes
 // de l'hôte.
 func benchSSHKeys() (sshkeys.Report, bool) {
 	return sshkeys.Report{Accounts: []sshkeys.Account{{Name: "root", State: sshkeys.StateNone, Keys: []sshkeys.Key{}}}}, true
+}
+
+// benchHost : les tests ne lisent pas non plus où tourne la machine qui les joue.
+func benchHost(context.Context) hostinfo.Report {
+	return hostinfo.Report{Virt: "none"}
 }
 
 // benchRoles : les tests ne lisent pas la machine qui les joue.
@@ -119,7 +124,7 @@ func (b *bench) waitFor(t *testing.T, name string, want func(machine.Status) boo
 
 func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	b := newBench(t)
-	token, _, err := b.machines.CreateToken(context.Background(), "vps-paris-1", nil)
+	token, _, err := b.machines.CreateToken(context.Background(), "vps-paris-1", machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +162,7 @@ func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	// Second démarrage : plus de jeton, l'identité suffit.
 	ctx, cancel = context.WithCancel(context.Background())
 	go func() {
-		done <- Run(ctx, Options{StateDir: b.stateDir, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles})
+		done <- Run(ctx, Options{StateDir: b.stateDir, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, Logger: b.logger, readSSHKeys: benchSSHKeys, detectRoles: benchRoles, readHost: benchHost})
 	}()
 	b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return s.Online })
 	cancel()
@@ -186,13 +191,13 @@ func TestRun_BadToken_FailsClearly(t *testing.T) {
 
 func TestRun_RemovedMachine_StopsForGood(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", nil)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", machine.RoleGeneric, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, b.options(token)) }()
 	online := b.waitFor(t, "vps-lyon-2", func(s machine.Status) bool { return s.Online })
-	if err := b.machines.Remove(context.Background(), online.ID); err != nil {
+	if err := b.machines.Remove(context.Background(), online.ID, machine.RemoveOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -210,7 +215,7 @@ func TestRun_RemovedMachine_StopsForGood(t *testing.T) {
 // quand l'opérateur le révoque.
 func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", []machine.Capability{{Name: machine.CapabilityAgentUpdate}})
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", machine.RoleGeneric, []machine.Capability{{Name: machine.CapabilityAgentUpdate}})
 	rights, err := machine.ParseCapabilities("agent.update,files.write=/srv/workspace")
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +240,7 @@ func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
 		t.Fatalf("identity rights %+v %v", identity.Rights, err)
 	}
 
-	if err := b.machines.Revoke(context.Background(), reported.ID); err != nil {
+	if err := b.machines.Remove(context.Background(), reported.ID, machine.RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -262,7 +267,7 @@ func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
 // serveur sait pourquoi il ne s'exerce pas.
 func TestRun_SaysItsAccountAndWhyAnEnrolledRightCannotBeExercised(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nice-1", []machine.Capability{{Name: machine.CapabilityDockerDeploy}})
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nice-1", machine.RoleGeneric, []machine.Capability{{Name: machine.CapabilityDockerDeploy}})
 	rights, err := machine.ParseCapabilities("docker.deploy")
 	if err != nil {
 		t.Fatal(err)
@@ -354,7 +359,7 @@ func (b *bench) waitForRefusalAudit(t *testing.T, runID string) []audit.Event {
 // l'exécute, garde son rang et répond par le signal.
 func TestRun_PinsTheServerKeyAndAnswersASignedPing(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-paris-1", nil)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-paris-1", machine.RoleGeneric, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -401,7 +406,7 @@ func TestRun_PinsTheServerKeyAndAnswersASignedPing(t *testing.T) {
 // l'épingle, et les ordres suivants, signés par la neuve, passent.
 func TestRun_FollowsARotationOfTheServerKey(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nantes-3", nil)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nantes-3", machine.RoleGeneric, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, b.options(token)) }()
@@ -437,7 +442,7 @@ func TestRun_FollowsARotationOfTheServerKey(t *testing.T) {
 // a le droit juge lui-même, et son refus revient au serveur, journalisé.
 func TestRun_AppliesItsRightsAndItsRefusalIsJournaled(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", nil)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", machine.RoleGeneric, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)

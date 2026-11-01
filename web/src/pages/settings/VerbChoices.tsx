@@ -20,9 +20,13 @@ export function VerbChoices({ offers, chosen, onToggle }: { offers: VerbOffer[];
           <span className="verb-choice-text">
             <span className="verb-choice-label">{t(offer.label)}</span>
             <span className="secondary">{t(offer.summary)}</span>
-            <span className="secondary">
-              {t("api_token.verb_reverse", labelOf(offer.reverse))} <span className="mono">{offer.reverse}</span>
-            </span>
+            {offer.confirm ? (
+              <span className="secondary">{t("api_token.verb_confirm")}</span>
+            ) : (
+              <span className="secondary">
+                {t("api_token.verb_reverse", labelOf(offer.reverse))} <span className="mono">{offer.reverse}</span>
+              </span>
+            )}
           </span>
         </label>
       ))}

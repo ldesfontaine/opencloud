@@ -23,3 +23,9 @@ export function nextModal(state: ModalState, event: ModalEvent, dirty: boolean):
   }
   return { state: "open", closes: false };
 }
+
+// La saisie a-t-elle changé depuis l'ouverture ? Les valeurs d'un formulaire
+// sont des données simples : comparées sérialisées, dans l'ordre des champs.
+export function isFormModified<Values>(values: Values, initial: Values): boolean {
+  return JSON.stringify(values) !== JSON.stringify(initial);
+}

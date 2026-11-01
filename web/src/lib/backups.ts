@@ -2,6 +2,16 @@ import type { BackupObserved, BackupPlan, BackupRun, BackupSource, BackupSourceK
 import type { ProxmoxGuest } from "../api/proxmox";
 import type { Translate } from "../i18n/context";
 
+// Les adresses de la page et de ses fenêtres.
+export const backupsPath = "/sauvegardes";
+export const keyringPath = `${backupsPath}/cle`;
+export const newDestinationPath = `${backupsPath}/destinations/nouvelle`;
+export const newPlanPath = `${backupsPath}/plans/nouveau`;
+
+export function editPlanPath(subject: string): string {
+  return `${backupsPath}/plans/${encodeURIComponent(subject)}/modifier`;
+}
+
 // La longueur minimale d'une phrase, en caractères (le serveur compte des
 // runes, espaces de bord retirés).
 const minPassphrase = 16;
@@ -114,7 +124,7 @@ export function toggleSelectorId(selector: string, vmid: number, checked: boolea
 }
 
 // Ce que le formulaire d'un plan tient : tout en texte, comme les champs.
-interface PlanFormValues {
+export interface PlanFormValues {
   subject: string;
   name: string;
   kind: BackupSourceKind;

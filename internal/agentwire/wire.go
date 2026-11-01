@@ -3,6 +3,7 @@ package agentwire
 import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
@@ -137,6 +138,10 @@ type SignalRequest struct {
 	// Ce que l'agent reconnaît sur sa machine (un hôte Proxmox VE) : le
 	// dernier rapport, envoyé quand il change et à chaque ouverture du flux.
 	Roles *role.Report `json:"roles,omitempty"`
+	// Où tourne la machine et ce qu'elle a comme disques : le dernier rapport,
+	// envoyé quand il change et à chaque ouverture du flux. Un agent plus vieux
+	// ne l'envoie pas : le type de la machine reste inconnu.
+	Host *hostinfo.Report `json:"host,omitempty"`
 }
 
 // Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
@@ -150,11 +155,12 @@ const (
 	SectionActions  = "actions"
 	SectionSSHKeys  = "ssh_keys"
 	SectionRoles    = "roles"
+	SectionHost     = "host"
 )
 
 // SignalSections rend les sections dans l'ordre où le serveur les écrit.
 func SignalSections() []string {
-	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles}
+	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles, SectionHost}
 }
 
 // SectionRefusal rend la clé d'erreur d'une section refusée.

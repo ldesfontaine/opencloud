@@ -8,6 +8,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/module"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/verb"
@@ -32,6 +33,15 @@ type sessionResponse struct {
 	// Les routes d'écriture que le registre des verbes ouvre aux jetons : le
 	// front y reconnaît les boutons qui portent la puce « MCP ».
 	Verbs []sessionVerb `json:"verbs"`
+	// Les rôles qu'une machine peut recevoir, avec les droits qu'ils cochent
+	// d'avance : l'ajout d'une machine les propose, le préréglage n'est écrit
+	// qu'ici (machine.RolePreset).
+	Roles []sessionRole `json:"roles"`
+}
+
+type sessionRole struct {
+	ID           string   `json:"id"`
+	Capabilities []string `json:"capabilities"`
 }
 
 type sessionVerb struct {
@@ -70,6 +80,15 @@ type countsResponse struct {
 	Status statusCounts `json:"status"`
 	// Les alertes ouvertes, et celles que personne n'a acquittées.
 	Alerts alertCountsJSON `json:"alerts"`
+	// Les modules de l'installation et s'ils sont configurés. Ici et non dans
+	// la session : la session se lit une fois, et le menu doit suivre le
+	// premier objet créé.
+	Modules []moduleStateJSON `json:"modules"`
+}
+
+type moduleStateJSON struct {
+	ID         string `json:"id"`
+	Configured bool   `json:"configured"`
 }
 
 type statusCounts struct {
@@ -126,6 +145,12 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		Disks:        diskThresholdsToJSON(disks),
 		Verbs: httpx.ConvertAll(verb.Default.All(), func(offered verb.Verb) sessionVerb {
 			return sessionVerb{ID: offered.ID, Route: offered.Route}
+		}),
+		Roles: httpx.ConvertAll(machine.Roles(), func(offered machine.Role) sessionRole {
+			return sessionRole{
+				ID:           string(offered),
+				Capabilities: httpx.ConvertAll(machine.RolePreset(offered), func(right machine.Capability) string { return right.Name }),
+			}
 		}),
 	})
 }
@@ -208,6 +233,10 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	if err != nil {
 		return countsResponse{}, err
 	}
+	modules, err := s.reader.InstallationModules(ctx)
+	if err != nil {
+		return countsResponse{}, err
+	}
 	return countsResponse{
 		Machines:     machineCounts{Total: total, Online: online},
 		Jobs:         jobCounts{Total: jobs, Attention: attention},
@@ -216,6 +245,9 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 		Certificates: certificatesToJSON(certificates),
 		Status:       statusCounts{OpenIncidents: openIncidents},
 		Alerts:       alertCountsJSON{Open: alerts.Open, Unacknowledged: alerts.Unacknowledged},
+		Modules: httpx.ConvertAll(modules, func(state module.State) moduleStateJSON {
+			return moduleStateJSON{ID: string(state.ID), Configured: state.Configured}
+		}),
 	}, nil
 }
 

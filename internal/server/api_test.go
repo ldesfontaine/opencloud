@@ -273,7 +273,7 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	// L'agent de la machine distante vient de signaler : ses conteneurs sont
 	// observés. La machine openCloud, elle, n'a jamais signalé.
 	server.signaledAt(t, remoteID, testNow)
-	if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2", nil); err != nil {
+	if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2", machine.RoleGeneric, nil); err != nil {
 		t.Fatal(err)
 	}
 	jobID := server.seedJobs(t)
@@ -282,6 +282,7 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	declaredID := server.seedGaps(t)
 	probeID := server.seedProbes(t, declaredID)
 	server.issueAPIToken(t, "mcp-maison")
+	server.fileVerbRequest(t, remoteID)
 	cases := map[string]string{
 		"probes":              "/api/probes",
 		"probe":               "/api/probes/" + probeID,
@@ -309,6 +310,7 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 		"history_hourly":      "/api/machines/local/resources/history?window=7d",
 		"api_tokens":          "/api/settings/api-tokens",
 		"settings_ai_agent":   "/api/settings/mcp",
+		"verb_requests":       "/api/verb-requests",
 	}
 	for name, path := range cases {
 		t.Run(name, func(t *testing.T) {

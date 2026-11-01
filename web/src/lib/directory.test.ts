@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { DeclaredService, Project, ProposalResponse } from "../api/directory";
 import {
+  acceptanceOf,
   emptyServiceForm,
+  emptyUnitForm,
   formatUnitPorts,
+  hasAdvancedUnitValues,
   hasLinks,
   parsePorts,
-  projectFormOf,
   projectNames,
   serviceFormOf,
   serviceFormOfDefinition,
@@ -14,6 +16,7 @@ import {
   serviceRequestOf,
   toggled,
   unitKeyOf,
+  unitSummary,
 } from "./directory";
 
 function nextcloud(): DeclaredService {
@@ -60,8 +63,8 @@ describe("formatUnitPorts", () => {
 describe("projectNames", () => {
   it("donne le nom de chaque projet par son identifiant", () => {
     const projects = [
-      { id: "prj_1", name: "cloud", title: "Cloud", service_ids: [], created_at: "", updated_at: "" },
-      { id: "prj_2", name: "mail", title: "Courrier", service_ids: [], created_at: "", updated_at: "" },
+      { id: "prj_1", name: "cloud", title: "Cloud", service_ids: [], publication: null, created_at: "", updated_at: "" },
+      { id: "prj_2", name: "mail", title: "Courrier", service_ids: [], publication: null, created_at: "", updated_at: "" },
     ] satisfies Project[];
     const names = projectNames(projects);
     expect(names.get("prj_1")).toBe("cloud");
@@ -71,13 +74,6 @@ describe("projectNames", () => {
 
   it("ne rend rien sans projet", () => {
     expect(projectNames([]).size).toBe(0);
-  });
-});
-
-describe("projectFormOf", () => {
-  it("ne garde que le nom et le titre : le reste, le serveur le tient", () => {
-    const project = { id: "prj_1", name: "cloud", title: "Cloud", service_ids: ["svc_1"], created_at: "2026-10-18T09:00:00Z", updated_at: "2026-10-18T09:00:00Z" } satisfies Project;
-    expect(projectFormOf(project)).toEqual({ name: "cloud", title: "Cloud" });
   });
 });
 
@@ -193,27 +189,27 @@ describe("serviceFormOfDefinition", () => {
   });
 });
 
-describe("serviceFormStart", () => {
-  // Ce que le serveur propose pour un conteneur : un service neuf (sans
-  // identifiant) ou l'édition de svc_1, à laquelle s'ajoute une unité.
-  function proposal(serviceID: string): ProposalResponse {
-    return {
-      service_id: serviceID,
-      definition: {
-        machine_id: "m2",
-        name: "nextcloud",
-        title: "",
-        nature: "application",
-        origin: "compose",
-        compose_project: "nextcloud",
-        public_url: "",
-        provides: [],
-        units: [{ id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [] }],
-        project_ids: [],
-      },
-    };
-  }
+// Ce que le serveur propose pour un conteneur : un service neuf (sans
+// identifiant) ou l'édition de svc_1, à laquelle s'ajoute une unité.
+function proposal(serviceID: string): ProposalResponse {
+  return {
+    service_id: serviceID,
+    definition: {
+      machine_id: "m2",
+      name: "nextcloud",
+      title: "",
+      nature: "application",
+      origin: "compose",
+      compose_project: "nextcloud",
+      public_url: "",
+      provides: [],
+      units: [{ id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [] }],
+      project_ids: [],
+    },
+  };
+}
 
+describe("serviceFormStart", () => {
   it("attend le service à modifier, et la proposition tant qu'elle n'est ni arrivée ni refusée", () => {
     expect(serviceFormStart("svc_1", null, null, false)).toBeNull();
     expect(serviceFormStart("svc_1", nextcloud(), null, true)).toBeNull();
@@ -254,5 +250,51 @@ describe("hasLinks", () => {
   it("dit si quelque chose lie le service", () => {
     expect(hasLinks({ probes: [{ id: "p1", name: "site" }], components: [] })).toBe(true);
     expect(hasLinks({ probes: [], components: [] })).toBe(false);
+  });
+});
+
+describe("unitSummary", () => {
+  const unit = { ...emptyUnitForm(), name: "app", image: "nextcloud:29", containerName: "nc-app", systemdUnit: "nc.service", version: "29.0.4" };
+
+  it("dit ce qui retrouve l'unité selon l'origine, puis l'image et la version", () => {
+    expect(unitSummary(unit, "compose")).toBe("app · nextcloud:29 · 29.0.4");
+    expect(unitSummary(unit, "container")).toBe("nc-app · nextcloud:29 · 29.0.4");
+  });
+
+  it("n'a pas d'image pour un binaire et saute ce qui est vide", () => {
+    expect(unitSummary(unit, "binary")).toBe("nc.service · 29.0.4");
+    expect(unitSummary({ ...unit, version: " " }, "binary")).toBe("nc.service");
+  });
+});
+
+describe("hasAdvancedUnitValues", () => {
+  it("est faux pour une unité neuve ou à peine nommée", () => {
+    expect(hasAdvancedUnitValues(emptyUnitForm())).toBe(false);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), name: "app", image: "x" })).toBe(false);
+  });
+
+  it("est vrai dès qu'un réglage technique est rempli", () => {
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), ports: "80" })).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), dataPath: "/data" })).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), updatePolicy: "hold" })).toBe(true);
+  });
+});
+
+describe("acceptanceOf", () => {
+  it("crée un service neuf avec la proposition telle quelle, sans identifiant", () => {
+    const { id, body } = acceptanceOf(proposal(""));
+    expect(id).toBeUndefined();
+    expect(body).toMatchObject({ machine_id: "m2", name: "nextcloud", origin: "compose", compose_project: "nextcloud" });
+    // Une unité que la proposition ajoute se suit : le serveur ne la dit pas.
+    expect(body.units.map((unit) => [unit.name, unit.update_policy])).toEqual([["redis", "watch"]]);
+  });
+
+  it("modifie le service que la proposition complète, par son identifiant", () => {
+    expect(acceptanceOf(proposal("svc_1")).id).toBe("svc_1");
+  });
+
+  it("envoie ce que l'assistant enverrait sans y toucher", () => {
+    const proposed = proposal("");
+    expect(acceptanceOf(proposed).body).toEqual(serviceRequestOf(serviceFormOfDefinition(proposed.definition)));
   });
 });

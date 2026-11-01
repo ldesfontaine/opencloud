@@ -15,10 +15,10 @@ import (
 func (db *DB) InsertComponent(ctx context.Context, component status.Component) error {
 	return db.inTx(ctx, "insert component", func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
-		INSERT INTO status_components (id, page_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)`,
-			component.ID, component.PageID, component.Name, component.Position, component.CreatedAt.Unix())
+		INSERT INTO status_components (id, project_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)`,
+			component.ID, component.ProjectID, component.Name, component.Position, component.CreatedAt.Unix())
 		if isConstraintViolation(err) {
-			return status.ErrPageInvalid
+			return status.ErrProjectInvalid
 		}
 		if err != nil {
 			return fmt.Errorf("insert component: %w", err)
@@ -94,17 +94,17 @@ func isConstraintViolation(err error) bool {
 	return isUniqueViolation(err)
 }
 
-const componentColumns = `id, page_id, name, position, created_at`
+const componentColumns = `id, project_id, name, position, created_at`
 
-// ListComponents rend les composants d'une page, ou de toutes quand pageID
+// ListComponents rend les composants d'un projet, ou de tous quand projectID
 // est vide ; les membres se lisent sur le même filtre.
-func (db *DB) ListComponents(ctx context.Context, pageID string) ([]status.Component, error) {
+func (db *DB) ListComponents(ctx context.Context, projectID string) ([]status.Component, error) {
 	var where, members string
 	var args []any
-	if pageID != "" {
-		where = ` WHERE page_id = ?`
-		members = `WHERE component_id IN (SELECT id FROM status_components WHERE page_id = ?)`
-		args = append(args, pageID)
+	if projectID != "" {
+		where = ` WHERE project_id = ?`
+		members = `WHERE component_id IN (SELECT id FROM status_components WHERE project_id = ?)`
+		args = append(args, projectID)
 	}
 	query := `SELECT ` + componentColumns + ` FROM status_components` + where + ` ORDER BY position, name, id` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
 	rows, err := db.sql.QueryContext(ctx, query, args...)
@@ -136,7 +136,7 @@ func (db *DB) GetComponent(ctx context.Context, id string) (status.Component, er
 func scanComponent(row scanner) (status.Component, error) {
 	var component status.Component
 	var createdAt int64
-	err := row.Scan(&component.ID, &component.PageID, &component.Name, &component.Position, &createdAt)
+	err := row.Scan(&component.ID, &component.ProjectID, &component.Name, &component.Position, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return status.Component{}, status.ErrNotFound
 	}
@@ -208,11 +208,11 @@ func (db *DB) DeleteComponent(ctx context.Context, id string) error {
 	return notFoundIfNoRow(result, status.ErrNotFound)
 }
 
-// CountComponents compte les composants d'une page : le plafond vaut par
-// page.
-func (db *DB) CountComponents(ctx context.Context, pageID string) (int, error) {
+// CountComponents compte les composants d'un projet : le plafond vaut par
+// projet.
+func (db *DB) CountComponents(ctx context.Context, projectID string) (int, error) {
 	var count int
-	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM status_components WHERE page_id = ?`, pageID).Scan(&count); err != nil {
+	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM status_components WHERE project_id = ?`, projectID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count components: %w", err)
 	}
 	return count, nil

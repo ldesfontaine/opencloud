@@ -10,10 +10,10 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/registry"
 )
 
-// Proposal est ce que « Adopter » pré-remplit dans le formulaire. Avec un
-// ServiceID, c'est la modification d'un service déjà déclaré, à qui une
-// unité s'ajoute ; sans, c'est une déclaration nouvelle. Rien n'est écrit
-// tant que l'opérateur n'a pas validé.
+// Proposal est ce que « Accepter » écrit, et que « Modifier avant d'accepter »
+// pré-remplit dans l'assistant. Avec un ServiceID, c'est la modification d'un
+// service déjà déclaré, à qui une unité s'ajoute ; sans, c'est une
+// déclaration nouvelle. Rien n'est écrit tant que l'opérateur n'a pas accepté.
 type Proposal struct {
 	ServiceID  string
 	Definition ServiceDefinition
@@ -24,11 +24,11 @@ type Proposal struct {
 //
 // Un projet Compose déjà déclaré garde sa définition, ids d'unités compris ;
 // les unités ajoutées arrivent sans id, comme l'édition l'attend. Les
-// unités sont plafonnées à MaxUnits : un projet plus gros s'adopte en
+// unités sont plafonnées à MaxUnits : un projet plus gros s'accepte en
 // plusieurs fois, l'unité du conteneur demandé toujours en tête de la
 // coupe. Un service déjà plein ne peut plus rien recevoir : ErrUnitsFull.
 //
-// Un conteneur qui porte des labels n'est pas adoptable : il n'est non
+// Un conteneur qui porte des labels n'a pas de proposition : il n'est non
 // déclaré que parce que ses labels ne visent aucune unité de sa machine, et
 // l'unité qu'on lui créerait ne le rattacherait pas (ErrContainerLabelled).
 // Ses voisins étiquetés sont laissés de côté pour la même raison.

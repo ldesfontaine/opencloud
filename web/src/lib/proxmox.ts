@@ -1,5 +1,5 @@
 import type { ActionState } from "../api/actions";
-import type { GuestVerb, ProxmoxGuest, ProxmoxStorage } from "../api/proxmox";
+import type { GuestVerb, ProxmoxGuest, ProxmoxHost, ProxmoxStorage } from "../api/proxmox";
 import type { Machine, MachineRole } from "../api/machines";
 import type { Translate } from "../i18n/context";
 import { describeUnavailable } from "./machines";
@@ -92,6 +92,42 @@ export function suggestedProxmoxURL(machine: Pick<Machine, "address">): string {
   }
   const host = machine.address.includes(":") ? `[${machine.address}]` : machine.address;
   return `https://${host}:${proxmoxAPIPort}`;
+}
+
+// Ce que le formulaire de l'hôte Proxmox tient.
+export interface ProxmoxFormValues {
+  apiURL: string;
+  tokenID: string;
+  tokenSecret: string;
+  pin: string;
+}
+
+// Un hôte à déclarer : rien, que l'adresse proposée quand l'agent a reconnu
+// Proxmox (le jeton, lui, reste à l'opérateur).
+export function emptyProxmoxForm(suggestedURL: string): ProxmoxFormValues {
+  return { apiURL: suggestedURL, tokenID: "", tokenSecret: "", pin: "" };
+}
+
+// Ce que le serveur garde d'un hôte déjà déclaré, pour le modifier : jamais le
+// secret, qui se ressaisit.
+export function proxmoxFormOf(host: Pick<ProxmoxHost, "api_url" | "token_id" | "pin">): ProxmoxFormValues {
+  return { apiURL: host.api_url, tokenID: host.token_id, tokenSecret: "", pin: host.pin };
+}
+
+// La saisie a changé depuis le formulaire d'origine : fermer la fenêtre demande
+// alors s'il faut l'abandonner.
+export function isProxmoxFormModified(values: ProxmoxFormValues, initial: ProxmoxFormValues): boolean {
+  return (Object.keys(initial) as (keyof ProxmoxFormValues)[]).some((key) => values[key].trim() !== initial[key].trim());
+}
+
+// L'étape « Accès » demande l'adresse, l'identifiant et le secret du jeton.
+export function proxmoxAccessMissing(values: ProxmoxFormValues): boolean {
+  return values.apiURL.trim() === "" || values.tokenID.trim() === "" || values.tokenSecret === "";
+}
+
+// Le corps envoyé au serveur, nettoyé des espaces de saisie.
+export function proxmoxDefinitionOf(values: ProxmoxFormValues): { api_url: string; token_id: string; token_secret: string; pin: string } {
+  return { api_url: values.apiURL.trim(), token_id: values.tokenID.trim(), token_secret: values.tokenSecret, pin: values.pin.trim() };
 }
 
 // L'identifiant de la machine openCloud elle-même (machine.LocalID côté Go).

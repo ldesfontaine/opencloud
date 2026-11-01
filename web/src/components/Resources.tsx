@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 
 import { useResourceHistory, type Current, type Disk, type Reading, type WindowName } from "../api/resources";
 import { useNow } from "../hooks/useNow";
-import { useDiskThresholds, useI18n, useT } from "../i18n/context";
+import { useDiskThresholds, useI18n } from "../i18n/context";
 import { fullestFirst } from "../lib/disks";
 import { ago } from "../lib/time";
 import type { StateTone } from "../lib/tone";
@@ -17,7 +17,7 @@ import "./Resources.scss";
 // réseau, en tuiles compactes (#141). Sans mesure fraîche, un tiret et la
 // raison, jamais un zéro. Les pourcentages sont dans les pieds, dans la
 // couleur qu'avait la jauge (un disque presque plein se voit encore) ; les
-// jauges par volume, quand il y en a plusieurs, dans DiskVolumesCard.
+// jauges par volume sont dans la carte Stockage (MachineStorage).
 export function ResourceStats({ current }: { current: Current | null }) {
   const { t, language } = useI18n();
   const diskThresholds = useDiskThresholds();
@@ -31,7 +31,7 @@ export function ResourceStats({ current }: { current: Current | null }) {
   const diskPercent = sample ? percentOf(sample.disk_used, sample.disk_total) : 0;
   const volumes = sample?.disks ?? [];
   // Plusieurs volumes : la couleur du plus plein, comme sa jauge en tête de
-  // DiskVolumesCard.
+  // la carte Stockage.
   const diskTonePercent = volumes.length > 1 ? Math.max(...volumes.map((volume) => percentOf(volume.used, volume.total))) : diskPercent;
   return (
     <div className="grid-4 resource-stats">
@@ -81,28 +81,9 @@ function toned(text: string, tone: StateTone | undefined): ReactNode {
   return tone === undefined ? text : <b className={tone}>{text}</b>;
 }
 
-// Les volumes d'une machine qui en a plusieurs, la plus pleine en tête : la
-// tuile Disque n'en garde que le nombre et le total. Rien quand il y en a
-// un seul ou aucune mesure.
-export function DiskVolumesCard({ current }: { current: Current | null }) {
-  const t = useT();
-  const volumes = current?.available ? (current.sample?.disks ?? []) : [];
-  if (volumes.length < 2) {
-    return null;
-  }
-  return (
-    <Card>
-      <CardHeader title={t("resource.disk")} />
-      <CardBody>
-        <DiskVolumes disks={volumes} />
-      </CardBody>
-    </Card>
-  );
-}
-
 // Une jauge par volume, la plus pleine en tête, nommée par son point de
 // montage ; le périphérique et les octets sont dans l'info-bulle.
-function DiskVolumes({ disks }: { disks: Disk[] }) {
+export function DiskVolumes({ disks }: { disks: Disk[] }) {
   const { t, language } = useI18n();
   const thresholds = useDiskThresholds();
   return (

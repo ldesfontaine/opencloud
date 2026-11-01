@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
@@ -24,13 +25,14 @@ import (
 func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID string) (string, string) {
 	t.Helper()
 	ctx := context.Background()
-	page, err := ts.status.CreatePage(ctx, status.PageDefinition{
-		Slug: seededSlug, Title: "Statut de la maison", Announcement: "Coupure électrique samedi, de 8 h à 10 h.",
+	page, err := ts.directory.CreateProject(ctx, directory.ProjectDefinition{
+		Name: "maison", Title: "Statut de la maison",
+		Publication: directory.PublicationDefinition{Slug: seededSlug, Announcement: "Coupure électrique samedi, de 8 h à 10 h."},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cloud, err := ts.status.CreateComponent(ctx, status.ComponentDefinition{PageID: page.ID, Name: "Nuage", Members: []status.MemberRef{
+	cloud, err := ts.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: page.ID, Name: "Nuage", Members: []status.MemberRef{
 		{Kind: status.KindMachine, ID: remoteID},
 		{Kind: status.KindService, ID: declaredServiceID},
 		{Kind: status.KindHeartbeat, ID: jobID},
@@ -43,7 +45,7 @@ func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ts.status.CreateComponent(ctx, status.ComponentDefinition{PageID: page.ID, Name: "Silence", Position: 1, Members: []status.MemberRef{{Kind: status.KindProbe, ID: probes[0].ID}}}); err != nil {
+	if _, err := ts.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: page.ID, Name: "Silence", Position: 1, Members: []status.MemberRef{{Kind: status.KindProbe, ID: probes[0].ID}}}); err != nil {
 		t.Fatal(err)
 	}
 	opened, err := ts.status.OpenIncident(ctx, status.IncidentDefinition{
@@ -72,13 +74,13 @@ func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID
 // seededSlug est l'adresse de la page que seedStatus crée : /statut/maison.
 const seededSlug = "maison"
 
-func (ts *testServer) seededPageID(t *testing.T) string {
+func (ts *testServer) seededProjectID(t *testing.T) string {
 	t.Helper()
-	page, err := ts.status.PageBySlug(context.Background(), seededSlug)
+	publication, err := ts.status.PublicationBySlug(context.Background(), seededSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return page.ID
+	return publication.ProjectID
 }
 
 func (ts *testServer) seedAll(t *testing.T) (componentID, incidentID string) {
@@ -96,11 +98,10 @@ func TestStatusAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	componentID, incidentID := server.seedAll(t)
 	cases := map[string]string{
 		"status_public":     "/statut/" + seededSlug + "/api/status",
-		"status_components": "/api/status/components?page=" + server.seededPageID(t),
+		"status_components": "/api/status/components?project=" + server.seededProjectID(t),
 		"status_component":  "/api/status/components/" + componentID,
 		"status_incidents":  "/api/status/incidents",
 		"status_incident":   "/api/status/incidents/" + incidentID,
-		"status_pages":      "/api/status/pages",
 	}
 	for name, path := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -152,7 +153,7 @@ func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
 func TestStatusPublic_IsRateLimitedBySourceBehindTheRoot(t *testing.T) {
 	servertest.RequireFront(t)
 	server := newTestServer(t)
-	storetest.StatusPage(t, server.db, "statut")
+	storetest.PublishedProject(t, server.db, "statut")
 	passed, refused := 0, 0
 	for i := range 100 {
 		request := httptest.NewRequest(http.MethodGet, "/statut/statut/api/status", nil)
@@ -204,7 +205,7 @@ func TestStatusPublic_OnlyThePageIsEmbeddable(t *testing.T) {
 func TestStatusPublic_PageIsServedWithoutTheAdministration(t *testing.T) {
 	servertest.RequireFront(t)
 	server := newTestServer(t)
-	storetest.StatusPage(t, server.db, "statut")
+	storetest.PublishedProject(t, server.db, "statut")
 	recorder := get(server.Server, "/statut/statut")
 	body := recorder.Body.String()
 	if recorder.Code != http.StatusOK || !strings.Contains(body, `<div id="root">`) {
@@ -228,7 +229,7 @@ func TestStatusPublic_PageIsServedWithoutTheAdministration(t *testing.T) {
 // sujet part sur le bus interne pour l'administration.
 func TestStatusPublic_StreamsStatusOnBothBuses(t *testing.T) {
 	server := newTestServer(t)
-	pageID := storetest.StatusPage(t, server.db, "statut")
+	pageID := storetest.PublishedProject(t, server.db, "statut")
 	public, cancelPublic := openLive(t, server, "/statut/statut/api/events", "")
 	defer cancelPublic()
 	admin, cancelAdmin := openLive(t, server, "/api/events", "")
@@ -239,7 +240,7 @@ func TestStatusPublic_StreamsStatusOnBothBuses(t *testing.T) {
 	if got := admin(); got != "connected" {
 		t.Fatalf("first admin event %q", got)
 	}
-	if _, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: pageID, Name: "Site web"}); err != nil {
+	if _, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{ProjectID: pageID, Name: "Site web"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := public(); got != "status" {
@@ -272,7 +273,7 @@ func TestStatusAPI_WritesGoThroughTheComponent(t *testing.T) {
 	if component.Name != "Nuage bleu" || component.Derived != "" || component.Effective != "" {
 		t.Fatalf("component %+v", component)
 	}
-	recorder = callAPI(server.Server, http.MethodPost, "/api/status/components", map[string]any{"page_id": server.seededPageID(t), "name": "", "members": []any{}})
+	recorder = callAPI(server.Server, http.MethodPost, "/api/status/components", map[string]any{"project_id": server.seededProjectID(t), "name": "", "members": []any{}})
 	if recorder.Code != http.StatusUnprocessableEntity || errorCode(t, recorder) != "component.name_invalid" {
 		t.Fatalf("empty name: %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -292,9 +293,11 @@ func TestStatusAPI_WritesGoThroughTheComponent(t *testing.T) {
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("schedule: %d %s", recorder.Code, recorder.Body.String())
 	}
-	recorder = callAPI(server.Server, http.MethodPut, "/api/status/pages/"+server.seededPageID(t), map[string]any{"slug": seededSlug, "title": "", "announcement": "", "language": "en"})
+	recorder = callAPI(server.Server, http.MethodPut, "/api/directory/projects/"+server.seededProjectID(t), map[string]any{
+		"name": "maison", "title": "", "publication": map[string]any{"slug": seededSlug, "announcement": "", "language": "en"},
+	})
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("page: %d %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("project: %d %s", recorder.Code, recorder.Body.String())
 	}
 	var counts countsResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/counts", nil), &counts)
@@ -426,19 +429,19 @@ func TestAPI_Incident_ShowsOnThePagesWhoseComponentsItTouches(t *testing.T) {
 	server.enroll(t, "vps-paris-1", remoteID)
 	serviceID := server.seedGaps(t)
 	probeID := server.seedProbes(t, serviceID)
-	shop, err := server.status.CreatePage(ctx, status.PageDefinition{Slug: "boutique"})
+	shop, err := server.directory.CreateProject(ctx, directory.ProjectDefinition{Name: "boutique", Publication: directory.PublicationDefinition{Slug: "boutique"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	blog, err := server.status.CreatePage(ctx, status.PageDefinition{Slug: "blog"})
+	blog, err := server.directory.CreateProject(ctx, directory.ProjectDefinition{Name: "blog", Publication: directory.PublicationDefinition{Slug: "blog"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	onShop, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: shop.ID, Name: "Cloud", Members: []status.MemberRef{{Kind: status.KindService, ID: serviceID}}})
+	onShop, err := server.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: shop.ID, Name: "Cloud", Members: []status.MemberRef{{Kind: status.KindService, ID: serviceID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	onBlog, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: blog.ID, Name: "Site", Members: []status.MemberRef{{Kind: status.KindProbe, ID: probeID}}})
+	onBlog, err := server.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: blog.ID, Name: "Site", Members: []status.MemberRef{{Kind: status.KindProbe, ID: probeID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,15 +459,15 @@ func TestAPI_Incident_ShowsOnThePagesWhoseComponentsItTouches(t *testing.T) {
 		opened.Components[0].ID != onShop.ID || opened.Components[1].ID != onBlog.ID {
 		t.Fatalf("targets %+v components %+v", opened.Targets, opened.Components)
 	}
-	for _, page := range []status.Page{shop, blog} {
+	for _, page := range []directory.Project{shop, blog} {
 		var listed incidentsResponse
-		decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/status/incidents?page="+page.ID, nil), &listed)
+		decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/status/incidents?project="+page.ID, nil), &listed)
 		if len(listed.Incidents) != 1 || listed.Incidents[0].ID != opened.ID || len(listed.Incidents[0].Components) != 2 {
-			t.Errorf("incidents of %s: %+v", page.Slug, listed.Incidents)
+			t.Errorf("incidents of %s: %+v", page.Publication.Slug, listed.Incidents)
 		}
 		snapshot, err := server.status.Snapshot(ctx, page.ID)
 		if err != nil || len(snapshot.Open) != 1 || len(snapshot.Open[0].Components) != 1 {
-			t.Errorf("snapshot of %s: %+v %v", page.Slug, snapshot.Open, err)
+			t.Errorf("snapshot of %s: %+v %v", page.Publication.Slug, snapshot.Open, err)
 		}
 	}
 }

@@ -27,7 +27,10 @@ func serviceEvent(action audit.Action, written Service) audit.Event {
 func projectEvent(action audit.Action, written Project) audit.Event {
 	return audit.Event{
 		Action: action, ObjectID: written.ID, ObjectName: written.Name,
-		Details: audit.Details{"title": written.Title},
+		Details: audit.Details{
+			"title": written.Title, "slug": written.Publication.Slug,
+			"announcement": written.Publication.Announcement, "language": string(written.Publication.Language),
+		},
 	}
 }
 

@@ -1,7 +1,7 @@
-import { Link } from "react-router";
+import { Link, Outlet } from "react-router";
 
 import { useJobs } from "../api/jobs";
-import { Button } from "../components/Button";
+import { ActionButton } from "../components/ActionButton";
 import { Card, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
@@ -21,12 +21,12 @@ export function Jobs() {
   return (
     <>
       <PageHead
-        title={t("nav.jobs")}
+        title={t("module.jobs")}
         subtitle={jobs.data ? jobsSubtitle(t, list.length, attention) : ""}
         actions={
-          <Button variant="primary" icon="plus" to="/taches/nouvelle">
+          <ActionButton route="POST /api/jobs" icon="plus" to="/taches/nouvelle">
             {t("job.add")}
-          </Button>
+          </ActionButton>
         }
       />
       {jobs.error && <Failure error={jobs.error} />}
@@ -74,6 +74,8 @@ export function Jobs() {
           </Table>
         </Card>
       )}
+      {/* La fenêtre de l'adresse : surveiller une tâche. */}
+      <Outlet />
     </>
   );
 }

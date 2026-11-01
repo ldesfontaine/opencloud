@@ -37,9 +37,10 @@ type fixture struct {
 	probes     *probe.Service
 	bus        *live.Bus
 	published  *counter
-	// La page « statut » que le banc crée d'abord : un composant naît sur une page.
-	pageID string
-	now    time.Time
+	// Le projet publié « statut » que le banc crée d'abord : un composant naît
+	// sur un projet.
+	projectID string
+	now       time.Time
 }
 
 type counter struct{ count int }
@@ -72,12 +73,20 @@ func newFixture(t *testing.T) *fixture {
 	f.status.SetClock(clock)
 	f.status.AddWatcher(f.published)
 	f.status.SetFeed(f.bus)
-	page, err := f.status.CreatePage(context.Background(), status.PageDefinition{Slug: "statut"})
+	f.projectID = f.publish(t, "statut")
+	return f
+}
+
+// publish crée un projet publié sous ce slug et rend son identifiant.
+func (f *fixture) publish(t *testing.T, slug string) string {
+	t.Helper()
+	project, err := f.directory.CreateProject(context.Background(), directory.ProjectDefinition{
+		Name: slug, Publication: directory.PublicationDefinition{Slug: slug},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.pageID = page.ID
-	return f
+	return project.ID
 }
 
 // seen donne un signe de vie à l'agent de la machine, à l'heure du banc,
@@ -97,7 +106,7 @@ func (f *fixture) seen(t *testing.T, machineID string) {
 
 func (f *fixture) component(t *testing.T, name string, members ...status.MemberRef) status.Component {
 	t.Helper()
-	created, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: f.pageID, Name: name, Members: members})
+	created, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{ProjectID: f.projectID, Name: name, Members: members})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +217,7 @@ func TestDerive_ObjectsThatSayNothingDoNotCount(t *testing.T) {
 	if empty.Derived != status.StateUnknown || empty.Effective != status.StateUnknown {
 		t.Fatalf("a component whose objects say nothing must be unknown, got %q", empty.Effective)
 	}
-	snapshot, err := f.status.Snapshot(context.Background(), f.pageID)
+	snapshot, err := f.status.Snapshot(context.Background(), f.projectID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +395,7 @@ func TestIncident_RefusesWhatMakesNoSense(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", name, err, tc.want)
 		}
 	}
-	if _, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: f.pageID, Name: "x", Members: []status.MemberRef{{status.KindProbe, "nope"}}}); !errors.Is(err, status.ErrMemberInvalid) {
+	if _, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{ProjectID: f.projectID, Name: "x", Members: []status.MemberRef{{status.KindProbe, "nope"}}}); !errors.Is(err, status.ErrMemberInvalid) {
 		t.Errorf("unknown member: %v", err)
 	}
 }
@@ -434,7 +443,7 @@ func TestSnapshot_SaysNothingOfTheObjects(t *testing.T) {
 	if _, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{Title: "Panne du nuage", Impact: status.ImpactDown, Status: status.StatusInvestigating, Message: "On regarde.", Targets: targetsOf(all)}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := f.status.Snapshot(context.Background(), f.pageID)
+	snapshot, err := f.status.Snapshot(context.Background(), f.projectID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +497,7 @@ func TestWatch_RefreshesOnAnyTopicOfTheBus(t *testing.T) {
 	if _, err := f.probes.Create(ctx, probe.Definition{Name: "site", Kind: probe.KindHTTP, Target: "https://site.exemple.fr/", MachineID: machine.LocalID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.status.CreateComponent(ctx, status.ComponentDefinition{PageID: f.pageID, Name: "Site web"}); err != nil {
+	if _, err := f.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: f.projectID, Name: "Site web"}); err != nil {
 		t.Fatal(err)
 	}
 	f.bus.Publish(live.TopicProbes)
@@ -559,7 +568,7 @@ func TestCreateComponent_ConcurrentCreations_StopAtTheCeiling(t *testing.T) {
 		creators.Add(1)
 		go func() {
 			defer creators.Done()
-			_, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: f.pageID, Name: "Site web"})
+			_, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{ProjectID: f.projectID, Name: "Site web"})
 			results <- err
 		}()
 	}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, Outlet, useNavigate, useParams } from "react-router";
 
 import { deleteProbe, fetchProbeDeletePlan, pauseProbe, resumeProbe, useProbe, type Probe, type ProbeResponse, type ProbeResult } from "../api/probes";
 import { Button } from "../components/Button";
@@ -157,6 +157,8 @@ function ProbeView({ response, reload }: { response: ProbeResponse; reload: () =
           <Empty text={t("probe.results_empty")} />
         )}
       </Card>
+      {/* La fenêtre de l'adresse : modifier la sonde. */}
+      <Outlet />
     </>
   );
 }

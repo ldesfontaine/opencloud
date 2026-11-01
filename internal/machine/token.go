@@ -39,6 +39,7 @@ func NewToken(name, machineID string) (string, Token, error) {
 		Prefix:    cleartext[:tokenPrefixLength],
 		Name:      name,
 		MachineID: machineID,
+		Role:      RoleGeneric,
 	}
 	return cleartext, token, nil
 }

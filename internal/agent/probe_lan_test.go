@@ -36,7 +36,7 @@ func probeOnLoopback(t *testing.T, rights string, narrowed bool) probe.Probe {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, _, err := b.machines.CreateToken(context.Background(), "vps-lan-1", granted)
+	token, _, err := b.machines.CreateToken(context.Background(), "vps-lan-1", machine.RoleGeneric, granted)
 	if err != nil {
 		t.Fatal(err)
 	}

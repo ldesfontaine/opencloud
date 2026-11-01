@@ -1,15 +1,14 @@
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Outlet, useNavigate, useParams } from "react-router";
 
-import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, useStatusPages, type Incident } from "../api/status";
+import { useProjects } from "../api/directory";
+import { addIncidentUpdate, deleteIncident, useIncident, useStatusComponents, type Incident } from "../api/status";
 import { Button } from "../components/Button";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
-import { Field, Input, Textarea } from "../components/Field";
-import { FormActions, FormCard } from "../components/FormCard";
-import { ObjectPicker } from "../components/ObjectPicker";
+import { Field, Textarea } from "../components/Field";
+import { FormActions, FormBody } from "../components/FormBody";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { EnumSelect } from "../components/Select";
@@ -19,9 +18,9 @@ import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
 import {
   componentChoiceLabel,
+  editIncidentPath,
+  incidentsPath,
   impactTones,
-  incidentEditFormOf,
-  incidentEditRequestOf,
   incidentTones,
   incidentUpdateFormOf,
   incidentUpdateRequestOf,
@@ -29,7 +28,7 @@ import {
   updateStatusesFor,
 } from "../lib/status";
 import { ago, formatClock } from "../lib/time";
-import "./StatusAdmin.scss";
+import "./StatusIncident.scss";
 
 // La page d'un incident : ses faits, son fil, le formulaire pour y
 // ajouter une entrée, et la correction du titre, des cibles et de la
@@ -44,19 +43,18 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
   const t = useT();
   const now = useNow();
   const navigate = useNavigate();
-  const [editing, setEditing] = useState(false);
   const resolved = incident.status === "resolved";
   const components = useStatusComponents(null).data?.components ?? [];
-  const pages = useStatusPages().data?.pages ?? [];
-  // Les composants que les cibles touchent, avec leur page dès qu'il y en a plusieurs.
-  const shownOn = incident.components.map((touched) => componentChoiceLabel(components.find((component) => component.id === touched.id) ?? { name: touched.name, page_id: "" }, pages));
+  const projects = useProjects().data?.projects ?? [];
+  // Les composants que les cibles touchent, avec leur projet dès qu'il y en a plusieurs.
+  const shownOn = incident.components.map((touched) => componentChoiceLabel(components.find((component) => component.id === touched.id) ?? { name: touched.name, project_id: "" }, projects));
 
   const action = useAction();
 
   const remove = () => {
     action.run(() => deleteIncident(incident.id), {
       topic: "status",
-      onDone: () => void navigate("/page-statut/incidents"),
+      onDone: () => void navigate(incidentsPath),
     });
   };
 
@@ -66,11 +64,9 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
         title={incident.title}
         actions={
           <>
-            {!editing && (
-              <Button icon="settings" onClick={() => setEditing(true)}>
-                {t("incident.edit")}
-              </Button>
-            )}
+            <Button icon="settings" to={editIncidentPath(incident.id)}>
+              {t("incident.edit")}
+            </Button>
             <ConfirmModal
               title={t("incident.delete")}
               question={t("incident.delete_confirm", incident.title)}
@@ -115,16 +111,6 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
           <KeyValue label={t("incident.field_shown_on")} value={listOrDash(shownOn)} />
         </CardBody>
       </Card>
-      {editing && (
-        <EditForm
-          incident={incident}
-          done={() => {
-            setEditing(false);
-            reload();
-          }}
-          cancel={() => setEditing(false)}
-        />
-      )}
       <div className="grid-2">
         <Card>
           <CardHeader title={t("incident.timeline_title")} />
@@ -148,6 +134,8 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
         </Card>
         {!resolved && <UpdateForm incident={incident} reload={reload} />}
       </div>
+      {/* La fenêtre de l'adresse : corriger l'incident. */}
+      <Outlet />
     </>
   );
 }
@@ -177,12 +165,12 @@ function UpdateForm({ incident, reload }: { incident: Incident; reload: () => vo
   };
 
   return (
-    <FormCard
-      onSubmit={save}
-      error={action.error}
-      header={<CardHeader title={t("incident.update_title")} aside={t("incident.update_text")} />}
-      width="fill"
-      actions={
+    <Card>
+      <CardHeader title={t("incident.update_title")} aside={t("incident.update_text")} />
+      <FormBody
+        onSubmit={save}
+        error={action.error}
+        actions={
         <FormActions
           submitLabel={values.status === "resolved" ? t("incident.resolve") : t("incident.update_button")}
           submitIcon="check"
@@ -190,71 +178,14 @@ function UpdateForm({ incident, reload }: { incident: Incident; reload: () => vo
           canSubmit={!saysNothing(values, incident)}
         />
       }
-    >
+      >
       <Field label={t("incident.status_label")} htmlFor="update-status">
         <EnumSelect id="update-status" value={values.status} values={updateStatusesFor(incident.impact)} labelKey="incident.status_" onChange={(status) => change("status", status)} />
       </Field>
       <Field label={t("incident.message_label")} htmlFor="update-message" help={t("incident.update_help")}>
         <Textarea id="update-message" value={values.message} onChange={(event) => change("message", event.target.value)} maxLength={2000} rows={3} />
       </Field>
-    </FormCard>
-  );
-}
-
-// Corriger ce qui se corrige : le titre, les cibles, la fenêtre.
-function EditForm({ incident, done, cancel }: { incident: Incident; done: () => void; cancel: () => void }) {
-  const t = useT();
-  const form = useForm(incidentEditFormOf(incident));
-  const { values, change } = form;
-  const action = useAction();
-  const maintenance = incident.impact === "maintenance";
-  const known = new Map(incident.targets.map((target) => [`${target.kind}:${target.id}`, target.name]));
-
-  const save = () => {
-    const body = incidentEditRequestOf(values, incident.impact);
-    action.run(() => editIncident(incident.id, body), { topic: "status", onDone: done });
-  };
-
-  return (
-    <FormCard
-      onSubmit={save}
-      error={action.error}
-      header={<CardHeader title={t("incident.edit_title")} />}
-      width="fill"
-      actions={
-        <FormActions
-          submitLabel={t("incident.save")}
-          submitIcon="check"
-          busy={action.busy}
-          canSubmit={values.targets.length > 0}
-          cancelLabel={t("incident.cancel")}
-          onCancel={cancel}
-        />
-      }
-    >
-      <Field label={t("incident.title_label")} htmlFor="edit-title">
-        <Input id="edit-title" type="text" value={values.title} onChange={(event) => change("title", event.target.value)} maxLength={120} required />
-      </Field>
-      {maintenance && (
-        <div className="grid-2">
-          <Field label={t("incident.starts_label")} htmlFor="edit-starts">
-            <Input id="edit-starts" mono type="datetime-local" value={values.startsAt} onChange={(event) => change("startsAt", event.target.value)} required />
-          </Field>
-          <Field label={t("incident.ends_label")} htmlFor="edit-ends">
-            <Input id="edit-ends" mono type="datetime-local" value={values.endsAt} onChange={(event) => change("endsAt", event.target.value)} required />
-          </Field>
-        </div>
-      )}
-      <Field label={t("incident.targets_label")} help={t("incident.targets_help")}>
-        <ObjectPicker
-          value={values.targets}
-          onChange={(targets) => change("targets", targets)}
-          labelKeyPrefix="component.kind_"
-          label={t("incident.targets_label")}
-          addLabel={t("incident.add_target")}
-          nameOf={(choice) => known.get(`${choice.kind}:${choice.id}`) ?? t("component.missing")}
-        />
-      </Field>
-    </FormCard>
+      </FormBody>
+    </Card>
   );
 }

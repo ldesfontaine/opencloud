@@ -123,6 +123,17 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
   };
 }
 
+// « Accepter » écrit la proposition telle quelle, sans la repasser par le
+// formulaire : une création quand elle déclare un service neuf, la
+// modification de ce service quand son projet Compose est déjà déclaré (l'id
+// qu'elle porte). Le corps est celui que l'assistant enverrait sans y toucher.
+export function acceptanceOf(proposal: ProposalResponse): { id: string | undefined; body: ServiceRequest } {
+  return {
+    id: proposal.service_id === "" ? undefined : proposal.service_id,
+    body: serviceRequestOf(serviceFormOfDefinition(proposal.definition)),
+  };
+}
+
 // Les valeurs dont part le formulaire d'un service, ou null tant qu'il faut
 // attendre. En édition : le service tel qu'il est gardé, ou la proposition
 // d'adoption quand elle le vise (elle y ajoute les unités qui manquent), une
@@ -158,19 +169,6 @@ export function parsePorts(text: string): string[] {
 
 export function formatUnitPorts(ports: readonly string[]): string {
   return ports.join(", ");
-}
-
-// Le formulaire d'un projet est aussi le corps de sa création comme de son
-// édition : un nom et un titre, rien de ce que le serveur tient seul.
-interface ProjectFormValues {
-  name: string;
-  title: string;
-}
-
-export const emptyProjectForm: ProjectFormValues = { name: "", title: "" };
-
-export function projectFormOf(project: Project): ProjectFormValues {
-  return { name: project.name, title: project.title };
 }
 
 // Un nom de projet par identifiant, pour dire à quels projets appartient
@@ -225,6 +223,21 @@ export function unitKeyOf(unit: ServiceUnit, origin: Origin): string {
   }
 }
 
+// L'unité en une ligne, pour le récapitulatif : ce qui la retrouve parmi ce
+// que la machine montre (selon l'origine), l'image, la version.
+export function unitSummary(unit: UnitFormValues, origin: Origin): string {
+  const key = origin === "container" ? unit.containerName : origin === "binary" ? unit.systemdUnit : unit.name;
+  const image = origin === "binary" ? "" : unit.image;
+  return [key, image, unit.version].filter((part) => part.trim() !== "").join(" · ");
+}
+
+// Les réglages techniques d'une unité (version, ports, dossier de données,
+// empreinte, politique) sont-ils remplis ? Le pli « Avancé » s'ouvre alors :
+// ce qu'une proposition a rempli ne reste pas caché.
+export function hasAdvancedUnitValues(unit: UnitFormValues): boolean {
+  return [unit.version, unit.ports, unit.dataPath, unit.digest].some((value) => value.trim() !== "") || unit.updatePolicy !== "watch";
+}
+
 export function toggled<Value>(values: readonly Value[], value: Value): Value[] {
   return values.includes(value) ? values.filter((candidate) => candidate !== value) : [...values, value];
 }
@@ -234,13 +247,6 @@ export function directorySubtitle(t: Translate, count: number): string {
     return t("directory.subtitle_none");
   }
   return count === 1 ? t("directory.subtitle_one") : t("directory.subtitle", count);
-}
-
-export function projectsSubtitle(t: Translate, count: number): string {
-  if (count === 0) {
-    return t("project.subtitle_none");
-  }
-  return count === 1 ? t("project.subtitle_one") : t("project.subtitle", count);
 }
 
 export function hasLinks(links: ServiceLinks): boolean {

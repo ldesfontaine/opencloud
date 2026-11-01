@@ -1,1 +1,1 @@
-{"projects":[{"id":"prj_ID","name":"client-a","title":"Client A","service_ids":["svc_ID"],"created_at":"2026-09-12T12:00:00Z","updated_at":"2026-09-12T12:00:00Z"}]}
+{"projects":[{"id":"prj_ID","name":"client-a","title":"Client A","service_ids":["svc_ID"],"publication":{"slug":"client-a","announcement":"Maintenance samedi.","language":"fr","public_url":"http://example.com/statut/client-a","published_at":"2026-09-12T12:00:00Z"},"created_at":"2026-09-12T12:00:00Z","updated_at":"2026-09-12T12:00:00Z"}]}

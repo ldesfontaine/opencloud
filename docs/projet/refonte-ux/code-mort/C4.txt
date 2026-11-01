@@ -1,0 +1,17 @@
+# C4 : code mort avant / après (#408)
+
+deadcode -test ./... avant : 0 résultat ; après : 0
+deadcode ./... (ce que seuls les tests appellent) avant : 79 ; après : 79 (mêmes lignes : bancs de test et listes fermées, faux positifs classés au cadrage §2.1). C4 ne touche aucun fichier Go.
+npx knip (web/, sans option) avant : 10 types exportés non utilisés ; après : les mêmes 10 (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup), déjà présents sur dev ; aucun ajouté par C4. SummaryLine n'est pas du ressort de C4 (type de Wizard, hérité).
+
+Supprimé par C4
+- pages/MachineRights.tsx, pages/MachineProxmox.tsx, pages/machines/EnrollmentTokenModal.tsx (remplacés par ReenrollMachine, DeclareProxmoxHost, EnrollFlow)
+- routes front machines/:id/droits, machines/:id/proxmox (page), machines/jeton
+- bouton « Changer les droits » (fiche › Agent) ; entrée « Changer les droits » du menu d'un hôte Proxmox (devenue « Ré-enrôler »)
+- clés de catalogue machine.change_rights, machine.rights_title, machine.token_title, machine.cancel (fr, en)
+- chemin « ré-enrôler sans droits » du front : reenrollMachine exige les droits
+
+Gardé et justifié
+- RightsFields : lu par AddMachine et ReenrollMachine.
+- machine.rights_subtitle, machine.rights_submit : réutilisés par la première étape de ReenrollMachine (textes réécrits).
+- Corps vide de POST …/actions/reenroll côté serveur : le serveur est inchangé (reprend les droits d'avant) ; seul mcp-maison ou un autre client peut l'utiliser, voir le rapport.

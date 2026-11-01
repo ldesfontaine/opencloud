@@ -9,13 +9,13 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
-const tokenColumns = `id, token_hash, token_prefix, name, machine_id, requested_capabilities, created_at, expires_at, consumed_at, agent_id` // #nosec G101 -- des noms de colonnes.
+const tokenColumns = `id, token_hash, token_prefix, name, machine_id, role, requested_capabilities, created_at, expires_at, consumed_at, agent_id` // #nosec G101 -- des noms de colonnes.
 
 func (db *DB) InsertToken(ctx context.Context, t machine.Token) error {
 	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO enrollment_tokens (id, token_hash, token_prefix, name, machine_id, requested_capabilities, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Hash, t.Prefix, t.Name, nullableString(t.MachineID), machine.FormatCapabilities(t.Capabilities),
+		INSERT INTO enrollment_tokens (id, token_hash, token_prefix, name, machine_id, role, requested_capabilities, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Hash, t.Prefix, t.Name, nullableString(t.MachineID), string(t.Role), machine.FormatCapabilities(t.Capabilities),
 		t.CreatedAt.Unix(), t.ExpiresAt.Unix())
 	if err != nil {
 		return fmt.Errorf("insert token: %w", err)
@@ -67,14 +67,15 @@ func (db *DB) PurgeTokens(ctx context.Context, now, consumedBefore time.Time) er
 func scanToken(row scanner) (machine.Token, error) {
 	var t machine.Token
 	var machineID, agentID sql.NullString
-	var requested string
+	var role, requested string
 	var createdAt, expiresAt int64
 	var consumedAt sql.NullInt64
-	err := row.Scan(&t.ID, &t.Hash, &t.Prefix, &t.Name, &machineID, &requested, &createdAt, &expiresAt, &consumedAt, &agentID)
+	err := row.Scan(&t.ID, &t.Hash, &t.Prefix, &t.Name, &machineID, &role, &requested, &createdAt, &expiresAt, &consumedAt, &agentID)
 	if err != nil {
 		return machine.Token{}, err
 	}
 	t.MachineID = machineID.String
+	t.Role = machine.Role(role)
 	t.AgentID = agentID.String
 	if requested != "" {
 		t.Capabilities, _ = machine.ParseCapabilities(requested)

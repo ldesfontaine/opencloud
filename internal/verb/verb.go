@@ -11,8 +11,11 @@ import (
 // Verb est un geste que l'opérateur peut cocher sur un jeton. Route est le
 // motif enregistré de la route d'opérateur qu'il ouvre, « POST /api/... » ;
 // Label et Summary sont des clés de catalogue (fr et en). Reverse est le
-// verbe qui défait celui-ci : obligatoire, un verbe sans inverse reste
-// réservé à l'opérateur. Params sont les segments {…} du chemin, dans
+// verbe qui défait celui-ci : obligatoire, sauf pour un verbe à confirmation.
+// Confirm marque un geste qui ne se défait pas : un jeton qui l'appelle n'agit
+// jamais, il dépose une demande que l'opérateur confirme dans l'interface
+// (internal/verbrequest). Un tel verbe n'a pas d'inverse, et sa route peut
+// être un POST, un PUT ou un DELETE. Params sont les segments {…} du chemin, dans
 // l'ordre ; Target dit ce que le segment {id} désigne, pour juger la portée
 // d'un jeton ; Body les champs JSON que la route attend. Ils sont déclarés et
 // non déduits : le client d'un jeton les lit tels quels, sans parser de texte.
@@ -25,6 +28,7 @@ type Verb struct {
 	Label   string
 	Summary string
 	Reverse string
+	Confirm bool
 }
 
 // Target dit ce que le segment {id} d'un verbe désigne : la machine dont
@@ -58,12 +62,14 @@ func PathParams(route string) []string {
 
 var (
 	ErrIDInvalid      = errors.New("verb: id invalid")
-	ErrRouteInvalid   = errors.New("verb: route must be a POST on /api/")
+	ErrRouteInvalid   = errors.New("verb: route must be a POST on /api/, or a POST, PUT or DELETE for a verb to confirm")
 	ErrCatalogMissing = errors.New("verb: label and summary keys are required")
-	ErrNoReverse      = errors.New("verb: a verb without a reverse cannot be registered")
+	ErrNoReverse      = errors.New("verb: a verb without a reverse cannot be registered unless it asks for a confirmation")
+	ErrConfirmReverse = errors.New("verb: a verb to confirm has no reverse")
 	ErrParamsMismatch = errors.New("verb: params do not match the route path")
 	ErrTargetInvalid  = errors.New("verb: target must be machine, probe or job, and the route must carry {id}")
 	ErrDuplicate      = errors.New("verb: already registered")
+	ErrConfirmTarget  = errors.New("verb: a verb to confirm must target a machine")
 	ErrUnknownReverse = errors.New("verb: reverse is not registered")
 )
 
@@ -80,14 +86,22 @@ func (r *Registry) Register(v Verb) error {
 	if !idPattern.MatchString(v.ID) {
 		return fmt.Errorf("%w: %q", ErrIDInvalid, v.ID)
 	}
-	if !strings.HasPrefix(v.Route, "POST /api/") {
+	if !routeAllowed(v) {
 		return fmt.Errorf("%w: %q", ErrRouteInvalid, v.Route)
 	}
 	if v.Label == "" || v.Summary == "" {
 		return fmt.Errorf("%w: %s", ErrCatalogMissing, v.ID)
 	}
-	if v.Reverse == "" {
+	if v.Confirm && v.Reverse != "" {
+		return fmt.Errorf("%w: %s", ErrConfirmReverse, v.ID)
+	}
+	if !v.Confirm && v.Reverse == "" {
 		return fmt.Errorf("%w: %s", ErrNoReverse, v.ID)
+	}
+	// Le serveur ne sait nommer, dans la demande, que la machine visée ; un
+	// autre objet s'ajoute avec le premier verbe qui le vise.
+	if v.Confirm && v.Target != TargetMachine {
+		return fmt.Errorf("%w: %s", ErrConfirmTarget, v.ID)
 	}
 	if !slices.Equal(v.Params, PathParams(v.Route)) {
 		return fmt.Errorf("%w: %s", ErrParamsMismatch, v.ID)
@@ -113,9 +127,25 @@ func (r *Registry) MustRegister(v Verb) {
 	}
 }
 
-// Check vérifie que chaque inverse est un verbe enregistré.
+// routeAllowed dit si la route est de la forme que le verbe permet : un POST
+// sur /api/, ou, pour un verbe à confirmation, aussi un PUT ou un DELETE.
+func routeAllowed(v Verb) bool {
+	methods := []string{"POST"}
+	if v.Confirm {
+		methods = append(methods, "PUT", "DELETE")
+	}
+	return slices.ContainsFunc(methods, func(method string) bool {
+		return strings.HasPrefix(v.Route, method+" /api/")
+	})
+}
+
+// Check vérifie que chaque inverse est un verbe enregistré. Un verbe à
+// confirmation n'en a pas.
 func (r *Registry) Check() error {
 	for _, v := range r.verbs {
+		if v.Confirm {
+			continue
+		}
 		if _, found := r.Lookup(v.Reverse); !found {
 			return fmt.Errorf("%w: %s -> %s", ErrUnknownReverse, v.ID, v.Reverse)
 		}

@@ -14,7 +14,6 @@ import { List, RowText, RowWhen } from "../components/Table";
 import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
-import { adoptPath, isOrphan } from "../lib/gaps";
 import { findingText, formatBindings, containerPill, isCleanExit, lastStateText, transitionPassage } from "../lib/containers";
 import { modeText } from "../lib/network";
 import { newProbePath } from "../lib/probes";
@@ -44,7 +43,7 @@ function ContainerNotFound() {
         icon="search"
         title={t("container.not_found_title")}
         text={t("container.not_found_text")}
-        action={<Button to="/services/conteneurs">{t("services.tab_containers")}</Button>}
+        action={<Button to="/services">{t("nav.services")}</Button>}
       />
     </>
   );
@@ -62,18 +61,12 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
         subtitle={container.group !== "" && container.group !== container.name ? container.group : ""}
         actions={
           // Une sonde vise le service déclaré : sans lui, il n'y a rien à
-          // surveiller, et le chemin est d'abord d'adopter le conteneur.
-          container.declared_service_id !== "" ? (
+          // surveiller, et le chemin est d'abord d'accepter le conteneur
+          // (la carte Annuaire, plus bas).
+          container.declared_service_id !== "" && (
             <Button icon="globe" to={newProbePath({ service: container.declared_service_id, container: container.id })}>
               {t("probe.watch_service")}
             </Button>
-          ) : (
-            container.archived_at === null &&
-            !isOrphan(response.directory) && (
-              <Button icon="plus" to={adoptPath(container.id)}>
-                {t("gap.adopt")}
-              </Button>
-            )
           )
         }
       />

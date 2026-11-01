@@ -62,13 +62,13 @@ type updateJSON struct {
 // GET /statut/<slug>/api/status : l'instantané de cette page, et d'elle
 // seule.
 func (h *Handler) serveStatus(w http.ResponseWriter, r *http.Request) {
-	page, ok := h.pageOf(w, r)
+	publication, ok := h.publicationOf(w, r)
 	if !ok {
 		return
 	}
-	snapshot, err := h.status.Snapshot(r.Context(), page.ID)
+	snapshot, err := h.status.Snapshot(r.Context(), publication.ProjectID)
 	if errors.Is(err, status.ErrNotFound) {
-		// Supprimée entre les deux lectures.
+		// Dépubliée entre les deux lectures.
 		http.NotFound(w, nil)
 		return
 	}
@@ -82,9 +82,9 @@ func (h *Handler) serveStatus(w http.ResponseWriter, r *http.Request) {
 
 func snapshotToJSON(snapshot status.Snapshot) publicStatusJSON {
 	response := publicStatusJSON{
-		Title:        snapshot.Page.Title,
-		Announcement: snapshot.Page.Announcement,
-		Language:     string(snapshot.Page.Language),
+		Title:        snapshot.Publication.Title,
+		Announcement: snapshot.Publication.Announcement,
+		Language:     string(snapshot.Publication.Language),
 		GeneratedAt:  snapshot.GeneratedAt.UTC(),
 		Global:       string(snapshot.Global),
 		Components:   make([]publicComponentJSON, 0, len(snapshot.Components)),

@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 
+import type { Machine } from "../api/machines";
 import type { Translate } from "../i18n/context";
-import { backupProducer, capabilitiesOf, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
+import { backupProducer, canConfirmDeletion, capabilitiesOf, isArchived, liveMachines, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, isRightsModified, machineSeen, machinesSubtitle, rightsFormOf, rolePatch, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -137,4 +138,54 @@ test("isMachineFormModified : le formulaire neuf est propre, un nom ou un droit 
   expect(isMachineFormModified({ ...emptyMachineForm, name: "vps-1" })).toBe(true);
   expect(isMachineFormModified({ ...emptyMachineForm, rights: ["probe.lan", "docker.deploy"] })).toBe(true);
   expect(isMachineFormModified({ ...emptyMachineForm, rights: [] })).toBe(true);
+});
+
+const sessionRoles = [
+  { id: "generic" as const, capabilities: ["probe.lan"] },
+  { id: "docker" as const, capabilities: ["probe.lan", "docker.deploy", "docker.update"] },
+  { id: "proxmox" as const, capabilities: ["probe.lan", "proxmox.power", "proxmox.snapshot"] },
+];
+
+test("rolePatch : choisir un rôle coche ses droits d'avance, tels que le serveur les dit", () => {
+  expect(rolePatch("docker", sessionRoles)).toEqual({ role: "docker", rights: ["probe.lan", "docker.deploy", "docker.update"] });
+  expect(rolePatch("generic", sessionRoles)).toEqual({ role: "generic", rights: ["probe.lan"] });
+  expect(capabilitiesOf({ ...emptyMachineForm, ...rolePatch("proxmox", sessionRoles) }).map((right) => right.name)).toEqual(["probe.lan", "proxmox.power", "proxmox.snapshot"]);
+});
+
+test("rolePatch : un rôle que la session ne connaît pas ne coche rien", () => {
+  expect(rolePatch("docker", [])).toEqual({ role: "docker", rights: [] });
+});
+
+test("isMachineFormModified : changer de rôle est une saisie", () => {
+  expect(isMachineFormModified({ ...emptyMachineForm, role: "docker" })).toBe(true);
+});
+
+test("isRightsModified : l'ordre des cases ne compte pas, un droit ou un chemin changé si", () => {
+  const initial = rightsFormOf([{ name: "agent.update", paths: [] }, { name: "files.write", paths: ["/srv/a"] }]);
+  expect(isRightsModified({ ...initial, rights: [...initial.rights].reverse() }, initial)).toBe(false);
+  expect(isRightsModified({ ...initial, writePaths: " /srv/a " }, initial)).toBe(false);
+  expect(isRightsModified({ ...initial, rights: ["agent.update"] }, initial)).toBe(true);
+  expect(isRightsModified({ ...initial, writePaths: "/srv/b" }, initial)).toBe(true);
+  expect(isRightsModified({ ...initial, rights: [...initial.rights, "docker.update"] }, initial)).toBe(true);
+});
+
+const archivedAgent = { agent: { revoked_at: "2026-10-31T10:00:00Z" } } as Pick<Machine, "agent">;
+const activeAgent = { agent: { revoked_at: null } } as Pick<Machine, "agent">;
+
+test("une machine est archivée quand son agent est révoqué, pas avant", () => {
+  expect(isArchived(archivedAgent)).toBe(true);
+  expect(isArchived(activeAgent)).toBe(false);
+  expect(isArchived({ agent: null })).toBe(false);
+});
+
+test("les machines attendues sont les non archivées : l'archive reste dans la liste mais ne compte pas", () => {
+  expect(liveMachines([archivedAgent, activeAgent, { agent: null }])).toEqual([activeAgent, { agent: null }]);
+});
+
+test("garder l'historique part tout de suite ; effacer attend le nom tapé tel quel", () => {
+  expect(canConfirmDeletion("vps-paris-1", "", true)).toBe(true);
+  expect(canConfirmDeletion("vps-paris-1", "", false)).toBe(false);
+  expect(canConfirmDeletion("vps-paris-1", "vps-paris", false)).toBe(false);
+  expect(canConfirmDeletion("vps-paris-1", "VPS-PARIS-1", false)).toBe(false);
+  expect(canConfirmDeletion("vps-paris-1", "vps-paris-1", false)).toBe(true);
 });

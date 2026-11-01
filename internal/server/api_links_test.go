@@ -20,7 +20,7 @@ func TestAPI_DeleteLinkedService_Answers409WithThePlan(t *testing.T) {
 	var created declaredServiceJSON
 	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/directory/services", nextcloudRequest(remoteID)), &created)
 	probeCreated := server.createProbeVia(t, probeRequest{Name: "site", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID, ServiceID: created.ID})
-	component, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: storetest.StatusPage(t, server.db, "statut"),
+	component, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{ProjectID: storetest.PublishedProject(t, server.db, "statut"),
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindService, ID: created.ID}},
 	})
 	if err != nil {

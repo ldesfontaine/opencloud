@@ -22,7 +22,7 @@
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
 | Une cible | Une URL ou un port qu'une sonde vérifie, dedans comme dehors | Rien : elle reçoit une requête et répond, c'est tout ce qu'on lui demande |
-| Un visiteur | N'importe qui, dans un navigateur, sans compte | Une page de statut publique, à son adresse `/statut/<slug>` : un petit bundle à part, qui lit l'instantané et le direct publics de cette page, et d'elle seule |
+| Un visiteur | N'importe qui, dans un navigateur, sans compte | La page publique d'un projet publié, à son adresse `/statut/<slug>` : un petit bundle à part, qui lit l'instantané et le direct publics de cette page, et d'elle seule |
 | Un canal | Une URL entrante : Discord, Slack, Mattermost, ntfy, un récepteur à soi ; un salon Matrix ; ou des adresses e-mail | Rien : il reçoit un POST signé, un message du bot dans le salon, ou un e-mail, quand une alerte s'ouvre, s'aggrave ou se résout |
 | Un relais SMTP | Celui de l'opérateur : Gmail, Brevo, l'hébergeur, un Postfix local | Rien : il reçoit d'openCloud les e-mails des canaux e-mail, avec l'identifiant réglé sous Paramètres, et les livre |
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
@@ -125,7 +125,8 @@ dit comment. Une migration de plus part de `002`.
 
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq`, le compte sous lequel il tourne `run_as_uid` et `run_as_name` (nuls tant qu'il ne l'a pas dit) ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport, et `unavailable`, la raison pour laquelle son compte ne peut pas l'exercer, vide s'il le peut), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système, rôle choisi), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq`, le compte sous lequel il tourne `run_as_uid` et `run_as_name` (nuls tant qu'il ne l'a pas dit) ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport, et `unavailable`, la raison pour laquelle son compte ne peut pas l'exercer, vide s'il le peut), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
+| Où tourne chaque machine, `state_dir` | `opencloud.db` | Le type rapporté (`machines.kind`), la correction de l'opérateur (`kind_override`, `host_override`), les cartes réseau (`machine_interfaces` : nom, adresse MAC), les disques physiques (`machine_block_devices` : nom, modèle, taille, nature, amovible), les pools (`machine_storage_pools` : genre, niveau, état, taille, disques) et les grappes d'hyperviseurs (`hypervisor_clusters`, `machine_proxmox.cluster_id`) | Rien de secret : des noms de noyau et des adresses MAC. Chaque rapport de l'agent remplace les listes ; une machine retirée les emporte (cascade), une grappe sans hôte est retirée |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_lookup` garde son SHA-256 ; le chiffré est dans `token_sealed` | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche. La machine d'une tâche, facultative, est en `restrict` : une machine à laquelle une tâche est rattachée ne se retire pas (409 `machine.has_heartbeats`), on détache la tâche d'abord |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code, issue dont « manquée » : un retard sans exécution) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes par heure et par jour dans `machine_rollups` (une ligne par machine, granularité `hour` ou `day` et seau) | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
@@ -144,10 +145,10 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les pages de statut dans `status_pages` (adresse `slug` unique, titre, annonce en texte brut, langue, projet facultatif, une page par projet au plus, en `restrict` vers lui) ; les composants dans `status_components` (leur page, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), les objets qu'ils visent dans `incident_targets` (quatre clés étrangères, exactement une remplie, en `cascade` : un lien seul, l'incident reste), leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens ; la page supprimée emporte ses composants de même. Un incident ne vise pas un composant : il vise des objets, et l'objet supprimé détache l'incident (compté dans le plan), qui garde son texte et son fil. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
+| Machine openCloud, `state_dir` | `opencloud.db` | La publication d'un projet dans `projects` (`slug` unique et non nul : le projet est publié ; annonce en texte brut, langue, `published_at` ; le titre de la page est celui du projet) ; les composants dans `status_components` (leur projet, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), les objets qu'ils visent dans `incident_targets` (quatre clés étrangères, exactement une remplie, en `cascade` : un lien seul, l'incident reste), leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens ; la page supprimée emporte ses composants de même. Un incident ne vise pas un composant : il vise des objets, et l'objet supprimé détache l'incident (compté dans le plan), qui garde son texte et son fil. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`), leur portée dans `api_tokens.machines_limited` et `guests_limited` et les tables `api_token_machines` et `api_token_guests` (migration `023_api_token_reach.sql` : « La portée d'un jeton ») | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne, ses verbes et sa portée ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`), leur portée dans `api_tokens.machines_limited` et `guests_limited` et les tables `api_token_machines` et `api_token_guests` (migration `023_api_token_reach.sql` : « La portée d'un jeton »), et les demandes de verbe à confirmation que ces jetons déposent dans `verb_requests` (migration `025_verb_requests.sql` : « Les verbes à confirmation ») | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne, ses verbes, sa portée et ses demandes en attente ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le SSO n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
@@ -189,8 +190,9 @@ qu'à l'écran qui le montre une fois, puis chez le client qui le garde
 
 ## Comment une machine entre
 
-1. L'opérateur nomme la machine et coche les droits de son agent
-   (« Les droits d'un agent », plus bas). openCloud tire un jeton, en garde
+1. L'opérateur nomme la machine, choisit son rôle (qui coche d'avance les droits
+   de son agent et décide de ses modules) et ajuste les droits (« Les droits
+   d'un agent », plus bas). openCloud tire un jeton, en garde
    l'empreinte et les droits demandés, affiche le clair une seule fois avec la
    commande à coller.
 2. Sur la machine, en deux temps. D'abord la **préparation**, que le serveur
@@ -319,7 +321,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | Droit | Portée | Ce qu'il permet |
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
-| `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à **Changer les droits** (on ne coche rien à la place de l'opérateur) |
+| `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à un ré-enrôlement qui coche le droit (on ne coche rien à la place de l'opérateur) |
 | `agent.update` | — | Les ordres `agent.update` (mettre à jour l'agent depuis le serveur) et `agent.rollback` (revenir à la version précédente) (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire, et ne le fait que sous le lanceur stable |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
@@ -480,33 +482,49 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   `409 action.right_missing`, sans run ni journal. Tant que l'agent n'a rien
   rapporté, l'ordre part et l'agent juge.
 - **Les changer, c'est ré-enrôler** (décision 10, prise le 21 octobre 2026) :
-  fiche › Agent › **Changer les droits**, qui ouvre les droits cochés du jeton
-  courant ; « Créer le jeton » émet un jeton de ré-enrôlement avec les
+  fiche › **Ré-enrôler**, dont la première étape montre les droits cochés du
+  jeton courant ; « Créer le jeton » émet un jeton de ré-enrôlement avec les
   nouveaux (`POST /api/machines/{id}/actions/reenroll`, corps
-  `{capabilities}` ; sans corps, ceux d'avant), et sa ligne porte `-rights`.
+  `{capabilities}` ; sans corps, ceux d'avant : l'écran envoie toujours les
+  droits cochés), et sa ligne porte `-rights`.
   Jouée sur la machine (`identity.json` supprimé), elle installe un nouvel
   agent, l'ancien est révoqué ; la machine et son historique restent. Pas de
   changement signé par une clé de l'opérateur : modifier le fichier à la main
   se voit comme un écart, et c'est le fichier qui s'applique.
 
-### Révoquer un agent
+### Supprimer une machine
 
-`POST /api/machines/{id}/actions/revoke`, bouton « Révoquer l'agent » de la
-fiche, après confirmation. Pour une machine compromise : l'agent est refusé
-**sans supprimer la machine** (revue RSSI, C09).
+`DELETE /api/machines/{id}`, bouton **Supprimer la machine** de la fiche (un seul
+geste, avec la puce `MCP` : c'est le verbe `machine.delete`, à confirmation).
+Corps `{keep_history}` ; vide, `keep_history` vaut faux. La fenêtre
+(`DeleteMachineDialog`) propose **Garder l'historique**, coché d'avance, parce
+que c'est ce qui se défait.
 
-| Ce qui se passe | Ce qui reste |
-| --- | --- |
-| `agents.revoked_at` posé sur l'agent actif ; son flux est coupé (`session_closed`) ; les jetons de ré-enrôlement en attente pour la machine sont annulés, dans la même transaction | La machine, son historique, ses services déclarés, ses sondes et tâches ; l'agent révoqué reste visible sur la fiche, avec sa date de révocation |
-| À sa preuve suivante, l'agent lit `401 revoked` et s'arrête | La machine passe hors ligne et n'est jamais déclarée **perdue** : sans agent actif, il n'y a rien à perdre |
+| | Garder l'historique | Sans historique |
+| --- | --- | --- |
+| Effet | La machine est **archivée** : `agents.revoked_at` posé sur l'agent actif, son flux coupé (`session_closed`), les jetons de ré-enrôlement en attente annulés, dans la même transaction | La machine est effacée, avec ses agents, ses mesures, ses conteneurs et ses clés SSH ; ses alertes restent, détachées |
+| Reste | La machine, son historique, ses services déclarés, ses sondes et tâches ; la fiche montre l'agent révoqué et sa date | Rien de ce qui la nommait : le plan dit ce qui part |
+| Ce qui la retient | Rien : l'archive n'efface rien | Services, sondes, tâches, composants de page publique, plans de sauvegarde : `409` avec le plan (`GET …/delete-plan`) |
+| Confirmation | Un clic | Le nom de la machine, tapé tel quel |
+| Retour arrière | **Ré-enrôler** : même id, même historique, nouvel agent, nouvelle clé ; l'ancien reste révoqué | Aucun |
+| Audit | `agent.revoke` | `machine.delete` |
 
-Refus : `409 machine.no_agent` sans agent actif (déjà révoqué, ou jamais
-enrôlé), `404` pour une machine inconnue. La machine openCloud se révoque
-comme les autres. **Ré-enrôler lève la révocation** : un nouveau jeton, un
-nouvel agent, une nouvelle clé ; l'ancien reste révoqué. Ce que l'agent
-détenait, il le détient encore (sa clé, désormais refusée ; les `.env` des
-services de la machine) : après une compromission, tourner les secrets des
-services de cette machine reste à faire à la main.
+Une machine archivée reste **dans la liste**, avec la pastille « Archivée »
+(neutre, ni en ligne ni hors ligne) ; elle ne compte plus dans « N machines, M
+en ligne », ni dans le compteur du menu, et n'est jamais déclarée **perdue** :
+sans agent actif il n'y a rien à perdre, et son alerte « perdue » ouverte se
+résout à l'archivage. Sur la fiche d'une machine archivée, la fenêtre ne propose
+plus que l'issue définitive. La machine openCloud s'archive et se supprime comme
+les autres.
+
+Refus : `409 machine.no_agent` pour une archive déjà archivée, `404` pour une
+machine inconnue, `400` pour un champ inconnu. **La route
+`POST /api/machines/{id}/actions/revoke` n'existe plus** : « Révoquer l'agent »
+et « Retirer » étaient deux boutons pour deux issues d'un même geste.
+
+Ce que l'agent détenait, il le détient encore (sa clé, désormais refusée ; les
+`.env` des services de la machine) : après une compromission, tourner les
+secrets des services de cette machine reste à faire à la main.
 
 ### La machine openCloud
 
@@ -522,7 +540,130 @@ toujours eue : c'est par lui qu'elle garde son historique.
 | Ensuite | `409 machine.local_enrolled` dès que la machine a, ou a eu, un agent : un agent révoqué ne se réinstalle pas de lui-même. La ligne se redonne par la fiche › **Ré-enrôler**, ou par Ajouter une machine, jouée sur elle (l'empreinte la rattache à `local`) |
 | À chaque démarrage | Le jeton est émis de nouveau tant que la machine n'a jamais eu d'agent : celui d'avant, dont le clair est perdu, expire seul dans l'heure |
 | Hors ligne | Sans le flux de son agent, la machine openCloud est hors ligne, comme les autres ; tant qu'elle n'a pas d'agent actif, elle n'est jamais déclarée **perdue** |
-| Retrait | Comme les autres, par son plan : elle emporte son agent. Au démarrage suivant, sans ligne `local`, le jeton est de nouveau offert |
+| Suppression | Comme les autres : archivée (agent coupé) ou effacée par son plan, qui emporte son agent. Au démarrage suivant, sans ligne `local`, le jeton est de nouveau offert |
+
+## Comment les modules et le rôle d'une machine décident de l'écran
+
+Le menu, les onglets d'une fiche, Paramètres › Modules et la carte « à
+configurer » de la vue d'ensemble ne devinent plus chacun leur condition : ils
+lisent un registre de modules.
+
+| Pièce | Rôle | Où |
+| --- | --- | --- |
+| Liste fermée | `module.ID` (`containers`, `hypervisor`, `guest`, `ssh_keys`, `probes`, `firewall`, `backups`, `jobs`) et sa portée (`machine`, `installation` ; les sondes vivent dans les deux) ; `probes` est le module **Disponibilité** : les sondes et les pages publiques des projets. Libellé et phrase : clés `module.<id>` et `module.<id>_text` des catalogues | `internal/module` |
+| Rôle d'une machine | `machines.role`, liste fermée `machine.Roles()` : `generic`, `docker`, `proxmox`. **Choisi à l'ajout** : le jeton d'enrôlement le porte (`enrollment_tokens.role`), l'enrôlement l'inscrit sur la machine, un ré-enrôlement garde celui de la machine. Il se change sur la fiche (`PUT /api/machines/{id}/role`, carte « Rôle de la machine ») ; l'opérateur seul, aucun jeton d'API ; journal `machine.role` (rôle, rôle d'avant) | `internal/machine/role.go`, migration `024_machine_role.sql` |
+| Préréglage des droits | `machine.RolePreset(rôle)` : `generic` coche `probe.lan` ; `docker` y ajoute `docker.deploy` et `docker.update` ; `proxmox` y ajoute `proxmox.power` et `proxmox.snapshot`. Écrit **une fois**, en Go, et servi par `GET /api/session` (`roles: [{id, capabilities}]`) : l'ajout d'une machine coche ces droits d'avance, l'opérateur les ajuste sous « Avancé ». Le serveur n'ajoute rien de lui-même à ce que la demande porte | `internal/machine/role.go`, `api_session.go` |
+| Présence d'un module de machine | Une règle SQL par module, lue pour toutes les machines à la fois : `containers` = rôle `docker` **ou** un conteneur observé ; `hypervisor` = rôle `proxmox` **ou** un hôte Proxmox déclaré (un hôte déclaré ne perd jamais son onglet) ; `guest` = un invité d'hôte lui est lié ; `ssh_keys` = l'agent a rapporté ses clés ; `probes` = une sonde la vise. Rendue par `GET /api/machines` et `/{id}` (`role`, `modules`) | `internal/store/modules.go` (`MachineModules`) |
+| Configuré (module de l'installation) | Au moins un objet du module existe : un pare-feu, un trousseau ou un plan de sauvegarde, une tâche, une sonde ou un projet publié (Disponibilité). Rendu par `GET /api/counts` (`modules: [{id, configured}]`), **pas** par la session : la session se lit une fois, et le menu doit suivre le premier objet créé (le compteur est relu sur les sujets `machines`, `jobs`, `probes`, `status`, `alerts`, `directory`, `firewalls`, `backups`) | `internal/store/modules.go` (`InstallationModules`) |
+
+Ce que l'écran en fait (`web/src/lib/modules.ts`, le seul lieu qui sait qu'un
+module a une entrée de menu, un onglet ou un premier geste) :
+
+- **Le menu** : Vue d'ensemble, Machines, Pare-feu, Sauvegardes, Services,
+  Disponibilité (sondes, pages publiques et incidents, sous un seul onglet de
+  trois), Tâches planifiées, Alertes, Journal ; en bas,
+  Paramètres, la langue et le thème. Un module de l'installation n'y est que
+  **configuré**. Plus de section « Administration ». Avant la première lecture
+  des compteurs, seules les entrées fixes s'affichent, sans chiffre inventé.
+- **Les onglets d'une fiche** : Résumé, Réseau, Journaux, Agent (la carte de
+  l'agent et ses ordres), et ceux des modules que la machine porte (Conteneurs,
+  Disponibilité, Clés SSH, Hyperviseur). L'adresse d'un onglet reste servie sans
+  son module : un lien gardé ne tombe pas sur une page introuvable.
+- **Les onglets de Machines** : la liste, puis la vue globale de chaque module que
+  l'une des machines porte (aujourd'hui « Accès SSH », `/machines/acces-ssh`).
+  `/cles-ssh` y mène.
+- **Paramètres › Modules** (`/parametres#modules`) : les modules de
+  l'installation, configuré ou « à configurer », avec un bouton vers leur page
+  ou vers leur premier geste. C'est ici qu'un module sans objet se configure :
+  il n'a pas d'entrée de menu avant son premier objet.
+- **La carte « À configurer »** de la vue d'ensemble : les modules de
+  l'installation sans objet, et l'hôte Proxmox d'une machine au rôle Proxmox
+  tant qu'il n'est pas déclaré. Sans rien à faire, elle n'est pas là.
+
+Un rôle ne donne aucun droit et ne déclare rien : il décide de ce que l'écran
+montre. À ne pas confondre avec les `roles` d'une machine (`proxmox_ve`), que
+l'agent reconnaît de lui-même et que l'écran **propose** en bloc « Proxmox
+reconnu » : celui-là se constate, celui-ci se choisit.
+
+**Migration `024`.** `machines.role` et `enrollment_tokens.role`
+(`CHECK (role IN ('generic', 'docker', 'proxmox'))`, défaut `generic`). Les
+machines déjà enrôlées reçoivent leur rôle des faits : `proxmox` si un hôte est
+déclaré (`machine_proxmox`) ou si l'agent a reconnu Proxmox VE
+(`machine_roles`), `docker` sinon si l'agent a trouvé Docker
+(`machine_engines.present`), `generic` sinon. Proxmox l'emporte sur Docker :
+un hôte Proxmox fait souvent tourner Docker aussi. Le test
+`TestMigration024_DeducesTheRoleFromTheFacts` la joue sur une base d'avant.
+
+## Comment openCloud sait où tourne une machine
+
+Une machine peut être du matériel, une VM, un conteneur LXC ou un VPS ; une VM
+a un hôte, et un hôte fait parfois partie d'une grappe. Rien de cela n'est saisi
+à la main : l'agent le rapporte, l'hôte le confirme, l'opérateur corrige.
+
+| Fait | Décidé par | Stocké | Où |
+| --- | --- | --- | --- |
+| Le **type** rapporté (`physical`, `vm`, `lxc`, `unknown`) | L'agent : réponse de `systemd-detect-virt`, traduite par `machine.KindOfVirt`. Absent (Alpine, hors systemd, agent ancien) : `unknown`, jamais deviné | `machines.kind` | `internal/hostinfo`, `internal/machine/kind.go` |
+| Le **type retenu**, rendu à l'écran (`kind`) | Dans l'ordre : la correction de l'opérateur, puis le type de l'invité que l'hôte rapproche (`qemu` = VM, `lxc` = LXC), puis le type rapporté. Une machine rapportée `vm` **sans hôte connu** est un `vps` : on ne peut pas savoir mieux | calculé à la lecture, jamais stocké | `machine.EffectiveKind` |
+| La **correction** du type et de l'hôte | L'opérateur seul : `PUT /api/machines/{id}/placement` (`kind_override`, `host_override`), aucun jeton d'API, journal `machine.placement`. Un hôte désigné est une autre machine, jamais elle-même ni une machine qu'elle porte (`machine.host_invalid`). L'agent ne la défait pas : son rapport ne touche que `machines.kind` | `machines.kind_override`, `machines.host_override` | `Service.SetPlacement` |
+| Les **cartes réseau** de l'agent | L'agent : `/sys/class/net/*/address`, lisible sans root. Les cartes que la machine fabrique (loopback, `docker0`, `veth*`, `br-*`, `virbr*`, `tap*`, `fw*`…) sont écartées : leur adresse change à chaque conteneur | `machine_interfaces` | `hostinfo.Detect` |
+| Les **disques physiques** et les **pools** | L'agent : `/sys/block` (nom, modèle, taille, nature `nvme`/`ssd`/`hdd`/`virtual`/`unknown`, amovible) ; pools = grappes RAID du noyau (`md*`), groupes LVM (taille = disques ou partitions qui les portent) et pools ZFS (état seul). **Aucun relevé SMART** : il viendra comme un droit à part de l'agent (`disks.smart`, `sudo` limité à `smartctl`) | `machine_block_devices`, `machine_storage_pools` ; lus par `GET /api/machines/{id}/storage` | `internal/hostinfo/storage.go` |
+| La **grappe** d'un hôte Proxmox | L'API : `/cluster/status`, entrée `cluster`. Un nœud seul n'en a pas ; un jeton qui ne peut pas la lire laisse le relevé entier, sans niveau « grappe ». Deux hôtes d'une même grappe partagent une ligne | `hypervisor_clusters`, `machine_proxmox.cluster_id` ; une grappe sans hôte est retirée | `internal/proxmox/placement.go` |
+
+**Le signal.** Les cartes, le type, les disques et les pools voyagent dans une
+section du signal, `host`, relue toutes les dix minutes, envoyée quand elle
+change et **à chaque ouverture du flux** (comme `roles` et `ssh_keys`). Un
+rapport hors bornes (`hostinfo.Report.Validate` : adresses MAC en minuscules,
+listes fermées de natures, d'états et de genres de pool, noms de noyau, tailles
+positives, 32 cartes, 128 disques, 64 pools) est refusé **en entier**
+(`bad_host`) et l'ancien reste. Un agent plus ancien ne l'envoie pas : le type
+reste `unknown`, aucun protocole ne change (`ProtocolVersion` inchangé). Rien
+n'est journalisé : c'est une lecture, pas un réglage.
+
+**Le rapprochement agent ↔ invité.** À chaque relevé de l'hôte, chaque invité
+est lié à une machine enrôlée par la clé la plus forte :
+
+1. **La correction de l'opérateur** : une machine posée sur un autre hôte n'est
+   jamais l'invité de celui-ci (elle sort des candidates) ; posée sur cet hôte,
+   elle reste candidate. La correction dit *où* la machine tourne, pas *quelle*
+   VM elle est : elle ne choisit pas l'invité.
+2. **L'adresse MAC** : une adresse d'une carte de l'agent est celle d'une carte
+   de l'invité (`net0: virtio=BC:24:…` d'une VM, `hwaddr=…` d'un conteneur, lus
+   dans `/nodes/{nœud}/{qemu|lxc}/{vmid}/config`). Deux machines pour une même
+   adresse : adresse copiée, elle ne prouve rien et on passe au nom.
+3. **Le nom d'hôte**, gardé en repli (exact d'abord, puis casse différente si une
+   seule machine convient).
+
+Le coût : un appel de plus **par invité** à chaque relevé (une connexion neuve
+chacun, `DisableKeepAlives`), au plus 500 par relevé ; un jeton qui n'a pas
+`VM.Audit` s'arrête au premier refus et le lien retombe sur le nom. Le lien
+suit l'agent avec cinq minutes de retard au plus (le relevé de l'hôte), pas
+instantanément quand un agent rapporte ses cartes.
+
+**Ce que `GET /api/machines` et `/{id}` ajoutent** : `kind` (le type retenu),
+`kind_override` (la correction seule, vide sans), `host` (`{machine_id,
+machine_name, node, source}` — `override` si l'opérateur l'a désigné, `guest` si
+l'hôte la rapproche d'un invité —, ou `null`), et dans `proxmox` : `node`,
+`cluster` (`{id, name}` ou `null`) et `guest_list` (les invités de l'hôte,
+dont ceux qu'aucune machine enrôlée ne porte). L'arbre des machines se construit
+côté navigateur avec cela (`web/src/lib/machineTree.ts`), sans route de plus.
+
+**Ce que l'écran en fait.**
+
+| Écran | Ce qu'il montre | Où |
+| --- | --- | --- |
+| Liste des machines | Un **arbre** : l'hôte, ses invités en retrait (machines enrôlées, puis invités que nul agent ne suit, grisés « sans agent », avec « Enrôler »), la grappe et ses nœuds à partir de **deux nœuds** (un nœud sans agent est une ligne). Une pastille de type, les jauges processeur, mémoire, disque. Ce qui ne répond pas passe en tête avec sa branche. Au-dessus, le **verdict** : teinté seulement si une machine ne répond pas ; les invités sans agent se disent sans alarmer. Les modèles de VM n'entrent pas dans l'arbre. Une boucle d'hôtes désignés à la main ne fait disparaître aucune machine | `web/src/lib/machineTree.ts`, `pages/machines/MachineTree.tsx` |
+| Fiche, colonne de droite | L'**identité** fixe : type (et « corrigé »), hôte (lien, « désigné à la main »), grappe, nœud, adresse, système, agent, et, pour une VM d'un hôte, l'invité, ce que l'hôte lui alloue et sa dernière sauvegarde ; « Corriger » ouvre la fenêtre `/machines/{id}/emplacement` (type, hôte) | `components/MachineIdentity.tsx`, `pages/machines/PlacementMachine.tsx` |
+| Fiche, résumé | Le bloc **À faire** en tête (agent absent ; agent en retard sur le serveur ; droits cochés que le compte ne peut pas exercer ; système en fin de support ; type inconnu ; hôte Proxmox à déclarer ou dont le relevé échoue), un bouton chacun ; sans rien à faire, il n'est pas là. Une machine archivée n'a rien à faire. Puis les tuiles et l'historique, la carte **Stockage** | `lib/machineTodo.ts`, `components/MachineTodoCard.tsx` |
+| Fiche, carte Stockage | Les volumes montés, les **disques physiques** (nom, modèle, nature, taille, amovible), les **pools** (genre, niveau, état, disques, taille ; « — » quand le noyau ne la dit pas), et, pour un hôte, le disque que chaque invité se fait allouer. **Aucun relevé SMART** | `components/MachineStorage.tsx`, `GET /api/machines/{id}/storage` |
+| Fiche, onglet Agent | La carte de l'agent et ses ordres, qui étaient dans le résumé | `pages/Machine.tsx` |
+
+**Migration `026`** (`machine_placement`) : les colonnes `kind`, `kind_override`,
+`host_override`, les tables `machine_interfaces`, `machine_block_devices`,
+`machine_storage_pools`, `hypervisor_clusters`, et `machine_proxmox.cluster_id`.
+Les machines déjà rapprochées d'un invité reçoivent leur type de l'hôte
+(`qemu` → `vm`, `lxc` → `lxc`) ; les autres restent `unknown` jusqu'au premier
+rapport de leur agent. Le test `TestMigration026_DeducesTheKindOfAlreadyLinkedMachines`
+la joue sur une base d'avant.
 
 ## Comment un hôte Proxmox se lit
 
@@ -533,21 +674,24 @@ liste des VM du sélecteur `all`). L'opérateur déclare,
 sur la fiche d'une machine, l'hôte Proxmox qu'elle porte ; openCloud interroge
 l'API de l'hyperviseur et montre ses VM et conteneurs, ses stockages et la
 dernière sauvegarde de chaque VM (onglet « Hyperviseur » de la machine), et, sur
-la fiche d'une machine qui est une de ces VM, l'encadré « Sur l'hôte Proxmox »
-(« VM 5012, 2 vCPU, 2 Gio, dernière sauvegarde le … (233 Mio) »). **Le
+la fiche d'une machine qui est une de ces VM, son identité (« Comment openCloud
+sait où tourne une machine » : hôte, nœud, invité 5012, « 2 vCPU · 2 Gio · 32 Gio »
+alloués, dernière sauvegarde (233 Mio)). **Le
 serveur ne donne aucun ordre à Proxmox** (ses gestes passent par l'agent de
 l'hôte, « Comment un hôte Proxmox agit ») : ni démarrage, ni arrêt, ni sauvegarde lancée, ni
 fichier écrit. **Aucune alerte** ne naît d'un relevé : une VM arrêtée, un
 stockage plein ou une sauvegarde ancienne se lisent, rien ne sonne. Le droit
 d'agir ou d'alerter viendra, s'il vient, d'une décision à part.
 
-**Ce qui est lu.** Quatre appels, tous en `GET` sur `/api2/json` :
+**Ce qui est lu.** Six appels, tous en `GET` sur `/api2/json` :
 
 | Appel | Ce qu'on en garde |
 | --- | --- |
 | `/version` | La version de Proxmox VE. C'est aussi la plus petite lecture qui exige un jeton valide : la déclaration s'en sert |
 | `/cluster/resources?type=vm` | Chaque VM (`qemu`) et conteneur (`lxc`) de toute la grappe : numéro, nom, nœud, état, modèle ou non, vCPU, mémoire et disque **alloués** (pas ce qu'ils consomment) |
 | `/cluster/resources?type=storage` | Chaque stockage, un par nœud pour un stockage local : type, taille, utilisé, libre, contenus acceptés, actif ou non |
+| `/cluster/status` | Le nom de la grappe (entrée de type `cluster`) ; un nœud seul n'en a pas. Un refus n'arrête pas le relevé |
+| `/nodes/{nœud}/{qemu\|lxc}/{vmid}/config` | Les adresses MAC des cartes de l'invité, pour le rapprochement (« Comment openCloud sait où tourne une machine »). Un invité illisible garde ses adresses vides ; un refus arrête ces lectures |
 | `/nodes/{nœud}/storage/{stockage}/content?content=backup` | Les archives de sauvegarde, pour chaque stockage **actif qui accepte les sauvegardes** ; on retient, par VM, la plus récente et sa taille. Le nœud et le stockage viennent de l'API : ils sont échappés avant d'entrer dans le chemin |
 
 **Le rythme.** Un premier relevé part dès la déclaration, puis la boucle
@@ -651,15 +795,15 @@ changement prévient le direct (sujet `machines`), un rapport identique non.
 elle ne demande pas de droit à l'agent, et l'hôte reste « non déclaré » tant que
 l'opérateur n'a pas fourni le jeton.
 
-Sur la fiche d'une machine où Proxmox est reconnu mais non déclaré, un encadré
-dit « {product} a reconnu un hôte Proxmox VE sur cette machine (version …) »,
-explique en une phrase le jeton à créer (rôle `PVEAuditor`, lecture seule) et
-propose « Déclarer un hôte Proxmox ». Le formulaire s'ouvre avec l'adresse de la
-machine sur le port 8006 déjà remplie ; l'identifiant du jeton, son secret et
-l'empreinte restent à l'opérateur. La déclaration est le formulaire de quatre
-champs décrit plus bas, pas l'assistant pas à pas : la direction artistique le
-réserve aux créations de plus de cinq champs. Une fois l'hôte déclaré, le
-relevé est celui d'avant.
+Sur la fiche d'une machine où Proxmox est reconnu (ou que son rôle annonce) mais
+non déclaré, le bloc « À faire » du résumé dit « {product} a reconnu un hôte Proxmox
+VE sur cette machine (version …) », explique en une phrase le jeton à créer (rôle
+`PVEAuditor`, lecture seule) et propose « Déclarer l'hôte ». La fenêtre s'ouvre avec
+l'adresse de la machine sur le port 8006 déjà remplie ; l'identifiant du jeton, son
+secret et l'empreinte restent à l'opérateur. Un hôte déclaré dont le dernier relevé
+a échoué y dit pourquoi, avec un bouton vers l'onglet Hyperviseur. Une VM d'un hôte
+déjà déclaré ne se voit pas proposer d'être un hyperviseur. Une fois l'hôte
+déclaré, le relevé est celui d'avant.
 
 **Qui est quelle machine.** Une VM est rapprochée de la machine enrôlée dont le
 **nom d'hôte** (`hostname`, relevé par l'agent) est égal à son nom : l'égalité
@@ -796,7 +940,7 @@ l'agent qui s'en abstient, pas Proxmox. La limite tient à la lisibilité du
 fichier (`0600`) et à l'agent qui n'obéit qu'à des ordres signés. `VM.Audit` est
 ajouté au rôle pour lire l'état d'une VM : lecture seule. Le droit ne se
 propose que si le rôle `proxmox_ve` est détecté (une machine neuve l'obtient
-par « Changer les droits » une fois enrôlée), et le serveur ne l'impose pas.
+en ré-enrôlant la machine une fois enrôlée), et le serveur ne l'impose pas.
 
 **Ce qui n'est pas fait.** Pas de retour en arrière, de redémarrage, d'arrêt
 forcé, de suppression d'invité ni d'instantané qui garde la mémoire ; pas
@@ -808,7 +952,7 @@ d'ouverture de ces ordres aux jetons d'API (chantier à part) ; commandes
 Un module **générique** : l'interface et l'API ne parlent d'aucune marque, seul
 le **connecteur** (`internal/firewall/opnsense`) connaît l'API d'OPNsense. Un
 autre pare-feu ajoute son genre (`firewall.Kind…`) et son connecteur, sans
-toucher à la page. L'opérateur déclare un pare-feu (page « Pare-feu » du menu) ;
+toucher à la page. L'opérateur déclare un pare-feu (Paramètres › Modules, puis la page « Pare-feu » qui entre au menu avec le premier) ;
 openCloud lit sa version, ses interfaces, ses règles, ses baux DHCP et ses
 passerelles, pour l'opérateur et pour les agents IA (jeton d'API, donc
 mcp-maison). **Lecture seule** : aucun ordre n'est donné au pare-feu, aucune
@@ -1293,12 +1437,13 @@ backup.source_offline`, `backup.source_right_missing`, `backup.selector_needs_li
 `backup.destination_agent_outdated` et `backup.run_in_progress` (« Une source
 produite par un agent »).
 
-**L'interface** : la page **Sauvegardes** (`/sauvegardes`, sous
-« Administration ») : la clé, les destinations (avec la pastille du droit de
+**L'interface** : la page **Sauvegardes** (`/sauvegardes`, au menu une fois
+le module configuré) : la clé, les destinations (avec la pastille du droit de
 leur agent), puis la liste des plans, chacun avec son état, « Sauvegarder
-maintenant », « Modifier » et « Supprimer le plan », et le formulaire
-d'ajout ou de modification (le sujet et le type de source ne changent plus une
-fois le plan créé). Routes : `GET /api/backups` (`plans: []`), `POST
+maintenant », « Modifier » et « Supprimer le plan ». La clé, une destination
+et un plan s'ajoutent ou se modifient dans une fenêtre (« Les fenêtres d'une
+saisie »), le plan par le bouton principal de l'en-tête ; le sujet et le type
+de source ne changent plus une fois le plan créé. Routes : `GET /api/backups` (`plans: []`), `POST
 /api/backups/keyring`, `POST`/`DELETE /api/backups/destinations[/{id}]`,
 `PUT`/`DELETE /api/backups/plans/{subject}`, `POST
 /api/backups/plans/{subject}/actions/run`. Sujet du direct : `backups` (et
@@ -2077,9 +2222,20 @@ le rapprochement des deux est dit dans la section suivante.
   `GET/POST /api/directory/projects`, `GET/PUT/DELETE
   /api/directory/projects/{id}`, et le plan de chaque suppression en `GET
   …/{id}/delete-plan`. Les refus sont des clés de catalogue
-  (`directory.*`, `project.*`) en 422, 404 si l'objet n'existe pas.
+  (`directory.*`, `project.*`) en 422, 404 si l'objet n'existe pas ; un nom,
+  un projet Compose ou un conteneur déjà déclarés sur la machine
+  (`directory.name_taken`, `compose_project_taken`, `match_key_taken`) sont un
+  **409** : c'est un état, la même demande passerait ailleurs. `DELETE
+  /api/directory/services/{id}?ignore=true` supprime le service puis ignore ce
+  que ses conteneurs laissent (voir « Les propositions »).
 - **L'interface** : l'onglet Annuaire et l'onglet Projets de la page Services,
-  la fiche d'un service et le formulaire (déclaration et édition).
+  la fiche d'un service et l'assistant (déclaration et édition, « Les fenêtres
+  d'une saisie »). **Il n'y a plus d'onglet Conteneurs** : la liste des
+  services montre, par service, le nombre de ses conteneurs
+  (`declared_service_id` de `GET /api/containers`, groupés par
+  `lib/containers.ts`) et les déplie sous sa ligne ; un conteneur qu'aucun
+  service ne porte est dans la section « Propositions ». `/services/conteneurs` mène à
+  `/services` ; la fiche d'un conteneur (`/services/conteneurs/{id}`) reste.
 
 **La reprise de l'existant** (l'ancienne migration 024, qui repointait sur
 l'annuaire les sondes, composants et politiques qui visaient un conteneur, et
@@ -2133,7 +2289,7 @@ label se lit à la machine de l'agent, et le service déclaré à sa propre
 machine : un label vers un service d'une autre machine est donc orphelin.
 
 **Un label orphelin** est un conteneur non déclaré, avec le motif que la fiche
-et la liste « Non déclarés » montrent (`label_problem`), dans l'ordre où il est vérifié :
+et la section « Propositions » montrent (`label_problem`), dans l'ordre où il est vérifié :
 
 | Motif | Quand |
 | --- | --- |
@@ -2232,32 +2388,57 @@ par la clé qu'on peut ignorer : le projet Compose (`compose_project`), à défa
 le nom du conteneur (`container_name`). Un groupe dont le projet Compose est
 déjà déclaré sur la machine porte l'identifiant de ce service.
 
-- **Adopter** (`GET /api/directory/proposal?container=<id de fiche>`) : le
+- **La proposition** (`GET /api/directory/proposal?container=<id de fiche>`) : le
   serveur lit le conteneur et ses voisins du même projet et rend une
-  définition au format du corps de la création, que le formulaire reprend.
-  Rien n'est écrit. Projet Compose non déclaré : un service d'origine Compose,
+  définition au format du corps de la création. Rien n'est écrit. Projet Compose non déclaré : un service d'origine Compose,
   une unité par service Compose du projet. Projet déjà déclaré : la réponse
   porte `service_id` et la définition du service, ses identifiants d'unités
   compris, plus les unités qui manquent (sans identifiant, comme l'édition
-  l'attend) ; le formulaire s'ouvre alors en édition de ce service. Conteneur
+  l'attend). Conteneur
   sans projet : un service « conteneur seul ». L'image se propose sans tag ni
   empreinte, la version vient du tag sauf `latest`, les ports de ceux que
   Docker publie. Au plus 32 unités par proposition, celle du conteneur demandé toujours
-  retenue en tête ; un projet plus gros s'adopte en plusieurs fois. Un
+  retenue en tête ; un projet plus gros s'accepte en plusieurs fois. Un
   service déjà déclaré avec 32 unités ne peut plus rien recevoir : 409
   `directory.units_full`. 404 `directory.container_not_found` si la fiche a
   disparu, 409 `directory.container_declared` si elle est déjà rattachée,
+  409 `directory.container_ignored` si l'opérateur l'ignore,
   409 `directory.container_labelled` si elle porte un label (orphelin, voir plus haut).
+- **Accepter** : le front relit la proposition à l'instant d'écrire, puis
+  l'envoie telle quelle à `POST /api/directory/services` (déclaration neuve) ou
+  à `PUT /api/directory/services/{id}` (le projet Compose est déjà déclaré :
+  les unités qui manquent s'ajoutent). Il n'y a pas de route d'acceptation :
+  c'est le chemin unique de la déclaration, `declared_by = operator`.
+  **Modifier avant d'accepter** ouvre l'assistant « Déclarer un service »
+  pré-rempli par la même proposition (`/services/annuaire/nouveau?container=`).
 - **Ignorer** (`POST /api/directory/ignored`, corps `machine_id`, `kind`,
-  `value`) : une ligne de `ignored_keys`, idempotente. Le groupe reste dans la
-  liste, derrière « Montrer les ignorés », et ne compte plus parmi les
+  `value`) : une ligne de `ignored_keys`, idempotente. Le groupe passe sous
+  « Ignorés (n) », replié sous les propositions, et ne compte plus parmi les
   conteneurs à régler. `DELETE /api/directory/ignored?machine=&kind=&value=`
-  le retire (404 `directory.ignore_not_found`). Un refus de forme est un 422
+  le retire (404 `directory.ignore_not_found`) : il redevient une proposition. Un refus de forme est un 422
   `directory.ignore_invalid`.
-- **L'interface** : la colonne « Écart » de l'onglet Annuaire, la liste « Non
-  déclarés » dessous (masquée quand un projet est choisi : un projet ne regroupe
-  que du déclaré), l'écart par unité et les conteneurs rattachés sur la fiche
-  d'un service déclaré, la carte « Annuaire » sur la fiche d'un conteneur.
+- **L'interface** : la colonne « Écart » de l'onglet Annuaire, la section
+  « Propositions » **au-dessus** (absente s'il n'y a ni proposition ni ignoré ;
+  masquée quand un projet est choisi : un projet ne regroupe que du déclaré),
+  l'écart par unité et les conteneurs rattachés sur la fiche
+  d'un service déclaré, la carte « Annuaire » sur la fiche d'un conteneur
+  (mêmes gestes : Accepter, Modifier avant d'accepter, Ignorer).
+
+**Une proposition ne revient ni ne disparaît par surprise.** Elle se calcule à
+chaque lecture depuis les conteneurs observés ; aucune table ne la garde, et
+**rien n'est écrit dans l'annuaire sans un geste de l'opérateur** (ni service,
+ni projet, ni clé ignorée : l'agent ne fait que rapporter des conteneurs).
+
+| Cas | Ce qui se passe |
+| --- | --- |
+| Proposition ignorée | Ne revient pas tant que la clé existe ; la clé suit le projet Compose ou le nom du conteneur, pas l'identifiant Docker : recréer le conteneur n'y change rien |
+| Accepter une proposition ignorée entre-temps | 409 `directory.container_ignored`, la liste se relit |
+| Accepter deux fois | Le second `POST` reçoit 409 (`directory.name_taken` ou `compose_project_taken`), aucun doublon ; la proposition relue dit 409 `container_declared` |
+| `apply` d'un fichier qui ne liste pas une clé ignorée | Sans `--prune`, la clé est gardée et dite « hors fichier ». Avec `--prune`, le **plan nomme** la clé (`delete ignored/…`) et l'application la retire : la proposition revient, nommée avant |
+| `apply` d'un fichier qui ne liste pas un service accepté | Un service comme les autres : gardé sans `--prune`, supprimé avec `--prune` et nommé au plan ; ses conteneurs tournent encore, il redevient une **proposition**, jamais un service |
+| Supprimer un service accepté depuis l'interface | Il redevient une proposition ; **Supprimer et ignorer** (`DELETE …/services/{id}?ignore=true`) le supprime puis ignore sa clé (le projet Compose, ou chaque nom de conteneur ; rien pour un binaire). Le service part d'abord : un refus (des sondes le visent) n'ignore rien |
+| La machine disparaît | Ses clés ignorées partent avec elle (`ON DELETE CASCADE`) |
+
 - **Les sujets du direct** : l'écart croise l'annuaire et les conteneurs ; il se
   relit quand l'un ou l'autre change. La fiche d'un conteneur suit aussi
   l'annuaire.
@@ -2282,7 +2463,7 @@ propositions) sont régénérés, la lecture ne les lit pas.
   l'interface.
 - **Avec propositions.** `opencloud export -propose` (route `?propose=1`) ajoute à la fin du fichier
   ce que les conteneurs non déclarés laissent deviner, avec le calcul de
-  « Adopter » (`directory.ProposeAll`) : un service nouveau par groupe adoptable
+  « Accepter » (`directory.ProposeAll`) : un service nouveau par groupe adoptable
   non ignoré, **sans `id`** et précédé d'un commentaire « Proposé depuis des
   conteneurs non déclarés : relisez avant apply », et, pour un projet Compose
   déjà déclaré, les unités qui manquent à la fin de son entrée, chacune
@@ -2407,8 +2588,9 @@ que la base garde sans que le fichier le nomme.
 - **`--prune` ne touche jamais une machine**, et supprimer un service, une
   sonde ou une tâche que des composants de statut visent est refusé dans le
   plan, avec leur liste (`prune_blocked`) : le fichier ne porte pas les
-  composants, il ne peut pas les détacher. De même, supprimer un projet qui a
-  sa page de statut est refusé dans le plan (`prune_status_page`). Le plan d'`apply` lit pour cela le
+  composants, il ne peut pas les détacher. De même, supprimer un projet publié
+  est refusé dans le plan (`prune_published`) : le fichier ne porte pas la
+  publication, et la suppression emporterait sa page publique sans bruit. Le plan d'`apply` lit pour cela le
   plan de suppression du domaine (`DeletePlan`, `DeleteServicePlan`, `DeleteProjectPlan`), celui
   que le geste rejoue : `apply` supprime par le même `Delete`, qui refuserait
   de la même façon. Ce qu'une suppression emporte est affiché avant : les
@@ -3063,26 +3245,34 @@ ne dit plus rien de la cible.
 
 ## Comment une page de statut est publiée
 
-Un visiteur ne connaît pas openCloud. **Il y a autant de pages que
-l'opérateur en crée**, chacune à son adresse `/statut/<slug>` (minuscules,
-chiffres et tirets ; « api » est réservé), avec son titre, son annonce, sa
-langue et ses composants ; une page peut être rangée dans un projet, une par
-projet au plus. Chaque page est servie par le même binaire, sur le même
-port, derrière Traefik, sans compte : un bundle à part, sans une ligne de
-l'administration, qui lit son slug dans l'adresse. Elle porte les jetons,
-la typographie et les pastilles de la direction artistique, sans la barre
-latérale, dans la langue que l'opérateur a réglée pour elle (vide : celle de
-l'interface) — un visiteur ne choisit pas —, en clair ou en sombre selon son
-système. **Une page ne révèle pas les autres** : `/statut` seul mène à la
-page s'il n'y en a qu'une (`302`), sinon répond `404`, jamais une liste ; une
-adresse inconnue répond `404` comme tout chemin inconnu.
+Un visiteur ne connaît pas openCloud. **La page est la publication d'un
+projet** : un projet est publié quand il a une adresse `/statut/<slug>`
+(minuscules, chiffres et tirets ; « api » est réservé), une annonce, une
+langue. Son titre est celui du projet (à défaut son nom). Le projet se publie,
+se modifie et se dépublie par son assistant (Services › Projets), qui écrit par
+`PUT /api/directory/projects/{id}` (`publication`, nul : pas de page) ; le
+composant `status` ne fait que lire. Chaque page est servie par le même binaire,
+sur le même port, derrière Traefik, sans compte : un bundle à part, sans une
+ligne de l'administration, qui lit son slug dans l'adresse. Elle porte les
+jetons, la typographie et les pastilles de la direction artistique, sans la
+barre latérale, dans la langue que l'opérateur a réglée pour elle (vide :
+celle de l'interface) — un visiteur ne choisit pas —, en clair ou en sombre
+selon son système. **Une page ne révèle pas les autres** : `/statut` seul mène
+à la page s'il n'y en a qu'une (`302`), sinon répond `404`, jamais une liste ;
+une adresse inconnue, ou celle d'un projet dépublié, répond `404` comme tout
+chemin inconnu.
 
-1. **Un composant** appartient à une page, choisie à sa création et qui ne
+1. **Un composant** appartient à un projet, choisi à sa création et qui ne
    change plus, a un nom public et regroupe des objets qu'openCloud
    surveille déjà : une machine, un service, une tâche, une sonde. Le
    certificat n'est pas un objet, c'est un fait de la sonde : rattacher
    une sonde rattache son certificat. Le nom est le seul mot d'openCloud
-   qui sort en public.
+   qui sort en public. **Un projet publié sans composant saisi en montre un par
+   service du projet**, nommé comme lui : rien n'est écrit, la liste se lit à
+   chaque instantané (ajouter un service au projet ajoute son composant), et
+   saisir un premier composant les remplace tous. L'identifiant public d'un
+   composant implicite est un condensé du projet et du service, jamais le
+   service lui-même.
 2. **Son état se dérive** de ses objets, à la lecture, jamais stocké : le
    pire l'emporte. Un objet qui ne dit rien de la cible ne compte pas ;
    un composant dont aucun objet ne compte est **caché du public** et
@@ -3221,21 +3411,25 @@ places que personne ne lit. Si le direct est refusé ou coupé, la page se
 relit seule toutes les minutes (`/statut/<slug>/api/status`) et retente le direct
 toutes les cinq ; elle ne reste plus figée sur un état périmé.
 
-L'administration vit dans la coquille, sous l'entrée « Pages de statut », à
-l'adresse `/page-statut`, en trois onglets : les pages (liste, création,
-modification, suppression par son plan : la page emporte ses composants et
-leurs membres ; les incidents ne visent pas de composant, ils restent), les composants d'une page
-choisie (`?page=<id>`, avec le lien vers sa page publique), les incidents de
-toutes les pages. L'API : `GET`/`POST /api/status/pages`,
-`GET`/`PUT`/`DELETE /api/status/pages/{id}`,
-`GET /api/status/pages/{id}/delete-plan`, `GET /api/status/components?page=<id>`
-(sans le paramètre : tous), `GET /api/status/incidents?page=<id>` (ceux qui
-touchent un composant de la page). Le compteur
+L'administration vit dans la coquille, sous l'entrée **Disponibilité**, à
+l'adresse `/disponibilite`, en trois onglets : les sondes, les pages publiques
+(un projet publié par ligne, avec son adresse et son état d'ensemble) et les
+incidents. Un clic sur une page ouvre ses composants
+(`/disponibilite/pages/<projet>`, avec le lien vers sa page publique et ses
+composants implicites marqués) ; les composants et les incidents se saisissent
+dans une fenêtre de la page qui reste en fond (« Les fenêtres d'une saisie »).
+L'API : `GET /api/status/components?project=<id>` (sans le paramètre : tous),
+`GET /api/status/incidents?project=<id>` (ceux qui touchent un composant du
+projet), `POST`/`PUT`/`DELETE /api/status/components…` et
+`…/incidents…` ; la lecture des projets et de leur publication est
+`GET /api/directory/projects` (ouverte aux jetons en lecture). Supprimer un
+projet publié emporte sa page, ses composants et leurs membres ; les incidents
+ne visent pas de composant, ils restent. Le compteur
 rouge de la barre latérale est le nombre d'incidents ouverts. Elle est
 protégée par l'authentification de l'interface quand elle est activée,
 comme le reste ; la page publique, elle, est publique par conception. Un titre fait 120 caractères
 au plus, une annonce 500, un message 2 000, en texte brut échappé par le
-navigateur ; 64 pages au plus, 64 composants par page, 64 objets par composant.
+navigateur ; 64 projets publiés au plus, 64 composants par projet, 64 objets par composant.
 
 ## Comment une alerte naît, se tait et part
 
@@ -3299,18 +3493,19 @@ liste vit dans `internal/alert`.
    un titre sans la case, ou la case sans titre, est refusé
    (`silence.announce_invalid`). Un silence ne se modifie pas : on le
    supprime et on le recrée.
-5. **Acquitter** ne ferme rien : l'alerte sort du compteur rouge et reste
-   ouverte jusqu'à sa reprise. Une aggravation la ré-arme. L'onglet
-   Ouvertes regroupe les alertes par machine (en-tête avec leur nombre) et
-   porte une case par alerte, une par machine et « Tout sélectionner » ;
-   « Acquitter la sélection » ou « Acquitter tout ce qui est affiché »
-   partent en une requête, `POST /api/alerts/actions/acknowledge` avec
-   `{"ids":[…]}` : 200 identifiants au plus, une seule instruction SQL donc
-   une transaction, refus `alert.selection_empty` ou
-   `alert.selection_too_large`. Une alerte déjà acquittée, résolue ou
-   disparue entre l'affichage et le clic est passée sans refus ; la
-   réponse dit combien ont changé, et la page l'écrit (« 4 alertes
-   acquittées »). L'acquittement unitaire reste.
+5. **Marquer comme vue** (l'acquittement de l'API) ne ferme rien : l'alerte
+   sort du compteur rouge et reste ouverte jusqu'à sa reprise. Une
+   aggravation la ré-arme, elle redevient non vue. La boîte de réception
+   (`/alertes`) liste les **non vues** en tête, groupées par machine (en-tête
+   avec leur nombre), avec une case par alerte, une par machine et « Tout
+   sélectionner » ; « Marquer la sélection comme vue » ou « Marquer tout ce qui
+   est affiché comme vu » partent en une requête,
+   `POST /api/alerts/actions/acknowledge` avec `{"ids":[…]}` : 200
+   identifiants au plus, une seule instruction SQL donc une transaction, refus
+   `alert.selection_empty` ou `alert.selection_too_large`. Une alerte déjà
+   vue, résolue ou disparue entre l'affichage et le clic est passée sans
+   refus ; la réponse dit combien ont changé, et la page l'écrit (« 4 alertes
+   marquées comme vues »). Le geste unitaire reste.
 6. **Un canal est un webhook** : une URL, un format de corps, un secret de
    signature facultatif, une gravité minimale, et s'il veut aussi la
    résolution. Chaque envoi est un POST qui porte `OpenCloud-Event` et,
@@ -3441,7 +3636,7 @@ Deux gravités et pas trois : un ton de plus ne dirait rien de plus à qui
 doit agir. Les seuils sont ceux du produit, tenus dans `internal/alert`,
 sauf ceux du disque, réglables.
 
-**Les seuils du disque** se règlent sous Paramètres, section Alertes
+**Les seuils du disque** se règlent sous Paramètres, section Notifications
 (`GET`/`PUT /api/settings/disk`) : attention et danger, entiers,
 **50 ≤ attention < danger ≤ 99**, sinon refus `settings.disk_invalid`. Le
 retour n'est pas un champ : il suit l'attention, cinq points dessous, ce
@@ -3474,17 +3669,29 @@ couleur sur les mêmes chiffres que l'alerte.
 | `email` | Un e-mail `multipart/alternative` : texte brut (titre, cause, geste, lien) et HTML sans style ni image, UTF-8 en quoted-printable ; le HTML est échappé | Toute boîte e-mail, par le relais de l'opérateur |
 | `matrix` | Un `m.room.message` : `msgtype: m.text`, `body` en texte brut (titre, cause, geste, lien), `format: org.matrix.custom.html` et `formatted_body` (titre en gras, lien « Ouvrir dans openCloud ») | Un salon Matrix, Element ou tout client, par un bot |
 
-La page Alertes vit sous `/alertes` : ouvertes, acquittées, résolues,
-puis Canaux et Silences (`GET`, `POST /api/alerts/mutes`,
-`DELETE /api/alerts/mutes/{id}` ; l'onglet dit l'état, en cours, planifié ou
-expiré, et l'auteur). « Faire taire » depuis une alerte pré-remplit le
-silence : son type, et ce qui porte son objet (le service déclaré d'un
-conteneur, la machine d'un volume). Le compteur de la barre latérale compte les
-ouvertes, en rouge tant qu'une n'est pas acquittée ; la tuile Alertes de la
-vue d'ensemble donne le nombre d'ouvertes et, sur une ligne, ce qui reste à
-acquitter et la plus urgente (non acquittée d'abord, puis la plus grave, puis la
-plus récente). Le sujet `alerts` du direct relit
-tout. 200 alertes par liste, 32 canaux au plus.
+La page Alertes (`/alertes`) est une **boîte de réception** : une seule
+liste, les **non vues** en tête, les **vues** dessous, les **résolues** repliées
+au bas (l'historique, 90 jours). Des filtres remplacent les onglets : gravité,
+type, machine, service ; ils vivent dans l'adresse
+(`?gravite=danger&genre=disk_full&machine=…&service=…`) et s'appliquent côté
+client aux deux listes, bornées à 200 par le serveur (aucune route ne change).
+Chaque section porte la pastille de son compteur ; le compteur de la barre
+latérale compte les ouvertes, en rouge tant qu'une n'est pas vue. Les **canaux**
+(`GET`, `POST /api/alerts/channels`…) et les **silences** (`GET`, `POST
+/api/alerts/mutes`, `DELETE /api/alerts/mutes/{id}` ; l'état, en cours,
+planifié ou expiré, et l'auteur) se règlent sous **Paramètres › Notifications**,
+avec les seuils du disque : l'ajout et la modification d'un canal, et la pose
+d'un silence, sont des fenêtres à leur adresse (`/parametres/canaux/nouveau`,
+`/parametres/canaux/:id`, `/parametres/silences/nouveau`) ; supprimer un canal
+passe par une fenêtre de confirmation. Les anciennes adresses
+(`/alertes/canaux…`, `/alertes/silences…`, `/alertes/acquittees`,
+`/alertes/resolues`) et l'ancre `#alertes` sont redirigées. « Faire taire »
+depuis une alerte ou un service ouvre la fenêtre pré-remplie : son type, et ce
+qui porte son objet (le service déclaré d'un conteneur, la machine d'un
+volume). La tuile Alertes de la vue d'ensemble donne le nombre d'ouvertes et,
+sur une ligne, ce qui reste à voir et la plus urgente (non vue d'abord, puis la
+plus grave, puis la plus récente). Le sujet `alerts` du direct relit tout.
+200 alertes par liste, 32 canaux au plus.
 
 ## Comment l'opérateur entre dans l'interface
 
@@ -3789,6 +3996,7 @@ configuration seule est servie.
 | Jeton `write` qui ne porte pas le verbe de la route | `403 api_token.verb_forbidden`, journalisé (`api_token.deny`) |
 | Jeton `write` qui porte le verbe, trop vite | `429` avec `Retry-After` (« Le débit d'un jeton ») |
 | Jeton `write` qui porte le verbe | La route de l'opérateur s'exécute, telle quelle ; la réponse prend la forme du contrat des verbes |
+| Jeton `write` qui porte un verbe **à confirmation** | Rien ne s'exécute : une demande est déposée, `202` (« Les verbes à confirmation ») |
 
 Le dernier usage du jeton est noté **au plus une fois par minute** : mcp-maison
 peut enchaîner les lectures. Le `Host` de la requête est jugé comme celui de
@@ -3809,7 +4017,7 @@ liste blanche : une route ajoutée plus tard est fermée aux jetons par défaut.
 | Conteneurs | `/api/containers`, `/api/containers/{id}`, `…/logs` |
 | Annuaire | `/api/directory/services`, `/api/directory/gaps`, `/api/manifest/export` |
 | Tâches, sondes | `/api/jobs`, `/api/jobs/{id}`, `/api/probes`, `/api/probes/{id}` |
-| Pages de statut | `/api/status/pages`, `/api/status/pages/{id}`, `/api/status/components`, `/api/status/incidents` |
+| Disponibilité publique | `/api/directory/projects`, `/api/directory/projects/{id}` (la publication y est lue), `/api/status/components`, `/api/status/incidents` |
 | Alertes | `/api/alerts`, `/api/alerts/{id}`, `/api/alerts/channels` |
 | Journal, ordres | `/api/audit`, `/api/actions` |
 | Le jeton lui-même | `/api/token/verbs` (« Les verbes d'un jeton en écriture ») |
@@ -3825,8 +4033,10 @@ Un **verbe** est un geste que l'opérateur coche sur un jeton `write`
 fermée : chaque verbe a un identifiant stable, la **route d'opérateur** qu'il
 ouvre, un libellé et une phrase de catalogue (`fr` et `en`) et **son verbe
 inverse**. Un verbe sans inverse ne peut pas être enregistré (`verb.Register`
-le refuse, `Check` vérifie que chaque inverse existe, un test le tient) : pour
-l'instant, un jeton ne reçoit que des gestes qu'on peut défaire.
+le refuse, `Check` vérifie que chaque inverse existe, un test le tient), à une
+exception : le **verbe à confirmation** (`Verb.Confirm`), qui n'a pas d'inverse
+parce qu'il n'agit jamais seul. Il remplace l'inverse par la confirmation de
+l'opérateur (« Les verbes à confirmation »).
 
 | Verbe | Route d'opérateur | Inverse |
 | --- | --- | --- |
@@ -3841,6 +4051,7 @@ l'instant, un jeton ne reçoit que des gestes qu'on peut défaire.
 | `proxmox.vm.shutdown` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown` | `proxmox.vm.start` |
 | `proxmox.vm.snapshot` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot` | `proxmox.vm.snapshot_delete` |
 | `proxmox.vm.snapshot_delete` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete` (corps `{"snapshot":"oc-…"}`) | `proxmox.vm.snapshot` |
+| `machine.delete` | `DELETE /api/machines/{id}` | aucun : **à confirmation** |
 
 Les deux verbes d'agent (« Comment un agent se met à jour ») agissent aussi sur des machines : `agent.update` envoie à l'agent la version que le serveur a déjà importée et que la clé de l'opérateur a signée, **une machine à la fois** (`409 action.update_in_progress` pour une seconde), et seulement à un agent qui revient seul en arrière (`409 action.rollback_unavailable`). Ni l'un ni l'autre ne signe ni n'importe de version : `release import` reste une commande de l'opérateur. Coût : un agent IA qui met à jour une machine la redémarre, et une version défectueuse la ramène trois minutes plus tard à l'ancienne, avec une alerte.
 
@@ -3868,7 +4079,7 @@ pour une route existante : l'admission ne change pas. Toute route d'écriture
 qui n'est pas dans le registre reste fermée à un jeton, même `write` avec tous
 les verbes : un test de table parcourt chaque route non-`GET` de l'API et le
 vérifie (déploiement, révocation d'un agent, ré-enrôlement,
-suppressions, réglages, authentification, gestion des jetons, pare-feu,
+suppressions autres que celle d'une machine, réglages, authentification, gestion des jetons, pare-feu,
 déclaration Proxmox, acquittement, drapeau « à mettre à jour en dernier »,
 migration d'un agent). La mise à jour et le retour arrière d'un agent sont
 désormais des verbes ; la signature et l'import d'une version n'ont aucune
@@ -3906,7 +4117,7 @@ de verbes écrite en dur :
   {"id": "proxmox.vm.start", "method": "POST",
    "path": "/api/machines/{id}/proxmox/guests/{vmid}/actions/start",
    "params": ["id", "vmid"], "body": [], "reverse": "proxmox.vm.shutdown",
-   "label": "…", "summary": "…"}]}
+   "confirm": false, "label": "…", "summary": "…"}]}
 ```
 
 | Champ | Sens |
@@ -3916,7 +4127,8 @@ de verbes écrite en dur :
 | `reach` | `{"machines": …, "guests": …}` : `null` pour toutes, une liste sinon (« La portée d'un jeton ») |
 | `path`, `params` | Le motif de la route et ses segments `{…}`, dans l'ordre |
 | `body` | Les champs JSON attendus (`["snapshot"]` pour `proxmox.vm.snapshot_delete`, `[]` sinon) |
-| `reverse` | Le verbe qui défait celui-ci |
+| `reverse` | Le verbe qui défait celui-ci ; vide pour un verbe à confirmation |
+| `confirm` | `true` : le verbe ne s'exécute pas, il dépose une demande (`202`) que l'opérateur confirme |
 | `label`, `summary` | Les textes du catalogue ; la phrase dit ce que le verbe fait et ce qu'il ne fait jamais |
 
 `params` et `body` sont des champs du verbe dans le registre, pas du texte
@@ -4019,6 +4231,34 @@ vide comprise : celles-là).
   rien ; mais « Toutes les machines » reste le choix par défaut, par
   compatibilité avec les jetons d'avant.
 
+### Les verbes à confirmation
+
+Un geste qui ne se défait pas (supprimer une machine) est **aussi un verbe**,
+mais un jeton ne l'exécute jamais : il demande, l'opérateur décide dans
+l'interface (décision Q1 de la refonte). `ErrNoReverse` ne vaut plus que pour
+les verbes ordinaires ; la confirmation remplace l'inverse comme garde-fou.
+
+| Règle | Comment |
+| --- | --- |
+| Le registre | `verb.Verb.Confirm` : pas d'inverse (`ErrConfirmReverse` sinon), une route `POST`, `PUT` ou `DELETE` sous `/api/`, et une machine pour cible (`ErrConfirmTarget` : le serveur ne sait nommer que la machine dans la demande) |
+| Le premier verbe | `machine.delete`, `DELETE /api/machines/{id}`, corps `{keep_history}` (« Supprimer une machine ») : sans, la machine et son historique partent ; avec, elle est archivée |
+| La demande | Un jeton qui porte le verbe, admis comme pour tout verbe (portée, débit), ne fait rien : `internal/server/api_verb_requests.go` (`askConfirmation`) écrit une ligne `verb_requests` et répond `202 {verb, request_id, state: "awaiting_confirmation", expires_at}`. L'opérateur qui appelle la même route par son bouton passe, lui, par le handler tel quel |
+| Le corps | Vide, ou un objet JSON dont les champs sont ceux que le verbe déclare ; sinon `400 bad_json`. Gardé tel quel, clés triées |
+| Une machine inconnue | `404`, aucune demande |
+| La même demande deux fois | Le même jeton qui redemande la même chose pendant qu'elle attend retrouve la même demande : pas de doublon, pas de second événement d'audit |
+| Le plafond | 10 demandes en attente par jeton (`409 verb_request.too_many`) : un agent qui boucle ne noie pas l'écran |
+| L'échéance | 15 minutes (`verbrequest.TTL`). Le passage de fond (`Watch`, toutes les minutes) échoit les demandes ; toute lecture ou décision échoit d'abord celles dont le délai est passé, la boucle n'est pas la seule garde. Une demande échue ne se confirme plus (`409 verb_request.expired`) ; terminée, la ligne est purgée après 30 jours |
+| La lecture | `GET /api/verb-requests` rend les demandes en attente, les plus anciennes d'abord : `{id, verb, object: {id, name}, token_name, on_behalf_of, body, created_at, expires_at}`. Le nom de l'objet est celui de l'instant de la demande ; `body` est le corps gardé, tel que la confirmation le rejouera (`{}` s'il est vide), pour que l'opérateur voie ce qu'il confirme |
+| La confirmation | `POST /api/verb-requests/{id}/actions/confirm`, **par l'opérateur seulement** : un jeton, même celui qui a déposé la demande, reçoit `403 api_token.route_forbidden`, comme pour la lecture et le refus. La demande passe à `confirmed` d'un seul geste (deux confirmations simultanées : une gagne, l'autre reçoit `409 verb_request.already_decided`), puis la route d'opérateur du verbe est **rejouée** avec les paramètres et le corps gardés : même handler, même code, même réponse que le bouton. Si le geste échoue (409 avec son plan, 404), l'opérateur reçoit cet échec ; la demande reste `confirmed` et ne se rejoue pas, un nouvel appel du jeton en dépose une neuve |
+| Le refus | `POST /api/verb-requests/{id}/actions/reject` : rien n'est exécuté, la demande passe à `rejected` |
+| L'écran | La carte « Gestes à confirmer » de la vue d'ensemble (`VerbRequestsCard`), lue sur le sujet du direct `verb_requests`. « Confirmer… » ouvre la même fenêtre que le geste d'écran (`DeleteMachineDialog`), avec le choix de l'historique **fixé** par le corps de la demande : l'opérateur le lit, ne le change pas, et sans historique tape le nom de la machine, « Refuser » écrit le refus |
+| Les états | `awaiting_confirmation`, `confirmed`, `rejected`, `expired` (`verbrequest.States()`, contrainte `CHECK` de la migration) |
+| Révoquer le jeton | Emporte ses demandes (`ON DELETE CASCADE`) : un jeton volé puis révoqué ne laisse rien à confirmer |
+
+**L'audit** garde les deux acteurs. `verb.request` (acteur `api`, le jeton, `on_behalf_of`) quand la demande est déposée ; `verb.reject` (acteur de l'opérateur) au refus ; `verb.expire` (acteur `rule:verb_requests`) à l'échéance. Le geste confirmé s'écrit sous l'**opérateur** par son composant (`machine.delete`), avec `details.request_id` (posé par le `Recorder` depuis le contexte, jamais par le geste) et `details.on_behalf_of` de la demande. La confirmation n'a pas de ligne à elle : `request_id` relie le geste à sa demande, et la demande au jeton. Les détails des trois lignes `verb.*` : `verb` et `object_id`, jamais le corps.
+
+Coût : un agent qui demande ne sait pas, par la réponse `202`, si l'opérateur a confirmé ; il ne peut pas non plus relire sa demande (`GET /api/verb-requests` est une route d'opérateur, absente de `apiTokenRoutes`). L'opérateur qui ne regarde pas la vue d'ensemble laisse la demande échoir. Les demandes survivent à un redémarrage (elles sont en base) mais pas à la révocation du jeton.
+
 ### Ce qu'un jeton ne voit pas
 
 Les lectures de la liste rendent à un jeton ce qu'elles rendent à l'opérateur,
@@ -4045,7 +4285,8 @@ certificat, noms de conteneurs, de services et de sondes) peut viser le modèle
 qui le lit. C'est à mcp-maison et au client de le traiter comme de la donnée.
 Côté openCloud, la défense est qu'**un jeton `read` n'écrit rien**, et qu'un
 jeton `write` ne fait que ce que l'opérateur a coché : des verbes réversibles,
-à débit borné, sans suppression de machine ni déploiement ni réglage. Un
+à débit borné, sans déploiement ni réglage, et où la suppression d'une machine
+n'est qu'une demande que l'opérateur doit confirmer. Un
 modèle poussé par un texte de tiers peut au pire mettre en pause une sonde ou,
 si l'opérateur a coché les verbes Proxmox, éteindre proprement une VM, ou, s'il
 a coché `agent.update`, redémarrer l'agent d'une machine sur la version du
@@ -4129,7 +4370,7 @@ se perd d'un clic à côté.
 | Un geste qui se défait, question courte (lever un silence) | La question prend la place du bouton : « Confirmer », « Annuler » | `ConfirmInline` |
 | Un geste qui ne se défait pas, ou dont la question est longue (régénérer un jeton, remplacer la clé de sauvegarde, révoquer un agent, mettre un agent à jour, supprimer un canal, un incident, un plan) | Une fenêtre qui nomme la conséquence | `ConfirmModal`, `ConfirmDialog` |
 | Une suppression qui peut en emporter d'autres | La fenêtre lit le plan avant de laisser confirmer ; un refus tardif le remplace | `DeletePlanDialog` |
-| Une saisie à plusieurs champs (« Ajouter une machine », l'ordre de déploiement) | Une fenêtre à son adresse ; fermer avec une saisie modifiée demande « Abandonner la saisie ? » | `Modal`, `lib/modal.ts` |
+| Une saisie à plusieurs champs (« Ajouter une machine », « Déclarer un service », l'ordre de déploiement) | Une fenêtre à son adresse ; fermer avec une saisie modifiée demande « Abandonner la saisie ? » | `Modal`, `lib/modal.ts` |
 
 La règle de `Modal` : un clic sur le voile ne ferme rien ; Échap, la croix et
 « Annuler » posent la même demande ; une saisie propre ferme, une saisie
@@ -4137,17 +4378,73 @@ modifiée demande d'abord. `window.confirm` n'existe plus : `useAction` ne
 confirme pas, c'est la fenêtre qui précède l'écriture.
 
 **Une fenêtre garde son adresse.** C'est une route fille de la page qui reste
-en fond : `/machines/nouvelle` s'ouvre sur la liste des machines, aussi au
-rechargement, et la fermer y ramène (la navigation est remplacée : le retour
-arrière ne rouvre pas la fenêtre). « Ajouter une machine » est la première :
-deux étapes (nommer, droits sous « Avancé » ; la commande à coller). Le jeton
-vit dans la fenêtre seule, jamais dans l'adresse ni dans l'historique ; le
-ré-enrôlement d'une fiche l'affiche à `/machines/jeton`, par l'état de
-navigation, qui en sort aussitôt.
+en fond, et la fermer y ramène (la navigation est remplacée : le retour
+arrière ne rouvre pas la fenêtre). Les fenêtres des machines, puis celles des
+services, des sondes et des tâches (« Les fenêtres d'une saisie ») :
+
+| Adresse | Fond | Fenêtre |
+| --- | --- | --- |
+| `/machines/nouvelle` | la liste | Ajouter une machine : trois étapes (nommer et choisir le rôle, droits sous « Avancé » ; la commande à coller ; l'attente de l'agent) |
+| `/machines/{id}/reenroller` | la fiche | Ré-enrôler, aussi pour changer les droits : trois étapes (les droits, cochés comme le jeton de l'agent courant les demandait ; la commande ; l'attente du nouvel agent) |
+| `/machines/{id}/proxmox` | la fiche | Déclarer (ou modifier) l'hôte Proxmox : un `Wizard` dans la fenêtre, deux étapes (l'accès ; le certificat) puis le récapitulatif |
+
+Le jeton vit dans la fenêtre seule, jamais dans l'adresse ni dans l'historique :
+rechargée, la fenêtre repart de sa première étape. **L'attente de l'agent est en
+direct** : la dernière étape lit `GET /api/machines`, que le sujet `machines`
+du direct relit à chaque enrôlement (`lib/enrollWait.ts`). Une machine neuve est
+« connectée » quand une machine de ce nom, absente avant le jeton, a un agent
+actif ; un ré-enrôlement, quand la machine a un agent actif autre que celui
+d'avant. Un jeton expiré sans agent le dit, au lieu d'attendre.
 
 Coût : une fenêtre à plusieurs champs se perd d'un rechargement (aucun
 brouillon n'est gardé) ; le flou du voile demande un navigateur récent
 (`backdrop-filter`), sans lui le voile reste uni.
+
+**Les fenêtres d'une saisie.** Déclarer un
+service, ajouter une sonde et surveiller une tâche sont des `Wizard` dans une
+`Modal` (`pages/services/ServiceWizard.tsx`, `pages/probes/ProbeWizard.tsx`,
+`pages/jobs/JobWizard.tsx`). En création, l'assistant part de la première
+étape ; en édition, du récapitulatif, d'où « Modifier » mène à l'étape. Les
+réglages techniques sont sous « Avancé » (`Fold`). Ce qu'ils écrivent n'a pas
+changé : le même corps, la même route (`POST` ou `PUT`), les mêmes refus.
+
+| Adresse | Fond | Fenêtre |
+| --- | --- | --- |
+| `/services/annuaire/nouveau` | la liste des services | Déclarer un service : trois étapes (l'identité ; les unités, leurs réglages techniques sous « Avancé » ; les projets). Avec `?container=`, partie de la proposition du serveur pour ce conteneur |
+| `/services/annuaire/{id}/modifier` | la fiche du service | Le même assistant, ouvert sur le récapitulatif |
+| `/disponibilite/nouvelle` | la liste des sondes | Ajouter une sonde : deux étapes (la cible ; le rythme, ce qui est propre à HTTP ou à TCP sous « Avancé »). Avec `?service=` et `?container=`, pré-remplie |
+| `/disponibilite/{id}/modifier` | la fiche de la sonde | Le même assistant, ouvert sur le récapitulatif ; une note dit ce qui remet la sonde à « Nouveau » |
+| `/taches/nouvelle` | la liste des tâches | Surveiller une tâche : une étape (nom, machine, intervalle, grâce) puis le récapitulatif |
+| `/taches/{id}/modifier` | la fiche de la tâche | Le même assistant, ouvert sur le récapitulatif |
+
+**Les derniers formulaires** (refonte UX, C11) : plus aucune page de
+formulaire. Le pare-feu et le plan de sauvegarde sont des `Wizard` dans une
+`Modal` (`pages/firewalls/FirewallWizard.tsx`, `pages/backups/PlanWizard.tsx`) ;
+la clé, la destination, le composant et l'incident sont des `ModalForm`, une
+fenêtre à une seule étape dont l'action est dans le pied
+(`pages/backups/KeyringModal.tsx`, `DestinationModal.tsx`,
+`pages/availability/ComponentModal.tsx`, `IncidentModal.tsx`,
+`IncidentEditModal.tsx`). Ce qu'ils écrivent n'a pas changé : mêmes routes,
+mêmes corps, mêmes refus.
+
+| Adresse | Fond | Fenêtre |
+| --- | --- | --- |
+| `/pare-feu/nouveau` | la liste des pare-feu | Déclarer un pare-feu : trois étapes (l'identité ; l'accès, la paire de clés ; le certificat) puis le récapitulatif |
+| `/pare-feu/{id}/modifier` | la fiche du pare-feu | Le même assistant, ouvert sur le récapitulatif ; le secret se ressaisit |
+| `/sauvegardes/cle` | la page Sauvegardes | Créer ou remplacer la clé : la phrase de passe, deux fois ; remplacer demande confirmation |
+| `/sauvegardes/destinations/nouvelle` | la page Sauvegardes | Ajouter une destination : nom, machine, dossier |
+| `/sauvegardes/plans/nouveau` | la page Sauvegardes | Ajouter un plan : deux étapes (la source ; la destination et le nombre de sauvegardes gardées) |
+| `/sauvegardes/plans/{sujet}/modifier` | la page Sauvegardes | Le même assistant, ouvert sur le récapitulatif ; le sujet et la sorte de source ne changent pas |
+| `/disponibilite/pages/{projet}/composants/nouveau` | la page publique du projet | Ajouter un composant : le projet est celui de l'adresse |
+| `/disponibilite/pages/{projet}/composants/{id}` | la page publique du projet | Modifier ou supprimer un composant (le plan de suppression s'ouvre dans une seconde fenêtre) |
+| `/disponibilite/composants/{id}` | — | Redirige vers la ligne précédente : un lien qui ne connaît que l'identifiant du composant (la fiche d'un service) retrouve son projet |
+| `/disponibilite/incidents/nouveau` | l'onglet Incidents | Ouvrir un incident ou planifier une maintenance |
+| `/disponibilite/incidents/{id}/modifier` | la fiche de l'incident | Corriger le titre, les cibles, la fenêtre d'une maintenance. L'entrée au fil de l'incident reste en ligne dans la fiche |
+
+La phrase de passe de la clé ne vit que dans sa fenêtre : démontée, elle n'est
+nulle part. Coût : la saisie d'un plan ou d'un pare-feu se perd d'un
+rechargement (aucun brouillon n'est gardé) ; les anciennes adresses
+`/disponibilite/composants/nouveau?project=` ne mènent plus à rien.
 
 ## Comment l'interface se met à jour sans recharger
 
@@ -4155,7 +4452,7 @@ brouillon n'est gardé) ; le flou du voile demande un navigateur récent
    répond `connected`, puis un commentaire toutes les 15 s pour tenir la
    connexion derrière Traefik.
 2. Les composants publient sur le bus interne (`internal/live`), par leur
-   `Watcher`, **seulement ce que l'écran montre** ; dix sujets, rien
+   `Watcher`, **seulement ce que l'écran montre** ; onze sujets, rien
    d'autre :
 
    | Sujet | Publié par | Quand |
@@ -4170,6 +4467,7 @@ brouillon n'est gardé) ; le flou du voile demande un navigateur récent
    | `directory` | `directory`, `manifest` | service ou projet déclaré créé, modifié, supprimé ; fichier de l'annuaire appliqué |
    | `actions` | `action` | ordre écrit, envoyé, répondu, expiré |
    | `backups` | `backup` | clé, destination ou plan écrit ; tentative notée |
+   | `verb_requests` | `verbrequest` | demande de verbe à confirmation déposée, confirmée, refusée ou échue |
 
 3. Chaque onglet reçoit le sujet, et le front relit les ressources dont le
    chemin porte ce sujet (`topicsOf`, `web/src/api/refresh.tsx`). Rien
@@ -4177,7 +4475,8 @@ brouillon n'est gardé) ; le flou du voile demande un navigateur récent
 
    | Ce que l'onglet lit | Relu sur |
    | --- | --- |
-   | `/api/counts` (barre latérale, vue d'ensemble) | `machines`, `jobs`, `containers`, `probes`, `status` (incidents ouverts), `alerts`, `directory` (politique de mise à jour des unités) ; **jamais** `resources` |
+   | `/api/counts` (barre latérale, vue d'ensemble) | `machines`, `jobs`, `containers`, `probes`, `status` (incidents ouverts), `alerts`, `directory` (politique de mise à jour des unités), `firewalls` et `backups` (les modules configurés) ; **jamais** `resources` |
+   | `/api/verb-requests` (carte « Gestes à confirmer ») | `verb_requests` |
    | `/api/resources`, `…/resources…` | `resources` |
    | `/api/machines…` | `machines` |
    | une liste ou une fiche d'un autre domaine | son sujet (l'écart et la fiche d'un conteneur suivent aussi `directory`) |
@@ -4206,10 +4505,10 @@ requête, journal, limite de corps à 1 Mio), qui relaie `Flush`.
 
 ### Les identifiants entrent encodés dans l'API
 
-Une page qui lit son identifiant dans l'adresse (`/alertes/canaux/:id`,
+Une page qui lit son identifiant dans l'adresse (`/parametres/canaux/:id`,
 `/taches/:id/modifier`…) le met dans un chemin `/api/…`. React Router rend
 `%2F` en `/` et le navigateur résout `../` avant d'envoyer : un lien forgé,
-`/alertes/canaux/..%2F..%2Fstatus%2Fcomponents%2F<id>`, ferait partir le
+`/parametres/canaux/..%2F..%2Fstatus%2Fcomponents%2F<id>`, ferait partir le
 chargement, l'enregistrement ou la suppression de la page vers une autre
 ressource, avec la garde même-origine satisfaite. Le serveur ne peut pas le
 voir : il ne reçoit que le chemin déjà normalisé.
@@ -4236,7 +4535,8 @@ jamais un bouton bloqué.
 ### Ce qui n'est pas encore livré ne s'affiche pas
 
 La barre latérale et les onglets d'une machine ne montrent que des écrans
-qui marchent : ni page « Bientôt », ni onglet vide. Les adresses déjà
+qui marchent : ni page « Bientôt », ni onglet vide. Les modules décident du
+reste (« Comment les modules et le rôle d'une machine décident de l'écran »). Les adresses déjà
 connues restent valides et renvoient au parent : `/machines/{id}/sauvegardes`
 et `/reglages` au résumé de la machine. (`/sauvegardes` est livrée : la page
 Sauvegardes.) L'onglet Journaux est un raccourci : les services de la machine
@@ -4317,8 +4617,8 @@ seau.
 C'est la première étape de #152 : **lire**, jamais écrire. L'agent inventorie
 les fichiers `authorized_keys` et `authorized_keys2` de chaque compte de sa
 machine ; openCloud les affiche, par machine (onglet « Clés SSH » de la fiche)
-et toutes ensemble (page « Clés SSH » sous Administration, une ligne par
-empreinte, une colonne par machine). **Aucune écriture** sur une machine : ni
+et toutes ensemble (onglet « Accès SSH » de Machines : qui peut se connecter à
+quoi, par clé ou par machine). **Aucune écriture** sur une machine : ni
 fichier, ni dossier, ni ordre. Le droit est `observe`, toujours acquis ; aucun
 droit nouveau.
 
@@ -4392,10 +4692,12 @@ empreintes ; la liste fermée de « Comment un agent IA lit openCloud » ne chan
 pas).
 
 **Une clé est dite faible** quand elle est DSA, ou RSA sous 3072 bits : un mot
-sur la ligne, rien de plus. Dans la matrice, une cellule dit les comptes de la
-machine qui acceptent la clé ; « — » quand la machine est relevée sans cette
-clé ; « ? » quand elle ne l'est pas, ou qu'un de ses comptes n'a pas pu être
-lu (l'absence n'y prouve rien).
+sur la ligne, rien de plus. Sur l'onglet « Accès SSH », une ligne par empreinte
+dit les machines et les comptes qui l'acceptent ; `root` (uid 0) est en rouge.
+Le verdict passe à « À regarder » s'il reste une clé faible ou une machine mal
+lue (pas relevée, tronquée, compte illisible) : sur celle-ci, l'absence d'une clé
+ne prouve rien. Filtres : faibles, accès root, sur une seule machine. La lecture
+« Par machine » liste les comptes qui ont une clé ou qu'on n'a pas pu lire.
 
 ## Comment une suppression se décide
 
@@ -4421,7 +4723,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 | --- | --- | --- | --- | --- |
 | Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; destinations de sauvegarde qu'elle porte `machine.has_backup_destinations` ; plans de sauvegarde dont elle est la source `machine.has_backup_plans` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux et volumes Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés SSH relevées, hôte Proxmox déclaré (compté ; ses VM et ses stockages partent avec lui, non comptés), clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul), VM Proxmox rapprochées d'elle (le lien seul : la VM reste dans l'hôte) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
 | Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur), incidents (le lien seul) | rapprochement refait ; rien ne touche la machine |
-| Projet | sa page de statut : `project.has_status_page` | — | liens de projet (les services restent) | — |
+| Projet | — | — | sa page publique, ses composants et leurs membres ; les liens de projet (les services restent) | — |
 | Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes, incidents (le lien seul) | jeu de sondes renvoyé à sa machine |
 | Tâche | composants : `job.shown_on_status` | pings, exécutions, silences | alertes, incidents (le lien seul) | l'URL de ping ne répond plus |
 | Composant de statut | — | membres | — | page publique relue |
@@ -4430,8 +4732,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 - **Le plan se lit avant** : `GET /api/machines/{id}/delete-plan`,
   `/api/directory/services/{id}/delete-plan`,
   `/api/directory/projects/{id}/delete-plan`, `/api/probes/{id}/delete-plan`,
-  `/api/jobs/{id}/delete-plan`, `/api/status/components/{id}/delete-plan`,
-  `/api/status/pages/{id}/delete-plan` :
+  `/api/jobs/{id}/delete-plan`, `/api/status/components/{id}/delete-plan` :
   `{blocked, blockers: [{kind, objects: [{id, name}]}], removes: [{kind,
   count}], detaches: [{kind, count}]}`, un genre vide n'y figure pas. 404 pour
   un objet inconnu ; la machine openCloud a son plan comme les autres. Le
@@ -4447,7 +4748,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
   qui retient (changer la machine d'une sonde, retirer la machine d'une tâche
   ou d'un composant), puis supprime.
 - **L'interface** montre le plan dans la boîte de confirmation de chaque
-  bouton Supprimer ou Retirer (machine, service, projet, sonde, tâche,
+  bouton Supprimer (machine sans historique, service, projet, sonde, tâche,
   composant) : ce qui retient, nommé, et le bouton fermé ; ce qui part ; ce qui
   reste détaché. Un 409 reçu quand même remplace le plan par celui du serveur.
 - **Un jeton d'API** ne supprime rien : aucune écriture ne lui est ouverte, et
@@ -4530,8 +4831,8 @@ l'acteur de l'apply et avec son `apply_id`.
 | Émettre un jeton d'enrôlement, l'annuler | `enrollment_token.create`, `.cancel` | Le jeton, au nom de la future machine | `expires_at`, `capabilities` (les droits demandés) |
 | Ré-enrôler une machine | `machine.reenroll` | La machine | `token_id`, `expires_at`, `capabilities` |
 | Enrôlement par l'agent | `agent.enroll` (avant la table `agents` : `machine.enroll`, que les lignes déjà écrites gardent) | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
-| Révoquer l'agent | `agent.revoke` | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
-| Retirer une machine | `machine.delete` | La machine | `hostname`, `address` |
+| Archiver une machine (garder l'historique) | `agent.revoke` | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
+| Retirer une machine (sans historique) | `machine.delete` | La machine | `hostname`, `address` |
 | Déclarer, retirer l'hôte Proxmox d'une machine | `machine.proxmox_set`, `machine.proxmox_unset` | La machine qui porte l'hôte | `token_id`, `host` (l'hôte et le port, sans le schéma ni le chemin), `pinned` (`yes` ou `no`) ; au retrait, rien. **Ni l'adresse complète ni le secret** |
 | Projet | `project.create`, `.update`, `.delete` | Le projet | `title` |
 | Service déclaré | `service.create`, `.update`, `.delete`, `.review` | Le service | `machine_id`, `nature`, `origin`, `units` |
@@ -4539,7 +4840,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Clé ignorée, puis plus | `ignored_key.create`, `.delete` | `machine/sorte/valeur` | `machine_id`, `kind` |
 | Sonde | `probe.create`, `.update`, `.delete`, `.pause`, `.resume` | La sonde | `kind`, `target` **masquée**, `machine_id`, `service_id` |
 | Tâche | `heartbeat.create`, `.update`, `.delete`, `.pause`, `.resume`, `.regenerate_token` | La tâche | `machine_id`, `interval_seconds`, `grace_seconds` ; jamais le jeton |
-| Composant de la page de statut | `status_component.create`, `.update`, `.delete` | Le composant | `page_id`, `members` |
+| Composant de la page publique | `status_component.create`, `.update`, `.delete` | Le composant | `project_id`, `members` |
 | Incident | `incident.open`, `.update`, `.delete` | L'incident, par son titre | `impact`, `status`, `targets` (le nombre d'objets visés) |
 | Message au fil d'un incident, fenêtre d'une maintenance | `incident.post` | L'incident | `status`, `message` (déjà public) |
 | Page de statut | `status_page.create`, `.update`, `.delete` (avant la `034`, `status_page.update` nommait la page unique par son titre) | La page, par son slug | `title`, `announcement`, `language`, `project_id` |
@@ -4549,6 +4850,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Réglage | `settings.update` | `language`, `mail_relay`, `disk` ou `lifecycle` | La valeur ; le relais sans son mot de passe, avec `password_changed` |
 | Accès à l'interface | `auth.enable`, `.disable`, `.change_password` | `interface` | `mode`, `username`, `header` ; jamais le mot de passe ni son empreinte |
 | Jeton d'API, tous les jetons | `api_token.create`, `.revoke`, `.deny` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `verbs`, `expires_at` ; pour `.deny`, `verb` (l'identifiant du registre que le jeton a tenté sans le porter, jamais ce que le client a écrit) ; pour tous `all`, `api_tokens` ; jamais le jeton ni son préfixe |
+| Demande d'un verbe à confirmation | `verb.request` (acteur `api`), `verb.reject` (opérateur), `verb.expire` (acteur `rule:verb_requests`) | La demande, nommée par l'objet visé | `verb`, `object_id` ; le geste confirmé porte `request_id` (« Les verbes à confirmation ») |
 | Anciennes lignes du MCP, lues seulement | `mcp.*`, `mcp_token.*`, `mcp_session.*` | Le client OAuth, le jeton, la famille coupée | Ce qu'elles portaient ; plus aucune ne s'écrit |
 | Clé perdue, secrets oubliés | `secrets.forget` | — | `channels_disabled`, `ping_tokens_renewed` |
 | Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` ; pour `agent.update`, `from` (version de l'agent) et `to` (version visée), pour `agent.rollback`, `from` |
@@ -4585,8 +4887,7 @@ l'acteur de l'apply et avec son `apply_id`.
 - **Lire** : `GET /api/audit?limit=&before=&object_kind=&object_id=&actor_kind=&actor=`,
   lue par l'opérateur et par un jeton d'API, 50 par page, 200 au plus, du plus récent au plus ancien ;
   `next_before` donne la page suivante, `null` à la fin. Un nombre illisible
-  ou une sorte d'objet ou un genre d'acteur inconnu, ou une recherche de plus de 200 caractères : `400 bad_query`. Dans l'interface, l'onglet **Journal** (`/journal`, sous
-  Administration) : date, acteur, action, objet, détail replié ; cliquer un
+  ou une sorte d'objet ou un genre d'acteur inconnu, ou une recherche de plus de 200 caractères : `400 bad_query`. Dans l'interface, l'onglet **Journal** (`/journal`, au menu) : date, acteur, action, objet, détail replié ; cliquer un
   objet ne montre que son histoire.
 
 ### Envoi aux canaux
@@ -4974,7 +5275,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Pas d'incident automatique | Une sonde qui tombe change l'état du composant et ouvre une alerte ; personne n'ouvre l'incident public ni ne le résout | À décider, retouche après la 11 : ouvrir un incident public demande une règle, et une erreur se lit en public |
 | Constats d'exposition non alertés | Un port de base publié se voit sur le graphe, personne n'est prévenu | À décider |
 | Une sauvegarde en échec n'alerte pas | Elle se lit sur la page Sauvegardes (état du dernier ordre, `last_error`) ; aucune alerte ne s'ouvre, aucun canal n'est prévenu | À décider |
-| Pas d'onglets machine Sauvegardes, Réglages | Onglets masqués tant qu'ils ne sont pas livrés ; leurs adresses mènent au résumé de la machine. La page Sauvegardes existe, sous Administration, mais pas rangée par machine. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
+| Pas d'onglets machine Sauvegardes, Réglages | Onglets masqués tant qu'ils ne sont pas livrés ; leurs adresses mènent au résumé de la machine. La page Sauvegardes existe, au menu, mais pas rangée par machine. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
 | Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
 | Appliquer une mise à jour : ce qui reste | Pour un service **déployé par openCloud**, le tag plus récent se prend d'un geste (« Passer à »). Restent : **aucun retour arrière** si le service ne redevient pas sain ; une **empreinte changée sous le même tag** (aucun bouton : `--pull missing` ne la tirerait pas) ; une **autre version** que celle proposée (modifier le service, puis « Redéployer ») ; un service dont une unité épingle une empreinte (à retirer à la main). Pour les services **qu'openCloud n'a pas déployés**, il montre la ligne `image:` à changer et fabrique la commande ; l'opérateur les applique, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien (décidé le 12 octobre 2026, issue #125) | Le retour arrière : à décider (issue à part) |
 | Une image en retard se voit jusqu'à 24 h après | La cadence tient le quota du Hub ; « Vérifier maintenant » raccourcit à la demande | À décider, avec un écran de réglages |
@@ -5031,6 +5332,8 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Plans de suppression | La migration `028_restrict.sql` (`restrict` sur `probes.machine_id`, `heartbeats.machine_id` et trois clés de `status_component_members`), le paquet `internal/deletion` (forme du plan, refus qui le porte), `internal/store/deletion.go` (un plan par objet déclaré, relu dans la transaction de chaque `DELETE`), les gestes `DeletePlan` des composants, les six routes `GET …/{id}/delete-plan`, le 409 qui porte le plan (`s.failed`), les clés `machine.has_probes`, `machine.has_heartbeats`, `machine.shown_on_status`, `probe.shown_on_status`, `job.shown_on_status`, le plan d'`apply` qui lit celui du domaine, la boîte `DeletePlanDialog` du front. Ce qu'une suppression emporte : « Comment une suppression se décide » |
 | Journal d'audit | La table `audit_events` (migration `029_audit.sql`, ajout seul par déclencheur, `apply_id` en `set null`), le paquet `internal/audit` (acteur dans le contexte, `Recorder`, rétention d'un an purgée par la boucle des alertes), `store/audit.go` et `ListAuditEvents` sur le `reader.Reader`, un événement par geste dans `machine`, `directory`, `probe`, `heartbeat`, `status`, `alert`, `settings`, `auth`, `mcp` (`SetAuditor`), l'acteur posé par `server` (`withOperatorActor`), la socket de commande, `guarded`, `agentapi`, `serve` (`rule`), `opencloud auth disable` et `opencloud secrets forget`, `GET /api/audit`, l'outil MCP `list_audit` (dix-neuf lectures), l'onglet « Journal » (`/journal`), la section `audit` des catalogues, les goldens `audit.golden.json` et `mcp_list_audit.golden.json`. L'envoi aux canaux est la ligne « Journal vers les canaux » |
 | Pages de statut multiples | La migration `034_status_pages.sql` (`status_pages` : `slug` unique, titre, annonce, langue, `project_id` unique facultatif en `restrict` ; `status_components.page_id` en `cascade` ; la page unique reprise en page `statut` sans projet si elle montrait quelque chose ; `settings` reconstruite sans `status_*`), `status.Service` (`CreatePage`, `UpdatePage`, `DeletePage` et son plan, `ListPages`, `PageBySlug`, `Snapshot(pageID)`, `Components(pageID)`, `Incidents(pageID)` ; `status.Settings` et `settings.SetStatusPage` retirés), le refus `project.has_status_page` et `deletion.KindStatusPages`, le refus d'`apply --prune` `manifest.prune_status_page`, les routes `/api/status/pages…` et `/statut/<slug>…` (`/statut` redirige vers la seule page), l'outil MCP `list_status_pages` et le paramètre `page` de `get_status_page` et `list_incidents` (vingt lectures), l'audit `status_page.create` et `.delete`, l'onglet « Pages » de l'administration (`StatusPageForm`, sélecteur de page des composants) et le slug lu dans l'adresse par `statut.html` |
+| Projet + publication, module Disponibilité (refonte UX, C9) | La migration `027_project_publication.sql` (`projects` gagne `slug` unique et non nul quand publié, annonce, langue, `published_at` ; `status_components.project_id` en `cascade` remplace `page_id` ; `status_pages` disparaît, une page sans projet devient un projet nommé par son adresse), `directory.Publication` et `ProjectDefinition.Publication` (validation, plafond de 64 pages), `status.Publication`/`Publications`/`PublicationOf`, les composants implicites (un par service), le plan de suppression d'un projet (`publications`, `components`, `members`, plus de refus), `manifest.prune_published`, la route `PUT /api/directory/projects/{id}` qui publie, `GET /api/directory/projects` ouverte aux jetons ; routes `/api/status/pages…` et module `status` retirés (fondu dans `probes`), actions d'audit `status_page.*` lues comme anciennes ; l'assistant de projet à deux étapes et la page Disponibilité à trois onglets (`/disponibilite`, `/disponibilite/pages`, `/disponibilite/incidents`) | La page n'a plus de titre à elle ; l'annonce et la langue se règlent à la publication |
+| Derniers formulaires (refonte UX, C11) | Aucune migration, aucune route d'API ni verbe changés. `ModalForm` (une fenêtre à une étape, action liée par `form=`), le pare-feu, le plan de sauvegarde, la clé, la destination, le composant et l'incident en fenêtres à leur adresse ; `FormPage` et `FormCard` disparaissent (`FormBody` reste pour la première configuration et le fil d'un incident, dans `FormBody.tsx`) ; `Wizard` n'existe plus qu'en fenêtre ; le projet d'un composant vient de l'adresse (plus de menu Projet) | Une saisie en cours se perd d'un rechargement ; les anciennes adresses de composant avec `?project=` sont perdues, `/disponibilite/composants/{id}` redirige |
 | Schéma unique | Les 33 migrations écrasées en `migrations/001_schema.sql`, écrit à la main et groupé par domaine ; le test d'équivalence (`internal/store/schema_test.go`) le compare, colonne par colonne et index par index, aux anciennes migrations rejouées suivies de l'élagage (`testdata/legacy_trim.sql`) ; deux garde-fous : chaque clé étrangère vise une clé, chaque table et chaque colonne sert au store. Élagage : `probe_certificates` (les huit `cert_*` de `probes`), `machine_rollups` (`machine_samples_hourly` et `_daily`), `heartbeats.token_sealed` et `token_lookup` (`token` et `token_hash`), `containers.kind` et trois colonnes mortes d'`agents` retirés. Une base qui note une migration que le binaire n'embarque pas est refusée au démarrage (`store.ErrUnknownSchema`). Retirés : l'étape Go de la 024 (`store/migrate_024.go`, `directory/migrate.go`) et les tests de montée |
 | Ordres signés (#146, 1/3) | La migration `002_actions.sql` (`action_runs`, `run_logs`, `agents.server_key_fingerprint` et `last_order_seq`), le paquet `internal/action` (clé `server.key` et sa signature, `Service.Ping`, `Record`, la boucle d'expiration et de purge), le protocole entier dans `internal/agentwire` (`Kind` et `Command` typés à la place de `machine.Command{Name, Payload any}` et des quatre noms de `container`, `probe`, `update` ; `OrderBody`, `SignedOrder`, `KeyFingerprint`, la section `actions` du signal, l'en-tête `OpenCloud-Server-Key`, `agent_id` et `server_key` à l'enrôlement), les commandeurs typés par domaine (`RequestLogs`, `AssignProbes`, `AssignImages`) servis par `server/commands.go`, le juge d'ordres de l'agent (`internal/agent/orders.go`) et `identity.json` (`agent_id`, `server_key`, `last_order_seq`), `fsx.ReadPrivate`, les routes `POST /api/machines/{id}/actions/ping`, `GET /api/actions`, `GET /api/agents/server-key`, l'outil MCP `list_actions` (vingt et une lectures), l'audit `action.order`, le sujet du direct `actions`, la carte « Ordres » de la fiche, les goldens `actions.golden.json` et `mcp_list_actions.golden.json` |
 | Droits appliqués (#146, 2/3) | `action.RightOf` (le droit de chaque genre ; `observe` pour l'observation et `agent.ping`), `machine.HasCapability`, le refus de l'agent `right_missing:<droit>` (`internal/agent/orders.go`, sans prendre le rang) et `not_implemented`, l'ordre déclaré `agent.update`, `action.Service.Send` et son refus `409 action.right_missing` quand l'agent a rapporté ses droits sans celui-là, l'audit `action.refused` sous l'agent, `CreateReenrollToken` qui reçoit les droits (corps `{capabilities}` de `POST /api/machines/{id}/actions/reenroll`), la page « Changer les droits » (`/machines/{id}/droits`, `RightsFields` partagé avec l'ajout d'une machine) |
@@ -5047,3 +5350,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Retour arrière des mises à jour d'agent | La migration `018_agent_rollback.sql` (`agents.rollback_version`, `machines.update_last`), le paquet `internal/rollback` (le marqueur `update.json`, `Arm`, `SwitchLink`, `Guard` et son lanceur de processus), la sous-commande `opencloud guard`, l'ordre `agent.rollback` (`agentwire.KindAgentRollback`, droit `agent.update`), l'en-tête `OpenCloud-Agent-Rollback`, `internal/agent/outcome.go` (confirmer, rapporter), `action.RollbackAgent`/`UpdatePlan`/`refuseWhileUpdating`, les refus `action.rollback_unavailable` et `action.update_in_progress`, l'audit `action.rolled_back` et `machine.update_last`, l'alerte `agent_rolled_back`, les verbes `agent.update` et `agent.rollback`, `GET /api/agent-updates`, `GET /api/agent-migration`, `PUT /api/machines/{id}/update-last`, la fiche (état de la mise à jour, retour arrière, drapeau, migration) et la pastille de la vue d'ensemble, `docs/installation/opencloud-agent.service` (lanceur), « Migrer l'agent vers le retour arrière automatique » |
 | Gestes sur Proxmox (#266) | Les droits `proxmox.power` et `proxmox.snapshot`, quatre ordres `proxmox.vm.*`, le jeton local de l'agent, la route `POST …/proxmox/guests/{vmid}/actions/{geste}`, l'événement d'audit `machine.proxmox_guest` (« Comment un hôte Proxmox agit ») |
 | Inventaire et historique des sauvegardes (#368) | Les migrations `019_backup_runs.sql` (`backup_runs`), `020_proxmox_backup_observed.sql` (archives vues par invité) et `021_machine_volumes.sql` (`machine_volumes`), `internal/backup/history.go` et `inventory.go` (`Inventory`, `Runs`, les clés de source), `store/backup_runs.go` et `backup_inventory.go`, la purge à 400 lignes par plan, `dockerapi.ListVolumes` et `Mounts`, `container.VolumeReport` (`volumes_complete`, `volumes`), `deletion.KindMachineVolumes`, `GET /api/backups/inventory` et `/runs` (ouvertes aux jetons en lecture), les goldens `backups_inventory` et `backups_runs`, la section Inventaire de la page Sauvegardes. `last_targets_ok` et `last_targets_failed` ne sont plus en mémoire |
+| Registre de modules et rôle de machine (#407) | Le paquet `internal/module`, `machine.Roles()` et `RolePreset`, la migration `024_machine_role.sql`, `store/modules.go`, `PUT /api/machines/{id}/role`, `role` et `modules` dans les machines, `modules` dans les compteurs, `roles` dans la session, `web/src/lib/modules.ts` (menu, onglets, carte « à configurer »), Paramètres › Modules, la carte « Rôle de la machine » (« Comment les modules et le rôle d'une machine décident de l'écran ») |

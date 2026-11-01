@@ -14,12 +14,14 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
+	"github.com/ldesfontaine/opencloud/internal/module"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
@@ -111,6 +113,18 @@ func closedKeyLists() []composedKeys {
 		{prefix: "incident.impact_", values: names(status.Impacts())},
 		{prefix: "component.kind_", values: names(status.MemberKinds())},
 		{prefix: "language.", values: names(lang.Codes())},
+		// Le menu, Paramètres › Modules et la fiche disent un module et un rôle
+		// par leur libellé, puis par leur phrase.
+		{prefix: "module.", values: allModuleNames()},
+		{prefix: "module.", suffix: "_text", values: allModuleNames()},
+		{prefix: "role.", values: names(machine.Roles())},
+		{prefix: "role.", suffix: "_text", values: names(machine.Roles())},
+		// Où tourne la machine, et ses disques : la pastille de type, la nature d'un
+		// disque, le genre et l'état d'un pool.
+		{prefix: "machine.kind_", values: names(machine.Kinds())},
+		{prefix: "storage.media_", values: hostinfo.DiskMedia()},
+		{prefix: "storage.pool_", values: hostinfo.PoolKinds()},
+		{prefix: "storage.state_", values: hostinfo.PoolStates()},
 		// La pastille de la carte « Accès à l'interface », par mode.
 		{prefix: "auth.state_", values: names(auth.Modes())},
 		// Le choix du mode à l'activation : tous sauf « none », qui est l'état de départ.
@@ -216,4 +230,10 @@ func resourceWindowNames() []string {
 		out = append(out, window.Name)
 	}
 	return out
+}
+
+// allModuleNames rend chaque module des deux portées ; les sondes, qui vivent
+// dans les deux, y sont deux fois, ce que le test des clés tolère.
+func allModuleNames() []string {
+	return append(names(module.In(module.ScopeMachine)), names(module.In(module.ScopeInstallation))...)
 }

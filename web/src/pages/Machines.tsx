@@ -1,76 +1,73 @@
-import { Link, Outlet } from "react-router";
+import { useMemo } from "react";
+import { Outlet } from "react-router";
 
 import { deleteMachineToken, useMachines, type PendingToken } from "../api/machines";
+import { useCurrentResources } from "../api/resources";
 import { ActionButton } from "../components/ActionButton";
 import { Button } from "../components/Button";
 import { Card, CardHeader } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
-import { Dot, OnlinePill } from "../components/Pill";
-import { List, RowText, Subject, Table } from "../components/Table";
+import { TabNav } from "../components/TabNav";
+import { Dot, Pill } from "../components/Pill";
+import { List, RowText, Table } from "../components/Table";
+import { Verdict } from "../components/Verdict";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
-import { useT } from "../i18n/context";
-import { machineSeen, machinesSubtitle } from "../lib/machines";
+import { useT, type Translate } from "../i18n/context";
+import { buildMachineTree, summarizeMachines, type TreeSummary } from "../lib/machineTree";
+import { liveMachines, machinesSubtitle } from "../lib/machines";
+import { machinesListTabs } from "../lib/modules";
 import { formatRemaining } from "../lib/time";
+import { MachineTreeRows } from "./machines/MachineTree";
+import { SSHAccess } from "./machines/SSHAccess";
 
-export function Machines() {
+export type MachinesTab = "list" | "ssh";
+
+// La page Machines : la liste, et la vue globale des modules que les machines
+// portent (l'accès SSH), en onglets.
+export function Machines({ tab }: { tab: MachinesTab }) {
   const t = useT();
   const now = useNow();
   const machines = useMachines();
+  const resources = useCurrentResources();
   const list = machines.data?.machines ?? [];
-  const online = list.filter((machine) => machine.online).length;
+  const live = liveMachines(list);
+  const online = live.filter((machine) => machine.online).length;
+  const rows = useMemo(() => buildMachineTree(list), [list]);
+  const currents = useMemo(() => new Map((resources.data?.machines ?? []).map((current) => [current.machine_id, current])), [resources.data]);
   return (
     <>
       <PageHead
         title={t("nav.machines")}
-        subtitle={machines.data ? machinesSubtitle(t, list.length, online) : ""}
+        subtitle={machines.data ? machinesSubtitle(t, live.length, online) : ""}
         actions={
           <ActionButton route="POST /api/machines/tokens" icon="plus" to="/machines/nouvelle">
             {t("machine.add")}
           </ActionButton>
         }
       />
+      {machines.data && <TabNav tabs={machinesListTabs(list)} />}
       {machines.error && <Failure error={machines.error} />}
-      {machines.data && (
+      {machines.data && tab === "ssh" && <SSHAccess />}
+      {machines.data && tab === "list" && (
         <>
+          {list.length > 0 && <MachinesVerdict summary={summarizeMachines(list, rows)} />}
           <Card>
             <Table>
               <thead>
                 <tr>
                   <th>{t("machines.col_machine")}</th>
                   <th className="wide-only">{t("machines.col_address")}</th>
-                  <th className="wide-only">{t("machines.col_os")}</th>
-                  <th className="wide-only">{t("machines.col_agent")}</th>
+                  <th className="wide-only">{t("machines.col_resources")}</th>
                   <th>{t("machines.col_state")}</th>
                   <th>{t("machines.col_seen")}</th>
+                  <th className="wide-only">{t("machines.col_agent")}</th>
                   <th className="th-end wide-only" />
                 </tr>
               </thead>
               <tbody>
-                {list.map((machine) => (
-                  <tr key={machine.id}>
-                    <td>
-                      <Link className="svc" to={`/machines/${machine.id}`}>
-                        <Subject icon="server">
-                          {machine.name}
-                        </Subject>
-                      </Link>
-                    </td>
-                    <td className="num wide-only">{machine.address}</td>
-                    <td className="wide-only">{machine.os}</td>
-                    <td className="num wide-only">{machine.agent?.version ?? "—"}</td>
-                    <td>
-                      <OnlinePill online={machine.online} />
-                    </td>
-                    <td className="secondary nowrap">{machineSeen(t, machine, now)}</td>
-                    <td className="td-end wide-only">
-                      <Button variant="ghost" small to={`/machines/${machine.id}`}>
-                        {t("machines.open")}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                <MachineTreeRows rows={rows} resources={currents} now={now} />
               </tbody>
             </Table>
           </Card>
@@ -81,6 +78,28 @@ export function Machines() {
       <Outlet />
     </>
   );
+}
+
+// Est-ce que ça va ? Une machine qui ne répond pas teinte le verdict ; des
+// invités que nul agent ne suit se disent, sans l'alarmer : ce n'est pas une panne.
+function MachinesVerdict({ summary }: { summary: TreeSummary }) {
+  const t = useT();
+  const hasMissing = summary.missing.length > 0;
+  const names = summary.missing.map((machine) => machine.name).join(", ");
+  return (
+    <Verdict
+      tone={hasMissing ? "danger" : "ok"}
+      pill={<Pill tone={hasMissing ? "danger" : "ok"}>{t(hasMissing ? "machines.verdict_down" : "machines.verdict_ok")}</Pill>}
+      fact={hasMissing ? missingFact(t, summary.missing.length, names) : t("machines.verdict_all", summary.total)}
+      context={summary.guestsWithoutAgent === 0 ? null : summary.guestsWithoutAgent === 1 ? t("machines.verdict_guests_one") : t("machines.verdict_guests", summary.guestsWithoutAgent)}
+    >
+      {t("machines.verdict_counts", summary.total, summary.online)}
+    </Verdict>
+  );
+}
+
+function missingFact(t: Translate, count: number, names: string): string {
+  return count === 1 ? t("machines.verdict_missing_one", names) : t("machines.verdict_missing", count, names);
 }
 
 // Les jetons émis dont la commande n'a pas encore été jouée.

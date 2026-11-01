@@ -12,16 +12,18 @@ import type { Firewall, FirewallCounts, FirewallDetail, FirewallInterfacesRespon
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
-import type { Account, Agent, Capability, Machine, MachineRole, MachinesResponse, ReportedCapability } from "./machines";
+import type { Account, Agent, Capability, Machine, MachineHost, MachineRole, MachinesResponse, ReportedCapability } from "./machines";
+import type { MachineStorage, PhysicalDisk, StoragePool } from "./storage";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
-import type { ProxmoxHost, ProxmoxSummary } from "./proxmox";
+import type { ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
 import type { Session } from "./session";
-import type { Incident, IncidentsResponse, PublicStatus, StatusComponent, StatusComponentsResponse, StatusPagesResponse } from "./status";
+import type { VerbRequest, VerbRequestsResponse } from "./verbRequests";
+import type { Incident, IncidentsResponse, PublicStatus, StatusComponent, StatusComponentsResponse } from "./status";
 
 // Le contrat de l'API est écrit deux fois : en Go (les balises json) et ici
 // (les types de api/*.ts). Les réponses figées par les goldens du serveur
@@ -128,23 +130,49 @@ const machine = shape<Machine>("Machine", {
   }),
   lifecycle: optional(lifecycle),
   roles: shape<MachineRole>("MachineRole", { name: value, version: value }),
+  role: value,
+  modules: value,
+  kind: value,
+  kind_override: value,
+  host: shape<MachineHost>("MachineHost", { machine_id: value, machine_name: value, node: value, source: value }),
   proxmox: shape<ProxmoxSummary>("ProxmoxSummary", {
     declared: value,
     guests: value,
     last_error: value,
+    node: value,
+    cluster: shape<ProxmoxCluster>("ProxmoxCluster", { id: value, name: value }),
+    guest_list: shape<ProxmoxMember>("ProxmoxMember", {
+      vmid: value,
+      kind: value,
+      name: value,
+      status: value,
+      template: value,
+      node: value,
+      cpus: value,
+      max_memory: value,
+      max_disk: value,
+      linked_machine_id: value,
+    }),
     hosted: shape<NonNullable<ProxmoxSummary["hosted"]>>("ProxmoxHosted", {
       host_machine_id: value,
       host_machine_name: value,
+      node: value,
       vmid: value,
       kind: value,
       name: value,
       status: value,
       cpus: value,
       max_memory: value,
+      max_disk: value,
       last_backup_at: value,
       last_backup_bytes: value,
     }),
   }),
+});
+
+const machineStorage = shape<MachineStorage>("MachineStorage", {
+  disks: shape<PhysicalDisk>("PhysicalDisk", { name: value, model: value, size: value, media: value, removable: value }),
+  pools: shape<StoragePool>("StoragePool", { name: value, kind: value, level: value, state: value, size: value, members: value }),
 });
 
 const machines = shape<MachinesResponse>("MachinesResponse", {
@@ -504,6 +532,7 @@ const counts = shape<Counts>("Counts", {
   certificates: shape("CertificateCounts", { total: value, expiring: value, expired: value, soonest_expires_at: value }),
   status: shape("Counts.status", { open_incidents: value }),
   alerts: alertCounts,
+  modules: shape("ModuleState", { id: value, configured: value }),
 });
 
 type DeclaredServiceJSON = DeclaredServicesResponse["services"][number];
@@ -552,7 +581,22 @@ const declaredService = shape<DeclaredServiceDetail>("DeclaredServiceDetail", {
 });
 
 const projects = shape<ProjectsResponse>("ProjectsResponse", {
-  projects: shape("Project", { id: value, name: value, title: value, service_ids: value, created_at: value, updated_at: value }),
+  projects: shape("Project", {
+    id: value,
+    name: value,
+    title: value,
+    service_ids: value,
+    // Nul pour un projet non publié : le contrat garde la forme de la page.
+    publication: shape<NonNullable<ProjectsResponse["projects"][number]["publication"]>>("ProjectPublication", {
+      slug: value,
+      announcement: value,
+      language: value,
+      public_url: value,
+      published_at: value,
+    }),
+    created_at: value,
+    updated_at: value,
+  }),
 });
 
 type ServiceGapJSON = GapsResponse["services"][number];
@@ -665,7 +709,7 @@ const apiTokens = shape<APITokensState>("APITokensState", {
   machines: shape("ReachMachine", { id: value, name: value }),
   limit: value,
   lifetimes: shape("APITokensState.lifetimes", { days: value, default_days: value }),
-  verbs: shape("VerbOffer", { id: value, label: value, summary: value, reverse: value }),
+  verbs: shape("VerbOffer", { id: value, label: value, summary: value, reverse: value, confirm: value }),
   env: shape("APITokensState.env", { mcp_host: value, opencloud_url: value }),
 });
 
@@ -696,6 +740,7 @@ const session = shape<Session>("Session", {
   certificate_thresholds: shape("CertificateThresholds", { warning: value, danger: value }),
   disk_thresholds: shape("DiskThresholds", { attention: value, danger: value }),
   verbs: shape("SessionVerb", { id: value, route: value }),
+  roles: shape("SessionRole", { id: value, capabilities: value }),
 });
 
 type IncidentUpdateJSON = Incident["updates"][number];
@@ -704,9 +749,10 @@ const incidentUpdate = shape<IncidentUpdateJSON>("IncidentUpdate", { status: val
 
 const statusComponent = shape<StatusComponent>("StatusComponent", {
   id: value,
-  page_id: value,
+  project_id: value,
   name: value,
   position: value,
+  implicit: value,
   members: shape("StatusMember", { kind: value, id: value, name: value, state: value, counts: value, present: value }),
   derived: value,
   effective: value,
@@ -1013,6 +1059,7 @@ const contract: Record<string, Shape<unknown>> = {
   "machine_containers.golden.json": containers,
   "machine_network.golden.json": network,
   "machine_probes.golden.json": probes,
+  "machine_storage.golden.json": machineStorage,
   "machine_hosted.golden.json": machine,
   "machine_hosting_proxmox.golden.json": machine,
   "machine_role.golden.json": machine,
@@ -1030,6 +1077,18 @@ const contract: Record<string, Shape<unknown>> = {
   "ssh_keys.golden.json": shape<SSHMatrixResponse>("SSHMatrixResponse", { machines: sshReport }),
   "ssh_keys_machine.golden.json": sshReport,
   "settings_ai_agent.golden.json": mcpCheck,
+  "verb_requests.golden.json": shape<VerbRequestsResponse>("VerbRequestsResponse", {
+    requests: shape<VerbRequest>("VerbRequest", {
+      id: value,
+      verb: value,
+      object: shape("VerbRequestObject", { id: value, name: value }),
+      token_name: value,
+      on_behalf_of: value,
+      body: dictionaryOf(value),
+      created_at: value,
+      expires_at: value,
+    }),
+  }),
   "status_component.golden.json": statusComponent,
   "status_components.golden.json": shape<StatusComponentsResponse>("StatusComponentsResponse", {
     public_url: value,
@@ -1038,19 +1097,6 @@ const contract: Record<string, Shape<unknown>> = {
   }),
   "status_incident.golden.json": incident,
   "status_incidents.golden.json": shape<IncidentsResponse>("IncidentsResponse", { incidents: incident }),
-  "status_pages.golden.json": shape<StatusPagesResponse>("StatusPagesResponse", {
-    pages: shape("StatusPage", {
-      id: value,
-      project_id: value,
-      slug: value,
-      title: value,
-      announcement: value,
-      language: value,
-      public_url: value,
-      created_at: value,
-      updated_at: value,
-    }),
-  }),
   "status_public.golden.json": publicStatus,
 };
 

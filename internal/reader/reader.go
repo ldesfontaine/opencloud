@@ -11,6 +11,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
+	"github.com/ldesfontaine/opencloud/internal/module"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/role"
@@ -112,4 +114,13 @@ type Reader interface {
 	// MachineRoles rend, par machine, les rôles que son agent y a reconnus ;
 	// une machine sans rôle n'y figure pas.
 	MachineRoles(ctx context.Context) (map[string][]role.Role, error)
+	// MachineStorage rend les disques physiques et les pools que l'agent de la
+	// machine a rapportés ; vides tant qu'il n'a rien dit.
+	MachineStorage(ctx context.Context, machineID string) (hostinfo.Storage, error)
+	// MachineModules rend, par machine, les modules qu'elle porte : ceux de
+	// son rôle et ceux que l'agent observe.
+	MachineModules(ctx context.Context) (map[string][]module.ID, error)
+	// InstallationModules dit, pour chaque module de l'installation, s'il est
+	// configuré : au moins un objet du module existe.
+	InstallationModules(ctx context.Context) ([]module.State, error)
 }

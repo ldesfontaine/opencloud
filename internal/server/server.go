@@ -65,13 +65,12 @@ type MachineService interface {
 	List(ctx context.Context) ([]machine.Status, error)
 	Get(ctx context.Context, id string) (machine.Status, error)
 	Count(ctx context.Context) (total, online int, err error)
-	CreateToken(ctx context.Context, name string, capabilities []machine.Capability) (string, machine.Token, error)
+	CreateToken(ctx context.Context, name string, role machine.Role, capabilities []machine.Capability) (string, machine.Token, error)
 	CreateReenrollToken(ctx context.Context, machineID string, capabilities []machine.Capability) (string, machine.Token, error)
 	OfferLocalEnrollment(ctx context.Context) (string, machine.Token, error)
 	PendingTokens(ctx context.Context) ([]machine.Token, error)
 	CancelToken(ctx context.Context, id string) error
-	Remove(ctx context.Context, id string) error
-	Revoke(ctx context.Context, id string) error
+	Remove(ctx context.Context, id string, options machine.RemoveOptions) error
 	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Enroll(ctx context.Context, request machine.Enrollment) (machine.Machine, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
@@ -81,6 +80,8 @@ type MachineService interface {
 	NoteRootDir(ctx context.Context, agentID, root string) error
 	NoteRollbackVersion(ctx context.Context, agentID, reported string) error
 	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) (machine.Machine, error)
+	SetRole(ctx context.Context, machineID string, role machine.Role) (machine.Machine, error)
+	SetPlacement(ctx context.Context, machineID string, kindOverride machine.Kind, hostOverride string) (machine.Machine, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
 	SessionMachine(sessionToken string) (machineID string, err error)
@@ -141,6 +142,9 @@ type DirectoryService interface {
 	// DeleteService refuse avec un *deletion.RefusedError tant que des
 	// sondes ou des composants de statut visent le service.
 	DeleteService(ctx context.Context, id string) error
+	// DeleteServiceAndIgnore retire le service puis ignore les clés que ses
+	// conteneurs laissent non déclarés : ils ne reviennent pas en proposition.
+	DeleteServiceAndIgnore(ctx context.Context, id string) error
 	DeleteServicePlan(ctx context.Context, id string) (deletion.Plan, error)
 	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) (directory.Service, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
@@ -148,7 +152,7 @@ type DirectoryService interface {
 	DeleteProject(ctx context.Context, id string) error
 	DeleteProjectPlan(ctx context.Context, id string) (deletion.Plan, error)
 	// L'écart entre ce qui est déclaré et ce que les machines montrent, et
-	// ce qui en découle : adopter un conteneur, ignorer une clé, dire à quoi
+	// ce qui en découle : accepter une proposition, ignorer une clé, dire à quoi
 	// se rattache une fiche.
 	Gaps(ctx context.Context, filter directory.Filter) (directory.GapReport, error)
 	Propose(ctx context.Context, containerID string) (directory.Proposal, error)
@@ -208,25 +212,20 @@ type HeartbeatService interface {
 	Receive(ctx context.Context, token string, ping heartbeat.Ping) (heartbeat.Heartbeat, error)
 }
 
-// Ce que le serveur attend du composant statut : l'instantané public d'une
-// page d'un côté, l'administration des pages, des composants et des
-// incidents de l'autre.
+// Ce que le serveur attend du composant statut : l'instantané public d'un
+// projet publié d'un côté, l'administration des composants et des incidents
+// de l'autre.
 type StatusService interface {
-	Snapshot(ctx context.Context, pageID string) (status.Snapshot, error)
-	ListPages(ctx context.Context) ([]status.Page, error)
-	GetPage(ctx context.Context, id string) (status.Page, error)
-	PageBySlug(ctx context.Context, slug string) (status.Page, error)
-	CreatePage(ctx context.Context, definition status.PageDefinition) (status.Page, error)
-	UpdatePage(ctx context.Context, id string, definition status.PageDefinition) (status.Page, error)
-	DeletePage(ctx context.Context, id string) error
-	DeletePagePlan(ctx context.Context, id string) (deletion.Plan, error)
-	Components(ctx context.Context, pageID string) ([]status.Component, error)
+	Snapshot(ctx context.Context, projectID string) (status.Snapshot, error)
+	Publications(ctx context.Context) ([]status.Publication, error)
+	PublicationBySlug(ctx context.Context, slug string) (status.Publication, error)
+	Components(ctx context.Context, projectID string) ([]status.Component, error)
 	GetComponent(ctx context.Context, id string) (status.Component, error)
 	CreateComponent(ctx context.Context, definition status.ComponentDefinition) (status.Component, error)
 	UpdateComponent(ctx context.Context, id string, definition status.ComponentDefinition) (status.Component, error)
 	DeleteComponent(ctx context.Context, id string) error
 	DeleteComponentPlan(ctx context.Context, id string) (deletion.Plan, error)
-	Incidents(ctx context.Context, pageID string) ([]status.Incident, error)
+	Incidents(ctx context.Context, projectID string) ([]status.Incident, error)
 	GetIncident(ctx context.Context, id string) (status.Incident, error)
 	OpenIncident(ctx context.Context, definition status.IncidentDefinition) (status.Incident, error)
 	AddUpdate(ctx context.Context, id string, next status.IncidentStatus, message string) (status.Incident, error)
@@ -349,17 +348,19 @@ type Server struct {
 	alerts     AlertService
 	notifier   Notifier
 	apiTokens  APITokenService
-	mcpCheck   *mcpcheck.Checker
-	mcpURL     string
-	auth       AuthService
-	actions    ActionService
-	sshKeys    SSHKeysService
-	proxmox    ProxmoxService
-	firewalls  FirewallService
-	backups    Backups
-	deploy     Deployer
-	live       Live
-	logStreams atomic.Int32
+	// verbRequests tient les demandes des verbes à confirmation.
+	verbRequests VerbRequestService
+	mcpCheck     *mcpcheck.Checker
+	mcpURL       string
+	auth         AuthService
+	actions      ActionService
+	sshKeys      SSHKeysService
+	proxmox      ProxmoxService
+	firewalls    FirewallService
+	backups      Backups
+	deploy       Deployer
+	live         Live
+	logStreams   atomic.Int32
 	// Le limiteur de la racine, par source : les essais d'identifiants Basic
 	// et de jetons d'API.
 	authLimit *ratelimit.BySource
@@ -417,6 +418,8 @@ type Options struct {
 	Notifier   Notifier
 	// APITokens crée et vérifie les jetons d'API ; voir api_tokens.go.
 	APITokens APITokenService
+	// VerbRequests tient les demandes de verbe à confirmation ; voir api_verb_requests.go.
+	VerbRequests VerbRequestService
 	// MCPURL est l'adresse de mcp-maison, vide : aucun ; voir api_settings_mcp.go.
 	MCPURL string
 	// Auth garde l'interface de l'opérateur ; voir auth.go.
@@ -427,6 +430,8 @@ type Options struct {
 	SSHKeys SSHKeysService
 	// Roles garde ce que l'agent reconnaît sur sa machine ; le signal l'écrit.
 	Roles agentapi.RolesService
+	// Host garde où tourne la machine et ses disques ; le signal l'écrit.
+	Host agentapi.HostService
 	// Proxmox déclare l'hôte Proxmox d'une machine ; voir api_proxmox.go.
 	Proxmox ProxmoxService
 	// Firewalls déclare les pare-feu lus en lecture seule ; voir api_firewalls.go.
@@ -489,6 +494,7 @@ func New(opts Options) (*Server, error) {
 		alerts:         opts.Alerts,
 		notifier:       opts.Notifier,
 		apiTokens:      opts.APITokens,
+		verbRequests:   opts.VerbRequests,
 		mcpURL:         opts.MCPURL,
 		auth:           opts.Auth,
 		actions:        opts.Actions,
@@ -525,6 +531,7 @@ func New(opts Options) (*Server, error) {
 		Actions:       opts.Actions,
 		SSHKeys:       opts.SSHKeys,
 		Roles:         opts.Roles,
+		Host:          opts.Host,
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})

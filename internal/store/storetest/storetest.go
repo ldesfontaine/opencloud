@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/seal"
-	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -98,21 +98,31 @@ func InsertProbe(t testing.TB, db *store.DB, id string, definition probe.Definit
 	return item
 }
 
-// StatusPage écrit une page de statut directement en base, sans projet, à
-// l'adresse /statut/<slug> ; rend son identifiant. Un composant naît sur une
-// page : les bancs qui en créent un commencent par elle. Le même slug rend la
-// page déjà écrite.
-func StatusPage(t testing.TB, db *store.DB, slug string) string {
+// PublishedProject écrit un projet publié directement en base, nommé par son
+// adresse /statut/<slug> ; rend son identifiant. Un composant naît sur un
+// projet : les bancs qui en créent un commencent par lui. Le même slug rend le
+// projet déjà écrit.
+func PublishedProject(t testing.TB, db *store.DB, slug string) string {
 	t.Helper()
 	ctx := context.Background()
-	if found, err := db.GetPageBySlug(ctx, slug); err == nil {
-		return found.ID
-	}
-	page := status.Page{ID: "page_" + slug, Slug: slug, CreatedAt: time.Unix(1, 0), UpdatedAt: time.Unix(1, 0)}
-	if err := db.InsertPage(ctx, page); err != nil {
+	projects, err := db.ListProjects(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return page.ID
+	for _, found := range projects {
+		if found.Publication.Slug == slug {
+			return found.ID
+		}
+	}
+	at := time.Unix(1, 0)
+	project := directory.Project{
+		ID: directory.ProjectPrefix + slug, Name: slug, CreatedAt: at, UpdatedAt: at,
+		Publication: directory.Publication{Slug: slug, PublishedAt: at},
+	}
+	if err := db.InsertProject(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	return project.ID
 }
 
 // EnsureLocalMachine enrôle l'agent de la machine openCloud par le service
@@ -122,7 +132,7 @@ func EnsureLocalMachine(t testing.TB, machines *machine.Service) machine.Machine
 	t.Helper()
 	ctx := context.Background()
 	machines.SetServerHost(LocalFingerprint, localHostname)
-	cleartext, _, err := machines.CreateToken(ctx, brand.LocalMachineName, nil)
+	cleartext, _, err := machines.CreateToken(ctx, brand.LocalMachineName, machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +168,7 @@ func EnrollMachine(t testing.TB, machines *machine.Service, id, name string) mac
 func EnrollMachineWithKey(t testing.TB, machines *machine.Service, id, name string) (machine.Machine, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
-	cleartext, _, err := machines.CreateToken(ctx, name, nil)
+	cleartext, _, err := machines.CreateToken(ctx, name, machine.RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

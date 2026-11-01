@@ -10,13 +10,16 @@ import { EmptyCard, Stat } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
-import { OnlinePill, Pill } from "../components/Pill";
+import { TodoCard } from "../components/TodoCard";
+import { VerbRequestsCard } from "../components/VerbRequestsCard";
+import { MachineStatePill, Pill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useDiskThresholds, useT } from "../i18n/context";
 import { describeAlert, mostUrgentAlert } from "../lib/alerts";
 import { certificateTone, daysUntil } from "../lib/certificates";
-import { machineSeen, machinesSubtitle } from "../lib/machines";
+import { liveMachines, machineSeen, machinesSubtitle } from "../lib/machines";
+import { modulesToConfigure } from "../lib/modules";
 import "./Overview.scss";
 
 // La tuile Alertes : le nombre d'ouvertes, puis en pied, sur une ligne
@@ -112,7 +115,8 @@ export function Overview() {
   const rolledBack = new Set(
     (alerts.data?.alerts ?? []).filter((alert) => alert.kind === "agent_rolled_back" && alert.status === "open").map((alert) => alert.object.id),
   );
-  const online = list.filter((machine) => machine.online).length;
+  const live = liveMachines(list);
+  const online = live.filter((machine) => machine.online).length;
   const currentOf = (machineID: string) => resources.data?.machines.find((current) => current.machine_id === machineID);
   return (
     <div className="overview-page">
@@ -126,17 +130,19 @@ export function Overview() {
         }
       />
       {machines.error && <Failure error={machines.error} />}
+      <VerbRequestsCard />
+      <TodoCard todos={modulesToConfigure(counts.data, list)} />
       {machines.data && list.length === 0 && (
         <EmptyCard icon="server" title={t("overview.empty_title")} text={t("overview.empty_text")} />
       )}
       {machines.data && list.length > 0 && (
         <>
           <div className="overview-stats">
-            <Stat compact icon="server" label={t("nav.machines")} value={list.length} foot={<b>{t("overview.online", online)}</b>} />
+            <Stat compact icon="server" label={t("nav.machines")} value={live.length} foot={<b>{t("overview.online", online)}</b>} />
             <Stat
               compact
               icon="box"
-              label={t("services.tab_containers")}
+              label={t("module.containers")}
               value={counts.data?.containers.total ?? "–"}
               foot={
                 counts.data && counts.data.containers.attention > 0 ? (
@@ -159,14 +165,14 @@ export function Overview() {
             <Stat
               compact
               icon="globe"
-              label={t("nav.availability")}
+              label={t("module.probes")}
               value={counts.data?.probes.total ?? "–"}
               foot={counts.data ? <AvailabilityFoot counts={counts.data} /> : "–"}
             />
             <Stat
               compact
               icon="clock"
-              label={t("nav.jobs")}
+              label={t("module.jobs")}
               value={counts.data?.jobs.total ?? "–"}
               foot={
                 counts.data && counts.data.jobs.attention > 0 ? (
@@ -208,7 +214,7 @@ export function Overview() {
                           {t("overview.agent_rolled_back")}
                         </Pill>
                       )}
-                      <OnlinePill online={machine.online} />
+                      <MachineStatePill machine={machine} />
                     </span>
                   </div>
                   <MachineMeters current={currentOf(machine.id)} />

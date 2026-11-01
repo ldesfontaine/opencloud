@@ -1,0 +1,5 @@
+# C3 : code mort avant / après (#407)
+
+deadcode -test ./... avant : 0 résultat ; après : 0
+deadcode ./... (ce que seuls les tests appellent) avant : 79 ; après : 79 (les mêmes lignes, aux numéros près : bancs de test et listes fermées déjà classés faux positifs au cadrage §2.1)
+knip 6.44.1, commande `npx knip` lancée sans option dans web/ (celle de la relecture), sur orca/ux-c3 puis sur origin/dev (2148349, copie de travail jetable) : les deux sorties sont identiques, 10 types exportés non utilisés déjà présents sur dev (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup), aucun ajouté par C3. `Counter` (web/src/lib/modules.ts) n'est plus exporté.

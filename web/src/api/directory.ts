@@ -68,11 +68,24 @@ export interface DeclaredService {
   updated_at: string;
 }
 
+// La page publique d'un projet, à /statut/<slug>. La langue est résolue par
+// le serveur : vide en base, c'est celle de l'interface.
+interface ProjectPublication {
+  slug: string;
+  announcement: string;
+  language: string;
+  public_url: string;
+  published_at: string;
+}
+
+// Un projet regroupe des services ; publication nul : il n'a pas de page
+// publique. Le titre de la page est le sien.
 export interface Project {
   id: string;
   name: string;
   title: string;
   service_ids: string[];
+  publication: ProjectPublication | null;
   created_at: string;
   updated_at: string;
 }
@@ -203,16 +216,18 @@ export interface ServiceRequest {
 // Une unité que la proposition ajoute n'a pas encore de politique.
 type ProposedUnit = Omit<ServiceUnitRequest, "update_policy"> & { update_policy?: UpdatePolicy };
 
-// Ce que « Adopter » pré-remplit : le corps de la création, à ses unités
+// Ce que « Accepter » écrit et que « Modifier avant d'accepter » pré-remplit : le corps de la création, à ses unités
 // près. Avec service_id, c'est la modification de ce service.
 export interface ProposalResponse {
   service_id: string;
   definition: Omit<ServiceRequest, "units"> & { units: ProposedUnit[] };
 }
 
-interface ProjectRequest {
+// publication nul : le projet n'est pas publié.
+export interface ProjectRequest {
   name: string;
   title: string;
+  publication: { slug: string; announcement: string; language: string } | null;
 }
 
 // Ce que l'opérateur dit voulu : une clé d'observation, pas un id Docker.
@@ -278,9 +293,19 @@ export function useProject(id: string | null): Resource<Project> {
   return useResource<Project>(id === null ? null : () => projectPath(id));
 }
 
-// Ce que « Adopter » propose pour ce conteneur ; containerID nul : rien à lire.
+function proposalPath(containerID: string): string {
+  return `${directoryPath}/proposal?container=${segment(containerID)}`;
+}
+
+// Ce que le serveur propose pour ce conteneur ; containerID nul : rien à lire.
 export function useProposal(containerID: string | null): Resource<ProposalResponse> {
-  return useResource<ProposalResponse>(containerID === null ? null : () => `${directoryPath}/proposal?container=${segment(containerID)}`);
+  return useResource<ProposalResponse>(containerID === null ? null : () => proposalPath(containerID));
+}
+
+// La proposition du moment, relue à l'instant d'accepter : si le conteneur est
+// ignoré ou déclaré depuis, le serveur la refuse (409) et rien n'est écrit.
+export async function fetchProposal(containerID: string): Promise<ProposalResponse> {
+  return api.get<ProposalResponse>(proposalPath(containerID));
 }
 
 // L'écart pour une machine et un projet, vides pour tous ; filtre nul :
@@ -302,9 +327,12 @@ export async function saveDeclaredService(id: string | undefined, body: ServiceR
 }
 
 // Les projets restent, seul le lien s'efface. Un service lié est refusé
-// en 409, avec le plan qui dit ce qui le lie.
-export async function deleteDeclaredService(id: string): Promise<void> {
-  return api.send(route("DELETE /api/directory/services/{id}", { id }));
+// en 409, avec le plan qui dit ce qui le lie. Ses conteneurs qui tournent
+// redeviennent une proposition ; avec ignore, ils sont dits voulus du même
+// geste.
+export async function deleteDeclaredService(id: string, ignore = false): Promise<void> {
+  const query = ignore ? new URLSearchParams({ ignore: "true" }) : undefined;
+  return api.send(route("DELETE /api/directory/services/{id}", { id }, query));
 }
 
 export async function fetchDeclaredServiceDeletePlan(id: string): Promise<DeletionPlan> {

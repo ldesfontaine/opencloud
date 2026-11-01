@@ -70,21 +70,47 @@ type proxmoxStorageJSON struct {
 // Ce que chaque machine dit de Proxmox : porte-t-elle un hôte, et, si elle
 // est la VM d'un hôte, laquelle (hosted).
 type proxmoxSummaryJSON struct {
-	Declared  bool               `json:"declared"`
-	Guests    int                `json:"guests"`
-	LastError string             `json:"last_error"`
-	Hosted    *proxmoxHostedJSON `json:"hosted"`
+	Declared  bool   `json:"declared"`
+	Guests    int    `json:"guests"`
+	LastError string `json:"last_error"`
+	// Le nœud de l'hôte, sa grappe (null pour un nœud seul) et ses invités, dont
+	// ceux qu'aucune machine enrôlée ne porte : vides pour une machine sans hôte.
+	Node      string              `json:"node"`
+	Cluster   *clusterJSON        `json:"cluster"`
+	GuestList []proxmoxMemberJSON `json:"guest_list"`
+	Hosted    *proxmoxHostedJSON  `json:"hosted"`
+}
+
+type clusterJSON struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Un invité vu depuis la liste des machines : de quoi le placer dans l'arbre.
+type proxmoxMemberJSON struct {
+	VMID            int     `json:"vmid"`
+	Kind            string  `json:"kind"`
+	Name            string  `json:"name"`
+	Status          string  `json:"status"`
+	Template        bool    `json:"template"`
+	Node            string  `json:"node"`
+	CPUs            float64 `json:"cpus"`
+	MaxMemory       int64   `json:"max_memory"`
+	MaxDisk         int64   `json:"max_disk"`
+	LinkedMachineID *string `json:"linked_machine_id"`
 }
 
 type proxmoxHostedJSON struct {
 	HostMachineID   string     `json:"host_machine_id"`
 	HostMachineName string     `json:"host_machine_name"`
+	Node            string     `json:"node"`
 	VMID            int        `json:"vmid"`
 	Kind            string     `json:"kind"`
 	Name            string     `json:"name"`
 	Status          string     `json:"status"`
 	CPUs            float64    `json:"cpus"`
 	MaxMemory       int64      `json:"max_memory"`
+	MaxDisk         int64      `json:"max_disk"`
 	LastBackupAt    *time.Time `json:"last_backup_at"`
 	LastBackupBytes int64      `json:"last_backup_bytes"`
 }
@@ -131,13 +157,30 @@ func proxmoxStorageToJSON(storage proxmox.Storage) proxmoxStorageJSON {
 	}
 }
 
+func proxmoxMemberToJSON(guest proxmox.Guest) proxmoxMemberJSON {
+	converted := proxmoxMemberJSON{
+		VMID: guest.VMID, Kind: guest.Kind, Name: guest.Name, Status: guest.Status, Template: guest.Template, Node: guest.Node,
+		CPUs: guest.CPUs, MaxMemory: guest.MaxMem, MaxDisk: guest.MaxDisk,
+	}
+	if guest.LinkedMachineID != "" {
+		converted.LinkedMachineID = &guest.LinkedMachineID
+	}
+	return converted
+}
+
 func proxmoxSummaryToJSON(summary proxmox.Summary) proxmoxSummaryJSON {
-	converted := proxmoxSummaryJSON{Declared: summary.Declared, Guests: summary.Guests, LastError: summary.LastError}
+	converted := proxmoxSummaryJSON{
+		Declared: summary.Declared, Guests: summary.Guests, LastError: summary.LastError, Node: summary.Node,
+		GuestList: httpx.ConvertAll(summary.Members, proxmoxMemberToJSON),
+	}
+	if summary.Cluster != nil {
+		converted.Cluster = &clusterJSON{ID: summary.Cluster.ID, Name: summary.Cluster.Name}
+	}
 	if summary.Hosted != nil {
 		hosted := summary.Hosted
 		converted.Hosted = &proxmoxHostedJSON{
-			HostMachineID: hosted.HostMachineID, HostMachineName: hosted.HostName, VMID: hosted.VMID, Kind: hosted.Kind,
-			Name: hosted.Name, Status: hosted.Status, CPUs: hosted.CPUs, MaxMemory: hosted.MaxMem,
+			HostMachineID: hosted.HostMachineID, HostMachineName: hosted.HostName, Node: hosted.Node, VMID: hosted.VMID, Kind: hosted.Kind,
+			Name: hosted.Name, Status: hosted.Status, CPUs: hosted.CPUs, MaxMemory: hosted.MaxMem, MaxDisk: hosted.MaxDisk,
 			LastBackupAt: httpx.TimeOrNil(hosted.LastBackupAt), LastBackupBytes: hosted.LastBackupBytes,
 		}
 	}

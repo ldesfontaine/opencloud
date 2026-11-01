@@ -43,7 +43,6 @@ func (s *Server) routes() []route {
 		{"DELETE", "/api/machines/{id}", s.removeMachine},
 		{"GET", "/api/machines/{id}/delete-plan", s.getMachineDeletePlan},
 		{"POST", "/api/machines/{id}/actions/reenroll", s.grantsAuthority(s.reenrollMachine)},
-		{"POST", "/api/machines/{id}/actions/revoke", s.revokeAgent},
 		{"POST", "/api/machines/{id}/actions/ping", s.pingAgent},
 		{"GET", "/api/machines/{id}/agent-update", s.getAgentUpdate},
 		{"POST", "/api/machines/{id}/actions/update-agent", s.updateAgent},
@@ -51,6 +50,9 @@ func (s *Server) routes() []route {
 		{"GET", "/api/agent-updates", s.listAgentUpdates},
 		{"GET", "/api/agent-migration", s.getAgentMigration},
 		{"PUT", "/api/machines/{id}/update-last", s.setUpdateLast},
+		{"PUT", "/api/machines/{id}/role", s.setRole},
+		{"PUT", "/api/machines/{id}/placement", s.setPlacement},
+		{"GET", "/api/machines/{id}/storage", s.getMachineStorage},
 		{"POST", "/api/machines/{id}/actions/check-updates", s.checkUpdates},
 		{"GET", "/api/machines/{id}/resources", s.getMachineResources},
 		{"GET", "/api/machines/{id}/resources/history", s.getMachineHistory},
@@ -129,12 +131,6 @@ func (s *Server) routes() []route {
 		{"POST", "/api/jobs/{id}/actions/pause", s.pauseJob},
 		{"POST", "/api/jobs/{id}/actions/resume", s.resumeJob},
 		{"POST", "/api/jobs/{id}/actions/regenerate-token", s.regenerateJobToken},
-		{"GET", "/api/status/pages", s.listPages},
-		{"POST", "/api/status/pages", s.createPage},
-		{"GET", "/api/status/pages/{id}", s.getPage},
-		{"PUT", "/api/status/pages/{id}", s.updatePage},
-		{"DELETE", "/api/status/pages/{id}", s.deletePage},
-		{"GET", "/api/status/pages/{id}/delete-plan", s.getPageDeletePlan},
 		{"GET", "/api/status/components", s.listComponents},
 		{"POST", "/api/status/components", s.createComponent},
 		{"GET", "/api/status/components/{id}", s.getComponent},
@@ -161,6 +157,9 @@ func (s *Server) routes() []route {
 		{"GET", "/api/alerts/{id}", s.getAlert},
 		{"POST", "/api/alerts/{id}/actions/acknowledge", s.acknowledgeAlert},
 		{"GET", "/api/token/verbs", s.listTokenVerbs},
+		{"GET", "/api/verb-requests", s.listVerbRequests},
+		{"POST", "/api/verb-requests/{id}/actions/confirm", s.confirmVerbRequest},
+		{"POST", "/api/verb-requests/{id}/actions/reject", s.rejectVerbRequest},
 		{"GET", "/api/settings/api-tokens", s.listAPITokens},
 		{"POST", "/api/settings/api-tokens", s.grantsAuthority(s.createAPIToken)},
 		{"PUT", "/api/settings/api-tokens/{id}/reach", s.grantsAuthority(s.setAPITokenReach)},
@@ -215,7 +214,7 @@ var apiTokenRoutes = []string{
 	"GET /api/directory/services", "GET /api/directory/gaps", "GET /api/manifest/export",
 	"GET /api/jobs", "GET /api/jobs/{id}",
 	"GET /api/probes", "GET /api/probes/{id}",
-	"GET /api/status/pages", "GET /api/status/pages/{id}", "GET /api/status/components", "GET /api/status/incidents",
+	"GET /api/directory/projects", "GET /api/directory/projects/{id}", "GET /api/status/components", "GET /api/status/incidents",
 	"GET /api/alerts", "GET /api/alerts/{id}", "GET /api/alerts/channels",
 	"GET /api/audit", "GET /api/actions", "GET /api/agent-updates",
 	"GET /api/backups/inventory", "GET /api/backups/runs",
@@ -245,6 +244,15 @@ func tokenAccessOf(method, pattern string) tokenAccess {
 	return access
 }
 
+// verbHandler fait répondre un verbe à un jeton : l'exécution et sa réponse
+// reformulée, ou, pour un verbe à confirmation, la demande déposée.
+func (s *Server) verbHandler(verbID string, next http.HandlerFunc) http.HandlerFunc {
+	if offered, _ := verb.Default.Lookup(verbID); offered.Confirm {
+		return s.askConfirmation(offered, next)
+	}
+	return s.shapeVerbReply(verbID, next)
+}
+
 // Toute écriture sous /api passe par la garde même-origine ; les lectures
 // et les routes de l'agent, des pings et de la page publique n'en ont pas
 // besoin. L'accès de l'opérateur enveloppe le tout, avant la garde. Ce qu'un
@@ -257,7 +265,7 @@ func (s *Server) mux() *http.ServeMux {
 		isAPI := strings.HasPrefix(route.pattern, "/api/")
 		access := tokenAccessOf(route.method, route.pattern)
 		if access.verb != "" {
-			handler = s.shapeVerbReply(access.verb, handler)
+			handler = s.verbHandler(access.verb, handler)
 		}
 		if isAPI && route.method != http.MethodGet {
 			handler = s.requireSameOrigin(handler)

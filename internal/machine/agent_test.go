@@ -15,14 +15,14 @@ func TestCreateToken_CarriesTheCheckedRightsAndReenrollKeepsThem(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	checked := []Capability{{Name: CapabilityFilesWrite, Paths: []string{"/srv/workspace"}}, {Name: CapabilityDockerDeploy}}
-	cleartext, token, err := h.service.CreateToken(ctx, "vps-paris-1", checked)
+	cleartext, token, err := h.service.CreateToken(ctx, "vps-paris-1", RoleGeneric, checked)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := FormatCapabilities(token.Capabilities); got != "observe,docker.deploy,files.write=/srv/workspace" {
 		t.Fatalf("token rights %q", got)
 	}
-	if _, _, err := h.service.CreateToken(ctx, "vps-lyon-2", []Capability{{Name: "shell.exec"}}); !errors.Is(err, ErrCapabilityUnknown) {
+	if _, _, err := h.service.CreateToken(ctx, "vps-lyon-2", RoleGeneric, []Capability{{Name: "shell.exec"}}); !errors.Is(err, ErrCapabilityUnknown) {
 		t.Fatalf("unknown right: %v", err)
 	}
 	enrolled := h.enrollWith(t, cleartext)
@@ -43,7 +43,7 @@ func TestCreateToken_CarriesTheCheckedRightsAndReenrollKeepsThem(t *testing.T) {
 func TestConnect_RecordsTheReportedRightsAndTheGapShows(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", []Capability{{Name: CapabilityAgentUpdate}})
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", RoleGeneric, []Capability{{Name: CapabilityAgentUpdate}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestConnect_RecordsTheReportedRightsAndTheGapShows(t *testing.T) {
 func TestConnect_RecordsTheAccountAndWhyARightCannotBeExercised(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", []Capability{{Name: CapabilityDockerDeploy}, {Name: CapabilityAgentUpdate}})
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", RoleGeneric, []Capability{{Name: CapabilityDockerDeploy}, {Name: CapabilityAgentUpdate}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestConnect_RecordsTheAccountAndWhyARightCannotBeExercised(t *testing.T) {
 func TestConnect_IgnoresAReasonForARightTheAgentDoesNotReport(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", nil)
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestConnect_IgnoresAReasonForARightTheAgentDoesNotReport(t *testing.T) {
 func TestNoteServerKey_KeepsAFingerprintAndNothingElse(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", nil)
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestNoteServerKey_KeepsAFingerprintAndNothingElse(t *testing.T) {
 func TestNoteRootDir_KeepsAValidPathAndIgnoresTheRest(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", nil)
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,10 +216,11 @@ func TestNoteRootDir_KeepsAValidPathAndIgnoresTheRest(t *testing.T) {
 	}
 }
 
-// Révoquer : le flux tombe, la preuve suivante est refusée (l'agent
-// s'arrête), les jetons de ré-enrôlement en attente partent ; la machine
-// reste. Ré-enrôler installe un nouvel agent et lève la révocation.
-func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) {
+// Garder l'historique archive la machine : le flux tombe, la preuve suivante
+// est refusée (l'agent s'arrête), les jetons de ré-enrôlement en attente
+// partent ; la machine reste. Ré-enrôler installe un nouvel agent et la
+// désarchive.
+func TestRemove_KeepHistory_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	m, private := h.enroll(t, "vps-paris-1")
@@ -231,7 +232,7 @@ func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	if err := h.service.Revoke(ctx, m.ID); err != nil {
+	if err := h.service.Remove(ctx, m.ID, RemoveOptions{KeepHistory: true}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -249,7 +250,7 @@ func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) 
 	if err != nil || !status.Agent.IsRevoked() || status.Online {
 		t.Fatalf("the machine stays, its agent revoked: %+v %v", status, err)
 	}
-	if err := h.service.Revoke(ctx, m.ID); !errors.Is(err, ErrNoAgent) {
+	if err := h.service.Remove(ctx, m.ID, RemoveOptions{KeepHistory: true}); !errors.Is(err, ErrNoAgent) {
 		t.Fatalf("revoking twice: %v", err)
 	}
 	// Sans agent actif, la machine n'est pas « perdue » : rien à perdre.

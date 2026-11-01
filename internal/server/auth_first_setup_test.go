@@ -96,7 +96,7 @@ func TestFirstSetup_TheFrontLoadsWithoutAnAccount(t *testing.T) {
 // page de statut et les pings répondent comme d'habitude.
 func TestFirstSetup_PublicRoutesStayPublic(t *testing.T) {
 	server := newFirstSetupServer(t)
-	storetest.StatusPage(t, server.db, "statut")
+	storetest.PublishedProject(t, server.db, "statut")
 	if got := callAs(server.Server, http.MethodGet, "/statut/statut/api/status", "", ""); got.Code != http.StatusOK {
 		t.Fatalf("/statut/statut/api/status: %d", got.Code)
 	}

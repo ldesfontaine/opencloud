@@ -119,6 +119,8 @@ func newBench(t *testing.T, reportedRights string) *bench {
 		t.Fatal(err)
 	}
 	b.outbox.SetClock(clock)
+	// Le disque du test n'est pas celui de la machine : l'espace libre est fixé.
+	b.outbox.SetFreeBytes(func(string) (uint64, error) { return 1 << 40, nil })
 	b.actions.SetOutbox(b.outbox)
 
 	// Les deux clés que la sauvegarde emporte avec la base.

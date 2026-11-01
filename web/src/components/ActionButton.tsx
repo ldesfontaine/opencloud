@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
 
 import type { Write } from "../api/routes";
-import { useIsVerbRoute, useT } from "../i18n/context";
 import { Button } from "./Button";
 import type { IconName } from "./Icon";
-import "./ActionButton.scss";
+import { McpChip } from "./McpChip";
 
 // Le bouton principal d'une page : un seul par en-tête (doc 25, « Les
 // actions »). Il dit la route d'API que son geste finit par appeler ; si cette
@@ -27,16 +26,10 @@ export function ActionButton({
   disabled?: boolean;
   children: ReactNode;
 }) {
-  const t = useT();
-  const isVerb = useIsVerbRoute();
   return (
     <Button variant="primary" {...(icon !== undefined && { icon })} {...(to !== undefined && { to })} {...(onClick !== undefined && { onClick })} disabled={disabled}>
       {children}
-      {isVerb(route) && (
-        <span className="mcp-chip" title={t("action.mcp_title")}>
-          {t("action.mcp_chip")}
-        </span>
-      )}
+      <McpChip route={route} />
     </Button>
   );
 }

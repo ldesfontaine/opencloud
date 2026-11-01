@@ -1,0 +1,23 @@
+# C10 : code mort avant / après (#415)
+
+Avant = 6e82a3d (dev après C9), après = fin de la branche orca/ux-c10.
+
+deadcode ./... (Go ; ce que seuls les tests appellent) avant : 79 ; après : 79, rapport identique. Aucun fichier Go de production ne change dans ce chantier (catalogues `internal/lang/*.toml` mis à part).
+knip, `npx knip --reporter compact` dans web/ (après `npm ci`) avant : 8 types exportés non utilisés ; après : les mêmes 8, rapport identique (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup selon la version : exports d'autres domaines, hors périmètre C10, aucun ajouté ici).
+
+Supprimé dans ce chantier
+- Pages et onglets : `pages/AlertChannelForm.tsx` (devient `settings/ChannelWizard.tsx`), `pages/AlertMuteNew.tsx` (devient `settings/MuteWizard.tsx`), `pages/alerts/AlertsTab.tsx` (devient `alerts/Inbox.tsx`), `pages/alerts/ChannelsTab.tsx` (devient `settings/ChannelsBlock.tsx`), `pages/alerts/MutesTab.tsx` (devient `settings/MutesBlock.tsx`), `pages/settings/DiskSection.tsx` (devient `DiskThresholdsBlock.tsx`, sans ancre propre).
+- Onglets `acquittees`, `resolues`, `canaux`, `silences` d'Alertes ; `TabNav` de la page ; boutons d'en-tête « Ajouter un canal » / « Ajouter un silence ».
+- Routes d'écran `alertes/canaux/nouveau`, `alertes/canaux/:id`, `alertes/silences/nouveau`, `alertes/:tab` (une seule route `alertes/*` redirige : `renamedAlertLocation`, testée) ; ancre `#alertes` (renvoie à `#notifications`, `sectionOfHash`, testée).
+- Le parcours « canal créé » (`?cree=1`, note `channel.created`) : la ligne neuve de la liste porte son bouton Tester.
+- `FormPage`/`FormCard` pour ces deux formulaires (le chantier C11 retire les composants eux-mêmes).
+- Catalogues fr et en : `alerts.tab_open`, `tab_acknowledged`, `tab_resolved`, `tab_channels`, `tab_silences`, `empty_acknowledged_text`, `empty_resolved_text` ; `channel.cancel`, `created`, `empty_title`, `col_format`, `col_severity` ; `silence.cancel`, `empty_title` ; `settings.section_alerts`.
+- Clés ajoutées : `alerts.section_*`, `filter_*`, `empty_unseen_text`, `empty_filtered_text`, `resolved_count`, `settings_link` ; `alert.state_*` ; `channel.title`, `intro`, `step_*`, `on`, `off`, `secret_summary_*`, `receives_line` ; `silence.title`, `intro`, `step_*`, `object_missing`, `public_title_missing`, `start_now` ; `settings.section_notifications`, `notifications_intro`, `disk_title`. Libellés « acquitter » devenus « marquer comme vue » (clés inchangées).
+- Aucune route d'API, aucun verbe, aucune table, aucune migration touchés.
+
+Gardé, avec sa raison
+- `POST /api/alerts/{id}/actions/acknowledge` et `/actions/acknowledge` : les gestes « Marquer comme vue » (l'acquittement est déjà la notion « vue », §3.6).
+- `GET /api/alerts?status=resolved` : lu par l'historique. Le filtre se fait côté client, la liste étant bornée à 200 par le serveur ; aucun paramètre de requête ajouté (la ligne C10 déclare les routes inchangées).
+- `alertSelection.ts`, `SelectableAlerts.tsx`, `AlertRow.tsx` : la liste des non vues les emploie ; `AlertRow` sert aussi la fiche d'une alerte et la fiche d'un service.
+- `pages/Alert.tsx` (fiche d'une alerte) : adresse `alertes/alerte/:id` inchangée, elle figure dans les liens envoyés aux canaux (`alert.payload.go`).
+- Les types knip ci-dessus : autres domaines.

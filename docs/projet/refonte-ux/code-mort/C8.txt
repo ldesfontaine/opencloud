@@ -1,0 +1,22 @@
+# C8 : code mort avant / après (#413)
+
+Avant = be7b368 (dev après C7), après = fin de la branche orca/ux-c8.
+
+deadcode ./... (Go ; ce que seuls les tests appellent) avant : 79 ; après : 79, rapport identique octet pour octet. Les ajouts Go (DeleteServiceAndIgnore, keysLeftBy, ErrContainerIgnored) ont un appelant de production.
+knip 6.44.1, `npx knip --reporter compact` dans web/ (après `npm ci`) avant : 8 types exportés non utilisés ; après : les mêmes 8, rapport identique (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup selon la version : exports d'autres domaines, hors périmètre C8, aucun ajouté ici).
+
+Supprimé dans ce chantier
+- `components/UndeclaredList.tsx`, remplacé par `pages/services/Proposals.tsx` (section en tête de Services, ignorés repliés dessous).
+- `lib/gaps.ts` : `adoptPath` (devient `editBeforeAcceptPath`), `adoptIntoPath` (l'assistant bascule seul sur la modification quand le projet est déjà déclaré : `ServiceWizard` redirige), `adoptionTarget` (devient `acceptanceTarget`), `shownUndeclared` et `ignoredCount` (remplacés par `proposalsOf` / `ignoredOf`) ; leurs tests.
+- Le bouton « Adopter » de la tête de la fiche d'un conteneur (`pages/Container.tsx`) : la carte Annuaire de la même page porte Accepter / Modifier avant d'accepter / Ignorer.
+- Le code d'ignorance copié dans `DirectoryCard` et `UndeclaredList` (deux `useAction` identiques) : un seul hook, `hooks/useProposalActions.ts`.
+- Catalogues fr et en : `gap.adopt`, `gap.adopt_into`, `gap.adopt_title`, `gap.adopt_subtitle`, `gap.adopt_into_title`, `gap.adopt_into_subtitle`, `gap.undeclared_title`, `gap.undeclared_empty`, `gap.show_ignored`, `gap.hide_ignored`.
+- Clés ajoutées : `gap.proposals_title`, `proposals_text`, `accept`, `accept_into`, `edit_before_accept`, `ignored_fold`, `ignored_text`, `accept_title`, `accept_subtitle`, `accept_into_title`, `accept_into_subtitle`, `directory.delete_ignore`, `delete_ignore_confirm`, `container_ignored`.
+- Aucune route ni aucune table n'est supprimée ni ajoutée ; aucune migration. Le champ JSON `adoptable` de `GET /api/directory/gaps` est gardé (contrat inchangé, golden inchangé).
+
+Gardé, avec sa raison
+- `GET /api/directory/proposal` : lue par Accepter et par Modifier avant d'accepter.
+- `gap.undeclared` (pastille « Non déclaré » de la fiche d'un conteneur) : un fait, pas une proposition.
+- `hasProposals`, `containerCount`, `ignoreKeyOf`, `orphanKey`, `orphanText`, `isOrphan` : lus par Proposals, DirectoryCard.
+- Export `?propose` du manifeste (`ProposeAll`) : inchangé, décidé au cadrage (§3.5).
+- Les types knip ci-dessus : autres domaines.

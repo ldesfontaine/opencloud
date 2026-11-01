@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { Container, Transition } from "../api/containers";
 import type { Translate } from "../i18n/context";
-import { containerNeedsAttention, displayedState, filterContainers, lastStateText, findingText, formatBinding, formatBindings, formatPublishedPorts, imageBase, matchesFilter, nodeSubtitle, nodeTone, containerIcon, containerPill, servicesSubtitle, transitionPassage } from "./containers";
+import { containerNeedsAttention, displayedState, filterContainers, lastStateText, findingText, formatBinding, formatBindings, formatPublishedPorts, imageBase, matchesFilter, nodeSubtitle, nodeTone, containerIcon, containerPill, containersByService, transitionPassage } from "./containers";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -105,18 +105,12 @@ test("formatPublishedPorts écrit les ports publiés comme la planche", () => {
   ).toBe(":80 · :443");
 });
 
-test("servicesSubtitle compte", () => {
-  expect(servicesSubtitle(t, 0, 0, 0)).toBe("services.subtitle_none");
-  expect(servicesSubtitle(t, 1, 0, 0)).toBe("services.subtitle_one");
-  expect(servicesSubtitle(t, 1, 1, 0)).toBe("services.subtitle_one_attention");
-  expect(servicesSubtitle(t, 6, 0, 0)).toBe("services.subtitle_ok:6");
-  expect(servicesSubtitle(t, 6, 2, 0)).toBe("services.subtitle_attention:6:2");
-});
-
-test("servicesSubtitle ne dit pas « tous actifs » de conteneurs dont l'état est inconnu", () => {
-  expect(servicesSubtitle(t, 1, 0, 1)).toBe("services.subtitle_one_unknown");
-  expect(servicesSubtitle(t, 6, 0, 2)).toBe("services.subtitle_unknown:6:2");
-  expect(servicesSubtitle(t, 6, 1, 2)).toBe("services.subtitle_attention_unknown:6:1:2");
+test("containersByService groupe les conteneurs sous leur service déclaré, dans l'ordre reçu", () => {
+  const container = (id: string, serviceID: string) => ({ id, declared_service_id: serviceID }) as Container;
+  const grouped = containersByService([container("c1", "svc_a"), container("c2", ""), container("c3", "svc_b"), container("c4", "svc_a")]);
+  expect([...grouped.keys()]).toEqual(["svc_a", "svc_b"]);
+  expect(grouped.get("svc_a")?.map((candidate) => candidate.id)).toEqual(["c1", "c4"]);
+  expect(grouped.get("svc_b")?.map((candidate) => candidate.id)).toEqual(["c3"]);
 });
 
 test("imageBase et containerIcon lisent le nom de l'image", () => {

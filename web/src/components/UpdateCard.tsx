@@ -9,7 +9,7 @@ import { checkMachineUpdates } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
-import { adoptPath, isOrphan } from "../lib/gaps";
+import { editBeforeAcceptPath, isOrphan } from "../lib/gaps";
 import { ago } from "../lib/time";
 import { checkText, imageLineChange, shortDigest, updateAvailable, upgradeOffer, upgradeServiceID } from "../lib/updates";
 import { Button } from "./Button";
@@ -174,7 +174,7 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
                 {container.archived_at === null && !isOrphan(directory) && (
                   <>
                     {" "}
-                    <Link to={adoptPath(container.id)}>{t("gap.adopt")}</Link>
+                    <Link to={editBeforeAcceptPath(container.id)}>{t("gap.edit_before_accept")}</Link>
                   </>
                 )}
               </span>

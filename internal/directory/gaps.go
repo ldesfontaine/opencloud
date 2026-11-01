@@ -50,7 +50,9 @@ func (d *Directory) observed(ctx context.Context, machineID string) ([]container
 }
 
 // Propose tire de la fiche d'un conteneur non déclaré la définition à
-// relire avant d'adopter. Un conteneur inconnu ou détruit est introuvable.
+// accepter. Un conteneur inconnu ou détruit est introuvable ; un conteneur
+// que l'opérateur ignore n'a plus de proposition (ErrContainerIgnored), même
+// si un autre écran la lui montrait encore.
 func (d *Directory) Propose(ctx context.Context, containerID string) (Proposal, error) {
 	if d.containers == nil {
 		return Proposal{}, ErrContainerNotFound
@@ -73,7 +75,18 @@ func (d *Directory) Propose(ctx context.Context, containerID string) (Proposal, 
 	if err != nil {
 		return Proposal{}, err
 	}
-	return Propose(item, siblings, declared)
+	proposal, err := Propose(item, siblings, declared)
+	if err != nil {
+		return Proposal{}, err
+	}
+	ignored, err := d.store.ListIgnoredKeys(ctx, item.MachineID)
+	if err != nil {
+		return Proposal{}, err
+	}
+	if isIgnored(ignored, keyOf(item)) {
+		return Proposal{}, ErrContainerIgnored
+	}
+	return proposal, nil
 }
 
 // Proposals tire de ce que les machines montrent sans le déclarer une
@@ -113,6 +126,44 @@ func (d *Directory) Ignore(ctx context.Context, key IgnoredKey) error {
 	d.logger.Info("key ignored", "machine_id", key.MachineID, "kind", key.Kind, "value", key.Value)
 	d.auditor.Record(ctx, ignoredKeyEvent(audit.IgnoredKeyCreate, key))
 	d.changed()
+	return nil
+}
+
+// DeleteServiceAndIgnore retire le service puis dit voulus les conteneurs
+// qu'il laisse : sans cela ils redeviendraient une proposition. Le service
+// part d'abord, et son refus (des sondes le visent) n'ignore rien. Si
+// l'écriture d'une clé échoue ensuite, le service est parti : ses conteneurs
+// reviennent en proposition, que l'opérateur ignore alors lui-même.
+func (d *Directory) DeleteServiceAndIgnore(ctx context.Context, id string) error {
+	found, err := d.store.GetDeclaredService(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := d.DeleteService(ctx, id); err != nil {
+		return err
+	}
+	for _, key := range keysLeftBy(found) {
+		if err := d.Ignore(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// keysLeftBy sont les clés sous lesquelles les conteneurs d'un service
+// supprimé se retrouvent non déclarés : son projet Compose, ou le nom de
+// chacun de ses conteneurs. Un binaire n'a pas de conteneur.
+func keysLeftBy(service Service) []IgnoredKey {
+	switch service.Origin {
+	case OriginCompose:
+		return []IgnoredKey{{MachineID: service.MachineID, Kind: IgnoreComposeProject, Value: service.ComposeProject}}
+	case OriginContainer:
+		keys := make([]IgnoredKey, 0, len(service.Units))
+		for _, unit := range service.Units {
+			keys = append(keys, IgnoredKey{MachineID: service.MachineID, Kind: IgnoreContainerName, Value: unit.ContainerName})
+		}
+		return keys
+	}
 	return nil
 }
 

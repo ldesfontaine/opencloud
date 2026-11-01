@@ -8,16 +8,21 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 )
+
+const projectColumns = `id, name, title, slug, announcement, language, published_at, created_at, updated_at`
 
 func (db *DB) InsertProject(ctx context.Context, project directory.Project) error {
 	return db.inTx(ctx, "insert project", func(tx *sql.Tx) error {
-		if err := checkProjectNameFree(ctx, tx, project); err != nil {
+		if err := checkProjectKeysFree(ctx, tx, project); err != nil {
 			return err
 		}
+		publication := project.Publication
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO projects (id, name, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-			project.ID, project.Name, project.Title, project.CreatedAt.Unix(), project.UpdatedAt.Unix())
+			`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			project.ID, project.Name, project.Title, nullableString(publication.Slug), publication.Announcement,
+			string(publication.Language), nullableTime(publication.PublishedAt), project.CreatedAt.Unix(), project.UpdatedAt.Unix())
 		if err != nil {
 			return fmt.Errorf("insert project: %w", err)
 		}
@@ -25,8 +30,8 @@ func (db *DB) InsertProject(ctx context.Context, project directory.Project) erro
 	})
 }
 
-// UpdateProject réécrit le nom et le titre ; les liens de services ne se
-// règlent que depuis le service.
+// UpdateProject réécrit le nom, le titre et la publication ; les liens de
+// services ne se règlent que depuis le service.
 func (db *DB) UpdateProject(ctx context.Context, project directory.Project) error {
 	return db.inTx(ctx, "update project", func(tx *sql.Tx) error {
 		var found int
@@ -36,11 +41,15 @@ func (db *DB) UpdateProject(ctx context.Context, project directory.Project) erro
 		if found == 0 {
 			return directory.ErrProjectNotFound
 		}
-		if err := checkProjectNameFree(ctx, tx, project); err != nil {
+		if err := checkProjectKeysFree(ctx, tx, project); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `UPDATE projects SET name = ?, title = ?, updated_at = ? WHERE id = ?`,
-			project.Name, project.Title, project.UpdatedAt.Unix(), project.ID)
+		publication := project.Publication
+		_, err := tx.ExecContext(ctx, `
+			UPDATE projects SET name = ?, title = ?, slug = ?, announcement = ?, language = ?, published_at = ?, updated_at = ?
+			WHERE id = ?`,
+			project.Name, project.Title, nullableString(publication.Slug), publication.Announcement, string(publication.Language),
+			nullableTime(publication.PublishedAt), project.UpdatedAt.Unix(), project.ID)
 		if err != nil {
 			return fmt.Errorf("update project: %w", err)
 		}
@@ -48,7 +57,10 @@ func (db *DB) UpdateProject(ctx context.Context, project directory.Project) erro
 	})
 }
 
-func checkProjectNameFree(ctx context.Context, tx *sql.Tx, project directory.Project) error {
+// checkProjectKeysFree refuse un nom ou un slug porté par un autre projet, et
+// une publication de plus quand le plafond est atteint. Les index uniques
+// restent le filet.
+func checkProjectKeysFree(ctx context.Context, tx *sql.Tx, project directory.Project) error {
 	var others int
 	err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE name = ? AND id != ?`,
 		project.Name, project.ID).Scan(&others)
@@ -58,11 +70,36 @@ func checkProjectNameFree(ctx context.Context, tx *sql.Tx, project directory.Pro
 	if others > 0 {
 		return directory.ErrProjectNameTaken
 	}
+	if !project.Publication.IsPublished() {
+		return nil
+	}
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE slug = ? AND id != ?`,
+		project.Publication.Slug, project.ID).Scan(&others)
+	if err != nil {
+		return fmt.Errorf("check project slug: %w", err)
+	}
+	if others > 0 {
+		return directory.ErrSlugTaken
+	}
+	return checkPublicationCeiling(ctx, tx, project)
+}
+
+// checkPublicationCeiling ne compte que les autres projets publiés : un projet
+// déjà publié garde sa place quand il se réécrit.
+func checkPublicationCeiling(ctx context.Context, tx *sql.Tx, project directory.Project) error {
+	var published int
+	err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE slug IS NOT NULL AND id != ?`, project.ID).Scan(&published)
+	if err != nil {
+		return fmt.Errorf("count publications: %w", err)
+	}
+	if published >= directory.MaxPublications {
+		return directory.ErrTooManyPublications
+	}
 	return nil
 }
 
 func (db *DB) GetProject(ctx context.Context, id string) (directory.Project, error) {
-	row := db.sql.QueryRowContext(ctx, `SELECT id, name, title, created_at, updated_at FROM projects WHERE id = ?`, id)
+	row := db.sql.QueryRowContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE id = ?`, id)
 	project, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return directory.Project{}, directory.ErrProjectNotFound
@@ -78,7 +115,7 @@ func (db *DB) GetProject(ctx context.Context, id string) (directory.Project, err
 }
 
 func (db *DB) ListProjects(ctx context.Context) ([]directory.Project, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT id, name, title, created_at, updated_at FROM projects ORDER BY name, id`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+projectColumns+` FROM projects ORDER BY name, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -94,9 +131,18 @@ func (db *DB) ListProjects(ctx context.Context) ([]directory.Project, error) {
 
 func scanProject(row scanner) (directory.Project, error) {
 	var project directory.Project
+	var slug sql.NullString
+	var language string
+	var publishedAt sql.NullInt64
 	var createdAt, updatedAt int64
-	if err := row.Scan(&project.ID, &project.Name, &project.Title, &createdAt, &updatedAt); err != nil {
+	err := row.Scan(&project.ID, &project.Name, &project.Title, &slug, &project.Publication.Announcement, &language, &publishedAt, &createdAt, &updatedAt)
+	if err != nil {
 		return directory.Project{}, err
+	}
+	project.Publication.Slug = slug.String
+	project.Publication.Language = lang.Code(language)
+	if publishedAt.Valid {
+		project.Publication.PublishedAt = time.Unix(publishedAt.Int64, 0)
 	}
 	project.ServiceIDs = []string{}
 	project.CreatedAt = time.Unix(createdAt, 0)
@@ -129,22 +175,12 @@ func (db *DB) attachProjectServices(ctx context.Context, projects []directory.Pr
 	return nil
 }
 
-// DeleteProject défait le groupe : ses liens partent, ses services restent.
-// Sa page de statut le retient : le plan est relu et la suppression faite
-// dans la même transaction ; la clé étrangère en restrict reste le filet.
+// DeleteProject défait le groupe : ses liens, sa page publique et ses
+// composants partent, ses services restent.
 func (db *DB) DeleteProject(ctx context.Context, id string) error {
-	return db.inTx(ctx, "delete project", func(tx *sql.Tx) error {
-		plan, err := projectDeletionPlan(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		if err := directory.RefuseProjectDeletion(plan); err != nil {
-			return err
-		}
-		result, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
-		if err != nil {
-			return fmt.Errorf("delete project: %w", err)
-		}
-		return notFoundIfNoRow(result, directory.ErrProjectNotFound)
-	})
+	result, err := db.sql.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete project: %w", err)
+	}
+	return notFoundIfNoRow(result, directory.ErrProjectNotFound)
 }

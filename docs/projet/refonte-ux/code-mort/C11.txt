@@ -1,0 +1,25 @@
+# C11 : code mort avant / après (#416)
+
+Avant = 4de4866 (dev après C10), après = fin de la branche orca/ux-c11.
+
+deadcode ./... (Go ; ce que seuls les tests appellent) avant : 79 ; après : 79, rapport identique. Aucun fichier Go ne change dans ce chantier (catalogues `internal/lang/*.toml` mis à part).
+knip 6.x, `npx knip --reporter compact` dans web/ (après `npm ci`) avant : 8 types exportés non utilisés ; après : les mêmes 8, rapport identique (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup selon la version : exports d'autres domaines, hors périmètre C11, aucun ajouté ici). `SummaryLine` (Wizard.tsx) est antérieur à C11.
+
+Supprimé dans ce chantier
+- Composants : `components/FormPage.tsx` et `FormPage.scss` (colonne de 560 px / `width="wizard"` de 720 px), `FormCard` (`components/FormCard.tsx` devient `FormBody.tsx` : il ne garde que `FormBody`, que la première configuration et le fil d'un incident emploient), dans `FormActions` les props sans appelant (`cancelLabel`, `cancelTo`, `onCancel`, `deleteLabel`, `onDelete`, `children`).
+- `Wizard` : le rendu en page (carte, titre `h2`, barre d'annulation) et les props `inModal`, `cancelLabel`, `cancelTo`, `onCancel` ; il n'existe plus qu'en fenêtre. Les neuf appelants perdent `inModal`.
+- Pages : `pages/FirewallForm.tsx` (devient `firewalls/FirewallWizard.tsx`), `pages/StatusComponentForm.tsx` (devient `availability/ComponentModal.tsx`), `pages/StatusIncidentNew.tsx` (devient `availability/IncidentModal.tsx`), `EditForm` de `pages/StatusIncident.tsx` (devient `availability/IncidentEditModal.tsx`), `pages/backups/PlanForm.tsx` (devient `PlanWizard.tsx`), `KeyringCard` et `DestinationsCard` en formulaires de `pages/Backups.tsx` (deviennent des cartes de lecture, leurs formulaires `KeyringModal.tsx` et `DestinationModal.tsx`).
+- Routes d'écran comme pages : `pare-feu/nouveau`, `pare-feu/:id/modifier` (restent, en fenêtres filles), `disponibilite/composants/nouveau?project=`, `disponibilite/composants/:id` (devient une redirection vers la fenêtre de la page du projet, `ComponentRedirect`), `disponibilite/incidents/nouveau` et `…/:id` en pages (fenêtres filles). Plus de bouton « Modifier » qui déplie un formulaire dans la fiche d'un incident (état `editing`).
+- Front, logique : `chosenProjectID` (`lib/projects.ts`) et son test (le projet d'un composant vient de l'adresse), la prop `onEdit` de `PlanCard`, le paramètre `?project=` du composant, le menu « Projet » du formulaire de composant, `useFirewall` ne lisait qu'un identifiant (accepte maintenant `null`).
+- Test : `StatusComponentForm.test.tsx` (devient `availability/ComponentModal.test.tsx` : la fenêtre n'a plus de menu Projet).
+- Démonstration : l'assistant de `VisualSystem` n'est plus rendu en page, il s'ouvre dans sa fenêtre.
+- Catalogues fr et en : `firewall.cancel`, `backup.plan_cancel`, `component.project_label`, `component.project_help`, `component.cancel`, `incident.cancel`. Clés ajoutées : `backup.plan_step_source`, `plan_step_destination`, `plan_machine_missing`, `plan_selector_missing`, `plan_destination_missing`, `visual.wizard.open`.
+- Aucune route d'API, aucun verbe, aucune table, aucune migration touchés.
+
+Gardé, avec sa raison
+- `FormBody` et `FormActions` : première configuration (`AccessCredentialsForm`, `AccessForwardForm`) et fil d'un incident (`UpdateForm`), qui sont des formulaires en place, pas des ajouts.
+- `Card.scss` `.form-card` : lue par `FirstSetup.tsx` (plein écran, pas de vue derrière).
+- `ComponentRedirect` et `componentLookupPath` : la fiche d'un service lie ses composants par leur seul identifiant (`ServiceLinks.components`), sans projet ; la route retrouve le projet et ouvre la fenêtre. Seul appelant de `GET /api/status/components/{id}` hors de la fenêtre.
+- `GET /api/status/components/{id}/delete-plan` et `DELETE …` : la suppression d'un composant garde son plan, dans une seconde fenêtre (`DeletePlanDialog`).
+- `PlacementMachine` : passé sur `ModalForm` (même formulaire à une étape, action liée par `form=`), pour qu'il n'y ait pas deux écritures de la même fenêtre.
+- Les types knip ci-dessus : autres domaines.

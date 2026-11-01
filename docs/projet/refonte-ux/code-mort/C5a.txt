@@ -1,0 +1,21 @@
+# C5a : code mort avant / après (#409)
+
+Avant = 7b9da4c (dev après C3), copie de travail jetable ; après = fin de la branche orca/ux-c5a.
+
+deadcode -test ./... avant : 0 résultat ; après : 0
+deadcode ./... (ce que seuls les tests appellent) avant : 79 ; après : 79 (les mêmes lignes, aux numéros près : bancs de test et listes fermées déjà classés faux positifs au cadrage §2.1)
+knip 6.44.1, `npx knip` sans option dans web/ (après `npm ci`) avant : 10 types exportés non utilisés (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup) ; après : les mêmes 10, aucun ajouté par C5a.
+
+Supprimé dans ce chantier
+- La règle « jamais exposé comme verbe » de la doc 25 (remplacée par « exposé comme verbe à confirmation »).
+- `ErrNoReverse` comme règle universelle du registre : elle ne vaut plus que pour les verbes qui ne demandent pas de confirmation.
+- Dans api_token_verbs_test.go : la ligne `DELETE /api/machines/x` de la liste « refusée à un jeton plein » (c'est désormais un verbe à confirmation, testé dans api_verb_requests_test.go) ; `TestVerbs_RegistryHoldsOnlyActionPosts` devient `…OrVerbsToConfirm`.
+- `verbrequest.States()` : écrit puis retiré avant la fin. deadcode le trouvait sans appelant ; la liste fermée des états est la contrainte CHECK de la migration 025, que le test de migration parcourt avec les quatre constantes.
+- Aucune route, verbe, table, clé de catalogue ni composant de l'existant n'est remplacé par C5a : c'est un ajout. Rien à retirer à côté.
+
+Gardé, avec sa raison
+- `verb.machine.delete` (DELETE /api/machines/{id}) : premier verbe à confirmation, sans lui aucune ligne de la mécanique ne serait atteignable (C5b lui ajoutera `keep_history`). La route existait déjà, aucune route nouvelle pour lui.
+- `verbrequest.Service.Watch` : lancé par serve (échéance et purge) ; `Sweep` aussi par toute lecture ou décision.
+- `Request.ObjectID()` : lu par l'audit et par la lecture des demandes.
+- `audit.WithVerbRequest` : posé par la confirmation, lu par le Recorder.
+- `live.Bus.VerbRequestsChanged` : appelé par le service via `verbrequest.Watcher` ; deadcode ne le signale pas.

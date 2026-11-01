@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/deletion"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 )
 
 // Un faux magasin en mémoire : le vrai est testé chez lui, et le service
@@ -87,6 +88,37 @@ func (f *fakeStore) SetUpdateLast(_ context.Context, machineID string, updateLas
 	m.UpdateLast = updateLast
 	f.machines[machineID] = m
 	return nil
+}
+
+func (f *fakeStore) SetRole(_ context.Context, machineID string, role Role) error {
+	m, ok := f.machines[machineID]
+	if !ok {
+		return ErrNotFound
+	}
+	m.Role = role
+	f.machines[machineID] = m
+	return nil
+}
+
+func (f *fakeStore) SetPlacement(_ context.Context, machineID string, kindOverride Kind, hostOverride string) error {
+	m, ok := f.machines[machineID]
+	if !ok {
+		return ErrNotFound
+	}
+	m.KindOverride, m.HostOverride = kindOverride, hostOverride
+	f.machines[machineID] = m
+	return nil
+}
+
+func (f *fakeStore) ReplaceHostReport(_ context.Context, machineID string, kind Kind, _ hostinfo.Report) (bool, error) {
+	m, ok := f.machines[machineID]
+	if !ok {
+		return false, ErrNotFound
+	}
+	changed := m.Kind != kind
+	m.Kind = kind
+	f.machines[machineID] = m
+	return changed, nil
 }
 
 func (f *fakeStore) RecordRootDir(_ context.Context, agentID, root string) error {
@@ -214,7 +246,7 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) enroll(t *testing.T, name string) (Machine, ed25519.PrivateKey) {
 	t.Helper()
-	cleartext, _, err := h.service.CreateToken(context.Background(), name, nil)
+	cleartext, _, err := h.service.CreateToken(context.Background(), name, RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,11 +297,11 @@ func signedBy(t *testing.T, machineID string, private ed25519.PrivateKey, nonce 
 func TestCreateToken_RefusesABadName(t *testing.T) {
 	h := newHarness(t)
 	for _, name := range []string{"", "VPS", "vps paris", "-vps", "vps-", "a.b"} {
-		if _, _, err := h.service.CreateToken(context.Background(), name, nil); !errors.Is(err, ErrNameInvalid) {
+		if _, _, err := h.service.CreateToken(context.Background(), name, RoleGeneric, nil); !errors.Is(err, ErrNameInvalid) {
 			t.Errorf("%q accepted: %v", name, err)
 		}
 	}
-	cleartext, token, err := h.service.CreateToken(context.Background(), "vps-paris-1", nil)
+	cleartext, token, err := h.service.CreateToken(context.Background(), "vps-paris-1", RoleGeneric, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +467,7 @@ func TestRemove_ClosesTheOpenSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.service.Remove(context.Background(), m.ID); err != nil {
+	if err := h.service.Remove(context.Background(), m.ID, RemoveOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	select {

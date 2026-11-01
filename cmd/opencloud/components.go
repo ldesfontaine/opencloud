@@ -34,6 +34,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/update"
+	"github.com/ldesfontaine/opencloud/internal/verbrequest"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
@@ -42,30 +43,31 @@ import (
 // pour serve (le direct, les boucles, les commandeurs, la machine openCloud)
 // reste dans serve.go.
 type components struct {
-	db          *store.DB
-	actions     *action.Service
-	sshKeys     *sshkeys.Service
-	roles       *role.Service
-	proxmox     *proxmox.Service
-	firewalls   *firewall.Service
-	backups     *backup.Service
-	deployer    *deploy.Service
-	logger      *slog.Logger
-	preferences *settings.Service
-	machines    *machine.Service
-	heartbeats  *heartbeat.Service
-	resources   *resource.Service
-	containers  *container.Tracker
-	probes      *probe.Service
-	declared    *directory.Directory
-	updates     *update.Service
-	statusPage  *status.Service
-	alerts      *alert.Engine
-	notifier    *alert.Notifier
-	apiTokens   *apitoken.Service
-	operator    *auth.Service
-	support     *lifecycle.Service
-	manifests   *manifest.Manifest
+	db           *store.DB
+	actions      *action.Service
+	sshKeys      *sshkeys.Service
+	roles        *role.Service
+	proxmox      *proxmox.Service
+	firewalls    *firewall.Service
+	backups      *backup.Service
+	deployer     *deploy.Service
+	logger       *slog.Logger
+	preferences  *settings.Service
+	machines     *machine.Service
+	heartbeats   *heartbeat.Service
+	resources    *resource.Service
+	containers   *container.Tracker
+	probes       *probe.Service
+	declared     *directory.Directory
+	updates      *update.Service
+	statusPage   *status.Service
+	alerts       *alert.Engine
+	notifier     *alert.Notifier
+	apiTokens    *apitoken.Service
+	verbRequests *verbrequest.Service
+	operator     *auth.Service
+	support      *lifecycle.Service
+	manifests    *manifest.Manifest
 }
 
 // buildComponents construit les composants sur la base ouverte. Rien n'y
@@ -109,6 +111,8 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	probes.SetAlerter(alerts)
 	// Les jetons d'API que mcp-maison présente : leur purge.
 	apiTokens := apitoken.New(db, logger)
+	// Les demandes des verbes à confirmation : un jeton dépose, l'opérateur décide.
+	verbRequests := verbrequest.New(db, logger)
 	// L'accès de l'opérateur à l'interface : relu à chaque requête.
 	operator, err := auth.New(db, logger)
 	if err != nil {
@@ -128,6 +132,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// (une commande hors ligne), les livraisons attendent le prochain serve.
 	journal.SetForwarder(alerts)
 	apiTokens.SetAuditor(journal)
+	verbRequests.SetAuditor(journal)
 	operator.SetAuditor(journal)
 	// Les ordres aux agents : écrits, journalisés, puis signés par la clé du
 	// serveur, que serve seul charge (sans elle, rien ne part).
@@ -184,7 +189,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		db: db, logger: logger, preferences: preferences,
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
-		alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator,
+		alerts: alerts, notifier: notifier, apiTokens: apiTokens, verbRequests: verbRequests, operator: operator,
 		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, deployer: deployer,
 	}, nil
 }
@@ -211,10 +216,12 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		Alerts:         c.alerts,
 		Notifier:       c.notifier,
 		APITokens:      c.apiTokens,
+		VerbRequests:   c.verbRequests,
 		Auth:           c.operator,
 		Actions:        c.actions,
 		SSHKeys:        c.sshKeys,
 		Roles:          c.roles,
+		Host:           c.machines,
 		Proxmox:        c.proxmox,
 		Firewalls:      c.firewalls,
 		Backups:        c.backups,

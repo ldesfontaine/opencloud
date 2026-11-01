@@ -8,7 +8,7 @@ import { Pill } from "../../components/Pill";
 import { useAction } from "../../hooks/useAction";
 import { useNow } from "../../hooks/useNow";
 import { useT } from "../../i18n/context";
-import { lastErrorText, passSummary, planTitle, sourceLabel } from "../../lib/backups";
+import { editPlanPath, lastErrorText, passSummary, planTitle, sourceLabel } from "../../lib/backups";
 import type { Tone } from "../../lib/tone";
 import { formatWhen } from "../../lib/time";
 
@@ -19,7 +19,7 @@ const stateTones: Record<string, Tone> = { sent: "neutral", accepted: "accent", 
 // lance tout de suite ; un plan dont la source n'est pas prête dit pourquoi.
 // Un plan agent passe machine virtuelle par machine virtuelle : combien sont
 // arrivées, combien ont échoué, et le premier souci avec sa cible.
-export function PlanCard({ plan, overview, onEdit }: { plan: BackupPlan; overview: Backups; onEdit: (plan: BackupPlan) => void }) {
+export function PlanCard({ plan, overview }: { plan: BackupPlan; overview: Backups }) {
   const t = useT();
   const now = useNow();
   const action = useAction();
@@ -60,7 +60,7 @@ export function PlanCard({ plan, overview, onEdit }: { plan: BackupPlan; overvie
         )}
         <p className="secondary">{t("backup.schedule_daily")}</p>
         <div className="cluster">
-          <Button small variant="ghost" disabled={action.busy} onClick={() => onEdit(plan)}>
+          <Button small variant="ghost" to={editPlanPath(plan.subject)}>
             {t("backup.plan_edit")}
           </Button>
           <ConfirmModal

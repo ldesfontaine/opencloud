@@ -57,7 +57,7 @@ func TestWire_JSONLabelsAreFrozen(t *testing.T) {
 // Le serveur écrit les sections dans cet ordre, et un agent lit « bad_services »
 // pour la section des conteneurs : clés figées.
 func TestSignalSections_KeepTheirOrderAndRefusalKeys(t *testing.T) {
-	want := []string{"readings", "services", "probes", "images", "actions", "ssh_keys", "roles"}
+	want := []string{"readings", "services", "probes", "images", "actions", "ssh_keys", "roles", "host"}
 	got := SignalSections()
 	if len(got) != len(want) {
 		t.Fatalf("sections %v", got)
