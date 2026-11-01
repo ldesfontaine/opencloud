@@ -8,6 +8,7 @@ import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
 import { ActionsCard } from "../components/ActionsCard";
 import { AgentUpdate } from "../components/AgentUpdate";
+import { AgentGate } from "../components/AgentGate";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
@@ -95,7 +96,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         <div className="machine-main">
           {tab === "" ? (
             <>
-              <MachineTodoCard machine={current} />
+              <MachineTodoCard machine={current} all={all} />
               <ResourceStats current={resources.data} />
               <ResourceHistory machineID={current.id} />
               <MachineStorage machine={current} current={resources.data} />
@@ -104,8 +105,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
             </>
           ) : tab === "agent" ? (
             <>
-              <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} online={current.online} now={now} />
-              <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
+              <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} now={now} />
+              <ActionsCard machineID={current.id} agent={current.agent} />
             </>
           ) : tab === "services" ? (
             <MachineContainers machineID={current.id} />
@@ -151,7 +152,7 @@ function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
 // droits, tels qu'il les rapporte et tels que sa commande d'installation les
 // demandait. Il applique ceux de son fichier ; les changer, c'est le
 // ré-enrôler, dans la fenêtre du même nom.
-function AgentCard({ machineID, agent, updateLast, online, now }: { machineID: string; agent: Agent | null; updateLast: boolean; online: boolean; now: number }) {
+function AgentCard({ machineID, agent, updateLast, now }: { machineID: string; agent: Agent | null; updateLast: boolean; now: number }) {
   const t = useT();
   if (agent === null) {
     return (
@@ -171,7 +172,7 @@ function AgentCard({ machineID, agent, updateLast, online, now }: { machineID: s
       <CardBody gap={10}>
         {agent.revoked_at !== null && <Note tone="danger">{t("machine.agent_revoked", formatWhen(agent.revoked_at, now))}</Note>}
         <KeyValue label={t("machine.field_agent")} value={agent.version} mono />
-        {agent.revoked_at === null && <AgentUpdate machineID={machineID} agent={agent} updateLast={updateLast} online={online} />}
+        {agent.revoked_at === null && <AgentUpdate machineID={machineID} agent={agent} updateLast={updateLast} />}
         <KeyValue label={t("machine.field_agent_enrolled")} value={formatWhen(agent.enrolled_at, now)} />
         <KeyValue label={t("machine.agent_account")} value={account ?? t("machine.agent_account_unreported")} mono={account !== null} />
         {agent.run_as?.uid === 0 && <p className="secondary">{t("machine.agent_account_root_note")}</p>}
@@ -296,9 +297,13 @@ function MachineLogs({ machineID }: { machineID: string }) {
                   <ContainerPill container={container} />
                 </td>
                 <td className="td-end">
-                  <Button small icon="file" to={`/services/conteneurs/${container.id}#journaux`}>
-                    {t("logs.open")}
-                  </Button>
+                  <AgentGate machineIDs={[machineID]}>
+                    {(blocked) => (
+                      <Button small icon="file" to={`/services/conteneurs/${container.id}#journaux`} disabled={blocked}>
+                        {t("logs.open")}
+                      </Button>
+                    )}
+                  </AgentGate>
                 </td>
               </tr>
             ))}

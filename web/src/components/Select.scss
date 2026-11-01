@@ -153,6 +153,11 @@
   }
 }
 
+.select-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .select-empty {
   padding: 8px;
   color: var(--muted);

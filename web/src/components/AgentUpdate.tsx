@@ -3,6 +3,7 @@ import type { Agent } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { agentUpdateState, type AgentUpdateState } from "../lib/agentUpdate";
+import { AgentGate } from "./AgentGate";
 import { Button } from "./Button";
 import { KeyValue, Note } from "./Card";
 import { ConfirmInline } from "./ConfirmInline";
@@ -14,7 +15,7 @@ import { Failure } from "./Failure";
 // version du serveur est importée et que l'agent peut la recevoir, sinon la
 // raison en une ligne, le retour arrière manuel et le drapeau « en dernier ».
 // Une machine à jour n'a rien à dire de plus.
-export function AgentUpdate({ machineID, agent, updateLast, online }: { machineID: string; agent: Agent; updateLast: boolean; online: boolean }) {
+export function AgentUpdate({ machineID, agent, updateLast }: { machineID: string; agent: Agent; updateLast: boolean }) {
   const t = useT();
   const offer = useAgentUpdateOffer(machineID);
   const actions = useMachineActions(machineID);
@@ -44,17 +45,21 @@ export function AgentUpdate({ machineID, agent, updateLast, online }: { machineI
       {current.available && (
         <>
           <div>
-            <ConfirmModal
-              title={t("machine.agent_update", current.target)}
-              question={t("machine.agent_update_confirm", current.current, current.target)}
-              confirmLabel={t("machine.agent_update", current.target)}
-              onConfirm={update}
-              small
-              icon="refresh"
-              disabled={action.busy}
-            >
-              {t("machine.agent_update", current.target)}
-            </ConfirmModal>
+            <AgentGate machineIDs={[machineID]}>
+              {(blocked) => (
+                <ConfirmModal
+                  title={t("machine.agent_update", current.target)}
+                  question={t("machine.agent_update_confirm", current.current, current.target)}
+                  confirmLabel={t("machine.agent_update", current.target)}
+                  onConfirm={update}
+                  small
+                  icon="refresh"
+                  disabled={action.busy || blocked}
+                >
+                  {t("machine.agent_update", current.target)}
+                </ConfirmModal>
+              )}
+            </AgentGate>
           </div>
           {current.reason === "right_unavailable" && <p className="secondary">{t("machine.agent_update_reason_right_unavailable")}</p>}
         </>
@@ -63,11 +68,15 @@ export function AgentUpdate({ machineID, agent, updateLast, online }: { machineI
       {!current.available && current.reason !== "" && current.reason !== "same_version" && current.reason !== "rollback_unavailable" && (
         <p className="secondary">{t(`machine.agent_update_reason_${current.reason}`, current.target, current.arch)}</p>
       )}
-      {agent.rollback_capable && online && (
+      {agent.rollback_capable && (
         <div>
-          <ConfirmInline small icon="refresh" question={t("machine.agent_rollback_confirm")} onConfirm={rollback} disabled={action.busy}>
-            {t("machine.agent_rollback")}
-          </ConfirmInline>
+          <AgentGate machineIDs={[machineID]}>
+            {(blocked) => (
+              <ConfirmInline small icon="refresh" question={t("machine.agent_rollback_confirm")} onConfirm={rollback} disabled={action.busy || blocked}>
+                {t("machine.agent_rollback")}
+              </ConfirmInline>
+            )}
+          </AgentGate>
         </div>
       )}
       <div>

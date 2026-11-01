@@ -1,8 +1,10 @@
 import type { Alert } from "../../api/alerts";
+import { useMachines } from "../../api/machines";
 import { Button } from "../../components/Button";
 import { Select } from "../../components/Select";
 import { useT } from "../../i18n/context";
 import { alertSeverities, filterChoicesOf, isFiltering, type AlertFilter } from "../../lib/alerts";
+import { kindsByID, machineOption } from "../../lib/machines";
 import "./Alerts.scss";
 
 // Les filtres de la boîte : gravité, type, machine, service. Ils ne proposent
@@ -23,6 +25,7 @@ export function AlertFilters({
 }) {
   const t = useT();
   const choices = filterChoicesOf(alerts, filter);
+  const kinds = kindsByID(useMachines().data?.machines ?? []);
   return (
     <div className="alert-filters">
       <Select
@@ -39,7 +42,7 @@ export function AlertFilters({
       />
       <Select
         value={filter.machineID}
-        options={[{ value: "", label: t("alerts.filter_all_machines") }, ...choices.machines.map((machine) => ({ value: machine.id, label: machine.name }))]}
+        options={[{ value: "", label: t("alerts.filter_all_machines") }, ...choices.machines.map((machine) => machineOption(t, { ...machine, kind: kinds.get(machine.id) }))]}
         onChange={(value) => onChange("machineID", value)}
         aria-label={t("alerts.filter_machine")}
       />

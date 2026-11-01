@@ -484,6 +484,18 @@ direction artistique. Les mêmes règles qu'en Go, transposées :
 - `tsc --noEmit` et `vitest` en local et en CI (`make front-check`) ; la
   logique pure (durées, formats) a ses tests, les composants se vérifient
   dans le navigateur.
+- Le parcours navigateur (`make e2e`, `web/e2e`) ouvre chaque route du
+  routeur dans Chromium sans tête, clique chaque bouton, ouvre chaque menu
+  déroulant et y choisit une option, mène chaque assistant au récapitulatif,
+  contre le vrai serveur sur des données fictives (le test Go
+  `TestE2EFixtureServer`). Zéro erreur de console, aucune lecture refusée.
+  Un écran ou une fenêtre nouveau y entre sans rien écrire : le parcours
+  lit le routeur. Une anomalie qu'on ne corrige pas tout de suite se déclare
+  dans `web/e2e/support/known.ts`, avec sa raison.
+- Un composant flottant (liste, menu, infobulle) se pose dans la fenêtre
+  modale ouverte qui contient son déclencheur : le `<dialog>` ouvert par
+  `showModal()` rend le reste de la page inerte, une liste portée dans
+  `<body>` y reste invisible.
 
 ## Les journaux
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { saveDeclaredService, useDeclaredService, useProjects, useProposal, type Origin } from "../../api/directory";
-import { useMachines } from "../../api/machines";
+import { useMachines, type Machine } from "../../api/machines";
 import { Button } from "../../components/Button";
 import { Fold } from "../../components/Disclosure";
 import { Failure } from "../../components/Failure";
@@ -135,7 +135,7 @@ function heading(t: Translate, isEditing: boolean, accepting: boolean) {
 
 type ServiceForm = ReturnType<typeof useForm<ServiceFormValues, ServiceFormValues>>;
 
-function stepsOf(t: Translate, form: ServiceForm, machines: { id: string; name: string }[], projects: { id: string; name: string }[]): WizardStep[] {
+function stepsOf(t: Translate, form: ServiceForm, machines: Pick<Machine, "id" | "name" | "kind">[], projects: { id: string; name: string }[]): WizardStep[] {
   const { values, change } = form;
 
   const changeUnit = <Key extends keyof UnitFormValues>(index: number, key: Key, value: UnitFormValues[Key]) => {

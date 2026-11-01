@@ -90,6 +90,9 @@ request par écosystème (Go, npm, actions ; il met à jour le SHA et le
 commentaire de version ensemble). `make front-check` lance d'abord
 `npm audit --omit=dev --audit-level=high` : une dépendance de production
 du front avec une faille haute ou critique arrête la CI (il faut le réseau).
+`make e2e` suit : il compile le serveur de données fictives, télécharge
+Chromium si besoin (`playwright install chromium`, réseau) et joue le parcours
+navigateur de `web/e2e`.
 Dans `go.mod`, `go 1.26` dit ce qu'il faut pour lire le module ; la ligne
 `toolchain go1.26.10` fixe le correctif que la CI et les builds utilisent.
 

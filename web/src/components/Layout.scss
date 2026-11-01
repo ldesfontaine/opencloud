@@ -59,6 +59,11 @@
   }
 }
 
+// La marque se détache du menu : 24 px, un cran de la grille d'espacement.
+.side > .brand {
+  margin-bottom: 24px;
+}
+
 .wordmark {
   display: inline-flex;
   font-size: 15px;

@@ -6,6 +6,7 @@ import { useT, type Translate } from "../i18n/context";
 import { capabilityLabelKey } from "../lib/machines";
 import type { Tone } from "../lib/tone";
 import { formatWhen } from "../lib/time";
+import { AgentGate } from "./AgentGate";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "./Card";
 import { Failure } from "./Failure";
@@ -24,9 +25,9 @@ export const stateTones: Record<ActionState, Tone> = {
 
 // Les ordres d'une machine : la clé du serveur que son agent a épinglée,
 // le bouton qui l'éprouve, et les derniers ordres avec leur état. Un ordre
-// ne part que vers un agent actif et en ligne : le bouton n'est là que pour
-// lui.
-export function ActionsCard({ machineID, agent, online }: { machineID: string; agent: Agent | null; online: boolean }) {
+// ne part que vers un agent actif et en ligne : hors ligne, le bouton est
+// grisé avec sa raison.
+export function ActionsCard({ machineID, agent }: { machineID: string; agent: Agent | null }) {
   const t = useT();
   const now = useNow();
   const runs = useMachineActions(machineID);
@@ -41,11 +42,14 @@ export function ActionsCard({ machineID, agent, online }: { machineID: string; a
       <CardHeader
         title={t("action.title")}
         aside={
-          isActive &&
-          online && (
-            <Button small icon="check" onClick={ping} disabled={action.busy}>
-              {t("action.ping")}
-            </Button>
+          isActive && (
+            <AgentGate machineIDs={[machineID]}>
+              {(blocked) => (
+                <Button small icon="check" onClick={ping} disabled={action.busy || blocked}>
+                  {t("action.ping")}
+                </Button>
+              )}
+            </AgentGate>
           )
         }
       />

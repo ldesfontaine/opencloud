@@ -11,6 +11,7 @@
   margin: 0;
   padding: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -76,10 +77,20 @@ button.wizard-jump {
   }
 }
 
+// Un libellé d'étape ne se coupe jamais : la courante le dit en entier ; les
+// autres se réduisent à leur pastille, le titre complet restant lu par les
+// lecteurs d'écran (texte masqué) et à l'infobulle du navigateur (title).
 .wizard-name {
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.wizard-step:not(.wizard-step-current) .wizard-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
-  text-overflow: ellipsis;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .wizard-step-current .wizard-jump {

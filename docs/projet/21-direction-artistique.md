@@ -83,9 +83,15 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
 
 ## Composants
 
-- **Barre latérale** : marque en haut, sections « Vue » et « Administration »,
+- **Barre latérale** : marque en haut, 24 px plus haut que le premier item
+  (« Vue d'ensemble » ne la touche pas), sections « Vue » et « Administration »,
   compteurs en mono à droite (rouge quand il y a une alerte), en bas le
   commutateur clair/sombre puis le compte.
+- **Type de machine** (`MachineKind`) : partout où une machine est listée, une
+  pastille `small` sans point (Matériel, VM, LXC, VPS) ; dans un menu
+  déroulant, le mot en discret après le nom (`SelectOption.hint`). Un type
+  **inconnu** reste neutre mais ne se tait pas : « Type inconnu » avec, à côté,
+  le lien du geste qui le résout, et la cause en info-bulle.
 - **En-tête de page** : titre, sous-titre d'une phrase, actions à droite. Une
   seule action principale par écran. La vue d'ensemble n'a pas de sous-titre
   tant qu'elle montre des machines : la tuile Machines dit déjà le compte.
@@ -224,13 +230,25 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
     plus. Le détail, s'il sert vraiment, va dans le « ? » à côté de
     l'étiquette (`tip` de `Field`) : une info-bulle qui passe à la ligne, au
     clavier comme à la souris ; Échap la referme.
+    Une clé `…_help` du catalogue ne dépasse pas 160 caractères (un test le
+    tient) ; le reste va dans la clé `…_tip`.
+  - **Gestes à faire ailleurs** (`Checklist`) : un texte d'aide qui énumère des
+    gestes devient une liste à cocher, un geste par ligne : son titre (la
+    case), une phrase, puis ce qui aide à le faire : un lien direct
+    (`ExternalLink`, dans un autre onglet) et des valeurs à coller une à une
+    (`CopyList`). Les cases sont un repère, rien ne les exige. Les libellés d'un
+    autre produit s'écrivent tels qu'il les affiche. Un avertissement se dit en
+    une phrase (`Note`).
 - **Assistant** (`Wizard`) : la création d'un objet à plus de cinq champs
   environ ou à plusieurs notions (service, sonde, pare-feu, plan de
   sauvegarde). Toujours dans une `Modal` large ; pas pour une page de
   réglages (Paramètres) ni pour un formulaire de trois champs (`ModalForm`) :
   il ajoute des clics là où tout tient à l'écran.
-  - **Barre d'étapes** : une pastille numérotée et le nom ; la courante en
-    encre pleine, une étape faite cochée, à venir en discret. Sous 860 px,
+  - **Barre d'étapes** : une pastille numérotée par étape ; la courante en
+    encre pleine, avec son nom **en entier**, une étape faite cochée, à venir
+    en discret. Les autres n'ont que leur pastille, leur titre complet en
+    infobulle (`title`) et lu par les lecteurs d'écran : un libellé ne se
+    coupe jamais, et le parcours e2e le vérifie sur chaque assistant. Sous 860 px,
     une ligne, « Étape 2 sur 4 » : le nom suit, en tête de la fenêtre.
   - **Une étape à l'écran**, son titre en tête de fenêtre (le focus y passe,
     il s'annonce). Précédent en secondaire, Suivant en principal, Annuler

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { JobStatus } from "../api/jobs";
-import type { KindID, Machine } from "../api/machines";
+import type { Machine } from "../api/machines";
 import type { ProbeStatus } from "../api/probes";
 import { useT } from "../i18n/context";
 import { displayedState, type PillFacts } from "../lib/containers";
@@ -17,7 +17,7 @@ import "./Pill.scss";
 // d'une ligne de liste) sans la faire grandir.
 // Dans un pied de tuile étroit, son texte se tronque (…) plutôt que de couper
 // la pastille ; `title` dit alors le texte entier.
-export function Pill({ tone, dot = true, small = false, title, children }: { tone: Tone; dot?: boolean; small?: boolean; title?: string; children: ReactNode }) {
+export function Pill({ tone, dot = true, small = false, title, children }: { tone: Tone; dot?: boolean; small?: boolean; title?: string | undefined; children: ReactNode }) {
   return (
     <span className={`pill pill-${tone}${dot ? "" : " nodot"}${small ? " pill-sm" : ""}`} title={title}>
       <span className="pill-label">{children}</span>
@@ -37,17 +37,6 @@ export function MachineStatePill({ machine }: { machine: Pick<Machine, "online" 
     return <Pill tone="neutral">{t("state.archived")}</Pill>;
   }
   return <Pill tone={machine.online ? "ok" : "danger"}>{t(machine.online ? "state.online" : "state.offline")}</Pill>;
-}
-
-// Où tourne la machine : matériel, VM, LXC, VPS. Un type qu'on ne sait pas
-// reste neutre et discret, jamais en défaut : ce n'est pas une panne.
-export function MachineKindPill({ kind }: { kind: KindID }) {
-  const t = useT();
-  return (
-    <Pill tone={kind === "vps" ? "accent" : "neutral"} dot={false} small>
-      {t(`machine.kind_${kind}`)}
-    </Pill>
-  );
 }
 
 export function JobPill({ status }: { status: JobStatus }) {

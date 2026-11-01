@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 )
@@ -36,6 +37,28 @@ func TestLoad_FormatStringsUseTheSameVerbs(t *testing.T) {
 		for _, code := range Codes() {
 			if got := strings.Count(catalogs[code].Get(key), "%"); got != want {
 				t.Errorf("%s: %s has %d %% verbs, %s has %d", code, key, got, Default, want)
+			}
+		}
+	}
+}
+
+// L'aide d'un champ tient sur une ligne (21-direction-artistique.md) : le
+// détail va dans une info-bulle (« _tip »). Sans cette borne, une aide
+// grossit jusqu'au pavé que personne ne lit.
+const maxHelpRunes = 160
+
+func TestLoad_FieldHelpStaysOnOneLine(t *testing.T) {
+	catalogs, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range Codes() {
+		for _, key := range catalogs[code].Keys() {
+			if !strings.HasSuffix(key, "_help") {
+				continue
+			}
+			if n := utf8.RuneCountInString(catalogs[code].Get(key)); n > maxHelpRunes {
+				t.Errorf("%s: %s compte %d caractères (au plus %d) : gardez une ligne, le détail va dans %s", code, key, n, maxHelpRunes, strings.TrimSuffix(key, "_help")+"_tip")
 			}
 		}
 	}

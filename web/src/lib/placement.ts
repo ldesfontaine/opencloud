@@ -1,4 +1,6 @@
 import type { KindID, Machine } from "../api/machines";
+import type { Translate } from "../i18n/context";
+import { machineOption } from "./machines";
 import type { SelectOption } from "./select";
 
 // Les types de machine, dans l'ordre où on les propose (machine.Kinds côté Go).
@@ -41,6 +43,6 @@ function isCarriedBy(candidate: Machine, machineID: string, all: readonly Machin
 }
 
 // « Aucun » d'abord : retirer la correction est le premier choix de chaque liste.
-export function hostOptions(none: string, candidates: readonly Machine[]): SelectOption[] {
-  return [{ value: "", label: none }, ...candidates.map((candidate) => ({ value: candidate.id, label: candidate.name }))];
+export function hostOptions(t: Translate, none: string, candidates: readonly Machine[]): SelectOption[] {
+  return [{ value: "", label: none }, ...candidates.map((candidate) => machineOption(t, candidate))];
 }

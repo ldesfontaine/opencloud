@@ -8,9 +8,9 @@ import "./TodoCard.scss";
 
 // Le bloc « À faire » de la fiche : les faits qui demandent un geste, chacun
 // avec son bouton. Sans rien à faire, il n'est pas là.
-export function MachineTodoCard({ machine }: { machine: Machine }) {
+export function MachineTodoCard({ machine, all }: { machine: Machine; all: readonly Machine[] }) {
   const { t, version } = useI18n();
-  const todos = machineTodos(machine, version);
+  const todos = machineTodos(machine, all, version);
   if (todos.length === 0) {
     return null;
   }
@@ -23,7 +23,7 @@ export function MachineTodoCard({ machine }: { machine: Machine }) {
             <li key={todo.kind} className="todo-item">
               <span className="todo-text">{todoText(t, todo)}</span>
               <Button small to={todoTarget(machine.id, todo)}>
-                {t(`machine.todo_${todo.kind}_action`)}
+                {todo.kind === "kind_unknown" ? t(`machine.kind_fix_${todo.fix.action}`) : t(`machine.todo_${todo.kind}_action`)}
               </Button>
             </li>
           ))}
@@ -43,6 +43,8 @@ function todoText(t: Translate, todo: MachineTodo): string {
       return todo.version === "" ? t("machine.todo_proxmox_to_declare_unversioned") : t("machine.todo_proxmox_to_declare", todo.version);
     case "proxmox_read_failed":
       return t("machine.todo_proxmox_read_failed", readErrorLabel(t, todo.key));
+    case "kind_unknown":
+      return t(`machine.kind_why_${todo.fix.action}`);
     default:
       return t(`machine.todo_${todo.kind}`);
   }
@@ -61,7 +63,7 @@ function todoTarget(machineID: string, todo: MachineTodo): string {
     case "support_ended":
       return `${base}#support`;
     case "kind_unknown":
-      return `${base}/emplacement`;
+      return todo.fix.to;
     case "proxmox_to_declare":
       return `${base}/proxmox`;
     case "proxmox_read_failed":

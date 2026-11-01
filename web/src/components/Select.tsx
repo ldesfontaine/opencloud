@@ -149,7 +149,7 @@ export function Select({ value, options, onChange, id, icon, disabled = false, "
         }}
       >
         {icon && <Icon name={icon} />}
-        <span className={chosen ? "select-value" : "select-value select-placeholder"}>{chosen ? chosen.label : (placeholder ?? t("select.choose"))}</span>
+        <span className={chosen ? "select-value" : "select-value select-placeholder"}>{chosen ? <OptionText option={chosen} /> : (placeholder ?? t("select.choose"))}</span>
         <span className="chev">
           <Icon name="chevron-down" />
         </span>
@@ -190,15 +190,26 @@ export function Select({ value, options, onChange, id, icon, disabled = false, "
                   onMouseMove={() => setMenu((current) => (current.active === index ? current : { ...current, active: index }))}
                   onClick={() => choose(option)}
                 >
-                  <span className="select-option-label">{option.label}</span>
+                  <span className="select-option-label">
+                    <OptionText option={option} />
+                  </span>
                   {option.value === value && <Icon name="check" />}
                 </div>
               ))}
               {visible.length === 0 && <div className="select-empty">{t("select.no_result")}</div>}
             </div>
           </div>,
-          document.body,
+          overlayHost(triggerRef.current),
         )}
+    </>
+  );
+}
+
+function OptionText({ option }: { option: SelectOption }) {
+  return (
+    <>
+      {option.label}
+      {option.hint !== undefined && <span className="select-hint"> {option.hint}</span>}
     </>
   );
 }
@@ -236,7 +247,16 @@ function useOutsideClose(isOpen: boolean, insides: readonly RefObject<HTMLElemen
   }, [isOpen]);
 }
 
-// La liste vit dans <body>, en position fixe : une carte en overflow hidden
+// Où poser une liste flottante : dans la fenêtre modale ouverte qui contient
+// le déclencheur, sinon dans <body>. Un <dialog> ouvert par showModal() vit
+// dans la couche supérieure du navigateur et rend tout ce qui est hors de lui
+// inerte : une liste portée dans <body> resterait dessous, invisible et
+// inclicable, quel que soit son z-index.
+function overlayHost(trigger: Element | null): HTMLElement {
+  return trigger?.closest<HTMLElement>("dialog[open]") ?? document.body;
+}
+
+// La liste vit dans <body> (ou dans la fenêtre modale), en position fixe : une carte en overflow hidden
 // ou un tableau qui défile ne la coupe pas. Sa place suit le déclencheur au
 // défilement et au redimensionnement. Elle s'écrit par le CSSOM : la CSP
 // refuse les attributs style.

@@ -1,8 +1,10 @@
 import type { ReachMachine } from "../../api/apiTokens";
+import { useMachines } from "../../api/machines";
 import { Select } from "../../components/Select";
 import { Note } from "../../components/Card";
 import { Input } from "../../components/Field";
 import { useT } from "../../i18n/context";
+import { kindsByID } from "../../lib/machines";
 import { parseGuestNumbers, type ReachFormValues, type ReachMode } from "../../lib/apiTokens";
 import "./VerbChoices.scss";
 
@@ -24,6 +26,7 @@ export function ReachChoices({
   onChange: (patch: Partial<ReachFormValues>) => void;
 }) {
   const t = useT();
+  const kinds = kindsByID(useMachines().data?.machines ?? []);
   const toggleMachine = (id: string) =>
     onChange({ machines: values.machines.includes(id) ? values.machines.filter((other) => other !== id) : [...values.machines, id] });
   const modeOptions = (all: string, some: string) => [
@@ -47,7 +50,10 @@ export function ReachChoices({
           {machines.map((machine) => (
             <label key={machine.id} className="verb-choice">
               <input type="checkbox" checked={values.machines.includes(machine.id)} onChange={() => toggleMachine(machine.id)} />
-              <span className="verb-choice-label">{machine.name}</span>
+              <span className="verb-choice-label">
+                {machine.name}
+                {kinds.has(machine.id) && <span className="secondary"> {t(`machine.kind_${kinds.get(machine.id) ?? "unknown"}`)}</span>}
+              </span>
             </label>
           ))}
           {values.machines.length === 0 && <Note tone="warn">{t("api_token.reach_machines_none")}</Note>}

@@ -40,7 +40,7 @@ test("une boucle déjà là ne fait pas tourner le calcul", () => {
 });
 
 test("hostOptions met « aucun » d'abord", () => {
-  expect(hostOptions("Aucun", [machine("a")])).toEqual([
+  expect(hostOptions((key) => key, "Aucun", [machine("a")])).toEqual([
     { value: "", label: "Aucun" },
     { value: "a", label: "a" },
   ]);
