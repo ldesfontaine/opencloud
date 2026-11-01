@@ -209,13 +209,22 @@
     color: var(--ink);
   }
 
-  // Plusieurs lignes : chacune garde la sienne, le défilement est dans le bloc.
+  // Plusieurs lignes : chacune garde la sienne et passe à la ligne si elle est
+  // longue, rien ne se coupe ; un bloc très long défile dans sa hauteur.
   pre {
     flex: 1;
     min-width: 0;
+    max-height: 18rem;
     margin: 0;
-    overflow-x: auto;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
     color: var(--ink);
+  }
+
+  // Le bouton reste en haut d'un bloc haut.
+  &:has(pre) {
+    align-items: flex-start;
   }
 }
 

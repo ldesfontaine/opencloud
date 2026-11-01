@@ -14,9 +14,6 @@ import (
 // migration d'un agent déjà installé ; aucune ne porte de valeur de
 // l'opérateur : des constantes et le numéro de version du serveur.
 
-// UnitFile est l'unité de l'agent, telle que la migration la modifie.
-const UnitFile = "/etc/systemd/system/" + brand.AgentUnit
-
 // guardExecStart est ce que l'unité lance quand le lanceur est en place : la
 // copie de root, sa commande guard, puis la ligne de l'agent (« agent -state
 // … ») que l'unité garde telle quelle.

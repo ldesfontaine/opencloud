@@ -112,3 +112,22 @@ func TestGuardMigration_RewritesTheOldUnitLineIntoTheShippedOne(t *testing.T) {
 		}
 	}
 }
+
+// L'unité que la page d'installation donne à poser est celle du fichier livré,
+// commentaires mis à part : un seul texte de référence, deux présentations.
+func TestAgentUnitLines_MatchTheShippedUnit(t *testing.T) {
+	shipped, err := os.ReadFile("../../docs/installation/opencloud-agent.service") // #nosec G304 -- le fichier livré, lu par un test.
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for line := range strings.SplitSeq(string(shipped), "\n") {
+		if !strings.HasPrefix(line, "#") {
+			want = append(want, line)
+		}
+	}
+	got := strings.Join(AgentUnitLines(), "\n")
+	if strings.TrimRight(strings.Join(want, "\n"), "\n") != got {
+		t.Fatalf("la page d'installation et le fichier livré diffèrent.\npage :\n%s\nfichier :\n%s", got, strings.Join(want, "\n"))
+	}
+}

@@ -138,20 +138,26 @@ type reenrollRequest struct {
 	Capabilities *[]capabilityJSON `json:"capabilities"`
 }
 
-// Le jeton en clair, une seule fois, avec la commande à coller.
+// Le jeton en clair, une seule fois, avec les étapes à jouer sur la machine.
 type tokenResponse struct {
-	Name    string `json:"name"`
-	Token   string `json:"token"`
-	Command string `json:"command"`
-	// Les commandes à jouer une fois en root avant Command : le compte de
-	// l'agent, son dossier, son binaire, les dossiers où ses droits écrivent.
-	Preparation string `json:"preparation"`
+	Name  string `json:"name"`
+	Token string `json:"token"`
+	// Les étapes de l'installation, dans l'ordre où on les colle ; le jeton
+	// n'est que dans celle de l'enrôlement.
+	Steps []installStepJSON `json:"steps"`
 	// Les commandes à jouer en root sur l'hôte Proxmox pour créer le jeton local
 	// des droits proxmox.* ; vide sans l'un de ces droits. Aucune ne porte de
 	// secret : il se saisit sur l'hôte, sans écho.
 	ProxmoxCommands string    `json:"proxmox_commands"`
 	ExpiresAt       time.Time `json:"expires_at"`
 	URLLocal        bool      `json:"url_local"`
+}
+
+// Une étape de l'installation : son identifiant (le front en dit le titre) et
+// le bloc de commandes à coller tel quel.
+type installStepJSON struct {
+	ID      string `json:"id"`
+	Command string `json:"command"`
 }
 
 func machineToJSON(machineStatus machine.Status) machineJSON {
@@ -405,12 +411,10 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext, false)
+	s.writeToken(w, r, token, cleartext, installTarget{})
 }
 
-// local : le jeton est celui de la machine openCloud, dont le binaire est celui
-// que le serveur a installé, pas celui qu'on a copié dans /tmp.
-func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string, local bool) {
+func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string, target installTarget) {
 	url, isLocal := s.resolvePublicURL(r)
 	language, err := s.language(r.Context())
 	if s.failed(w, r, err, nil) {
@@ -419,8 +423,7 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 	s.writeAPI(w, http.StatusCreated, tokenResponse{
 		Name:            token.Name,
 		Token:           cleartext,
-		Command:         installCommand(url, cleartext, language, token.Capabilities),
-		Preparation:     installPreparation(token.Capabilities, version.Number(), local),
+		Steps:           installSteps(url, cleartext, language, token.Capabilities, target),
 		ProxmoxCommands: proxmoxCommands(token.Capabilities),
 		ExpiresAt:       token.ExpiresAt.UTC(),
 		URLLocal:        isLocal,
@@ -654,7 +657,7 @@ func (s *Server) reenrollMachine(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext, token.MachineID == machine.LocalID)
+	s.writeToken(w, r, token, cleartext, installTarget{local: token.MachineID == machine.LocalID, reenroll: true})
 }
 
 // La ligne d'installation de l'agent de la machine openCloud, tant qu'elle
@@ -665,7 +668,7 @@ func (s *Server) offerLocalEnrollment(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext, true)
+	s.writeToken(w, r, token, cleartext, installTarget{local: true})
 }
 
 // hostingOf dit quel hôte porte la machine : celui que l'opérateur a désigné

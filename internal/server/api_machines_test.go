@@ -487,11 +487,12 @@ func TestAPI_CreateMachineToken_ShowsTheTokenOnceAndListsItAsPending(t *testing.
 	}
 	var response tokenResponse
 	decodeAPI(t, recorder, &response)
-	if !tokenValue.MatchString(response.Token) || response.Command != "printf '%s\\n' '"+response.Token+"' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server http://example.com" || response.URLLocal {
+	enroll := stepCommand(response.Steps, stepEnroll)
+	if !tokenValue.MatchString(response.Token) || enroll != "printf '%s\\n' '"+response.Token+"' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server http://example.com" || response.URLLocal {
 		t.Fatalf("token response %+v", response)
 	}
-	if !strings.Contains(response.Preparation, " /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-"+version.Number()) || strings.Contains(response.Preparation, response.Token) {
-		t.Fatalf("preparation %q", response.Preparation)
+	if prepare := stepCommand(response.Steps, stepPrepare); !strings.Contains(prepare, " /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-"+version.Number()) || strings.Contains(prepare, response.Token) {
+		t.Fatalf("preparation %q", prepare)
 	}
 	pending, err := server.machines.PendingTokens(context.Background())
 	if err != nil || len(pending) != 1 || pending[0].Name != "vps-paris-1" {
@@ -564,8 +565,8 @@ func TestAPI_Reenroll_IssuesATokenForTheSameMachine(t *testing.T) {
 	// La machine openCloud prend le binaire du serveur, une autre celui de /tmp.
 	var local tokenResponse
 	decodeAPI(t, got, &local)
-	if !strings.Contains(local.Preparation, " /usr/local/bin/opencloud ") || !strings.Contains(response.Preparation, " /tmp/opencloud ") {
-		t.Fatalf("binaries: %q / %q", local.Preparation, response.Preparation)
+	if !strings.Contains(stepCommand(local.Steps, stepPrepare), " /usr/local/bin/opencloud ") || !strings.Contains(stepCommand(response.Steps, stepPrepare), " /tmp/opencloud ") {
+		t.Fatalf("binaries: %q / %q", stepCommand(local.Steps, stepPrepare), stepCommand(response.Steps, stepPrepare))
 	}
 	if got := callAPI(server.Server, http.MethodPost, "/api/machines/nope/actions/reenroll", nil); got.Code != http.StatusNotFound {
 		t.Fatalf("reenroll unknown: %d", got.Code)
@@ -582,7 +583,7 @@ func TestAPI_Reenroll_ChangesTheRightsOfTheAgent(t *testing.T) {
 	recorder := callAPI(server.Server, http.MethodPost, path, map[string]any{"capabilities": []map[string]any{{"name": "agent.update"}}})
 	var response tokenResponse
 	decodeAPI(t, recorder, &response)
-	if recorder.Code != http.StatusCreated || !strings.HasSuffix(response.Command, " -rights observe,agent.update") {
+	if recorder.Code != http.StatusCreated || !strings.HasSuffix(stepCommand(response.Steps, stepEnroll), " -rights observe,agent.update") {
 		t.Fatalf("%d %+v", recorder.Code, response)
 	}
 	pending, _ := server.machines.PendingTokens(context.Background())
@@ -591,7 +592,7 @@ func TestAPI_Reenroll_ChangesTheRightsOfTheAgent(t *testing.T) {
 	}
 	kept := callAPI(server.Server, http.MethodPost, path, map[string]any{})
 	decodeAPI(t, kept, &response)
-	if kept.Code != http.StatusCreated || strings.Contains(response.Command, "-rights") {
+	if kept.Code != http.StatusCreated || strings.Contains(stepCommand(response.Steps, stepEnroll), "-rights") {
 		t.Fatalf("without rights: %d %+v", kept.Code, response)
 	}
 	refused := callAPI(server.Server, http.MethodPost, path, map[string]any{"capabilities": []map[string]any{{"name": "shell.exec"}}})
@@ -613,8 +614,8 @@ func TestAPI_CreateMachineToken_PutsTheCheckedRightsInTheCommand(t *testing.T) {
 	}
 	var response tokenResponse
 	decodeAPI(t, recorder, &response)
-	if !strings.HasSuffix(response.Command, " -rights observe,docker.update,backup.receive=/srv/backups") {
-		t.Fatalf("command %q", response.Command)
+	if !strings.HasSuffix(stepCommand(response.Steps, stepEnroll), " -rights observe,docker.update,backup.receive=/srv/backups") {
+		t.Fatalf("command %q", stepCommand(response.Steps, stepEnroll))
 	}
 	for _, refused := range []struct {
 		capability capabilityJSON
@@ -642,12 +643,12 @@ func TestAPI_CreateMachineToken_ProduceRightReachesTheCommandAndThePreparation(t
 	}
 	var response tokenResponse
 	decodeAPI(t, recorder, &response)
-	if !strings.HasSuffix(response.Command, " -rights observe,backup.produce=proxmox-vzdump") {
-		t.Errorf("command %q", response.Command)
+	if !strings.HasSuffix(stepCommand(response.Steps, stepEnroll), " -rights observe,backup.produce=proxmox-vzdump") {
+		t.Errorf("command %q", stepCommand(response.Steps, stepEnroll))
 	}
 	for _, line := range []string{"visudo -cf /etc/sudoers.d/.opencloud-agent.tmp", "mv /etc/sudoers.d/.opencloud-agent.tmp /etc/sudoers.d/opencloud-agent", "systemctl daemon-reload", "install -d -m 0700 /var/lib/opencloud-agent/produce"} {
-		if !strings.Contains(response.Preparation, line) {
-			t.Errorf("the preparation lacks %q:\n%s", line, response.Preparation)
+		if !strings.Contains(stepCommand(response.Steps, stepPrepare), line) {
+			t.Errorf("the preparation lacks %q:\n%s", line, stepCommand(response.Steps, stepPrepare))
 		}
 	}
 	for _, refused := range []struct {
@@ -741,10 +742,10 @@ func TestAPI_OfferLocalEnrollment_UntilTheOpenCloudMachineHasAnAgent(t *testing.
 	var first, second tokenResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/machines/local-enrollment", nil), &first)
 	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/machines/local-enrollment", nil), &second)
-	if first.Name != "opencloud-host" || !tokenValue.MatchString(first.Token) || !strings.HasSuffix(first.Command, " -rights observe,probe.lan") || first.Command != second.Command {
+	if first.Name != "opencloud-host" || !tokenValue.MatchString(first.Token) || !strings.HasSuffix(stepCommand(first.Steps, stepEnroll), " -rights observe,probe.lan") || stepCommand(first.Steps, stepEnroll) != stepCommand(second.Steps, stepEnroll) {
 		t.Fatalf("offers %+v %+v", first, second)
 	}
-	if !strings.Contains(first.Preparation, " /usr/local/bin/opencloud ") || first.Preparation != second.Preparation {
-		t.Fatalf("the openCloud machine installs the binary of the server: %q", first.Preparation)
+	if !strings.Contains(stepCommand(first.Steps, stepPrepare), " /usr/local/bin/opencloud ") || stepCommand(first.Steps, stepPrepare) != stepCommand(second.Steps, stepPrepare) {
+		t.Fatalf("the openCloud machine installs the binary of the server: %q", stepCommand(first.Steps, stepPrepare))
 	}
 }

@@ -7,6 +7,7 @@ import { Note } from "../../components/Card";
 import { Modal } from "../../components/Modal";
 import { Pill } from "../../components/Pill";
 import { WizardBar } from "../../components/Wizard";
+import { useChecklist } from "../../hooks/useChecklist";
 import { useNow } from "../../hooks/useNow";
 import { useT } from "../../i18n/context";
 import { enrollProgress, type EnrollProgress, type EnrollTarget } from "../../lib/enrollWait";
@@ -40,6 +41,7 @@ export function EnrollFlow({
   const now = useNow();
   const machines = useMachines();
   const [stage, setStage] = useState<Stage>("command");
+  const installed = useChecklist();
   const progress = enrollProgress(target, machines.data?.machines ?? [], Date.parse(token.expires_at), now);
 
   const actions =
@@ -68,7 +70,7 @@ export function EnrollFlow({
   return (
     <Modal title={title} onClose={onClose} wide actions={actions}>
       <WizardBar titles={titles} position={stage === "command" ? 1 : 2} reached={stage === "command" ? 1 : 2} canJump={false} onJump={() => undefined} />
-      {stage === "command" ? <EnrollmentToken token={token} /> : <AgentWait name={token.name} progress={progress} remaining={Date.parse(token.expires_at) - now} />}
+      {stage === "command" ? <EnrollmentToken token={token} checklist={installed} /> : <AgentWait name={token.name} progress={progress} remaining={Date.parse(token.expires_at) - now} />}
     </Modal>
   );
 }
