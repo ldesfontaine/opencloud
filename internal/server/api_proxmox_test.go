@@ -480,7 +480,7 @@ func TestProxmox_AnAuditorTokenIsToldItCannotSeeTheArchives(t *testing.T) {
 	if host.LastError != "" || !slices.Equal(host.BlindStorages, []string{"local"}) || host.BackupGrant == nil {
 		t.Fatalf("host: %+v", host)
 	}
-	want := "pveum acl modify /storage/local --roles OpenCloudSauvegardes --tokens '" + pveTokenID + "'"
+	want := "pveum acl modify /storage/local --roles LectureSauvegardes --tokens '" + pveTokenID + "'"
 	if !slices.Contains(host.BackupGrant.Commands, want) {
 		t.Errorf("commands: %v", host.BackupGrant.Commands)
 	}

@@ -769,8 +769,8 @@ Les commandes écrites par l'écran (jeton et stockages tels que Proxmox les
 nomme, écartés s'ils n'ont pas la forme d'un identifiant) :
 
 ```sh
-pveum role add OpenCloudSauvegardes --privs "Datastore.Audit Datastore.Allocate"
-pveum acl modify /storage/<stockage> --roles OpenCloudSauvegardes --tokens '<utilisateur>@<domaine>!<nom>'
+pveum role add LectureSauvegardes --privs "Datastore.Audit Datastore.Allocate"
+pveum acl modify /storage/<stockage> --roles LectureSauvegardes --tokens '<utilisateur>@<domaine>!<nom>'
 ```
 
 **Le coût, dit franchement.** Aucun privilège de pure lecture ne fait lister les

@@ -166,8 +166,8 @@ document.getElementById("root").innerHTML = `
  ${blind?`<div class="card blind" role="alert"><div class="body">
    <h2>Les sauvegardes ne sont pas lisibles avec ce jeton</h2>
    <span class="sec">Le jeton peut lister les VM mais pas les archives du stockage <b class="mono">pi-sauvegardes</b> : « Aucune » serait faux, l'écran dit « Inconnue ». Collez ces deux commandes dans le terminal de l'hôte Proxmox ; la lecture suivante (5 min) le confirme.</span>
-   <div class="step"><b>1. Créer le rôle (une fois)</b><div class="cmd"><code>pveum role add OpenCloudSauvegardes --privs "Datastore.Audit Datastore.Allocate"</code><button class="btn">${ico("copy")}Copier</button></div></div>
-   <div class="step"><b>2. Le donner au jeton, sur ce stockage seulement</b><div class="cmd"><code>pveum acl modify /storage/pi-sauvegardes --roles OpenCloudSauvegardes --tokens 'opencloud@pve!lecture'</code><button class="btn">${ico("copy")}Copier</button></div></div>
+   <div class="step"><b>1. Créer le rôle (une fois)</b><div class="cmd"><code>pveum role add LectureSauvegardes --privs "Datastore.Audit Datastore.Allocate"</code><button class="btn">${ico("copy")}Copier</button></div></div>
+   <div class="step"><b>2. Le donner au jeton, sur ce stockage seulement</b><div class="cmd"><code>pveum acl modify /storage/pi-sauvegardes --roles LectureSauvegardes --tokens 'opencloud@pve!lecture'</code><button class="btn">${ico("copy")}Copier</button></div></div>
    <span class="muted">Ce que ça ouvre : Datastore.Allocate permet aussi de supprimer des archives de ce stockage. openCloud ne fait que lire.</span></div></div>`:""}
  <div class="card"><div class="card-h"><span class="card-t">Stockages</span><span class="card-s">${storages.length}</span></div>
    <div class="cards">${storages.map(storageCard).join("")}</div></div>

@@ -36,8 +36,8 @@ for (const theme of ["light", "dark"] as const) {
 
     // Le droit qui manque, avec les commandes exactes ; jamais « Aucune ».
     await expect(page.getByText(label("machine.backup_blind_title"), { exact: true })).toBeVisible();
-    await expect(page.getByText("pveum role add OpenCloudSauvegardes", { exact: false })).toBeVisible();
-    await expect(page.getByText("pveum acl modify /storage/pi-sauvegardes --roles OpenCloudSauvegardes --tokens 'lecteur@pve!lecture'", { exact: true })).toBeVisible();
+    await expect(page.getByText("pveum role add LectureSauvegardes", { exact: false })).toBeVisible();
+    await expect(page.getByText("pveum acl modify /storage/pi-sauvegardes --roles LectureSauvegardes --tokens 'lecteur@pve!lecture'", { exact: true })).toBeVisible();
     await expect(page.getByText(label("machine.proxmox_backup_unknown"), { exact: true }).first()).toBeVisible();
     await expect(page.getByText(label("machine.proxmox_no_backup"), { exact: true })).toHaveCount(0);
     await expect(page.getByText(label("machine.proxmox_storage_blind"), { exact: true })).toBeVisible();

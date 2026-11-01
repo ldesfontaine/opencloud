@@ -459,9 +459,9 @@ func TestClient_APermissionsFailureFailsTheReading(t *testing.T) {
 func TestGrantFor_WritesTheSmallestCommandsOnTheStorageOnly(t *testing.T) {
 	grant := GrantFor("opencloud@pve!lecture", []string{"pi-sauvegardes", "nas.2"})
 	want := []string{
-		`pveum role add OpenCloudSauvegardes --privs "Datastore.Audit Datastore.Allocate"`,
-		`pveum acl modify /storage/pi-sauvegardes --roles OpenCloudSauvegardes --tokens 'opencloud@pve!lecture'`,
-		`pveum acl modify /storage/nas.2 --roles OpenCloudSauvegardes --tokens 'opencloud@pve!lecture'`,
+		`pveum role add LectureSauvegardes --privs "Datastore.Audit Datastore.Allocate"`,
+		`pveum acl modify /storage/pi-sauvegardes --roles LectureSauvegardes --tokens 'opencloud@pve!lecture'`,
+		`pveum acl modify /storage/nas.2 --roles LectureSauvegardes --tokens 'opencloud@pve!lecture'`,
 	}
 	if grant == nil || !slices.Equal(grant.Commands, want) {
 		t.Fatalf("commands: %+v", grant)

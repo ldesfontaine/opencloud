@@ -29,7 +29,7 @@ const (
 
 // BackupRole est le rôle que la commande de l'écran crée : le plus petit qui
 // fasse répondre la liste des archives sur un seul stockage.
-const BackupRole = "OpenCloudSauvegardes"
+const BackupRole = "LectureSauvegardes"
 
 // storageIDPattern est la forme d'un identifiant de stockage de Proxmox
 // (pve-storage, PVE::JSONSchema « pve-storage-id ») : seule une valeur de cette
