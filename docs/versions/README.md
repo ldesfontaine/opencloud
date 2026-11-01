@@ -8,6 +8,7 @@ elles vivent dans ce dossier (lien depuis la page de la version :
 
 | Version | Notes |
 | --- | --- |
+| v0.5.1 | [v0.5.1.md](v0.5.1.md) |
 | v0.5.0 | [v0.5.0.md](v0.5.0.md) |
 | v0.4.2 | [v0.4.2.md](v0.4.2.md) |
 | v0.4.1 | [v0.4.1.md](v0.4.1.md) (la v0.4.0 n'a jamais été publiée) |
