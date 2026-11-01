@@ -29,12 +29,16 @@ async function firewallPath(page: Page): Promise<string> {
 
 function shooter(page: Page, theme: "light" | "dark") {
   const suffix = theme === "light" ? "clair" : "sombre";
-  return async (name: string, fullPage = false) => {
+  // Une capture montre toute la page : une section sous la ligne de flottaison
+  // (baux, groupe de règles déplié, filtre actif) n'apparaîtrait pas autrement.
+  // Seules les fenêtres (modifier, retirer) se prennent en vue normale.
+  return async (name: string, fullPage = true) => {
     if (capturing) {
       mkdirSync(captureFolder, { recursive: true });
       // La barre latérale est collante : une page défilée la décale dans une
       // capture entière. On revient en haut, comme un lecteur qui la regarde.
-      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+      await page.waitForFunction(() => window.scrollY === 0);
       await page.screenshot({ path: `${captureFolder}U5-pare-feu-${name}-${suffix}.png`, fullPage });
     }
   };
@@ -55,7 +59,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(tiles.nth(2)).toContainText(label("firewall.glance_gateways"));
     await expect(tiles.nth(2)).toContainText("1"); // BACKUP est coupée
     await expect(tiles.nth(3)).toContainText(label("firewall.glance_rules"));
-    await shoot("fiche", true);
+    await shoot("fiche");
     await tiles.nth(3).click();
     await expect(page).toHaveURL(/#regles$/);
     await tiles.nth(2).click();
@@ -122,7 +126,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(connection).toHaveAttribute("open", "");
     await expect(page.locator("#connexion")).toContainText(fakeKey.slice(0, 4));
     expect(await page.content()).not.toContain(fakeKey);
-    await shoot("connexion", true);
+    await shoot("connexion");
 
     // La grille « qui parle à qui ».
     await page.getByRole("link", { name: label("firewall.tab_flows"), exact: true }).click();
@@ -143,7 +147,7 @@ for (const theme of ["light", "dark"] as const) {
     await unplaced.locator("summary").click();
     await expect(unplaced).toHaveAttribute("open", "");
     await expect(unplaced.locator(".firewall-line")).toHaveCount(1);
-    await shoot("flux", true);
+    await shoot("flux");
     await page.getByRole("link", { name: label("firewall.tab_overview"), exact: true }).click();
     await expect(page).toHaveURL(/\/pare-feu\/[^/]+$/);
 
@@ -151,12 +155,12 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByRole("link", { name: label("firewall.edit"), exact: true }).click();
     const dialog = page.locator("dialog[open]");
     await expect(dialog).toBeVisible();
-    await shoot("modifier");
+    await shoot("modifier", false);
     await dialog.getByRole("button", { name: label("modal.cancel"), exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await page.getByRole("button", { name: label("firewall.remove"), exact: true }).click();
     await expect(page.getByText(/Retirer ce pare-feu/)).toBeVisible();
-    await shoot("retirer");
+    await shoot("retirer", false);
     await page.getByRole("button", { name: label("confirm.cancel"), exact: true }).click();
     await expect(page.getByRole("button", { name: label("firewall.remove"), exact: true })).toBeVisible();
 

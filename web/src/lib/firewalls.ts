@@ -138,7 +138,7 @@ export function shortAddress(apiURL: string): string {
 // Ce qu'une règle fait, pour la compter et la filtrer : une règle éteinte ne fait
 // rien, quelle que soit son action ; une action que le front ne connaît pas
 // n'est ni passante ni bloquante.
-export type RuleKind = "pass" | "block" | "other" | "off";
+type RuleKind = "pass" | "block" | "other" | "off";
 
 export function ruleKind(rule: Pick<FirewallRule, "action" | "is_enabled">): RuleKind {
   if (!rule.is_enabled) {
@@ -219,7 +219,7 @@ export function groupRulesByInterface(rules: readonly FirewallRule[], interfaces
 }
 
 // Les passerelles d'un coup d'œil : combien tiennent, combien ne tiennent pas.
-export interface GatewayTotals {
+interface GatewayTotals {
   all: number;
   online: number;
   offline: number;

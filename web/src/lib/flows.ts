@@ -71,7 +71,7 @@ export function serviceText(t: Translate, rule: Pick<FlowRule, "protocol" | "por
   return rule.source_port === "" ? what : `${what} ${t("firewall.flow_from_port", rule.source_port)}`;
 }
 
-export interface FlowLine {
+interface FlowLine {
   from: string;
   to: string;
   what: string;
