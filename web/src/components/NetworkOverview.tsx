@@ -74,17 +74,13 @@ export function NetworkOverview() {
                   )}
                 </g>
               ))}
-            {layout.edges.map((placed) =>
-              placed.edge.kind === "public" ? (
+            {layout.edges
+              .filter((placed) => placed.edge.kind === "public")
+              .map((placed) => (
                 <g key={`public:${placed.edge.to}:${placed.edge.port ?? ""}`} className="netgraph-edge public">
                   <path d={placed.path} />
                 </g>
-              ) : (
-                <g key={`link:${placed.edge.link_id ?? `${placed.edge.from}>${placed.edge.to}`}:${placed.edge.from}`} className={placed.edge.stale === true ? "netgraph-edge depends stale" : "netgraph-edge depends"}>
-                  <path d={placed.path} markerEnd="url(#netgraph-arrow)" />
-                </g>
-              ),
-            )}
+              ))}
             <g className="netgraph-node internet" transform={`translate(${layout.internet.x} ${layout.internet.y})`}>
               <rect className="frame" width={nodeWidth} height={nodeHeight} rx="12" />
               <rect className="ico" x="11" y="11" width="32" height="32" rx="9" />
@@ -130,6 +126,14 @@ export function NetworkOverview() {
                 </g>
               );
             })}
+            {/* Les liens passent par-dessus les nœuds : dans une grille serrée, dessous ils ne se verraient pas. */}
+            {layout.edges
+              .filter((placed) => placed.edge.kind === "depends")
+              .map((placed) => (
+                <g key={`link:${placed.edge.link_id ?? `${placed.edge.from}>${placed.edge.to}`}:${placed.edge.from}`} className={placed.edge.stale === true ? "netgraph-edge depends overlay stale" : "netgraph-edge depends overlay"}>
+                  <path d={placed.path} markerEnd="url(#netgraph-arrow)" />
+                </g>
+              ))}
           </g>
         </svg>
       )}

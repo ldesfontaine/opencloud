@@ -124,6 +124,8 @@ test("ajouter un lien de bout en bout : le sens et l'unité se choisissent dans 
 
 test("annuler ferme la fenêtre sans rien écrire ; le même lien deux fois est refusé avec sa phrase", async ({ page, findings }) => {
   await openService(page, "caddy");
+  // Les lignes arrivent après la page : on les attend avant de les compter.
+  await expect(linkRows(page)).not.toHaveCount(0);
   const before = await linkRows(page).count();
   await page.getByRole("link", { name: label("link.add"), exact: true }).click();
   let dialog = page.locator("dialog[open]");

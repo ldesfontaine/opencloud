@@ -72,7 +72,9 @@ function LinkRow({ link }: { link: ServiceLink }) {
       </td>
       <td>
         <span className="stack">
-          <Pill tone={proofTone(link.proof)}>{t(`link.proof_${link.proof}`)}</Pill>
+          <span className="cluster">
+            <Pill tone={proofTone(link.proof)}>{t(`link.proof_${link.proof}`)}</Pill>
+          </span>
           <span className="secondary">{t(`link.signal_${link.signal}`)}</span>
         </span>
       </td>

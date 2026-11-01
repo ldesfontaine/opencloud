@@ -44,3 +44,18 @@
 .netgraph-caption {
   margin: 8px 0 0;
 }
+
+// Un lien tracé sur les nœuds : fin, sans prise, la souris passe au travers.
+.netgraph-edge.overlay {
+  pointer-events: none;
+
+  path {
+    stroke: var(--accent);
+    stroke-width: 1.25;
+    opacity: 0.8;
+  }
+
+  .netgraph-arrow {
+    stroke: var(--accent);
+  }
+}

@@ -30,6 +30,8 @@ for (const theme of ["light", "dark"] as const) {
     test.beforeEach(async ({ page }) => {
       await page.addInitScript((value) => localStorage.setItem("theme", value), theme);
       await page.setViewportSize({ width: 1280, height: 1000 });
+      // L'horloge des données fictives est figée : le navigateur la suit, sinon « vu il y a 50 j ».
+      await page.clock.setFixedTime(new Date("2026-09-12T12:00:00Z"));
     });
 
     test(`fiche d'un service, carte Liens ${theme}`, async ({ page }) => {
