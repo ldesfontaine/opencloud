@@ -3,7 +3,7 @@
 export const settingsSections = [
   { id: "acces", titleKey: "settings.section_access" },
   { id: "modules", titleKey: "settings.section_modules" },
-  { id: "alertes", titleKey: "settings.section_alerts" },
+  { id: "notifications", titleKey: "settings.section_notifications" },
   { id: "e-mails", titleKey: "settings.section_mail" },
   { id: "fin-de-support", titleKey: "settings.section_lifecycle" },
   { id: "agent-ia", titleKey: "settings.section_ai" },
@@ -11,6 +11,15 @@ export const settingsSections = [
 ] as const;
 
 export type SettingsSectionId = (typeof settingsSections)[number]["id"];
+
+// Les ancres d'avant : #alertes portait les seuils du disque, qui sont
+// maintenant sous Notifications, avec les canaux et les silences.
+const renamedSections: Record<string, SettingsSectionId> = { alertes: "notifications" };
+
+// La section qu'une ancre vise (sans le #), en suivant les renommages.
+export function sectionOfHash(hash: string): string {
+  return renamedSections[hash] ?? hash;
+}
 
 // La section que la navigation met en évidence. crossing : celles qui
 // traversent la bande de lecture, juste sous le haut de l'écran. On prend la

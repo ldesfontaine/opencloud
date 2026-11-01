@@ -3490,18 +3490,19 @@ liste vit dans `internal/alert`.
    un titre sans la case, ou la case sans titre, est refusé
    (`silence.announce_invalid`). Un silence ne se modifie pas : on le
    supprime et on le recrée.
-5. **Acquitter** ne ferme rien : l'alerte sort du compteur rouge et reste
-   ouverte jusqu'à sa reprise. Une aggravation la ré-arme. L'onglet
-   Ouvertes regroupe les alertes par machine (en-tête avec leur nombre) et
-   porte une case par alerte, une par machine et « Tout sélectionner » ;
-   « Acquitter la sélection » ou « Acquitter tout ce qui est affiché »
-   partent en une requête, `POST /api/alerts/actions/acknowledge` avec
-   `{"ids":[…]}` : 200 identifiants au plus, une seule instruction SQL donc
-   une transaction, refus `alert.selection_empty` ou
-   `alert.selection_too_large`. Une alerte déjà acquittée, résolue ou
-   disparue entre l'affichage et le clic est passée sans refus ; la
-   réponse dit combien ont changé, et la page l'écrit (« 4 alertes
-   acquittées »). L'acquittement unitaire reste.
+5. **Marquer comme vue** (l'acquittement de l'API) ne ferme rien : l'alerte
+   sort du compteur rouge et reste ouverte jusqu'à sa reprise. Une
+   aggravation la ré-arme, elle redevient non vue. La boîte de réception
+   (`/alertes`) liste les **non vues** en tête, groupées par machine (en-tête
+   avec leur nombre), avec une case par alerte, une par machine et « Tout
+   sélectionner » ; « Marquer la sélection comme vue » ou « Marquer tout ce qui
+   est affiché comme vu » partent en une requête,
+   `POST /api/alerts/actions/acknowledge` avec `{"ids":[…]}` : 200
+   identifiants au plus, une seule instruction SQL donc une transaction, refus
+   `alert.selection_empty` ou `alert.selection_too_large`. Une alerte déjà
+   vue, résolue ou disparue entre l'affichage et le clic est passée sans
+   refus ; la réponse dit combien ont changé, et la page l'écrit (« 4 alertes
+   marquées comme vues »). Le geste unitaire reste.
 6. **Un canal est un webhook** : une URL, un format de corps, un secret de
    signature facultatif, une gravité minimale, et s'il veut aussi la
    résolution. Chaque envoi est un POST qui porte `OpenCloud-Event` et,
@@ -3632,7 +3633,7 @@ Deux gravités et pas trois : un ton de plus ne dirait rien de plus à qui
 doit agir. Les seuils sont ceux du produit, tenus dans `internal/alert`,
 sauf ceux du disque, réglables.
 
-**Les seuils du disque** se règlent sous Paramètres, section Alertes
+**Les seuils du disque** se règlent sous Paramètres, section Notifications
 (`GET`/`PUT /api/settings/disk`) : attention et danger, entiers,
 **50 ≤ attention < danger ≤ 99**, sinon refus `settings.disk_invalid`. Le
 retour n'est pas un champ : il suit l'attention, cinq points dessous, ce
@@ -3665,17 +3666,29 @@ couleur sur les mêmes chiffres que l'alerte.
 | `email` | Un e-mail `multipart/alternative` : texte brut (titre, cause, geste, lien) et HTML sans style ni image, UTF-8 en quoted-printable ; le HTML est échappé | Toute boîte e-mail, par le relais de l'opérateur |
 | `matrix` | Un `m.room.message` : `msgtype: m.text`, `body` en texte brut (titre, cause, geste, lien), `format: org.matrix.custom.html` et `formatted_body` (titre en gras, lien « Ouvrir dans openCloud ») | Un salon Matrix, Element ou tout client, par un bot |
 
-La page Alertes vit sous `/alertes` : ouvertes, acquittées, résolues,
-puis Canaux et Silences (`GET`, `POST /api/alerts/mutes`,
-`DELETE /api/alerts/mutes/{id}` ; l'onglet dit l'état, en cours, planifié ou
-expiré, et l'auteur). « Faire taire » depuis une alerte pré-remplit le
-silence : son type, et ce qui porte son objet (le service déclaré d'un
-conteneur, la machine d'un volume). Le compteur de la barre latérale compte les
-ouvertes, en rouge tant qu'une n'est pas acquittée ; la tuile Alertes de la
-vue d'ensemble donne le nombre d'ouvertes et, sur une ligne, ce qui reste à
-acquitter et la plus urgente (non acquittée d'abord, puis la plus grave, puis la
-plus récente). Le sujet `alerts` du direct relit
-tout. 200 alertes par liste, 32 canaux au plus.
+La page Alertes (`/alertes`) est une **boîte de réception** : une seule
+liste, les **non vues** en tête, les **vues** dessous, les **résolues** repliées
+au bas (l'historique, 90 jours). Des filtres remplacent les onglets : gravité,
+type, machine, service ; ils vivent dans l'adresse
+(`?gravite=danger&genre=disk_full&machine=…&service=…`) et s'appliquent côté
+client aux deux listes, bornées à 200 par le serveur (aucune route ne change).
+Chaque section porte la pastille de son compteur ; le compteur de la barre
+latérale compte les ouvertes, en rouge tant qu'une n'est pas vue. Les **canaux**
+(`GET`, `POST /api/alerts/channels`…) et les **silences** (`GET`, `POST
+/api/alerts/mutes`, `DELETE /api/alerts/mutes/{id}` ; l'état, en cours,
+planifié ou expiré, et l'auteur) se règlent sous **Paramètres › Notifications**,
+avec les seuils du disque : l'ajout et la modification d'un canal, et la pose
+d'un silence, sont des fenêtres à leur adresse (`/parametres/canaux/nouveau`,
+`/parametres/canaux/:id`, `/parametres/silences/nouveau`) ; supprimer un canal
+passe par une fenêtre de confirmation. Les anciennes adresses
+(`/alertes/canaux…`, `/alertes/silences…`, `/alertes/acquittees`,
+`/alertes/resolues`) et l'ancre `#alertes` sont redirigées. « Faire taire »
+depuis une alerte ou un service ouvre la fenêtre pré-remplie : son type, et ce
+qui porte son objet (le service déclaré d'un conteneur, la machine d'un
+volume). La tuile Alertes de la vue d'ensemble donne le nombre d'ouvertes et,
+sur une ligne, ce qui reste à voir et la plus urgente (non vue d'abord, puis la
+plus grave, puis la plus récente). Le sujet `alerts` du direct relit tout.
+200 alertes par liste, 32 canaux au plus.
 
 ## Comment l'opérateur entre dans l'interface
 
@@ -4460,10 +4473,10 @@ requête, journal, limite de corps à 1 Mio), qui relaie `Flush`.
 
 ### Les identifiants entrent encodés dans l'API
 
-Une page qui lit son identifiant dans l'adresse (`/alertes/canaux/:id`,
+Une page qui lit son identifiant dans l'adresse (`/parametres/canaux/:id`,
 `/taches/:id/modifier`…) le met dans un chemin `/api/…`. React Router rend
 `%2F` en `/` et le navigateur résout `../` avant d'envoyer : un lien forgé,
-`/alertes/canaux/..%2F..%2Fstatus%2Fcomponents%2F<id>`, ferait partir le
+`/parametres/canaux/..%2F..%2Fstatus%2Fcomponents%2F<id>`, ferait partir le
 chargement, l'enregistrement ou la suppression de la page vers une autre
 ressource, avec la garde même-origine satisfaite. Le serveur ne peut pas le
 voir : il ne reçoit que le chemin déjà normalisé.

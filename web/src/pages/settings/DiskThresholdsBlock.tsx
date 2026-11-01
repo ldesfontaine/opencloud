@@ -11,12 +11,12 @@ import { useForm } from "../../hooks/useForm";
 import { useI18n, useT } from "../../i18n/context";
 import { hasChanged } from "../../lib/changes";
 import { diskFormOf, diskRequestOf, diskSettingsError } from "../../lib/disks";
-import { SettingsSection } from "./SettingsSection";
 
-// Les seuils d'alerte du disque. Le retour n'est pas un champ : il suit
-// l'attention, cinq points dessous, et la section le dit. « Enregistrer »
-// attend un changement par rapport aux seuils que le serveur a gardés.
-export function DiskSection({ settings, reload }: { settings: DiskSettings; reload: () => void }) {
+// Les seuils d'alerte du disque, un bloc de Paramètres › Notifications. Le
+// retour n'est pas un champ : il suit l'attention, cinq points dessous, et le
+// bloc le dit. « Enregistrer » attend un changement par rapport aux seuils que
+// le serveur a gardés.
+export function DiskThresholdsBlock({ settings, reload }: { settings: DiskSettings; reload: () => void }) {
   const t = useT();
   const { reloadSession } = useI18n();
   const { values, change, update } = useForm(diskFormOf(settings));
@@ -54,7 +54,11 @@ export function DiskSection({ settings, reload }: { settings: DiskSettings; relo
   };
   const error = refusal ?? action.error;
   return (
-    <SettingsSection id="alertes" titleKey="settings.section_alerts" text={t("settings.disk_intro")}>
+    <>
+      <div className="setting-subhead">
+        <span className="card-t">{t("settings.disk_title")}</span>
+        <span className="secondary">{t("settings.disk_intro")}</span>
+      </div>
       <form
         className="setting-stack"
         onSubmit={(event) => {
@@ -90,6 +94,6 @@ export function DiskSection({ settings, reload }: { settings: DiskSettings; relo
           </Button>
         </SettingFoot>
       </form>
-    </SettingsSection>
+    </>
   );
 }

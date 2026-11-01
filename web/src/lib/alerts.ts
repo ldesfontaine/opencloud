@@ -1,4 +1,18 @@
-import type { Alert, AlertKind, AlertObject, AlertSeverity, Channel, ChannelFormat, ChannelRequest, ChannelTest, Delivery, Mute, MuteRequest, MuteTargetKind } from "../api/alerts";
+import {
+  alertKinds,
+  type Alert,
+  type AlertKind,
+  type AlertObject,
+  type AlertSeverity,
+  type Channel,
+  type ChannelFormat,
+  type ChannelRequest,
+  type ChannelTest,
+  type Delivery,
+  type Mute,
+  type MuteRequest,
+  type MuteTargetKind,
+} from "../api/alerts";
 import type { DiskThresholds } from "../api/session";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
@@ -118,21 +132,113 @@ function urgencyOf(alert: Alert): number {
   return (alert.acknowledged_at === null ? 2 : 0) + (alert.severity === "danger" ? 1 : 0);
 }
 
-// L'état d'une alerte tel que la pastille le dit.
-type AlertState = "open" | "acknowledged" | "resolved";
+// L'état d'une alerte tel que la pastille le dit. « Vue » est l'acquittement :
+// l'opérateur l'a lue, une aggravation la rend non vue.
+type AlertState = "unseen" | "seen" | "resolved";
 
 export function stateOf(alert: Pick<Alert, "status" | "acknowledged_at">): AlertState {
   if (alert.status === "resolved") {
     return "resolved";
   }
-  return alert.acknowledged_at !== null ? "acknowledged" : "open";
+  return alert.acknowledged_at !== null ? "seen" : "unseen";
 }
 
 export const alertStateTones: Record<AlertState, Tone> = {
-  open: "danger",
-  acknowledged: "accent",
+  unseen: "danger",
+  seen: "accent",
   resolved: "ok",
 };
+
+// La boîte de réception : les ouvertes que personne n'a vues en tête, les
+// vues ensuite. L'ordre du serveur (les plus graves d'abord) est gardé dans
+// chaque moitié. Les résolues forment l'historique, lu à part.
+export function inboxOf(open: Alert[]): { unseen: Alert[]; seen: Alert[] } {
+  return {
+    unseen: open.filter((alert) => stateOf(alert) === "unseen"),
+    seen: open.filter((alert) => stateOf(alert) === "seen"),
+  };
+}
+
+// Les filtres de la boîte, dans l'adresse (?gravite=danger&genre=disk_full…) :
+// un lien les partage, un rechargement les garde. Vide : pas de filtre.
+export interface AlertFilter {
+  severity: AlertSeverity | "";
+  kind: AlertKind | "";
+  machineID: string;
+  serviceID: string;
+}
+
+const filterParameters = { severity: "gravite", kind: "genre", machineID: "machine", serviceID: "service" } as const;
+
+// Une valeur inconnue de l'adresse ne filtre rien.
+export function alertFilterOf(params: URLSearchParams): AlertFilter {
+  const severity = params.get(filterParameters.severity);
+  const kind = params.get(filterParameters.kind);
+  return {
+    severity: alertSeverities.find((candidate) => candidate === severity) ?? "",
+    kind: alertKinds.find((candidate) => candidate === kind) ?? "",
+    machineID: params.get(filterParameters.machineID) ?? "",
+    serviceID: params.get(filterParameters.serviceID) ?? "",
+  };
+}
+
+// L'adresse après le choix d'un filtre ; vide, il quitte l'adresse.
+export function withAlertFilter(params: URLSearchParams, field: keyof AlertFilter, value: string): URLSearchParams {
+  const next = new URLSearchParams(params);
+  if (value === "") {
+    next.delete(filterParameters[field]);
+  } else {
+    next.set(filterParameters[field], value);
+  }
+  return next;
+}
+
+export function isFiltering(filter: AlertFilter): boolean {
+  return filter.severity !== "" || filter.kind !== "" || filter.machineID !== "" || filter.serviceID !== "";
+}
+
+export function filterAlerts(alerts: Alert[], filter: AlertFilter): Alert[] {
+  return alerts.filter(
+    (alert) =>
+      (filter.severity === "" || alert.severity === filter.severity) &&
+      (filter.kind === "" || alert.kind === filter.kind) &&
+      (filter.machineID === "" || alert.machine_id === filter.machineID) &&
+      (filter.serviceID === "" || alert.service_id === filter.serviceID),
+  );
+}
+
+// Ce que les filtres proposent : seulement ce que les alertes lues portent,
+// pour qu'aucun choix ne mène à une liste vide, et le choix déjà posé quand
+// aucune alerte ne le porte plus (l'adresse le garde, le menu le montre).
+interface FilterChoices {
+  kinds: AlertKind[];
+  machines: { id: string; name: string }[];
+  serviceIDs: string[];
+}
+
+export function filterChoicesOf(alerts: Alert[], chosen: AlertFilter): FilterChoices {
+  const machines = new Map<string, string>();
+  const serviceIDs = new Set<string>();
+  for (const alert of alerts) {
+    if (alert.machine_id !== "") {
+      machines.set(alert.machine_id, alert.machine_name);
+    }
+    if (alert.service_id !== "") {
+      serviceIDs.add(alert.service_id);
+    }
+  }
+  if (chosen.machineID !== "" && !machines.has(chosen.machineID)) {
+    machines.set(chosen.machineID, chosen.machineID);
+  }
+  if (chosen.serviceID !== "") {
+    serviceIDs.add(chosen.serviceID);
+  }
+  return {
+    kinds: alertKinds.filter((kind) => kind === chosen.kind || alerts.some((alert) => alert.kind === kind)),
+    machines: [...machines].map(([id, name]) => ({ id, name })).sort((left, right) => left.name.localeCompare(right.name)),
+    serviceIDs: [...serviceIDs],
+  };
+}
 
 // Où mène un objet : sa fiche ; un volume, sa machine.
 export function objectPath(object: AlertObject, machineID: string): string | null {
@@ -288,6 +394,14 @@ export function muteRequestOf(values: MuteFormValues): MuteRequest {
   };
 }
 
+// Les fenêtres des canaux et des silences, sur la page Paramètres.
+export const newChannelPath = "/parametres/canaux/nouveau";
+export const newMutePath = "/parametres/silences/nouveau";
+
+export function channelPathOf(id: number | string): string {
+  return `/parametres/canaux/${encodeURIComponent(String(id))}`;
+}
+
 // Ce qu'on fait taire depuis une alerte : son objet, ou ce qui le porte. Un
 // volume se tait par le disque de sa machine, un conteneur par son service
 // déclaré quand il en a un.
@@ -304,11 +418,11 @@ function muteTargetOf(alert: Pick<Alert, "kind" | "object" | "machine_id" | "mac
   return { kind: alert.kind, targetKind: alert.object.kind, targetID: alert.object.id, targetName: alert.object.name };
 }
 
-// L'adresse du formulaire de silence, pré-rempli depuis l'alerte.
+// L'adresse de la fenêtre du silence, pré-remplie depuis l'alerte.
 export function mutePathOf(alert: Pick<Alert, "kind" | "object" | "machine_id" | "machine_name" | "service_id">): string {
   const target = muteTargetOf(alert);
   const query = new URLSearchParams({ kind: target.kind, target_kind: target.targetKind, target_id: target.targetID, target_name: target.targetName });
-  return `/alertes/silences/nouveau?${query.toString()}`;
+  return `${newMutePath}?${query.toString()}`;
 }
 
 // Les listes fermées du formulaire d'un canal, dans son ordre.
@@ -373,4 +487,17 @@ export function channelRequestOf(values: ChannelFormValues): ChannelRequest {
     receives_audit: values.receivesAudit,
     enabled: values.enabled,
   };
+}
+
+// Les canaux et les silences vivaient sous /alertes/canaux et /alertes/silences,
+// en onglets de la page Alertes : ils sont sous Paramètres › Notifications. Un
+// lien d'avant mène à la fenêtre qu'il ouvrait, ou à la section quand c'était
+// l'onglet ; un autre onglet (acquittées, résolues) mène à la boîte.
+export function renamedAlertLocation(pathname: string): { pathname: string; hash: string } {
+  const [, , section = "", ...rest] = pathname.split("/");
+  const base = section === "canaux" || section === "silences" ? `/parametres/${section}` : null;
+  if (base === null) {
+    return { pathname: "/alertes", hash: "" };
+  }
+  return rest.length === 0 || rest[0] === "" ? { pathname: "/parametres", hash: "#notifications" } : { pathname: `${base}/${rest.join("/")}`, hash: "" };
 }

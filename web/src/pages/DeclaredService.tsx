@@ -26,6 +26,7 @@ import { Pill } from "../components/Pill";
 import { List, Table } from "../components/Table";
 import { useT } from "../i18n/context";
 import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
+import { newMutePath } from "../lib/alerts";
 import { componentPath } from "../lib/status";
 import { probePath } from "../lib/probes";
 import { formatClock } from "../lib/time";
@@ -238,7 +239,7 @@ function AlertsCard({ serviceID }: { serviceID: string }) {
   const alerts = useAlerts();
   const mine = (alerts.data?.alerts ?? []).filter((alert) => alert.service_id === serviceID);
   const mute = (
-    <Button small variant="ghost" icon="pause" to={`/alertes/silences/nouveau?target_kind=service&target_id=${encodeURIComponent(serviceID)}`}>
+    <Button small variant="ghost" icon="pause" to={`${newMutePath}?target_kind=service&target_id=${encodeURIComponent(serviceID)}`}>
       {t("alerts.silence")}
     </Button>
   );

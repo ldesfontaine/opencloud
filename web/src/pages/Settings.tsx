@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Outlet, useLocation } from "react-router";
 
 import { useAPITokens } from "../api/apiTokens";
 import { useAuth } from "../api/auth";
@@ -7,19 +8,19 @@ import { useMCPCheck } from "../api/mcpCheck";
 import { useDiskSettings, useLifecycleSettings, useMailSettings } from "../api/settings";
 import { PageHead } from "../components/PageHead";
 import { useT } from "../i18n/context";
-import { currentSection, type SettingsSectionId } from "../lib/settingsSections";
+import { currentSection, sectionOfHash, type SettingsSectionId } from "../lib/settingsSections";
 import { AboutSection } from "./settings/AboutSection";
 import { AccessSection } from "./settings/AccessSection";
 import { AIAgentSection } from "./settings/AIAgentSection";
-import { DiskSection } from "./settings/DiskSection";
 import { LifecycleSection } from "./settings/LifecycleSection";
 import { MailSection } from "./settings/MailSection";
 import { ModulesSection } from "./settings/ModulesSection";
+import { NotificationsSection } from "./settings/NotificationsSection";
 import { SettingsNav } from "./settings/SettingsNav";
 import "./Settings.scss";
 
-// Paramètres : sept sections ancrées (l'accès à l'interface, les modules, les alertes du
-// disque, l'envoi d'e-mails, la fin de support, l'agent IA et ses jetons
+// Paramètres : sept sections ancrées (l'accès à l'interface, les modules, les
+// notifications, l'envoi d'e-mails, la fin de support, l'agent IA et ses jetons
 // d'API, la version), toutes dans la page, avec leur navigation. Chaque section lit la
 // sienne : l'une qui échoue ne retient pas les autres, et sort de la
 // navigation avec elle. Un jeton ne s'affiche qu'une fois, à sa création,
@@ -41,9 +42,7 @@ export function Settings() {
   if (counts.data !== null) {
     present.push("modules");
   }
-  if (disks.data !== null) {
-    present.push("alertes");
-  }
+  present.push("notifications");
   if (mail.data !== null) {
     present.push("e-mails");
   }
@@ -55,7 +54,9 @@ export function Settings() {
   }
   present.push("a-propos");
   const [current, pick] = useVisibleSection(present);
-  useScrollToHash(present.length > 0);
+  // Les sections au-dessus de l'ancre changent la hauteur en arrivant : on attend toutes les lectures.
+  const settled = [access, counts, disks, mail, support, aiAgent, tokens].every((read) => read.data !== null || read.error !== null);
+  useScrollToHash(settled);
 
   return (
     <div className="settings-page">
@@ -65,7 +66,7 @@ export function Settings() {
         <div className="settings-main">
           {access.data !== null && <AccessSection state={access.data} />}
           {counts.data !== null && <ModulesSection modules={counts.data.modules} />}
-          {disks.data !== null && <DiskSection settings={disks.data} reload={disks.reload} />}
+          <NotificationsSection disks={disks.data} reloadDisks={disks.reload} />
           {mail.data !== null && <MailSection settings={mail.data} reload={mail.reload} />}
           {support.data !== null && <LifecycleSection settings={support.data} reload={support.reload} />}
           {(aiAgent.data !== null || tokens.data !== null) && (
@@ -74,6 +75,8 @@ export function Settings() {
           <AboutSection />
         </div>
       </div>
+      {/* Les fenêtres des canaux et des silences, à leur adresse. */}
+      <Outlet />
     </div>
   );
 }
@@ -153,22 +156,19 @@ function useVisibleSection(present: readonly SettingsSectionId[]): [string | nul
 
 // Une adresse avec son ancre (/parametres#e-mails) arrive avant les
 // sections, qui se lisent après coup : le navigateur n'a rien trouvé où
-// aller. Une fois la première prête, la page y va.
+// aller. Une fois la section prête, la page y va ; une ancre qui change
+// ensuite (un lien d'une fenêtre, une ancienne adresse redirigée) y mène aussi.
 function useScrollToHash(ready: boolean) {
-  const [done, setDone] = useState(false);
+  const { hash } = useLocation();
+  const [scrolledTo, setScrolledTo] = useState<string | null>(null);
   useEffect(() => {
-    if (!ready || done) {
-      return;
-    }
-    const id = window.location.hash.slice(1);
-    if (id === "") {
-      setDone(true);
+    if (!ready || hash === "" || scrolledTo === hash) {
       return;
     }
     // La section visée peut arriver après la première : on attend qu'elle soit là.
-    const target = document.getElementById(id);
+    const target = document.getElementById(sectionOfHash(hash.slice(1)));
     if (target !== null) {
-      setDone(true);
+      setScrolledTo(hash);
       target.scrollIntoView();
     }
   });
