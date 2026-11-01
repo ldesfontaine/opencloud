@@ -1,0 +1,18 @@
+# L3 : code mort avant / après (#452)
+
+Avant = origin/dev (cbf7974, L2 fusionnée), après = fin de la branche orca/v052-l3.
+
+deadcode ./... (Go) : 79 avant, 82 après. Les 3 lignes nées sont `link.Natures`, `link.Proofs`, `link.Signals` (internal/link/link.go) : des listes fermées que seul le test des clés du catalogue (`composed_keys_test.go`) lit, comme `directory.Provenances`, `directory.GapStates` ou `directory.GapReasons`, déjà dans le rapport. Elles font vérifier qu'une valeur ajoutée a sa phrase dans fr.toml et en.toml ; les inliner dans le test casserait ce lien. Aucune autre ligne ne change.
+knip (`cd web && npx knip --no-progress`, node_modules installés des deux côtés) : 10 types exportés non utilisés avant, les mêmes 10 après (aucune ligne ne change, numéros compris) :
+  AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind (src/api/alerts.ts, backups.ts), DeployRight (src/api/directory.ts), ProxmoxKind (src/api/proxmox.ts), ChartPoint (src/components/Chart.tsx), SummaryLine (src/components/Wizard.tsx), CertificateState (src/lib/certificates.ts), PlacedGroup (src/lib/network.ts).
+  Rien n'est exporté sans servir dans le code de L3.
+
+Supprimé dans ce chantier
+- `container.dependencyEdges` (internal/container/topology.go) : le recalcul des arêtes de dépendance depuis `Container.DependsOn` à chaque lecture du réseau. Remplacé par `linkEdges`, qui lit les liens stockés. `resolveDependency`, qui servait ce recalcul, sert maintenant l'écriture (`OrderLinks`).
+- `container.Edge.Source` (type `DependencySource`) et le champ JSON `edges[].source` de `GET /api/machines/{id}/network` et `GET /api/network` : remplacés par `signal` (`depends_on`, `container_link`, `operator`) et complétés par `link_id`, `nature`, `proof`, `stale`. Côté front : `Edge.source` de `web/src/api/network.ts` et son entrée dans `contract.test.ts`.
+- La signature `BuildTopology(containers, networks)` : devient `BuildTopology(machineID, containers, networks, links, now)`. Les trois tests qui la lisaient (TestBuildTopology_Dependencies…, …AComposeDependencyDoesNotCrossProjects) sont devenus `TestOrderLinks_…` (la résolution) et `TestBuildTopology_EdgesComeFromStoredLinks…` (la lecture).
+- Le commentaire « Ni groupes ni dépendances » de la vue d'ensemble (web/src/lib/network.ts) : la carte trace maintenant les liens.
+- Documents : la phrase du point 5 de « Comment le réseau des services se lit » (22-fonctionnement.md) qui décrivait le recalcul de l'arête ; « aucun lien entre instances (L3, L4) » de la section des unités systemd.
+
+Renommé pour lever un homonyme (aucune suppression de comportement)
+- Le front appelait « liens » (`ServiceLinks`, `LinkedObject`, `hasLinks`, `LinksCard`, `LinkList`) les sondes et composants de statut qui visent un service, sous la carte « Ce qui le lie ». Avec la carte Liens, deux mots pour deux choses : ils deviennent `ServiceBindings`, `BoundObject`, `hasBindings`, `BindingsCard`, `BindingList`. Le JSON (`links` du détail d'un service) et le côté Go (`directory.Links`, `ListServiceLinks`) ne bougent pas : mcp-maison les lit peut-être.

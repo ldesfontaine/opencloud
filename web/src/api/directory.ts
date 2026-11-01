@@ -56,14 +56,14 @@ export interface ObservedUnit {
 
 // Ce qui vise un service déclaré : tant que cette liste n'est pas vide, il
 // ne se supprime pas.
-export interface LinkedObject {
+export interface BoundObject {
   id: string;
   name: string;
 }
 
-export interface ServiceLinks {
-  probes: LinkedObject[];
-  components: LinkedObject[];
+export interface ServiceBindings {
+  probes: BoundObject[];
+  components: BoundObject[];
 }
 
 export interface DeclaredService {
@@ -112,7 +112,7 @@ export interface Project {
 
 // La fiche d'un service déclaré dit en plus ce qui le lie.
 export interface DeclaredServiceDetail extends DeclaredService {
-  links: ServiceLinks;
+  links: ServiceBindings;
 }
 
 export interface DeclaredServicesResponse {

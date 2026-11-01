@@ -20,6 +20,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense/opnsensetest"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
+	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/systemdunits"
@@ -79,6 +80,7 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2EEdge(t, ts)
 	seedE2ESystemd(t, ts)
 	seedE2EProxmox(t, ts)
+	seedE2ELinks(t, ts)
 }
 
 // seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
@@ -289,4 +291,45 @@ func seedE2EProxmox(t *testing.T, ts *testServer) {
 	if got := putProxmox(ts, remoteID, api.request(pveTokenSecret)); got.Code != http.StatusOK {
 		t.Fatalf("proxmox: %d %s", got.Code, got.Body.String())
 	}
+}
+
+// seedE2ELinks déclare la base de nextcloud comme son propre service (le
+// depends_on des conteneurs de la planche devient le lien d'ordre de
+// l'application vers elle), un lien écrit par l'opérateur entre deux machines,
+// et un lien d'un outil que plus aucun rapport ne confirme depuis dix jours.
+func seedE2ELinks(t *testing.T, ts *testServer) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := ts.directory.CreateService(ctx, directory.ServiceDefinition{
+		MachineID: remoteID, Name: "cloud-db", Nature: directory.NatureApplication, Origin: directory.OriginCompose, ComposeProject: "nextcloud",
+		Units: []directory.UnitDefinition{{Name: "nextcloud-db", Image: "postgres", Version: "16.4"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cloud := e2eServiceNamed(t, ts, remoteID, "nextcloud")
+	proxy := e2eServiceNamed(t, ts, machine.LocalID, "caddy")
+	if _, err := ts.directory.DeclareLink(ctx, directory.LinkDefinition{FromServiceID: proxy.ID, ToServiceID: cloud.ID, ToUnitID: cloud.Units[0].ID, Port: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	old := link.New(ts.db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	old.SetClock(func() time.Time { return testNow.Add(-10 * 24 * time.Hour) })
+	orders := []link.Order{{From: link.ComposeKey("nextcloud", "nextcloud"), To: link.ContainerKey("legacy-cache"), Signal: link.SignalContainerLink}}
+	if err := old.RecordOrders(ctx, remoteID, orders); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func e2eServiceNamed(t *testing.T, ts *testServer, machineID, name string) directory.Service {
+	t.Helper()
+	found, err := ts.db.ListDeclaredServices(context.Background(), directory.Filter{MachineID: machineID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range found {
+		if candidate.Name == name {
+			return candidate
+		}
+	}
+	t.Fatalf("service %q absent de la machine %s", name, machineID)
+	return directory.Service{}
 }

@@ -1,0 +1,145 @@
+import { Link } from "react-router";
+
+import { deleteLink, useServiceLinks, type LinkEnd, type ServiceLink } from "../api/links";
+import { useAction } from "../hooks/useAction";
+import { useNow } from "../hooks/useNow";
+import { useT } from "../i18n/context";
+import { endName, freshnessText, proofTone } from "../lib/links";
+import { Button } from "./Button";
+import { Card, CardHeader, Empty } from "./Card";
+import { ConfirmInline } from "./ConfirmInline";
+import { Failure } from "./Failure";
+import { Loaded } from "./Loaded";
+import { Pill } from "./Pill";
+import { Table } from "./Table";
+
+// Les liens d'un service : ce qu'il utilise et ce qui l'utilise. Chaque ligne
+// dit sa preuve (déclaré, déduit, observé) et sa fraîcheur ; un lien tiré de
+// la configuration d'un outil ne se retire pas d'ici, il se retire de sa
+// source. L'ajout ouvre une fenêtre à l'adresse du service.
+export function ServiceLinks({ serviceID }: { serviceID: string }) {
+  const t = useT();
+  const links = useServiceLinks(serviceID);
+  const add = (
+    <Button small variant="ghost" icon="plus" to={`/services/annuaire/${serviceID}/liens/nouveau`}>
+      {t("link.add")}
+    </Button>
+  );
+  return (
+    <Card className="scroll-x">
+      <CardHeader title={t("link.title")} aside={add} />
+      <Loaded resource={links}>
+        {(data) =>
+          data.links.length === 0 ? (
+            <Empty text={t("link.empty")} />
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <th>{t("link.col_direction")}</th>
+                  <th>{t("link.col_peer")}</th>
+                  <th>{t("link.col_proof")}</th>
+                  <th>{t("link.col_fresh")}</th>
+                  <th className="th-end" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.links.map((link) => (
+                  <LinkRow key={link.id} link={link} />
+                ))}
+              </tbody>
+            </Table>
+          )
+        }
+      </Loaded>
+    </Card>
+  );
+}
+
+function LinkRow({ link }: { link: ServiceLink }) {
+  const t = useT();
+  const now = useNow(60_000);
+  return (
+    <tr>
+      <td>
+        <span className="stack">
+          <span>{t(`link.${link.direction}`)}</span>
+          <span className="secondary">{t(`link.nature_${link.nature}`)}</span>
+        </span>
+      </td>
+      <td>
+        <PeerCell link={link} />
+      </td>
+      <td>
+        <span className="stack">
+          <Pill tone={proofTone(link.proof)}>{t(`link.proof_${link.proof}`)}</Pill>
+          <span className="secondary">{t(`link.signal_${link.signal}`)}</span>
+        </span>
+      </td>
+      <td>
+        <span className="cluster">
+          <span className="secondary">{freshnessText(t, link, now)}</span>
+          {link.stale && (
+            <Pill tone="warn" dot={false}>
+              {t("link.stale")}
+            </Pill>
+          )}
+        </span>
+      </td>
+      <td className="td-end">{link.removable ? <RemoveLink link={link} /> : <span className="muted" title={t("link.from_tool_help")}>—</span>}</td>
+    </tr>
+  );
+}
+
+// L'autre bout : le service déclaré qui porte l'instance, sinon le conteneur
+// vu, sinon la clé nue avec « Non déclaré ». La machine se dit quand ce n'est
+// pas celle du service.
+function PeerCell({ link }: { link: ServiceLink }) {
+  const t = useT();
+  const peer = link.peer;
+  const otherMachine = peer.machine_id !== link.self.machine_id;
+  return (
+    <span className="stack">
+      <span className="cluster">
+        <PeerName peer={peer} />
+        {peer.service_id === "" && (
+          <span title={t("link.undeclared_help")}>
+            <Pill tone="neutral" dot={false}>
+              {t("link.undeclared")}
+            </Pill>
+          </span>
+        )}
+      </span>
+      <span className="secondary">
+        {[otherMachine ? peer.machine_name : "", link.port > 0 ? t("link.port", String(link.port)) : ""].filter((part) => part !== "").join(" · ")}
+      </span>
+    </span>
+  );
+}
+
+function PeerName({ peer }: { peer: LinkEnd }) {
+  if (peer.service_id !== "") {
+    return <Link to={`/services/annuaire/${peer.service_id}`}>{peer.service_name}</Link>;
+  }
+  if (peer.container_id !== "") {
+    return (
+      <Link className="mono" to={`/services/conteneurs/${peer.container_id}`}>
+        {peer.label}
+      </Link>
+    );
+  }
+  return <span className="mono">{peer.label}</span>;
+}
+
+function RemoveLink({ link }: { link: ServiceLink }) {
+  const t = useT();
+  const action = useAction();
+  return (
+    <span className="stack">
+      <ConfirmInline small icon="x" question={t("link.remove_confirm", endName(link.peer))} onConfirm={() => action.run(() => deleteLink(link.id), { topic: "directory" })} disabled={action.busy}>
+        {t("link.remove")}
+      </ConfirmInline>
+      <Failure error={action.error} />
+    </span>
+  );
+}

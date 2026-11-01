@@ -142,6 +142,7 @@ func closedKeyLists() []composedKeys {
 		{prefix: "directory.provides_", values: names(directory.Capabilities())},
 		{prefix: "directory.declared_by_", values: names(directory.Provenances())},
 		// Un lien : sa nature, sa preuve et le signal qui la fonde.
+		{prefix: "link.", values: []string{"outgoing", "incoming"}},
 		{prefix: "link.nature_", values: names(link.Natures())},
 		{prefix: "link.proof_", values: names(link.Proofs())},
 		{prefix: "link.signal_", values: names(link.Signals())},

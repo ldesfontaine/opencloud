@@ -41,6 +41,8 @@ export function NetworkOverview() {
   }
   const ports = publicPorts(response?.machines.flatMap((machine) => machine.edges) ?? []);
   const entries = ports.length > 0 ? t("network.internet_entries", fitPorts(ports, internetSubtitleLimit, t("network.internet_entries", "").length)) : t("network.internet_none");
+  const drawnLinks = layout?.edges.filter((placed) => placed.edge.kind === "depends") ?? [];
+  const staleLinks = drawnLinks.filter((placed) => placed.edge.stale === true).length;
   // Le conteneur est toujours là : c'est lui qui donne la largeur, avant
   // même que la réponse arrive.
   return (
@@ -48,6 +50,9 @@ export function NetworkOverview() {
       {response && layout && width > 0 && (
         <svg width={width} height={Math.ceil(layout.height * scale)} role="img" aria-label={t("tab.network")}>
           <defs>
+            <marker id="netgraph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path className="netgraph-arrow" d="M1 1 9 5 1 9" />
+            </marker>
             <pattern id="netgraph-dots" width="18" height="18" patternUnits="userSpaceOnUse">
               <circle className="netgraph-dot" cx="9" cy="9" r="1" />
             </pattern>
@@ -69,11 +74,17 @@ export function NetworkOverview() {
                   )}
                 </g>
               ))}
-            {layout.edges.map((placed) => (
-              <g key={`${placed.edge.to}:${placed.edge.port ?? ""}`} className="netgraph-edge public">
-                <path d={placed.path} />
-              </g>
-            ))}
+            {layout.edges.map((placed) =>
+              placed.edge.kind === "public" ? (
+                <g key={`public:${placed.edge.to}:${placed.edge.port ?? ""}`} className="netgraph-edge public">
+                  <path d={placed.path} />
+                </g>
+              ) : (
+                <g key={`link:${placed.edge.link_id ?? `${placed.edge.from}>${placed.edge.to}`}:${placed.edge.from}`} className={placed.edge.stale === true ? "netgraph-edge depends stale" : "netgraph-edge depends"}>
+                  <path d={placed.path} markerEnd="url(#netgraph-arrow)" />
+                </g>
+              ),
+            )}
             <g className="netgraph-node internet" transform={`translate(${layout.internet.x} ${layout.internet.y})`}>
               <rect className="frame" width={nodeWidth} height={nodeHeight} rx="12" />
               <rect className="ico" x="11" y="11" width="32" height="32" rx="9" />
@@ -121,6 +132,12 @@ export function NetworkOverview() {
             })}
           </g>
         </svg>
+      )}
+      {drawnLinks.length > 0 && (
+        <p className="netgraph-caption secondary">
+          {drawnLinks.length === 1 ? t("link.overview_count_one", drawnLinks.length) : t("link.overview_count", drawnLinks.length)}
+          {staleLinks > 0 && ` · ${t("link.overview_legend_stale")}`}
+        </p>
       )}
     </div>
   );

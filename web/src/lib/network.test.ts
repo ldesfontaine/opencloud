@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Container } from "../api/containers";
-import type { NetworkResponse } from "../api/network";
+import type { NetworkResponse, OverviewLink } from "../api/network";
 import type { Probe } from "../api/probes";
 import type { Translate } from "../i18n/context";
 import { type PlacedMachine, compactHeight, compactWidth, fitOverview, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, overviewCompactGap, overviewFramePadding, overviewGraphFloor, overviewGraphMaxHeight, overviewMargin, overviewScale, peersOf, probesOf, publicPorts, zoomView } from "./network";
@@ -68,8 +68,8 @@ const response: NetworkResponse = {
   groups: [{ network_id: "back", name: "ocfix_back", internal: true, members: ["db", "cache"] }],
   edges: [
     { from: internetID, to: "web", kind: "public", port: 18081, protocol: "tcp" },
-    { from: "web", to: "db", kind: "depends", source: "compose" },
-    { from: "cache", to: "db", kind: "depends", source: "link" },
+    { from: "web", to: "db", kind: "depends", link_id: "l1", nature: "order", proof: "declared", signal: "depends_on" },
+    { from: "cache", to: "db", kind: "depends", link_id: "l2", nature: "order", proof: "declared", signal: "container_link", stale: true },
   ],
 };
 
@@ -160,7 +160,7 @@ test("layoutOverview cadre chaque machine, les publiés face à Internet", () =>
     groups: [],
     edges: [],
   };
-  const layout = layoutOverview({ machines: [response, second] });
+  const layout = layoutOverview({ links: [], machines: [response, second] });
   expect(layout.framed).toBe(true);
   expect(layout.machines).toHaveLength(2);
   const [vps, nas] = layout.machines as [typeof layout.machines[0], typeof layout.machines[0]];
@@ -176,17 +176,18 @@ test("layoutOverview cadre chaque machine, les publiés face à Internet", () =>
   expect(byID.get("s4")!.y).toBe(byID.get("s1")!.y + compactHeight + overviewCompactGap);
   expect(byID.get("s4")!.x).toBe(byID.get("s1")!.x);
   expect(byID.get("s5")!.x).toBe(byID.get("s2")!.x);
-  expect(layout.edges).toHaveLength(1);
+  // La route publique, puis les deux liens stockés de la machine.
+  expect(layout.edges.map((placed) => placed.edge.kind)).toEqual(["public", "depends", "depends"]);
   expect(layout.edges[0]!.edge.to).toBe("web");
   expect(layout.internet.x).toBeLessThan(vps.x);
   expect(layout.width).toBeGreaterThan(nas.x + nas.width);
 });
 
 test("layoutOverview ne cadre pas une machine seule et accepte une machine vide", () => {
-  const alone = layoutOverview({ machines: [response] });
+  const alone = layoutOverview({ links: [], machines: [response] });
   expect(alone.framed).toBe(false);
   expect(alone.machines[0]!.x).toBe(alone.nodes[0]!.x);
-  const empty = layoutOverview({ machines: [{ ...response, containers: [], edges: [] }] });
+  const empty = layoutOverview({ links: [], machines: [{ ...response, containers: [], edges: [] }] });
   expect(empty.machines[0]!.empty).toBe(true);
   expect(empty.nodes).toHaveLength(0);
   // Le nœud Internet et ses marges, au moins.
@@ -289,14 +290,14 @@ function overlaps(a: { x: number; y: number; width: number; height: number }, b:
 
 test("layoutOverview : chaque conteneur reste dans le cadre de sa machine", () => {
   // Deux publiés et deux autres : les autres en une colonne, pas trois.
-  inside(layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 1), overviewMachine("c", 5, 0), overviewMachine("d", 14, 1)] }));
-  inside(layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 1), overviewMachine("c", 5, 0)] }, 2));
-  const narrow = layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 1, 0)] });
+  inside(layoutOverview({ links: [], machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 1), overviewMachine("c", 5, 0), overviewMachine("d", 14, 1)] }));
+  inside(layoutOverview({ links: [], machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 1), overviewMachine("c", 5, 0)] }, 2));
+  const narrow = layoutOverview({ links: [], machines: [overviewMachine("a", 4, 2), overviewMachine("b", 1, 0)] });
   expect(narrow.machines[0]!.width).toBe(overviewFramePadding.left + 2 * compactWidth + overviewCompactGap + overviewFramePadding.right);
 });
 
 test("layoutOverview range les cadres en grille, alignés, sans chevauchement", () => {
-  const layout = layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 3, 1), overviewMachine("c", 4, 2)] }, 2);
+  const layout = layoutOverview({ links: [], machines: [overviewMachine("a", 4, 2), overviewMachine("b", 3, 1), overviewMachine("c", 4, 2)] }, 2);
   expect(layout.perRow).toBe(2);
   const [a, b, c] = layout.machines as [PlacedMachine, PlacedMachine, PlacedMachine];
   expect(b.y).toBe(a.y);
@@ -317,7 +318,7 @@ test("layoutOverview range les cadres en grille, alignés, sans chevauchement", 
 });
 
 test("layoutOverview : la route d'un cadre de la deuxième colonne passe par les écarts", () => {
-  const layout = layoutOverview({ machines: [overviewMachine("a", 2, 1), overviewMachine("b", 2, 1)] }, 2);
+  const layout = layoutOverview({ links: [], machines: [overviewMachine("a", 2, 1), overviewMachine("b", 2, 1)] }, 2);
   const [a, b] = layout.machines as [PlacedMachine, PlacedMachine];
   const route = layout.edges.find((placed) => placed.edge.to === "b-0")!;
   // Les points d'appui de la route : aucun n'est à l'intérieur du cadre de a.
@@ -334,7 +335,7 @@ test("layoutOverview : la route d'un cadre de la deuxième colonne passe par les
 });
 
 test("fitOverview empile les cadres quand la largeur manque, comme avant", () => {
-  const response = { machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1), overviewMachine("c", 4, 1)] };
+  const response = { links: [], machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1), overviewMachine("c", 4, 1)] };
   // 1 070 px : la largeur d'un portable 1366 moins la barre latérale.
   const fitted = fitOverview(response, 1070, 240, 10 / 11);
   expect(fitted.layout.perRow).toBe(1);
@@ -343,7 +344,7 @@ test("fitOverview empile les cadres quand la largeur manque, comme avant", () =>
 });
 
 test("fitOverview met les cadres côte à côte quand ils tiennent, pour gagner en hauteur", () => {
-  const response = { machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 2), overviewMachine("c", 4, 2)] };
+  const response = { links: [], machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 2), overviewMachine("c", 4, 2)] };
   const stacked = layoutOverview(response, 1);
   const fitted = fitOverview(response, 1070, 240, 10 / 11);
   expect(fitted.layout.perRow).toBe(2);
@@ -353,7 +354,7 @@ test("fitOverview met les cadres côte à côte quand ils tiennent, pour gagner 
 });
 
 test("fitOverview ne passe jamais sous le plancher pour ranger côte à côte", () => {
-  const response = { machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1)] };
+  const response = { links: [], machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1)] };
   // Trop étroit pour deux cadres de quatre colonnes au plancher.
   const fitted = fitOverview(response, 1070, 100, 10 / 11);
   expect(fitted.layout.perRow).toBe(1);
@@ -364,11 +365,33 @@ test("fitOverview ne passe jamais sous le plancher pour ranger côte à côte", 
 });
 
 test("fitOverview garde le plus grand texte quand plusieurs rangements tiennent", () => {
-  const response = { machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1), overviewMachine("c", 4, 1), overviewMachine("d", 4, 1)] };
+  const response = { links: [], machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1), overviewMachine("c", 4, 1), overviewMachine("d", 4, 1)] };
   // 1 624 px (un écran 1920) : empilés, quatre cadres demandent de réduire ; côte à côte, l'échelle 1 tient.
   const fitted = fitOverview(response, 1624, 240, 10 / 11);
   expect(fitted.scale).toBe(1);
   expect(fitted.layout.perRow).toBeGreaterThan(1);
   // Une machine seule n'a pas de cadre, rien à ranger.
-  expect(fitOverview({ machines: [overviewMachine("a", 4, 1)] }, 1624, 240, 10 / 11).layout.perRow).toBe(1);
+  expect(fitOverview({ links: [], machines: [overviewMachine("a", 4, 1)] }, 1624, 240, 10 / 11).layout.perRow).toBe(1);
+});
+
+test("layoutOverview trace les liens stockés, d'un cadre à l'autre aussi, et saute ceux qu'il ne place pas", () => {
+  const link = (id: string, from: string, to: string, stale = false): OverviewLink => ({
+    id,
+    nature: "config",
+    proof: "declared",
+    signal: "operator",
+    port: 0,
+    stale,
+    from: { container_id: from } as OverviewLink["from"],
+    to: { container_id: to } as OverviewLink["to"],
+  });
+  const first = overviewMachine("a", 2, 0);
+  const second = overviewMachine("b", 2, 0);
+  const [a0, a1] = first.containers as [Container, Container];
+  const [b0] = second.containers as [Container];
+  const layout = layoutOverview({ machines: [first, second], links: [link("l1", a0.id, b0.id), link("l2", a1.id, a0.id, true), link("l3", a0.id, "absent"), link("l4", "", b0.id)] }, 2);
+  const drawn = layout.edges.filter((placed) => placed.edge.kind === "depends");
+  expect(drawn.map((placed) => placed.edge.link_id)).toEqual(["l1", "l2"]);
+  expect(drawn[1]!.edge.stale).toBe(true);
+  expect(drawn.every((placed) => placed.path.startsWith("M") && !placed.path.includes("NaN"))).toBe(true);
 });

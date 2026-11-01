@@ -7,7 +7,7 @@ import {
   emptyUnitForm,
   formatUnitPorts,
   hasAdvancedUnitValues,
-  hasLinks,
+  hasBindings,
   parsePorts,
   projectNames,
   serviceFormOf,
@@ -240,10 +240,10 @@ describe("la politique de mise à jour d'une unité", () => {
   });
 });
 
-describe("hasLinks", () => {
+describe("hasBindings", () => {
   it("dit si quelque chose lie le service", () => {
-    expect(hasLinks({ probes: [{ id: "p1", name: "site" }], components: [] })).toBe(true);
-    expect(hasLinks({ probes: [], components: [] })).toBe(false);
+    expect(hasBindings({ probes: [{ id: "p1", name: "site" }], components: [] })).toBe(true);
+    expect(hasBindings({ probes: [], components: [] })).toBe(false);
   });
 });
 

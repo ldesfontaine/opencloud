@@ -16,7 +16,8 @@ import type { Account, Agent, Capability, Machine, MachineHost, MachineRole, Mac
 import type { MachineStorage, PhysicalDisk, StoragePool } from "./storage";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
-import type { NetworkResponse, OverviewNetworkResponse } from "./network";
+import type { LinkEnd, ServiceLinksResponse } from "./links";
+import type { NetworkResponse, OverviewLink, OverviewNetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
 import type { BackupGrant, ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
@@ -284,6 +285,45 @@ const containerResponse = shape<ContainerResponse>("ContainerResponse", {
   }),
 });
 
+const linkEnd = shape<LinkEnd>("LinkEnd", {
+  machine_id: value,
+  machine_name: value,
+  key: value,
+  label: value,
+  service_id: value,
+  service_name: value,
+  unit_name: value,
+  container_id: value,
+});
+
+const overviewLink = shape<OverviewLink>("OverviewLink", {
+  id: value,
+  nature: value,
+  proof: value,
+  signal: value,
+  port: value,
+  stale: value,
+  from: linkEnd,
+  to: linkEnd,
+});
+
+const serviceLinks = shape<ServiceLinksResponse>("ServiceLinksResponse", {
+  links: shape("ServiceLink", {
+    id: value,
+    direction: value,
+    nature: value,
+    proof: value,
+    signal: value,
+    port: value,
+    first_seen_at: value,
+    last_seen_at: value,
+    stale: value,
+    removable: value,
+    self: linkEnd,
+    peer: linkEnd,
+  }),
+});
+
 const network = shape<NetworkResponse>("NetworkResponse", {
   machine_id: value,
   machine_name: value,
@@ -291,7 +331,7 @@ const network = shape<NetworkResponse>("NetworkResponse", {
   engine,
   containers: container,
   groups: shape("Group", { network_id: value, name: value, internal: value, members: value }),
-  edges: shape("Edge", { from: value, to: value, kind: value, port: optional(value), protocol: optional(value), source: optional(value) }),
+  edges: shape("Edge", { from: value, to: value, kind: value, port: optional(value), protocol: optional(value), link_id: optional(value), nature: optional(value), proof: optional(value), signal: optional(value), stale: optional(value) }),
 });
 
 const sshReport = shape<SSHReport>("SSHReport", {
@@ -600,11 +640,11 @@ const declaredServices = shape<DeclaredServicesResponse>("DeclaredServicesRespon
   services: shape<DeclaredServiceJSON>("DeclaredService", declaredServiceFields),
 });
 
-const linked = shape<DeclaredServiceDetail["links"]["probes"][number]>("LinkedObject", { id: value, name: value });
+const linked = shape<DeclaredServiceDetail["links"]["probes"][number]>("BoundObject", { id: value, name: value });
 
 const declaredService = shape<DeclaredServiceDetail>("DeclaredServiceDetail", {
   ...declaredServiceFields,
-  links: shape("ServiceLinks", { probes: linked, components: linked }),
+  links: shape("ServiceBindings", { probes: linked, components: linked }),
 });
 
 const projects = shape<ProjectsResponse>("ProjectsResponse", {
@@ -1132,7 +1172,7 @@ const contract: Record<string, Shape<unknown>> = {
   "machines.golden.json": machines,
   "manifest_applies.golden.json": shape<AppliesResponse>("AppliesResponse", { applies: apply }),
   "manifest_apply.golden.json": apply,
-  "network.golden.json": shape<OverviewNetworkResponse>("OverviewNetworkResponse", { machines: network }),
+  "network.golden.json": shape<OverviewNetworkResponse>("OverviewNetworkResponse", { machines: network, links: overviewLink }),
   "probe.golden.json": probeResponse,
   "probes.golden.json": probes,
   "projects.golden.json": projects,
@@ -1141,6 +1181,7 @@ const contract: Record<string, Shape<unknown>> = {
   "session.golden.json": session,
   "ssh_keys.golden.json": shape<SSHMatrixResponse>("SSHMatrixResponse", { machines: sshReport }),
   "ssh_keys_machine.golden.json": sshReport,
+  "service_links.golden.json": serviceLinks,
   "systemd_units_machine.golden.json": systemdReport,
   "proposal_systemd_unit.golden.json": proposal,
   "settings_ai_agent.golden.json": mcpCheck,
