@@ -164,6 +164,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	firewalls := firewall.New(db, logger)
 	firewalls.SetAuditor(journal)
 	firewalls.SetConnector(firewall.KindOPNsense, opnsense.New)
+	firewalls.SetTranslator(firewall.KindOPNsense, opnsense.Policy)
 	// La sauvegarde de la base part par ces ordres. Le dépôt des colis
 	// (SetParcels) et la boucle sont à serve seul.
 	backups := backup.New(db, machines, stateDir, logger)

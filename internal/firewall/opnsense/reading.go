@@ -144,8 +144,10 @@ type ruleRow struct {
 	Direction       text `json:"direction"`
 	Protocol        text `json:"protocol"`
 	SourceNet       text `json:"source_net"`
+	SourceNot       text `json:"source_not"`
 	SourcePort      text `json:"source_port"`
 	DestinationNet  text `json:"destination_net"`
+	DestinationNot  text `json:"destination_not"`
 	DestinationPort text `json:"destination_port"`
 	Description     text `json:"description"`
 }
@@ -160,14 +162,24 @@ func (c *Client) Rules(ctx context.Context) ([]firewall.Rule, error) {
 		rules = append(rules, firewall.Rule{
 			UUID: row.UUID.bounded(), Interface: row.Interface.bounded(), Action: row.Action.bounded(),
 			Direction: row.Direction.bounded(), Protocol: row.Protocol.bounded(),
-			Source: row.SourceNet.bounded(), SourcePort: row.SourcePort.bounded(),
-			Destination: row.DestinationNet.bounded(), DestinationPort: row.DestinationPort.bounded(),
+			Source: negatable(row.SourceNet, row.SourceNot), SourcePort: row.SourcePort.bounded(),
+			Destination: negatable(row.DestinationNet, row.DestinationNot), DestinationPort: row.DestinationPort.bounded(),
 			Description: row.Description.bounded(),
 			// Une règle sans le champ est une règle de la liste de base : active.
 			Enabled: row.Enabled != "0" && row.Enabled != "false",
 		})
 	}
 	return rules, nil
+}
+
+// negatable rend la cible d'une règle, précédée de negationMark quand la règle
+// la nie (« tout sauf ») : sans cette marque, « pas le LAN » se lirait « le LAN ».
+func negatable(net, not text) string {
+	target := net.bounded()
+	if target != "" && (not == "1" || not == "true") {
+		return negationMark + target
+	}
+	return target
 }
 
 // leaseRow réunit les champs des trois serveurs DHCP : chacun en remplit une
