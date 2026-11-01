@@ -206,7 +206,7 @@ func TestFirewalls_ATokenReadsWithoutAnySecretAndWritesNothing(t *testing.T) {
 	id, _ := declareFirewallThroughAPI(t, server, fake)
 	bearer := server.issueAPIToken(t, "mcp-maison")
 
-	reads := []string{"/api/firewalls", "/api/firewalls/" + id, "/api/firewalls/" + id + "/rules", "/api/firewalls/" + id + "/interfaces", "/api/firewalls/" + id + "/leases"}
+	reads := []string{"/api/firewalls", "/api/firewalls/" + id, "/api/firewalls/" + id + "/rules", "/api/firewalls/" + id + "/interfaces", "/api/firewalls/" + id + "/leases", "/api/firewalls/" + id + "/flows"}
 	for _, path := range reads {
 		got := callBearer(server.Server, path, bearer)
 		if got.Code != http.StatusOK {

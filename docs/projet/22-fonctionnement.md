@@ -1019,7 +1019,7 @@ alerte ne naît d'un relevé. Un pare-feu n'est lié à aucune machine.
 | L'opérateur | Déclare, redéclare, retire (assistant en quatre étapes ; retrait par confirmation en ligne). Seul à écrire : les routes d'écriture ne sont pas dans la liste fermée d'un jeton |
 | `firewall.Service` | Vérifie la paire de clés auprès du pare-feu **avant** d'écrire, journalise, relit toutes les cinq minutes (boucle de `serve`) |
 | Le connecteur | Parle à l'API, en `GET` seulement, et rend un `firewall.Snapshot` indépendant du constructeur |
-| Un agent IA | Lit les cinq `GET` par son jeton, sans clé ni empreinte |
+| Un agent IA | Lit les six `GET` par son jeton, sans clé ni empreinte |
 
 **Ce qui est lu (OPNsense).** Points d'accès retenus, tirés de la documentation
 (`docs.opnsense.org/development/api`) et des contrôleurs de `opnsense/core`, tous
@@ -1120,12 +1120,50 @@ fiche dit pourquoi. Refus à clé : `firewall.name_invalid`, `name_taken` (409),
 pas celle de l'API, plus de 8 Mio).
 
 **Lire.** `GET /api/firewalls` (liste et compteurs), `/{id}` (la fiche et ses
-passerelles), `/{id}/rules`, `/{id}/interfaces`, `/{id}/leases`. Chaque relevé
+passerelles), `/{id}/rules`, `/{id}/interfaces`, `/{id}/leases`, `/{id}/flows`
+(la grille « qui parle à qui », voir plus bas). Chaque relevé
 rappelle `last_read_at` et `last_error`. Un relevé qui échoue **ne remplace
 rien** : la fiche garde le dernier relevé réussi et dit la raison (`last_error`) ;
 le suivant, réussi, l'efface. Un secret vidé par la perte de `secret.key`
 (`opencloud secrets forget`) est lu comme une paire refusée : le pare-feu reste
 déclaré, l'opérateur ressaisit le secret. Le direct publie le sujet `firewalls`.
+
+**La fiche.** Deux onglets, `/pare-feu/{id}` (Résumé) et `/pare-feu/{id}/flux`
+(Qui parle à qui). Le Résumé, de haut en bas :
+
+| Bloc | Ce qu'il montre | D'où ça vient |
+| --- | --- | --- |
+| Quatre tuiles | Version et adresse de l'API ; dernier relevé et son état ; passerelles (en ligne sur le total, coupées, à surveiller) ; règles actives (passantes, bloquantes, éteintes). Chaque tuile mène à son bloc (`#connexion`, `#passerelles`, `#regles`) | `GET /{id}`, `/rules` |
+| Passerelles | Une pastille par passerelle : état, adresse, délai et perte (« non sondée » sinon) | `GET /{id}` |
+| Interfaces | Une carte par zone : nom, réseau, état (le trait de gauche), nombre de règles et de bloquantes. Un clic ouvre le groupe de règles de la zone | `GET /{id}/interfaces`, `/rules` |
+| Règles | Groupées par interface, **repliées**. Recherche (description, adresses, ports, protocole) et filtres Toutes / Passantes / Bloquantes / Désactivées, chacun avec son compte ; chercher ou filtrer ouvre les groupes qui répondent. Les règles sans interface (flottantes) ont leur groupe | `GET /{id}/rules` |
+| Baux DHCP | Un bail dont **la carte réseau (MAC) ou l'adresse** est celle d'une machine d'openCloud nomme cette machine, avec un lien vers sa fiche ; sinon un tiret. Deux machines qui se disputent l'adresse : rien n'est dit | `GET /{id}/leases` (`machine: {id, name}` ou `null`), `firewall.MatchMachine` |
+| Connexion | Repliée : connecteur, adresse, version, clé (**quatre premiers caractères**, `api_key_hint`), dernier relevé, certificat. Le secret n'y est jamais | `GET /{id}` |
+
+**Qui parle à qui.** La grille se lit dans un **modèle des échanges** que
+chaque connecteur remplit, indépendant du constructeur (`internal/policy`) :
+des **zones** (une par interface, plus le pare-feu lui-même et Internet), des
+**objets** (`any`, `self`, une zone entière, une adresse, un bloc, un groupe nommé) et des **règles** « de → vers : quoi, pourquoi » (`Rule` : `From`, `To`,
+`What` = protocole et ports, `Why` = la description, `Effect` = `allow` ou
+`deny`). `opnsense.Policy` traduit le relevé vers ce modèle (`firewall.Service.Policy`, choisi par genre) ; `Model.Grid()` bâtit la grille : une ligne par zone de départ,
+une colonne par zone d'arrivée, une case = les règles actives de l'une vers l'autre.
+**Une case sans règle est une case vide : refusé.** Rien n'est stocké : la grille se
+recalcule à chaque lecture depuis les règles du dernier relevé (aucune migration).
+
+| Règle de traduction (OPNsense) | Effet |
+| --- | --- |
+| Une interface = une zone ; celle qui porte une adresse **publique** est la zone Internet (sinon, une zone Internet est ajoutée à part) | Le réseau d'une zone est le bloc de l'adresse de l'interface |
+| `(self)`, `<interface>ip`, l'adresse même de l'interface | Le pare-feu |
+| Le nom d'une interface | Tout son réseau |
+| Une adresse ou un bloc | La zone dont le réseau le contient (le plus précis) ; le pare-feu si c'est son adresse ; Internet si le bloc est public ; **inconnu** si privé et hors zones |
+| `any` en destination | Toutes les zones sauf celle de départ (le trafic d'une zone vers elle-même ne passe pas par le pare-feu) |
+| Une règle sur plusieurs interfaces (`lan,opt1`) | Une règle du modèle par zone de départ |
+| « Tout sauf » (source ou destination niée) | Le connecteur marque la cible `!` (`source_not`, `destination_not` de `searchRule`) ; la destination niée couvre toutes les zones sauf la sienne |
+
+**Ce que la grille ne fait pas.** L'**ordre d'évaluation n'est pas rejoué** : une
+règle de refus placée avant une règle passante est montrée dans la même case (en rouge), sans
+dire laquelle l'emporte. Les règles **éteintes** ne comptent pas (leur nombre est dit). Sont **non placées**, donc à part sous la grille : les règles flottantes (sans interface), les règles sortantes (`direction: out`) et celles qui visent un **alias** (le connecteur ne lit pas les alias : un appel et un privilège de plus, à décider). Lecture seule : l'écriture de règles
+depuis openCloud, plus tard, partira de ces mêmes types (`internal/policy`).
 
 **Audit.** `firewall.create`, `firewall.update`, `firewall.delete` passent au
 journal, avec l'hôte de l'API, le connecteur et « empreinte épinglée oui/non » ;
@@ -4411,7 +4449,7 @@ les réponses de l'opérateur ne changent pas) :
 | `GET /api/jobs/{id}` | Ni l'URL de ping, qui est le secret de la tâche, ni les extraits de code qui la contiennent |
 | `GET /api/probes`, `GET /api/probes/{id}` | La cible sans son mot de passe (`https://user:…@hôte`), comme dans le plan d'apply et le journal |
 | `GET /api/alerts/channels` | L'adresse réduite à son schéma et son hôte (un webhook Discord porte son jeton dans son chemin), sans destinataire ni salon |
-| `GET /api/firewalls`, `GET /api/firewalls/{id}` | Ni la clé d'API ni l'empreinte du certificat (`api_key` et `pin` vides) ; le secret n'est jamais rendu à personne. `/rules`, `/interfaces` et `/leases` ne portent ni l'un ni l'autre |
+| `GET /api/firewalls`, `GET /api/firewalls/{id}` | Ni la clé d'API ni l'empreinte du certificat (`api_key` et `pin` vides) ; le secret n'est jamais rendu à personne. `/rules`, `/interfaces`, `/leases` et `/flows` ne portent ni l'un ni l'autre |
 | `GET /api/manifest/export` | Le fichier de l'annuaire, le mot de passe d'une cible masqué ; il se lit, il ne se réapplique pas |
 
 Ce qu'un jeton lit n'est pas pour autant sans risque : les **journaux bruts
@@ -4570,7 +4608,7 @@ mêmes corps, mêmes refus.
 | Adresse | Fond | Fenêtre |
 | --- | --- | --- |
 | `/pare-feu/nouveau` | la liste des pare-feu | Déclarer un pare-feu : quatre étapes (l'identité et l'adresse, avec « Tester l'accès » ; les gestes à faire dans OPNsense, à cocher, avec leurs liens ; la clé et le secret ; le certificat : empreinte relevée à confirmer) puis le récapitulatif, où la clé n'est jamais en entier |
-| `/pare-feu/{id}/modifier` | la fiche du pare-feu | Le même assistant, ouvert sur le récapitulatif ; le secret se ressaisit |
+| `/pare-feu/{id}/modifier` | la fiche du pare-feu (onglet Résumé) | Le même assistant, ouvert sur le récapitulatif ; le secret se ressaisit |
 | `/sauvegardes/cle` | la page Sauvegardes | Créer ou remplacer la clé : la phrase de passe, deux fois ; remplacer demande confirmation |
 | `/sauvegardes/destinations/nouvelle` | la page Sauvegardes | Ajouter une destination : nom, machine, dossier |
 | `/sauvegardes/plans/nouveau` | la page Sauvegardes | Ajouter un plan : deux étapes (la source ; la destination et le nombre de sauvegardes gardées) |
@@ -5519,3 +5557,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Inventaire et historique des sauvegardes (#368) | Les migrations `019_backup_runs.sql` (`backup_runs`), `020_proxmox_backup_observed.sql` (archives vues par invité) et `021_machine_volumes.sql` (`machine_volumes`), `internal/backup/history.go` et `inventory.go` (`Inventory`, `Runs`, les clés de source), `store/backup_runs.go` et `backup_inventory.go`, la purge à 400 lignes par plan, `dockerapi.ListVolumes` et `Mounts`, `container.VolumeReport` (`volumes_complete`, `volumes`), `deletion.KindMachineVolumes`, `GET /api/backups/inventory` et `/runs` (ouvertes aux jetons en lecture), les goldens `backups_inventory` et `backups_runs`, la section Inventaire de la page Sauvegardes. `last_targets_ok` et `last_targets_failed` ne sont plus en mémoire |
 | Registre de modules et rôle de machine (#407) | Le paquet `internal/module`, `machine.Roles()` et `RolePreset`, la migration `024_machine_role.sql`, `store/modules.go`, `PUT /api/machines/{id}/role`, `role` et `modules` dans les machines, `modules` dans les compteurs, `roles` dans la session, `web/src/lib/modules.ts` (menu, onglets, carte « à configurer »), Paramètres › Modules, la carte « Rôle de la machine » (« Comment les modules et le rôle d'une machine décident de l'écran ») |
 | Type de machine, puce MCP, assistant OPNsense (v0.5.2 U4, #456) | `machine.IsPublicAddress` et `Placement.Address` (une VM sans hôte n'est un VPS que sur une adresse publique), la puce MCP retirée (`useAgentHint` : une infobulle, `action.agent_hint`), `internal/tlsinspect` et `POST /api/certificate/inspect`, `credential.Mask` (`api_key_hint`, `token_id_hint`), les libellés OPNsense dans les catalogues (`firewall.menu_*`, `firewall.label_*`), les privilèges DHCP réduits à Dnsmasq ou Kea. Aucune migration |
+| Fiche pare-feu visuelle (v0.5.2 U5, #458) | `internal/policy` (zones, objets, règles « de → vers : quoi, pourquoi », `Model.Grid`), `opnsense.Policy`, `firewall.Translator` et `Service.Policy`, `firewall.MatchMachine`, `GET /api/firewalls/{id}/flows` (ouverte aux jetons en lecture), `machine` dans chaque bail, `source_not` et `destination_not` lus par le connecteur (marque `!` dans `Rule.Source` et `Destination`, sans colonne de plus), l'onglet « Qui parle à qui », la maquette `docs/projet/maquettes/pare-feu-fiche.html`, les composants `Choice` (segment partagé) et `useScrollToHash`. Aucune migration, aucune dépendance, aucun champ d'agent |

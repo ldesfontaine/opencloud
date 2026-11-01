@@ -239,7 +239,7 @@
 
 .firewall-grid {
   width: 100%;
-  min-width: 860px;
+  min-width: 760px;
   border-collapse: separate;
   border-spacing: 8px;
 
@@ -264,8 +264,8 @@
   font-weight: 500;
 }
 
-.firewall-grid-row {
-  min-width: 130px;
+.firewall-grid .firewall-grid-row {
+  min-width: 120px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);
@@ -273,7 +273,7 @@
 }
 
 .firewall-cell {
-  min-width: 190px;
+  min-width: 150px;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 10px;
