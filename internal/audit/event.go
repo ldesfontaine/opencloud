@@ -40,7 +40,6 @@ const (
 	ObjectHeartbeat       ObjectKind = "heartbeat"
 	ObjectStatusComponent ObjectKind = "status_component"
 	ObjectIncident        ObjectKind = "incident"
-	ObjectStatusPage      ObjectKind = "status_page"
 	ObjectChannel         ObjectKind = "channel"
 	ObjectMute            ObjectKind = "mute"
 	ObjectAlert           ObjectKind = "alert"
@@ -63,7 +62,7 @@ const (
 func ObjectKinds() []ObjectKind {
 	return []ObjectKind{
 		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
-		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident, ObjectStatusPage,
+		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident,
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectAPIToken, ObjectSecrets, ObjectAction,
 		ObjectBackupKeyring, ObjectBackupDestination, ObjectBackupPlan,
@@ -72,10 +71,11 @@ func ObjectKinds() []ObjectKind {
 }
 
 // LegacyObjectKinds sont les sortes d'objet que le MCP écrivait jusqu'au
-// 21 octobre 2026 : lues, plus jamais écrites. Le journal est en ajout seul,
+// 21 octobre 2026, et la page de statut, devenue la publication d'un projet :
+// lues, plus jamais écrites. Le journal est en ajout seul,
 // on ne réécrit pas l'histoire, on la lit.
 func LegacyObjectKinds() []ObjectKind {
-	return []ObjectKind{"mcp", "mcp_token", "mcp_session"}
+	return []ObjectKind{"mcp", "mcp_token", "mcp_session", "status_page"}
 }
 
 // Action est « sorte d'objet.verbe » : la sorte se lit dans l'action, le
@@ -142,10 +142,6 @@ const (
 	IncidentUpdate Action = "incident.update"
 	IncidentPost   Action = "incident.post"
 	IncidentDelete Action = "incident.delete"
-
-	StatusPageCreate Action = "status_page.create"
-	StatusPageUpdate Action = "status_page.update"
-	StatusPageDelete Action = "status_page.delete"
 
 	ChannelCreate Action = "channel.create"
 	ChannelUpdate Action = "channel.update"
@@ -223,7 +219,6 @@ func Actions() []Action {
 		HeartbeatCreate, HeartbeatUpdate, HeartbeatDelete, HeartbeatPause, HeartbeatResume, HeartbeatRegenerateToken,
 		StatusComponentCreate, StatusComponentUpdate, StatusComponentDelete,
 		IncidentOpen, IncidentUpdate, IncidentPost, IncidentDelete,
-		StatusPageCreate, StatusPageUpdate, StatusPageDelete,
 		ChannelCreate, ChannelUpdate, ChannelDelete,
 		MuteCreate, MuteDelete,
 		AlertAcknowledge,
@@ -240,12 +235,14 @@ func Actions() []Action {
 }
 
 // LegacyActions sont les actions que le MCP écrivait jusqu'au 21 octobre
-// 2026 : lues, plus jamais écrites (voir LegacyObjectKinds).
+// 2026, et celles des pages de statut avant qu'elles entrent dans le projet :
+// lues, plus jamais écrites (voir LegacyObjectKinds).
 func LegacyActions() []Action {
 	return []Action{
 		"mcp.enable", "mcp.disable", "mcp.regenerate_secret", "mcp.set_redirect_uris",
 		"mcp_token.create", "mcp_token.revoke",
 		"mcp_session.authorize", "mcp_session.deny", "mcp_session.revoke",
+		"status_page.create", "status_page.update", "status_page.delete",
 	}
 }
 

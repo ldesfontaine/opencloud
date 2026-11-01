@@ -1227,6 +1227,12 @@ ses écarts au diagramme :
 
 ## 15. Ce que les pages de statut multiples ont fixé
 
+> **Remplacé par la migration `027_project_publication.sql`** (refonte UX, C9) :
+> la page entre dans le projet (`projects.slug` non nul = publié), `status_pages`
+> disparaît et `status_components.project_id` remplace `page_id`. Le tableau
+> ci-dessous est l'état d'avant ; l'état actuel est dans
+> `22-fonctionnement.md`, « Comment une page de statut est publiée ».
+
 Migration `034_status_pages.sql` (`status_pages`, `status_components.page_id`,
 `settings` sans `status_*`). Le fonctionnement est dans
 `22-fonctionnement.md`, « Comment une page de statut est publiée ». Ce que le

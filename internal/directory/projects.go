@@ -18,7 +18,11 @@ func (d *Directory) CreateProject(ctx context.Context, definition ProjectDefinit
 		return Project{}, fmt.Errorf("generate project id: %w", err)
 	}
 	now := d.now()
-	created := Project{ID: id, Name: definition.Name, Title: definition.Title, CreatedAt: now, UpdatedAt: now}
+	created := Project{
+		ID: id, Name: definition.Name, Title: definition.Title,
+		Publication: publicationOf(definition.Publication, Publication{}, now),
+		CreatedAt:   now, UpdatedAt: now,
+	}
 	if err := d.store.InsertProject(ctx, created); err != nil {
 		return Project{}, err
 	}
@@ -37,9 +41,11 @@ func (d *Directory) UpdateProject(ctx context.Context, id string, definition Pro
 	if err := definition.Validate(); err != nil {
 		return Project{}, err
 	}
+	now := d.now()
 	before.Name = definition.Name
 	before.Title = definition.Title
-	before.UpdatedAt = d.now()
+	before.Publication = publicationOf(definition.Publication, before.Publication, now)
+	before.UpdatedAt = now
 	if err := d.store.UpdateProject(ctx, before); err != nil {
 		return Project{}, err
 	}
@@ -49,8 +55,8 @@ func (d *Directory) UpdateProject(ctx context.Context, id string, definition Pro
 	return d.store.GetProject(ctx, id)
 }
 
-// DeleteProjectPlan dit ce que DeleteProject ferait : sa page de statut le
-// retient ; seuls les liens vers ses services partent.
+// DeleteProjectPlan dit ce que DeleteProject ferait : sa page publique et ses
+// composants partent avec lui, comme les liens vers ses services.
 func (d *Directory) DeleteProjectPlan(ctx context.Context, id string) (deletion.Plan, error) {
 	if _, err := d.store.GetProject(ctx, id); err != nil {
 		return deletion.Plan{}, err
@@ -58,9 +64,8 @@ func (d *Directory) DeleteProjectPlan(ctx context.Context, id string) (deletion.
 	return d.store.ProjectDeletionPlan(ctx, id)
 }
 
-// DeleteProject défait le groupe et rien d'autre : les services qu'il
-// regroupait restent dans l'annuaire. Un projet qui a sa page de statut se
-// refuse (project.has_status_page) : la page d'abord.
+// DeleteProject défait le groupe et sa page publique : les services qu'il
+// regroupait restent dans l'annuaire.
 func (d *Directory) DeleteProject(ctx context.Context, id string) error {
 	found, err := d.store.GetProject(ctx, id)
 	if err != nil {

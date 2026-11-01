@@ -7,7 +7,7 @@ import { Pill } from "../../components/Pill";
 import { Subject, Table } from "../../components/Table";
 import { useNow } from "../../hooks/useNow";
 import { useT } from "../../i18n/context";
-import { impactTones, incidentTones, incidentsSubtitle, isOpen } from "../../lib/status";
+import { impactTones, incidentPath, incidentTones, incidentsSubtitle, isOpen } from "../../lib/status";
 import { ago } from "../../lib/time";
 
 export function IncidentsTab() {
@@ -24,7 +24,7 @@ function IncidentList({ incidents }: { incidents: Incident[] }) {
   }
   return (
     <Card className="scroll-x">
-      <CardHeader title={t("statuspage.tab_incidents")} aside={incidentsSubtitle(t, incidents.length, open)} />
+      <CardHeader title={t("availability.tab_incidents")} aside={incidentsSubtitle(t, incidents.length, open)} />
       <Table>
         <thead>
           <tr>
@@ -50,7 +50,7 @@ function IncidentRow({ incident, now }: { incident: Incident; now: number }) {
   return (
     <tr>
       <td>
-        <Link className="svc" to={`/page-statut/incidents/${incident.id}`}>
+        <Link className="svc" to={incidentPath(incident.id)}>
           <Subject icon={incident.impact === "maintenance" ? "clock" : "bell"}>{incident.title}</Subject>
         </Link>
       </td>

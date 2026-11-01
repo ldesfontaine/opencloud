@@ -26,7 +26,7 @@ func (f *fixture) announce(t *testing.T, mute alert.Mute) alert.Mute {
 
 func (f *fixture) snapshot(t *testing.T) status.Snapshot {
 	t.Helper()
-	snapshot, err := f.status.Snapshot(context.Background(), f.pageID)
+	snapshot, err := f.status.Snapshot(context.Background(), f.projectID)
 	if err != nil {
 		t.Fatal(err)
 	}

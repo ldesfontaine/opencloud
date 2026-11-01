@@ -7,6 +7,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
@@ -65,13 +66,26 @@ type linkedObjectJSON struct {
 	Name string `json:"name"`
 }
 
+// Un projet ; publication nul : il n'a pas de page publique. Le titre de la
+// page est le sien.
 type projectJSON struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Title      string    `json:"title"`
-	ServiceIDs []string  `json:"service_ids"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Title       string           `json:"title"`
+	ServiceIDs  []string         `json:"service_ids"`
+	Publication *publicationJSON `json:"publication"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+}
+
+// La page publique d'un projet, à /statut/<slug>. La langue est résolue :
+// vide en base, c'est celle de l'interface.
+type publicationJSON struct {
+	Slug         string    `json:"slug"`
+	Announcement string    `json:"announcement"`
+	Language     string    `json:"language"`
+	PublicURL    string    `json:"public_url"`
+	PublishedAt  time.Time `json:"published_at"`
 }
 
 type declaredServicesResponse struct {
@@ -117,9 +131,17 @@ type unitPolicyRequest struct {
 	Policy string `json:"policy"`
 }
 
+// publication nul : le projet n'est pas publié.
 type projectRequest struct {
-	Name  string `json:"name"`
-	Title string `json:"title"`
+	Name        string              `json:"name"`
+	Title       string              `json:"title"`
+	Publication *publicationRequest `json:"publication"`
+}
+
+type publicationRequest struct {
+	Slug         string `json:"slug"`
+	Announcement string `json:"announcement"`
+	Language     string `json:"language"`
 }
 
 func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
@@ -170,8 +192,8 @@ func linkedObjectsToJSON(objects []directory.LinkedObject) []linkedObjectJSON {
 	})
 }
 
-func projectToJSON(found directory.Project) projectJSON {
-	return projectJSON{
+func (s *Server) projectToJSON(r *http.Request, interfaceLanguage lang.Code, found directory.Project) projectJSON {
+	response := projectJSON{
 		ID:         found.ID,
 		Name:       found.Name,
 		Title:      found.Title,
@@ -179,6 +201,43 @@ func projectToJSON(found directory.Project) projectJSON {
 		CreatedAt:  found.CreatedAt.UTC(),
 		UpdatedAt:  found.UpdatedAt.UTC(),
 	}
+	publication := found.Publication
+	if !publication.IsPublished() {
+		return response
+	}
+	language := publication.Language
+	if language == "" {
+		language = interfaceLanguage
+	}
+	response.Publication = &publicationJSON{
+		Slug: publication.Slug, Announcement: publication.Announcement, Language: string(language),
+		PublicURL: s.statusPublicURL(r, publication.Slug), PublishedAt: publication.PublishedAt.UTC(),
+	}
+	return response
+}
+
+// projectsToJSON résout la langue de l'interface une fois pour la liste.
+func (s *Server) projectsToJSON(r *http.Request, found []directory.Project) ([]projectJSON, error) {
+	current, err := s.reader.LoadSettings(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	projects := make([]projectJSON, 0, len(found))
+	for _, project := range found {
+		projects = append(projects, s.projectToJSON(r, current.InterfaceLanguage(), project))
+	}
+	return projects, nil
+}
+
+func projectDefinitionOf(request projectRequest) directory.ProjectDefinition {
+	definition := directory.ProjectDefinition{Name: request.Name, Title: request.Title}
+	if request.Publication != nil {
+		definition.Publication = directory.PublicationDefinition{
+			Slug: request.Publication.Slug, Announcement: request.Publication.Announcement,
+			Language: lang.Code(request.Publication.Language),
+		}
+	}
+	return definition
 }
 
 func declaredServiceDefinition(request declaredServiceRequest) directory.ServiceDefinition {
@@ -298,8 +357,11 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := projectsResponse{Projects: httpx.ConvertAll(found, projectToJSON)}
-	s.writeAPI(w, http.StatusOK, response)
+	projects, err := s.projectsToJSON(r, found)
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, projectsResponse{Projects: projects})
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
@@ -307,7 +369,7 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, directory.ErrProjectNotFound) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, projectToJSON(found))
+	s.writeProject(w, r, http.StatusOK, found)
 }
 
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
@@ -315,23 +377,33 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	created, err := s.directory.CreateProject(r.Context(), directory.ProjectDefinition{Name: request.Name, Title: request.Title})
+	created, err := s.directory.CreateProject(r.Context(), projectDefinitionOf(request))
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusCreated, projectToJSON(created))
+	s.writeProject(w, r, http.StatusCreated, created)
 }
 
+// updateProject réécrit le projet et sa publication : c'est le seul chemin qui
+// publie, modifie la page ou la retire.
 func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	var request projectRequest
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	updated, err := s.directory.UpdateProject(r.Context(), r.PathValue("id"), directory.ProjectDefinition{Name: request.Name, Title: request.Title})
+	updated, err := s.directory.UpdateProject(r.Context(), r.PathValue("id"), projectDefinitionOf(request))
 	if s.failed(w, r, err, directory.ErrProjectNotFound) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, projectToJSON(updated))
+	s.writeProject(w, r, http.StatusOK, updated)
+}
+
+func (s *Server) writeProject(w http.ResponseWriter, r *http.Request, code int, found directory.Project) {
+	projects, err := s.projectsToJSON(r, []directory.Project{found})
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, code, projects[0])
 }
 
 // Supprimer un projet défait le groupe : ses services restent déclarés.

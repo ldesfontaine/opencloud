@@ -105,8 +105,39 @@ func TestInstallationModules_ConfiguredOnceAnObjectExists(t *testing.T) {
 	for _, state := range states {
 		configured[state.ID] = state.Configured
 	}
-	if !configured[module.Probes] || configured[module.Firewall] || configured[module.Jobs] || configured[module.Backups] || configured[module.Status] {
+	if !configured[module.Probes] || configured[module.Firewall] || configured[module.Jobs] || configured[module.Backups] {
 		t.Fatalf("états %v", configured)
+	}
+}
+
+// Un projet publié suffit à configurer la disponibilité : sans sonde, la page
+// publique a quand même sa place dans le menu.
+func TestInstallationModules_APublishedProjectConfiguresAvailability(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	probesConfigured := func() bool {
+		states, err := db.InstallationModules(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, state := range states {
+			if state.ID == module.Probes {
+				return state.Configured
+			}
+		}
+		t.Fatal("disponibilité absente des modules")
+		return false
+	}
+	if probesConfigured() {
+		t.Fatal("rien n'est configuré sur une base vide")
+	}
+	exec(t, db, `INSERT INTO projects (id, name, title, created_at, updated_at) VALUES ('prj_a', 'a', '', 1, 1)`)
+	if probesConfigured() {
+		t.Fatal("un projet non publié ne configure rien")
+	}
+	exec(t, db, `UPDATE projects SET slug = 'a' WHERE id = 'prj_a'`)
+	if !probesConfigured() {
+		t.Fatal("un projet publié configure la disponibilité")
 	}
 }
 

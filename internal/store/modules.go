@@ -28,8 +28,7 @@ var installationModuleRules = map[module.ID]string{
 	module.Firewall: `EXISTS (SELECT 1 FROM firewalls)`,
 	module.Backups:  `EXISTS (SELECT 1 FROM backup_keyring) OR EXISTS (SELECT 1 FROM backup_plans)`,
 	module.Jobs:     `EXISTS (SELECT 1 FROM heartbeats)`,
-	module.Probes:   `EXISTS (SELECT 1 FROM probes)`,
-	module.Status:   `EXISTS (SELECT 1 FROM status_pages)`,
+	module.Probes:   `EXISTS (SELECT 1 FROM probes) OR EXISTS (SELECT 1 FROM projects WHERE slug IS NOT NULL)`,
 }
 
 // MachineModules rend, par machine, les modules qu'elle porte, dans l'ordre

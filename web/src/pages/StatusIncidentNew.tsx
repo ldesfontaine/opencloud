@@ -10,7 +10,7 @@ import { EnumSelect } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { emptyIncidentForm, incidentImpacts, incidentKinds, incidentRequestOf, openingStatuses } from "../lib/status";
+import { emptyIncidentForm, incidentImpacts, incidentKinds, incidentPath, incidentRequestOf, incidentsPath, openingStatuses } from "../lib/status";
 
 // Ouvrir un incident ou planifier une maintenance : un titre, un impact,
 // un premier message, les objets touchés, et pour une maintenance sa
@@ -26,7 +26,7 @@ export function StatusIncidentNew() {
     const body = incidentRequestOf(values);
     action.run(() => createIncident(body), {
       topic: "status",
-      onDone: (created) => void navigate(`/page-statut/incidents/${created.id}`),
+      onDone: (created) => void navigate(incidentPath(created.id)),
     });
   };
 
@@ -43,7 +43,7 @@ export function StatusIncidentNew() {
             busy={action.busy}
             canSubmit={values.targets.length > 0}
             cancelLabel={t("incident.cancel")}
-            cancelTo="/page-statut/incidents"
+            cancelTo={incidentsPath}
           />
         }
       >

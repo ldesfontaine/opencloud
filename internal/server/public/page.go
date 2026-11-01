@@ -10,29 +10,29 @@ import (
 // pages multiples ; sinon 404. Jamais une liste : une page ne révèle pas
 // les autres.
 func (h *Handler) serveRoot(w http.ResponseWriter, r *http.Request) {
-	pages, err := h.status.ListPages(r.Context())
+	publications, err := h.status.Publications(r.Context())
 	if err != nil {
-		h.logger.Error("status pages", "error", err)
+		h.logger.Error("status publications", "error", err)
 		http.Error(w, "error", http.StatusInternalServerError)
 		return
 	}
-	if len(pages) != 1 {
+	if len(publications) != 1 {
 		http.NotFound(w, nil)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, pathOf(pages[0]), http.StatusFound)
+	http.Redirect(w, r, pathOf(publications[0]), http.StatusFound)
 }
 
-// pathOf est l'adresse publique d'une page, sous /statut.
-func pathOf(page status.Page) string {
-	return "/statut/" + page.Slug
+// pathOf est l'adresse publique d'un projet publié, sous /statut.
+func pathOf(publication status.Publication) string {
+	return "/statut/" + publication.Slug
 }
 
 // GET /statut/<slug> : la page, sans rien de l'administration. Le front lit
 // le slug dans l'adresse.
 func (h *Handler) servePage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.pageOf(w, r); !ok {
+	if _, ok := h.publicationOf(w, r); !ok {
 		return
 	}
 	page, err := h.page()

@@ -418,7 +418,7 @@ func TestPlan_PruneOfAComponentMemberIsBlocked(t *testing.T) {
 	b, data := seeded(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	statuses := status.New(b.db, b.db, b.machines, logger)
-	_, err := statuses.CreateComponent(context.Background(), status.ComponentDefinition{PageID: storetest.StatusPage(t, b.db, "statut"),
+	_, err := statuses.CreateComponent(context.Background(), status.ComponentDefinition{ProjectID: storetest.PublishedProject(t, b.db, "statut"),
 		Name: "Site", Members: []status.MemberRef{{Kind: status.KindService, ID: "svc_00000000000000b1"}},
 	})
 	if err != nil {
@@ -447,7 +447,7 @@ func TestPlan_PruneOfAProbeOrJobShownOnStatusIsBlockedLikeTheGesture(t *testing.
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	statuses := status.New(b.db, b.db, b.machines, logger)
-	_, err := statuses.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, b.db, "statut"),
+	_, err := statuses.CreateComponent(ctx, status.ComponentDefinition{ProjectID: storetest.PublishedProject(t, b.db, "statut"),
 		Name:    "Courrier",
 		Members: []status.MemberRef{{Kind: status.KindProbe, ID: "00000000000000c2"}, {Kind: status.KindHeartbeat, ID: "00000000000000d1"}},
 	})
@@ -475,30 +475,56 @@ func TestPlan_PruneOfAProbeOrJobShownOnStatusIsBlockedLikeTheGesture(t *testing.
 	}
 }
 
-// Un projet qui a sa page de statut ne se supprime pas par --prune : le
-// fichier ne porte pas les pages, il ne peut pas l'en détacher. Le plan le
-// refuse en nommant la page, comme le geste du domaine le refuserait.
-func TestPlan_PruneOfAProjectWithAStatusPageIsBlocked(t *testing.T) {
+// Un projet publié ne se supprime pas par --prune : le fichier ne porte pas
+// les pages, il ne peut pas l'en détacher, et la suppression emporterait la
+// page publique sans bruit. Le plan le refuse en nommant le projet et son
+// adresse ; le geste du domaine, lui, reste permis (il le dit avant).
+func TestPlan_PruneOfAPublishedProjectIsBlocked(t *testing.T) {
 	b, _ := seeded(t)
 	ctx := context.Background()
-	project, err := b.directory.CreateProject(ctx, directory.ProjectDefinition{Name: "vitrine"})
+	project, err := b.directory.CreateProject(ctx, directory.ProjectDefinition{
+		Name: "vitrine", Publication: directory.PublicationDefinition{Slug: "vitrine-publique"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if _, err := status.New(b.db, b.db, b.machines, logger).CreatePage(ctx, status.PageDefinition{Slug: "vitrine", Title: "Vitrine", ProjectID: project.ID}); err != nil {
+
+	plan := b.requireRefused(t, "version: 1\nmachines:\n  - name: opencloud\n", true, manifest.KeyPrunePublished)
+
+	for _, problem := range plan.Problems {
+		if problem.Key == manifest.KeyPrunePublished && (problem.Path != "vitrine" || problem.Value != "vitrine-publique") {
+			t.Errorf("the refusal must name the project and its address: %+v", problem)
+		}
+	}
+	if _, err := b.directory.DeleteProjectPlan(ctx, project.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Appliquer un fichier qui renomme un projet publié ne dépublie pas : le
+// fichier ne porte pas la publication, il la laisse telle quelle.
+func TestApply_UpdatingAPublishedProjectKeepsItsPublication(t *testing.T) {
+	b, _ := seeded(t)
+	ctx := context.Background()
+	project, err := b.directory.CreateProject(ctx, directory.ProjectDefinition{
+		Name: "vitrine", Title: "Vitrine", Publication: directory.PublicationDefinition{Slug: "vitrine", Announcement: "Bonjour."},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	plan := b.requireRefused(t, "version: 1\nmachines:\n  - name: opencloud\n", true, manifest.KeyPruneStatusPage)
-
-	for _, problem := range plan.Problems {
-		if problem.Key == manifest.KeyPruneStatusPage && (problem.Path != "vitrine" || problem.Value != "Vitrine") {
-			t.Errorf("the refusal must name the project and its page: %+v", problem)
-		}
+	data := "version: 1\nmachines:\n  - name: opencloud\nprojects:\n  - name: vitrine\n    title: Nouvelle vitrine\n"
+	applied, _ := b.apply(t, data, false)
+	if applied.State != manifest.ApplyApplied {
+		t.Fatalf("apply: %+v", applied)
 	}
-	if err := b.directory.DeleteProject(ctx, project.ID); !errors.Is(err, directory.ErrProjectHasStatusPage) {
-		t.Fatalf("le geste doit refuser de même: %v", err)
+
+	found, err := b.db.GetProject(ctx, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.Title != "Nouvelle vitrine" || found.Publication.Slug != "vitrine" || found.Publication.Announcement != "Bonjour." {
+		t.Fatalf("le titre change, la publication reste : %+v", found)
 	}
 }
 

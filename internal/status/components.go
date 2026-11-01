@@ -2,6 +2,8 @@ package status
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -16,10 +18,10 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 )
 
-// CreateComponent pose le composant sur sa page, qui doit exister.
+// CreateComponent pose le composant sur son projet, qui doit exister.
 func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefinition) (Component, error) {
-	if definition.PageID == "" {
-		return Component{}, ErrPageInvalid
+	if definition.ProjectID == "" {
+		return Component{}, ErrProjectInvalid
 	}
 	if err := definition.Validate(); err != nil {
 		return Component{}, err
@@ -29,7 +31,7 @@ func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefin
 		return Component{}, fmt.Errorf("generate id: %w", err)
 	}
 	component := Component{
-		ID: id, PageID: definition.PageID, Name: strings.TrimSpace(definition.Name), Position: definition.Position,
+		ID: id, ProjectID: definition.ProjectID, Name: strings.TrimSpace(definition.Name), Position: definition.Position,
 		Members: membersOf(definition.Members), CreatedAt: s.now(),
 	}
 	if err := s.insertComponentUnderCeiling(ctx, component); err != nil {
@@ -44,7 +46,7 @@ func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefin
 func (s *Service) insertComponentUnderCeiling(ctx context.Context, component Component) error {
 	s.creating.Lock()
 	defer s.creating.Unlock()
-	count, err := s.store.CountComponents(ctx, component.PageID)
+	count, err := s.store.CountComponents(ctx, component.ProjectID)
 	if err != nil {
 		return err
 	}
@@ -62,7 +64,7 @@ func (s *Service) UpdateComponent(ctx context.Context, id string, definition Com
 	if err != nil {
 		return Component{}, err
 	}
-	// La page ne change pas : un composant n'existe que sur la sienne.
+	// Le projet ne change pas : un composant n'existe que sur le sien.
 	current.Name = strings.TrimSpace(definition.Name)
 	current.Position = definition.Position
 	current.Members = membersOf(definition.Members)
@@ -106,19 +108,26 @@ func (s *Service) DeleteComponent(ctx context.Context, id string) error {
 	return nil
 }
 
-// Components rend les composants d'une page tels que l'opérateur les voit :
+// Components rend les composants d'un projet tels que l'opérateur les voit :
 // chaque objet nommé avec ce qu'il apporte, l'état dérivé et l'état
-// effectif. Une page vide les rend tous, toutes pages confondues.
-func (s *Service) Components(ctx context.Context, pageID string) ([]Component, error) {
-	components, err := s.store.ListComponents(ctx, pageID)
-	if err != nil {
-		return nil, err
-	}
+// effectif. Un projet publié sans composant saisi en montre un par service,
+// marqués implicites. Un projet vide les rend tous, tous projets confondus.
+func (s *Service) Components(ctx context.Context, projectID string) ([]Component, error) {
 	known, err := s.facts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	open, err := s.readIncidents(ctx, known, components, s.now())
+	all, err := s.componentsOf(ctx, known)
+	if err != nil {
+		return nil, err
+	}
+	components := []Component{}
+	for _, component := range all {
+		if projectID == "" || component.ProjectID == projectID {
+			components = append(components, component)
+		}
+	}
+	open, err := s.readIncidents(ctx, known, all, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -219,4 +228,63 @@ func (s *Service) facts(ctx context.Context) (facts, error) {
 		known.probes[found.ID] = found
 	}
 	return known, nil
+}
+
+// componentsOf rend les composants de tous les projets : ceux que l'opérateur
+// a saisis, et, pour un projet publié qui n'en a aucun, un composant par
+// service, nommé comme le service. Rien de cela n'est écrit : ajouter un
+// service au projet ajoute son composant, saisir un premier composant les
+// remplace tous.
+func (s *Service) componentsOf(ctx context.Context, known facts) ([]Component, error) {
+	components, err := s.store.ListComponents(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	projects, err := s.reader.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hasComponents := map[string]bool{}
+	for _, component := range components {
+		hasComponents[component.ProjectID] = true
+	}
+	for _, project := range projects {
+		if !project.Publication.IsPublished() || hasComponents[project.ID] {
+			continue
+		}
+		components = append(components, implicitComponents(project, known)...)
+	}
+	return components, nil
+}
+
+// implicitComponents : un composant par service du projet, dans l'ordre où
+// l'annuaire les range. Son identifiant se dérive du projet et du service sans
+// les nommer : il sort en public avec l'instantané.
+func implicitComponents(project directory.Project, known facts) []Component {
+	components := []Component{}
+	for position, serviceID := range project.ServiceIDs {
+		service, ok := known.declared[serviceID]
+		if !ok {
+			continue
+		}
+		name := service.Title
+		if name == "" {
+			name = service.Name
+		}
+		components = append(components, Component{
+			ID:        implicitID(project.ID, serviceID),
+			ProjectID: project.ID,
+			Name:      name,
+			Position:  position,
+			Members:   []Member{{Kind: KindService, ID: serviceID}},
+			CreatedAt: project.CreatedAt,
+			Implicit:  true,
+		})
+	}
+	return components
+}
+
+func implicitID(projectID, serviceID string) string {
+	sum := sha256.Sum256([]byte(projectID + "/" + serviceID))
+	return "auto_" + hex.EncodeToString(sum[:8])
 }

@@ -9,8 +9,6 @@ import type {
   PublicIncident,
   StatusComponent,
   StatusComponentRequest,
-  StatusPage,
-  StatusPageRequest,
   StatusState,
 } from "../api/status";
 import type { Tone } from "./tone";
@@ -25,6 +23,15 @@ export const statusStateTones: Record<StatusState, Tone> = {
   maintenance: "accent",
   "": "neutral",
 };
+
+// Le pire des états, comme le serveur le décide (status.Worst) : une panne
+// l'emporte sur une maintenance, qui l'emporte sur un dégradé. Vide quand
+// aucun état ne compte.
+const stateRanks: Record<StatusState, number> = { "": -1, operational: 0, degraded: 1, maintenance: 2, down: 3 };
+
+export function worstState(states: readonly StatusState[]): StatusState {
+  return states.reduce<StatusState>((worst, state) => (stateRanks[state] > stateRanks[worst] ? state : worst), "");
+}
 
 // Le statut d'un incident : ce qu'il dit du travail en cours.
 export const incidentTones: Record<IncidentStatus, Tone> = {
@@ -209,9 +216,9 @@ export interface MemberChoice {
   id: string;
 }
 
-// La page se choisit à la création : un composant ne change plus de page.
+// Le projet se choisit à la création : un composant ne change plus de projet.
 interface ComponentFormValues {
-  pageID: string;
+  projectID: string;
   name: string;
   position: string;
   members: MemberChoice[];
@@ -219,15 +226,15 @@ interface ComponentFormValues {
 
 // Une fonction, pas une constante : la liste ne se partage pas entre deux
 // formulaires.
-export function emptyComponentForm(pageID: string): ComponentFormValues {
-  return { pageID, name: "", position: "0", members: [] };
+export function emptyComponentForm(projectID: string): ComponentFormValues {
+  return { projectID, name: "", position: "0", members: [] };
 }
 
 // Le formulaire ne garde des objets que le genre et l'identifiant : leur
 // nom et leur état se relisent à chaque rendu.
 export function componentFormOf(component: StatusComponent): ComponentFormValues {
   return {
-    pageID: component.page_id,
+    projectID: component.project_id,
     name: component.name,
     position: String(component.position),
     members: component.members.map((member) => ({ kind: member.kind, id: member.id })),
@@ -235,39 +242,41 @@ export function componentFormOf(component: StatusComponent): ComponentFormValues
 }
 
 export function componentRequestOf(values: ComponentFormValues): StatusComponentRequest {
-  return { page_id: values.pageID, name: values.name, position: Number(values.position), members: values.members };
+  return { project_id: values.projectID, name: values.name, position: Number(values.position), members: values.members };
 }
 
-// Le formulaire d'une page est aussi le corps de son enregistrement :
-// l'adresse, le titre, l'annonce, la langue, le projet (vide : aucun).
-export const emptyStatusPageForm: StatusPageRequest = { slug: "", title: "", announcement: "", language: "", project_id: "" };
+// Les adresses de l'administration de la disponibilité : le module, ses
+// onglets, la page d'un projet publié, et les fiches qu'on y ouvre.
+export const availabilityPath = "/disponibilite";
+export const publicPagesPath = `${availabilityPath}/pages`;
+export const incidentsPath = `${availabilityPath}/incidents`;
 
-export function statusPageFormOf(page: StatusPage): StatusPageRequest {
-  return { slug: page.slug, title: page.title, announcement: page.announcement, language: page.language, project_id: page.project_id };
+export function publicPagePath(projectID: string): string {
+  return `${publicPagesPath}/${encodeURIComponent(projectID)}`;
 }
 
-// Le nom d'une page dans une liste : son titre, sinon son adresse.
-export function pageName(page: Pick<StatusPage, "title" | "slug">): string {
-  return page.title !== "" ? page.title : page.slug;
+export function newComponentPath(projectID: string): string {
+  return `${availabilityPath}/composants/nouveau?project=${encodeURIComponent(projectID)}`;
 }
 
-// Le nom d'un composant que touche un incident : avec sa page dès qu'il y
-// en a plusieurs, deux pages pouvant avoir chacune leur « Site web ».
-export function componentChoiceLabel(component: Pick<StatusComponent, "name" | "page_id">, pages: readonly StatusPage[]): string {
-  if (pages.length < 2) {
+export function componentPath(componentID: string): string {
+  return `${availabilityPath}/composants/${encodeURIComponent(componentID)}`;
+}
+
+export const newIncidentPath = `${incidentsPath}/nouveau`;
+
+export function incidentPath(incidentID: string): string {
+  return `${incidentsPath}/${encodeURIComponent(incidentID)}`;
+}
+
+// Le nom d'un composant que touche un incident : avec son projet dès qu'il y
+// en a plusieurs, deux projets pouvant avoir chacun leur « Site web ».
+export function componentChoiceLabel(component: Pick<StatusComponent, "name" | "project_id">, projects: readonly { id: string; name: string; title: string }[]): string {
+  if (projects.length < 2) {
     return component.name;
   }
-  const page = pages.find((candidate) => candidate.id === component.page_id);
-  return page === undefined ? component.name : `${pageName(page)} · ${component.name}`;
-}
-
-// La page dont l'écran des composants montre les composants : celle que
-// l'adresse demande si elle existe, sinon la première ; aucune sans page.
-export function chosenPageID(pages: readonly Pick<StatusPage, "id">[], requested: string | null): string | null {
-  if (requested !== null && pages.some((page) => page.id === requested)) {
-    return requested;
-  }
-  return pages[0]?.id ?? null;
+  const project = projects.find((candidate) => candidate.id === component.project_id);
+  return project === undefined ? component.name : `${project.title !== "" ? project.title : project.name} · ${component.name}`;
 }
 
 // Les chemins que lit une page publique, tirés de son adresse

@@ -13,7 +13,8 @@ const (
 	Guest ID = "guest"
 	// Les clés SSH que l'agent a relevées sur la machine.
 	SSHKeys ID = "ssh_keys"
-	// Les sondes de disponibilité.
+	// La disponibilité : les sondes, et les pages publiques des projets
+	// publiés. Sur une machine, ses sondes seules.
 	Probes ID = "probes"
 	// Les pare-feu déclarés.
 	Firewall ID = "firewall"
@@ -21,8 +22,6 @@ const (
 	Backups ID = "backups"
 	// Les tâches planifiées.
 	Jobs ID = "jobs"
-	// Les pages de statut publiques.
-	Status ID = "status"
 )
 
 // Scope dit ce que porte un module : une machine, ou l'installation entière.
@@ -50,7 +49,6 @@ var registry = []module{
 	{Firewall, []Scope{ScopeInstallation}},
 	{Backups, []Scope{ScopeInstallation}},
 	{Jobs, []Scope{ScopeInstallation}},
-	{Status, []Scope{ScopeInstallation}},
 }
 
 // In rend les modules d'une portée.

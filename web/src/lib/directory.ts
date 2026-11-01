@@ -171,19 +171,6 @@ export function formatUnitPorts(ports: readonly string[]): string {
   return ports.join(", ");
 }
 
-// Le formulaire d'un projet est aussi le corps de sa création comme de son
-// édition : un nom et un titre, rien de ce que le serveur tient seul.
-interface ProjectFormValues {
-  name: string;
-  title: string;
-}
-
-export const emptyProjectForm: ProjectFormValues = { name: "", title: "" };
-
-export function projectFormOf(project: Project): ProjectFormValues {
-  return { name: project.name, title: project.title };
-}
-
 // Un nom de projet par identifiant, pour dire à quels projets appartient
 // chaque service sans relire la liste ligne par ligne.
 export function projectNames(projects: Project[]): Map<string, string> {
@@ -260,13 +247,6 @@ export function directorySubtitle(t: Translate, count: number): string {
     return t("directory.subtitle_none");
   }
   return count === 1 ? t("directory.subtitle_one") : t("directory.subtitle", count);
-}
-
-export function projectsSubtitle(t: Translate, count: number): string {
-  if (count === 0) {
-    return t("project.subtitle_none");
-  }
-  return count === 1 ? t("project.subtitle_one") : t("project.subtitle", count);
 }
 
 export function hasLinks(links: ServiceLinks): boolean {

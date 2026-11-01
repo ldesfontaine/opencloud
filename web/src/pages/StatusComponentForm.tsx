@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { deleteStatusComponent, fetchComponentDeletePlan, saveStatusComponent, useStatusComponent, useStatusPages, type StatusComponent, type StatusMember, type StatusPage } from "../api/status";
+import { useProjects, type Project } from "../api/directory";
+import { deleteStatusComponent, fetchComponentDeletePlan, saveStatusComponent, useStatusComponent, type StatusComponent, type StatusMember } from "../api/status";
 import { Button } from "../components/Button";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
@@ -15,33 +16,42 @@ import { Select } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { chosenPageID, componentFormOf, componentRequestOf, emptyComponentForm, pageName } from "../lib/status";
-import { StatusPagePill } from "./status/StatusPagePill";
+import { chosenProjectID, projectLabel } from "../lib/projects";
+import { componentFormOf, componentRequestOf, emptyComponentForm, publicPagePath } from "../lib/status";
+import { StatusStatePill } from "./availability/StatusStatePill";
 
-// Créer ou modifier un composant : sa page (à la création), un nom public,
+// Créer ou modifier un composant : son projet (à la création), un nom public,
 // un ordre, et les objets rattachés, choisis parmi ce qu'openCloud surveille
-// déjà. Une création part de la page de ?page=.
+// déjà. Une création part du projet de ?project=, qui doit être publié : un
+// composant n'a de sens que sur une page.
 //
-// Les pages lues ici passent au formulaire : une seconde lecture, dans le
-// formulaire, partait vide et le menu Page montrait une autre page que
-// celle du formulaire.
+// Les projets lus ici passent au formulaire : une seconde lecture, dans le
+// formulaire, partait vide et le menu Projet montrait un autre projet que
+// celui du formulaire.
 export function StatusComponentForm() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const component = useStatusComponent(id ?? null);
-  const pages = useStatusPages();
+  const projects = useProjects();
   if (id === undefined) {
-    return <Loaded resource={pages}>{(data) => <ComponentForm existing={null} pageID={chosenPageID(data.pages, params.get("page")) ?? ""} pages={data.pages} />}</Loaded>;
+    return (
+      <Loaded resource={projects}>
+        {(data) => {
+          const published = data.projects.filter((project) => project.publication !== null);
+          return <ComponentForm existing={null} projectID={chosenProjectID(published, params.get("project")) ?? ""} projects={published} />;
+        }}
+      </Loaded>
+    );
   }
-  return <Loaded resource={component}>{(data) => <ComponentForm existing={data} pageID={data.page_id} pages={pages.data?.pages ?? []} />}</Loaded>;
+  return <Loaded resource={component}>{(data) => <ComponentForm existing={data} projectID={data.project_id} projects={projects.data?.projects ?? []} />}</Loaded>;
 }
 
-export function ComponentForm({ existing, pageID, pages }: { existing: StatusComponent | null; pageID: string; pages: readonly StatusPage[] }) {
+export function ComponentForm({ existing, projectID, projects }: { existing: StatusComponent | null; projectID: string; projects: readonly Project[] }) {
   const t = useT();
   const navigate = useNavigate();
-  const form = useForm(existing === null ? emptyComponentForm(pageID) : componentFormOf(existing));
-  // Le retour mène aux composants de la page du formulaire.
-  const back = `/page-statut/composants?page=${encodeURIComponent(form.values.pageID)}`;
+  const form = useForm(existing === null ? emptyComponentForm(projectID) : componentFormOf(existing));
+  // Le retour mène à la page du projet du formulaire.
+  const back = publicPagePath(form.values.projectID);
   const { values, change } = form;
   const action = useAction();
   const [removing, setRemoving] = useState(false);
@@ -93,12 +103,12 @@ export function ComponentForm({ existing, pageID, pages }: { existing: StatusCom
           />
         }
       >
-        <Field label={t("component.page_label")} htmlFor="component-page" help={t("component.page_help")}>
+        <Field label={t("component.project_label")} htmlFor="component-project" help={t("component.project_help")}>
           <Select
-            id="component-page"
-            value={values.pageID}
-            options={pages.map((page) => ({ value: page.id, label: pageName(page) }))}
-            onChange={(chosen) => change("pageID", chosen)}
+            id="component-project"
+            value={values.projectID}
+            options={projects.map((project) => ({ value: project.id, label: projectLabel(project) }))}
+            onChange={(chosen) => change("projectID", chosen)}
             disabled={existing !== null}
           />
         </Field>
@@ -147,5 +157,5 @@ function MemberPill({ member }: { member: StatusMember }) {
   if (!member.counts) {
     return <Pill tone="neutral">{t("component.counts_no")}</Pill>;
   }
-  return <StatusPagePill state={member.state} />;
+  return <StatusStatePill state={member.state} />;
 }

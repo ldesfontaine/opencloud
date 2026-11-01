@@ -68,11 +68,24 @@ export interface DeclaredService {
   updated_at: string;
 }
 
+// La page publique d'un projet, à /statut/<slug>. La langue est résolue par
+// le serveur : vide en base, c'est celle de l'interface.
+interface ProjectPublication {
+  slug: string;
+  announcement: string;
+  language: string;
+  public_url: string;
+  published_at: string;
+}
+
+// Un projet regroupe des services ; publication nul : il n'a pas de page
+// publique. Le titre de la page est le sien.
 export interface Project {
   id: string;
   name: string;
   title: string;
   service_ids: string[];
+  publication: ProjectPublication | null;
   created_at: string;
   updated_at: string;
 }
@@ -210,9 +223,11 @@ export interface ProposalResponse {
   definition: Omit<ServiceRequest, "units"> & { units: ProposedUnit[] };
 }
 
-interface ProjectRequest {
+// publication nul : le projet n'est pas publié.
+export interface ProjectRequest {
   name: string;
   title: string;
+  publication: { slug: string; announcement: string; language: string } | null;
 }
 
 // Ce que l'opérateur dit voulu : une clé d'observation, pas un id Docker.

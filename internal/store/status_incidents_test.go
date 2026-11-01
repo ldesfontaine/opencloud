@@ -18,7 +18,7 @@ func seedIncident(t *testing.T, db *DB) status.Incident {
 	ctx := context.Background()
 	exec(t, db, `INSERT INTO machines (id, name, created_at) VALUES ('m1', 'vps-1', 1), ('m2', 'vps-2', 1)`)
 	for _, id := range []string{"c1", "c2"} {
-		if err := db.InsertComponent(ctx, status.Component{ID: id, PageID: insertTestPage(t, db, "statut"), Name: id, CreatedAt: incidentNow}); err != nil {
+		if err := db.InsertComponent(ctx, status.Component{ID: id, ProjectID: insertTestPage(t, db, "statut"), Name: id, CreatedAt: incidentNow}); err != nil {
 			t.Fatal(err)
 		}
 	}
