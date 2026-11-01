@@ -1,0 +1,19 @@
+# C12 : code mort avant / après (#417)
+
+Avant = 9f0122e (dev après C11), après = fin de la branche orca/ux-c12.
+
+deadcode ./... (Go ; ce que seuls les tests appellent) avant : 79 ; après : 79, rapport identique. Aucun fichier Go ne change dans ce chantier (catalogues `internal/lang/*.toml` mis à part).
+knip, `npx knip --reporter compact` dans web/ (après `npm ci`) avant : 8 types exportés non utilisés ; après : les mêmes 8 (AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind, DeployRight, ProxmoxKind, ChartPoint, SummaryLine, CertificateState, PlacedGroup selon la version : exports d'autres domaines, antérieurs à C12, aucun ajouté ici), rapport identique.
+
+Supprimé dans ce chantier
+- Pages : `pages/SSHKeyMatrix.tsx` et `SSHKeyMatrix.scss` (la matrice une ligne par empreinte × une colonne par machine, jugée inutile, Q4), remplacée par l'onglet `pages/machines/SSHAccess.tsx`.
+- Front, logique : `buildMatrix`, `Cell`, `MatrixRow` et `cellOf` de `lib/sshkeys.ts` (la cellule « ? » devient `isComplete` de `lib/sshAccess.ts`), leurs trois tests dans `lib/sshkeys.test.ts` (devenus `lib/sshAccess.test.ts`).
+- Menu : l'entrée fixe `ssh_keys` de `lib/modules.ts` (`/cles-ssh`) ; la route `cles-ssh` n'est plus qu'une redirection vers `/machines/acces-ssh`.
+- Catalogues fr et en : `nav.ssh_keys`, `ssh.col_key`, `ssh.matrix_title`, `ssh.matrix_subtitle`, `ssh.matrix_empty_text`, `ssh.cell_none`, `ssh.cell_unknown`, `ssh.cell_unknown_hint`. Clés ajoutées : `machines.tab_list`, `machines.tab_ssh`, et `ssh.access_*`, `view_*`, `filter_*`, `col_grants`, `col_account`, `col_keys`, `col_read`, `no_comment`, `root_hint`, `partial`.
+- Aucune route d'API, aucun verbe, aucune table, aucune migration touchés.
+
+Gardé, avec sa raison
+- `GET /api/ssh-keys` et `GET /api/machines/{id}/ssh-keys` : lues par le nouvel onglet et par l'onglet de la fiche. Lecture seule, hors de la liste des jetons.
+- `isWeak`, `shortFingerprint`, `hasDenied` (`lib/sshkeys.ts`) : l'onglet SSH de la fiche (`MachineSSHKeys`) et le nouvel onglet les lisent.
+- Route `cles-ssh` (redirection) : les liens enregistrés suivent, comme `domaines/*` et `page-statut/*` avant elle. Ce n'est pas un second chemin : elle ne rend rien.
+- Les 8 types knip ci-dessus : autres domaines.
