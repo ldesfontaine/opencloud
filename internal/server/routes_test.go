@@ -28,6 +28,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -143,6 +144,11 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	declared.SetObserved(containers, updates)
 	declared.SetRematcher(containers)
 	containers.SetUnits(declared)
+	links := link.New(db, logger)
+	links.SetClock(func() time.Time { return testNow })
+	links.SetWatcher(bus)
+	declared.SetLinker(links)
+	containers.SetLinks(links)
 	// Les réponses figées datent d'avant la fin de support : le serveur de
 	// test démarre avec le réglage coupé, et les tests qui le regardent
 	// l'activent. Qu'il soit activé sur une installation neuve se vérifie
@@ -193,6 +199,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	heartbeats.SetAuditor(journal)
 	probes.SetAuditor(journal)
 	declared.SetAuditor(journal)
+	links.SetAuditor(journal)
 	statusPage.SetAuditor(journal)
 	alerts.SetAuditor(journal)
 	apiTokens.SetAuditor(journal)
@@ -275,6 +282,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		Actions:      actions,
 		SSHKeys:      sshKeys,
 		Systemd:      systemd,
+		Links:        links,
 		Roles:        roles,
 		Host:         machines,
 		Proxmox:      hypervisors,

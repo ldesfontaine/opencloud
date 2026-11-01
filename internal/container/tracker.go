@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/link"
 )
 
 // Ce que le conteneur attend de la base ; le package store le fournit.
@@ -107,6 +109,7 @@ type Tracker struct {
 	relay   *Relay
 	now     func() time.Time
 	units   UnitsOnMachine
+	links   Links
 	// Un verrou par machine (*sync.Mutex) : lire les fiches, rapprocher et
 	// écrire d'un seul tenant, pour qu'un rapport et un nouveau
 	// rapprochement de l'annuaire ne s'écrasent pas.
@@ -132,6 +135,11 @@ func (t *Tracker) SetAlerter(alerter Alerter) {
 // SetUnits branche l'annuaire : sans lui, aucun conteneur n'est rattaché.
 func (t *Tracker) SetUnits(units UnitsOnMachine) {
 	t.units = units
+}
+
+// SetLinks branche les liens : sans eux, le réseau n'a pas d'arête de dépendance.
+func (t *Tracker) SetLinks(links Links) {
+	t.links = links
 }
 
 func (t *Tracker) machineLock(machineID string) *sync.Mutex {
@@ -192,7 +200,13 @@ func (t *Tracker) Topology(ctx context.Context, machineID string) (Topology, err
 	if err != nil {
 		return Topology{}, err
 	}
-	return BuildTopology(containers, networks), nil
+	var stored []link.Link
+	if t.links != nil {
+		if stored, err = t.links.List(ctx, machineID); err != nil {
+			return Topology{}, err
+		}
+	}
+	return BuildTopology(machineID, containers, networks, stored, t.now()), nil
 }
 
 // CurrentAll rend la mesure courante de chaque conteneur qui en a une.

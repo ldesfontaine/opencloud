@@ -115,6 +115,7 @@ func runServe(args []string) error {
 	parts.containers.SetWatcher(bus)
 	parts.probes.SetWatcher(bus)
 	parts.declared.SetWatcher(bus)
+	parts.links.SetWatcher(bus)
 	parts.updates.SetWatcher(bus)
 	parts.statusPage.AddWatcher(bus)
 	parts.statusPage.AddWatcher(publicBus)
@@ -191,6 +192,8 @@ func runServe(args []string) error {
 	// suivant de chaque agent. Les exclusions se disent après : c'est
 	// l'unité rattachée qui porte la politique.
 	parts.containers.RematchAll(ctx)
+	// Les liens d'ordre des conteneurs déjà connus, de même.
+	parts.containers.RecordLinksAll(ctx)
 
 	// L'arrêt d'un apply suit celui du serveur : un apply en cours finit son
 	// changement puis se journalise « interrompu ».
