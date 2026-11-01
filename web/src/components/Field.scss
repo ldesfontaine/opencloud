@@ -210,13 +210,11 @@
   }
 
   // Plusieurs lignes : chacune garde la sienne et passe à la ligne si elle est
-  // longue, rien ne se coupe ; un bloc très long défile dans sa hauteur.
+  // longue ; rien ne se coupe ni ne défile dans le bloc.
   pre {
     flex: 1;
     min-width: 0;
-    max-height: 18rem;
     margin: 0;
-    overflow-y: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     color: var(--ink);

@@ -119,9 +119,11 @@ function PinnedKey({ machineID, agent }: { machineID: string; agent: Agent }) {
 function ReenrollButton({ machineID }: { machineID: string }) {
   const t = useT();
   return (
-    <Button small icon="refresh" to={reenrollPath(machineID)}>
-      {t("machine.reenroll")}
-    </Button>
+    <div>
+      <Button small icon="refresh" to={reenrollPath(machineID)}>
+        {t("machine.reenroll")}
+      </Button>
+    </div>
   );
 }
 

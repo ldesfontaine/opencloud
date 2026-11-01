@@ -1,4 +1,5 @@
 import { label } from "./support/catalog";
+import { createFirstAccount, mockFirstSetup } from "./support/firstSetup";
 import { expect, test } from "./support/findings";
 
 // Le chantier U1 (#447) : l'installation d'une machine en étapes copiables, un
@@ -104,5 +105,24 @@ test("Sonde : une machine sans agent est grisée dans le sélecteur", async ({ p
     await expect(list.locator(".select-option-group .select-option-reason a").nth(index)).toBeVisible();
   }
   await page.keyboard.press("Escape");
+  expect(findings.unknown()).toEqual([]);
+});
+
+test("Première configuration : le compte créé, les étapes de l'agent se collent, rien ne renvoie à la documentation", async ({ page, findings }) => {
+  findings.where = "/ (première configuration)";
+  await mockFirstSetup(page);
+  await page.goto("/");
+  await createFirstAccount(page);
+  const items = page.locator(".checklist-item");
+  await expect(items).toHaveCount(3);
+  for (const id of ["prepare", "enroll", "unit"]) {
+    await expect(page.locator(".checklist")).toContainText(label(`machine.install_${id}_title`));
+  }
+  await expect(page.locator("main")).not.toContainText(/documentation d'installation|voir la documentation/i);
+  // Chaque bloc a son bouton « Copier » ; le jeton n'est que dans l'enrôlement.
+  await expect(page.getByRole("button", { name: label("machine.copy") })).toHaveCount(3);
+  expect(((await page.locator("main").innerText()).match(/oc_exemple_de_jeton/g) ?? []).length).toBe(1);
+  await items.first().getByRole("checkbox").check();
+  await page.getByRole("button", { name: label("auth.setup_continue") }).click();
   expect(findings.unknown()).toEqual([]);
 });
