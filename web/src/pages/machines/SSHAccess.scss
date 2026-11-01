@@ -1,0 +1,61 @@
+// L'accès SSH : la colonne des clés reste lisible, les machines et leurs
+// comptes passent à la ligne.
+
+.ssh-access {
+  .table td {
+    vertical-align: top;
+  }
+
+  .table th:first-child,
+  .table td:first-child {
+    min-width: 220px;
+  }
+}
+
+.ssh-access-key {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ssh-access-grants {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ssh-access-grant {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ssh-access-machine td {
+  background: var(--surface-2);
+  font-weight: 500;
+}
+
+.ssh-account {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font: 12px var(--mono);
+}
+
+.ssh-account-root {
+  border-color: var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+}
+
+.ssh-access-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}

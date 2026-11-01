@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { Counts } from "../api/counts";
 import type { Machine } from "../api/machines";
-import { knownMachineTabs, machineTabsOf, menuEntries, moduleHref, modulesToConfigure, moduleSetupHref, type ModuleID } from "./modules";
+import { knownMachineTabs, machineTabsOf, machinesListTabs, menuEntries, moduleHref, modulesToConfigure, moduleSetupHref, type ModuleID } from "./modules";
 
 function countsWith(configured: ModuleID[]): Counts {
   const all: ModuleID[] = ["probes", "firewall", "backups", "jobs"];
@@ -26,16 +26,15 @@ const labels = (entries: ReturnType<typeof menuEntries>) => entries.map((entry) 
 
 test("sans compteurs lus, le menu ne montre que les entrées fixes, sans chiffre inventé", () => {
   const entries = menuEntries(null);
-  expect(labels(entries)).toEqual(["overview", "machines", "ssh_keys", "services", "alerts", "audit"]);
+  expect(labels(entries)).toEqual(["overview", "machines", "services", "alerts", "audit"]);
   expect(entries.every((entry) => entry.counter === null)).toBe(true);
 });
 
 test("un module n'entre au menu que configuré, à son rang", () => {
-  expect(labels(menuEntries(countsWith([])))).toEqual(["overview", "machines", "ssh_keys", "services", "alerts", "audit"]);
+  expect(labels(menuEntries(countsWith([])))).toEqual(["overview", "machines", "services", "alerts", "audit"]);
   expect(labels(menuEntries(countsWith(["jobs", "firewall", "probes"])))).toEqual([
     "overview",
     "machines",
-    "ssh_keys",
     "firewall",
     "services",
     "probes",
@@ -105,4 +104,12 @@ test("Paramètres › Modules sait où ouvrir et où configurer un module de l'i
   expect(moduleSetupHref("jobs")).toBe("/taches/nouvelle");
   expect(moduleHref("containers")).toBeNull();
   expect(moduleSetupHref("hypervisor")).toBeNull();
+});
+
+test("Machines n'a d'onglet que pour les modules que l'une des machines porte", () => {
+  expect(machinesListTabs([machineWith("a", ["containers"])])).toEqual([{ to: "/machines", key: "machines.tab_list" }]);
+  expect(machinesListTabs([machineWith("a", ["containers"]), machineWith("b", ["ssh_keys"])])).toEqual([
+    { to: "/machines", key: "machines.tab_list" },
+    { to: "/machines/acces-ssh", key: "machines.tab_ssh" },
+  ]);
 });
