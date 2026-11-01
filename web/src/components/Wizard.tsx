@@ -16,7 +16,7 @@ import {
 } from "../lib/wizard";
 import { Button } from "./Button";
 import { KeyValue } from "./Card";
-import { Failure } from "./Failure";
+import { Failure, type RightGesture } from "./Failure";
 import { Icon, type IconName } from "./Icon";
 import { ModalCancel } from "./Modal";
 import "./Wizard.scss";
@@ -54,6 +54,7 @@ export function Wizard({
   submitIcon,
   busy,
   error,
+  errorGesture,
 }: {
   steps: WizardStep[];
   mode: WizardMode;
@@ -62,6 +63,8 @@ export function Wizard({
   submitIcon: IconName;
   busy: boolean;
   error: ApiError | string | null;
+  // Où mène un refus de droit de l'écriture finale : voir Failure.
+  errorGesture?: RightGesture | undefined;
 }) {
   const t = useT();
   const stepCount = steps.length;
@@ -123,7 +126,7 @@ export function Wizard({
         {/* Annoncée dès qu'elle paraît : le focus reste sur le champ ou le bouton. */}
         {shownError !== null && (
           <div role="alert">
-            <Failure error={shownError} />
+            <Failure error={shownError} gesture={onSummary ? errorGesture : undefined} />
           </div>
         )}
         <div className="cluster">

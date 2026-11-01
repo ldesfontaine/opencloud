@@ -14,10 +14,11 @@ import { ago } from "../lib/time";
 import { checkText, imageLineChange, shortDigest, updateAvailable, upgradeOffer, upgradeServiceID } from "../lib/updates";
 import { AgentGate } from "./AgentGate";
 import { Button } from "./Button";
-import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
+import { Card, CardBody, CardHeader, KeyValue } from "./Card";
 import { CopyButton, TokenBox } from "./Copy";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
+import { MissingRight } from "./MissingRight";
 import { Pill } from "./Pill";
 import { EnumSelect } from "./Select";
 import { SupportBlock } from "./SupportBlock";
@@ -104,10 +105,14 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
             {t("update.upgrade_sent")} <Link to={`/services/annuaire/${directory.service_id}`}>{directory.service_name}</Link>
           </span>
         )}
-        {upgrade !== null && upgrade.right === "missing" && <Note tone="warn">{t("deploy.right_missing")}</Note>}
+        {upgrade !== null && upgrade.right === "missing" && (
+          <MissingRight machineID={container.machine_id} right="docker.update">
+            {t("deploy.right_missing")}
+          </MissingRight>
+        )}
         {upgrade !== null && confirming && (
           <div className="update-confirm" role="group" aria-label={t("update.upgrade_to", upgrade.version)}>
-            <Failure error={upgrading.error} />
+            <Failure error={upgrading.error} gesture={{ machineID: container.machine_id, right: "docker.update" }} />
             <p>{t("update.upgrade_confirm", upgrade.unitName, upgrade.version, upgrade.serviceName, upgrade.machineName)}</p>
             <div className="update-confirm-actions">
               <AgentGate machineIDs={[container.machine_id]}>

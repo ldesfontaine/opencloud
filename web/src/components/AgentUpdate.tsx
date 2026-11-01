@@ -9,6 +9,7 @@ import { KeyValue, Note } from "./Card";
 import { ConfirmInline } from "./ConfirmInline";
 import { ConfirmModal } from "./ConfirmModal";
 import { Failure } from "./Failure";
+import { MissingRight } from "./MissingRight";
 
 // La mise à jour de l'agent : où en est la dernière (en attente de
 // confirmation, confirmée, revenue en arrière toute seule), le bouton quand la
@@ -36,7 +37,7 @@ export function AgentUpdate({ machineID, agent, updateLast }: { machineID: strin
   };
   return (
     <>
-      <Failure error={action.error} />
+      <Failure error={action.error} gesture={{ machineID, right: "agent.update" }} />
       <AgentUpdateState state={state} />
       <KeyValue
         label={t("machine.agent_rollback_capable")}
@@ -65,7 +66,12 @@ export function AgentUpdate({ machineID, agent, updateLast }: { machineID: strin
         </>
       )}
       {!current.available && current.reason === "rollback_unavailable" && <AgentMigration />}
-      {!current.available && current.reason !== "" && current.reason !== "same_version" && current.reason !== "rollback_unavailable" && (
+      {!current.available && current.reason === "right_missing" && (
+        <MissingRight machineID={machineID} right="agent.update">
+          {t("machine.agent_update_reason_right_missing")}
+        </MissingRight>
+      )}
+      {!current.available && current.reason !== "" && current.reason !== "same_version" && current.reason !== "rollback_unavailable" && current.reason !== "right_missing" && (
         <p className="secondary">{t(`machine.agent_update_reason_${current.reason}`, current.target, current.arch)}</p>
       )}
       {agent.rollback_capable && (

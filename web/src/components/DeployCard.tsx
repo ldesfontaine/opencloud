@@ -12,6 +12,7 @@ import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
+import { MissingRight } from "./MissingRight";
 import { Textarea, Field } from "./Field";
 import { Modal, ModalCancel } from "./Modal";
 import { Pill } from "./Pill";
@@ -60,7 +61,11 @@ function PlanBody({ plan }: { plan: DeployPlan }) {
   const run = plan.last_run;
   return (
     <>
-      {plan.right === "missing" && <Note tone="warn">{t("deploy.right_missing")}</Note>}
+      {plan.right === "missing" && (
+        <MissingRight machineID={plan.machine_id} right="docker.deploy">
+          {t("deploy.right_missing")}
+        </MissingRight>
+      )}
       {plan.right === "unavailable" && <Note tone="warn">{t("deploy.right_unavailable", reasonText(t, plan.right_reason ?? ""))}</Note>}
       <KeyValue label={t("deploy.plan_path")} value={plan.path} mono />
       <KeyValue

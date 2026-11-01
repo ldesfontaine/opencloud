@@ -72,6 +72,7 @@ function PlanDialog({ overview, editing }: { overview: Backups; editing: BackupP
         submitIcon={isEditing ? "check" : "plus"}
         busy={action.busy}
         error={action.error}
+        errorGesture={values.kind === "agent" && values.machine !== "" ? { machineID: values.machine } : undefined}
       />
     </Modal>
   );

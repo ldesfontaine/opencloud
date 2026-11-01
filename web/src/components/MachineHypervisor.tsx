@@ -24,6 +24,8 @@ import {
   storagePercent,
   type GuestGesture,
 } from "../lib/proxmox";
+import { capabilityLabelKey } from "../lib/machines";
+import { reenrollPath } from "../lib/rights";
 import { formatWhen } from "../lib/time";
 import { formatBytes, formatDecimal, meterTone } from "../lib/units";
 import { reasonText } from "./ActionsCard";
@@ -195,8 +197,9 @@ function GuestRow({ machine, guest, runs }: { machine: Machine; guest: ProxmoxGu
     onSelect: () => choose(gesture),
   }));
   // Un droit qui manque se donne d'ici : ré-enrôler l'agent, droits pré-cochés.
-  if (gestures.some((gesture) => gesture.blocked?.kind === "right_missing")) {
-    actions.push({ label: t("machine.reenroll"), to: `/machines/${machine.id}/reenroller` });
+  const missing = gestures.find((gesture) => gesture.blocked?.kind === "right_missing")?.blocked;
+  if (missing?.kind === "right_missing") {
+    actions.push({ label: t("machine.reenroll_with", t(capabilityLabelKey(missing.right))), to: reenrollPath(machine.id, { name: missing.right }) });
   }
   const panelOpen = chosen !== null || sent !== null || sending.error !== null;
 

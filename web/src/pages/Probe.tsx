@@ -7,6 +7,7 @@ import { Card, CardBody, CardHeader, Empty, KeyValue, Note, Stat } from "../comp
 import { CertificatePill, Remaining, TrustPill } from "../components/Certificate";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
+import { MissingRight } from "../components/MissingRight";
 import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
 import { Dot, ProbePill } from "../components/Pill";
@@ -83,6 +84,11 @@ function ProbeView({ response, reload }: { response: ProbeResponse; reload: () =
           {probe.status === "paused" && <Note tone="warn">{t("probe.paused_text")}</Note>}
           {probe.status !== "paused" && !probe.machine_online && <Note tone="warn">{t("probe.machine_offline")}</Note>}
           {probe.status === "degraded" && <Note tone="warn">{t("probe.degraded_text")}</Note>}
+          {probe.last_reason === "lan" && (
+            <MissingRight machineID={probe.machine_id} right="probe.lan">
+              {t("probe.reason_lan")}
+            </MissingRight>
+          )}
         </CardBody>
       </Card>
       <div className="grid-4">

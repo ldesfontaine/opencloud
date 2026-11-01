@@ -37,6 +37,7 @@ export function DestinationModal() {
       busy={action.busy}
       canSubmit={values.machine !== ""}
       error={action.error}
+      errorGesture={values.machine === "" ? undefined : { machineID: values.machine, path: values.path }}
     >
       <Field label={t("backup.destination_name")} htmlFor="backup-destination-name">
         <Input id="backup-destination-name" type="text" autoComplete="off" maxLength={63} value={values.name} onChange={(event) => change("name", event.target.value)} autoFocus required />
