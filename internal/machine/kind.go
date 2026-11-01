@@ -1,8 +1,10 @@
 package machine
 
 import (
+	"net"
 	"slices"
 
+	"github.com/ldesfontaine/opencloud/internal/egress"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -15,8 +17,9 @@ const (
 	KindPhysical Kind = "physical"
 	KindVM       Kind = "vm"
 	KindLXC      Kind = "lxc"
-	// KindVPS : virtualisée sans hôte que nous connaissons. On ne peut pas
-	// savoir mieux, et c'est le type que l'opérateur corrige le plus souvent.
+	// KindVPS : virtualisée, sans hôte connu, et joignable par une adresse
+	// publique ; ou dite VPS par l'opérateur. Une VM sur un réseau privé est
+	// une VM : l'opérateur la loge chez lui.
 	KindVPS     Kind = "vps"
 	KindUnknown Kind = "unknown"
 )
@@ -84,18 +87,39 @@ type Placement struct {
 	GuestKind Kind
 	// HasHost : un hôte est connu, corrigé à la main ou rapproché.
 	HasHost bool
+	// Address : l'adresse par laquelle la machine se présente, avec son port
+	// ou sans. Elle seule distingue un VPS (adresse publique) d'une VM chez soi.
+	Address string
+}
+
+// IsPublicAddress dit si l'adresse est routable sur Internet : ni privée
+// (RFC 1918), ni partagée (RFC 6598), ni ULA, ni boucle, ni lien-local. Un nom
+// ou un texte illisible n'est pas public : on ne devine pas un VPS.
+func IsPublicAddress(address string) bool {
+	host := address
+	if withoutPort, _, err := net.SplitHostPort(address); err == nil {
+		host = withoutPort
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if egress.Private(ip) || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	return true
 }
 
 // EffectiveKind choisit : la correction de l'opérateur, puis ce que l'hôte dit
 // de son invité, puis ce que l'agent a rapporté. Une machine virtualisée sans
-// hôte connu est un VPS.
+// hôte connu est un VPS si son adresse est publique, sinon une VM.
 func EffectiveKind(placement Placement) Kind {
 	switch {
 	case placement.Override != "":
 		return placement.Override
 	case placement.GuestKind != "" && placement.GuestKind != KindUnknown:
 		return placement.GuestKind
-	case placement.Reported == KindVM && !placement.HasHost:
+	case placement.Reported == KindVM && !placement.HasHost && IsPublicAddress(placement.Address):
 		return KindVPS
 	}
 	if placement.Reported == "" {

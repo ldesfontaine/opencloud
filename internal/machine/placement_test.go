@@ -26,14 +26,20 @@ func TestEffectiveKind_TheStrongestSourceWins(t *testing.T) {
 		placement Placement
 		want      Kind
 	}{
-		"la correction d'abord":  {Placement{Override: KindPhysical, GuestKind: KindVM, Reported: KindVM}, KindPhysical},
-		"l'hôte avant l'agent":   {Placement{GuestKind: KindLXC, Reported: KindUnknown, HasHost: true}, KindLXC},
-		"VM avec hôte":           {Placement{Reported: KindVM, HasHost: true}, KindVM},
-		"VM sans hôte, un VPS":   {Placement{Reported: KindVM}, KindVPS},
-		"physique":               {Placement{Reported: KindPhysical}, KindPhysical},
-		"agent ancien":           {Placement{}, KindUnknown},
-		"conteneur sans hôte":    {Placement{Reported: KindLXC}, KindLXC},
-		"invité de type inconnu": {Placement{GuestKind: KindUnknown, Reported: KindVM}, KindVPS},
+		"la correction d'abord":          {Placement{Override: KindPhysical, GuestKind: KindVM, Reported: KindVM}, KindPhysical},
+		"l'hôte avant l'agent":           {Placement{GuestKind: KindLXC, Reported: KindUnknown, HasHost: true}, KindLXC},
+		"VM avec hôte":                   {Placement{Reported: KindVM, HasHost: true}, KindVM},
+		"VM sans hôte, adresse publique": {Placement{Reported: KindVM, Address: "203.0.113.7:51234"}, KindVPS},
+		"VM sans hôte, adresse privée":   {Placement{Reported: KindVM, Address: "10.10.80.12:51234"}, KindVM},
+		"VM sans hôte, adresse inconnue": {Placement{Reported: KindVM}, KindVM},
+		"VM sans hôte, adresse partagée": {Placement{Reported: KindVM, Address: "100.64.1.2"}, KindVM},
+		"VM sans hôte, ULA":              {Placement{Reported: KindVM, Address: "[fd12:3456::5]:443"}, KindVM},
+		"VM sans hôte, IPv6 publique":    {Placement{Reported: KindVM, Address: "[2001:db8::5]:443"}, KindVPS},
+		"l'opérateur dit VPS":            {Placement{Reported: KindVM, Override: KindVPS, Address: "10.0.0.5"}, KindVPS},
+		"physique":                       {Placement{Reported: KindPhysical}, KindPhysical},
+		"agent ancien":                   {Placement{}, KindUnknown},
+		"conteneur sans hôte":            {Placement{Reported: KindLXC}, KindLXC},
+		"invité de type inconnu":         {Placement{GuestKind: KindUnknown, Reported: KindVM, Address: "198.51.100.4:9"}, KindVPS},
 	}
 	for name, test := range cases {
 		if got := EffectiveKind(test.placement); got != test.want {

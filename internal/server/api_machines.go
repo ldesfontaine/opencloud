@@ -700,7 +700,7 @@ func hostingOf(machineStatus machine.Status, facts machineFacts) *machineHostJSO
 // effectiveKind applique la règle du type (machine.EffectiveKind) aux faits que
 // la machine et l'hôte rapportent.
 func effectiveKind(machineStatus machine.Status, summary proxmox.Summary, hasHost bool) machine.Kind {
-	placement := machine.Placement{Reported: machineStatus.Kind, Override: machineStatus.KindOverride, HasHost: hasHost}
+	placement := machine.Placement{Reported: machineStatus.Kind, Override: machineStatus.KindOverride, HasHost: hasHost, Address: machineStatus.Address}
 	if summary.Hosted != nil {
 		placement.GuestKind = machine.KindOfGuest(summary.Hosted.Kind)
 	}
