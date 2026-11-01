@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/status"
@@ -22,7 +23,7 @@ import (
 func TestStatusPublic_TwoPagesDoNotSeeEachOther(t *testing.T) {
 	server := newBench(t)
 	ctx := context.Background()
-	other, err := server.status.CreatePage(ctx, status.PageDefinition{Slug: "client-b", Title: "Client B"})
+	other, err := server.directory.CreateProject(ctx, directory.ProjectDefinition{Name: "client-b", Title: "Client B", Publication: directory.PublicationDefinition{Slug: "client-b"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,10 +35,10 @@ func TestStatusPublic_TwoPagesDoNotSeeEachOther(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: server.pageID, Name: "Courrier", Members: []status.MemberRef{{Kind: status.KindMachine, ID: servertest.RemoteID}}}); err != nil {
+	if _, err := server.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: server.pageID, Name: "Courrier", Members: []status.MemberRef{{Kind: status.KindMachine, ID: servertest.RemoteID}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: other.ID, Name: "Boutique", Members: []status.MemberRef{
+	if _, err := server.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: other.ID, Name: "Boutique", Members: []status.MemberRef{
 		{Kind: status.KindMachine, ID: servertest.RemoteID}, {Kind: status.KindHeartbeat, ID: job.ID},
 	}}); err != nil {
 		t.Fatal(err)
@@ -79,16 +80,16 @@ func TestStatusPublic_TwoPagesDoNotSeeEachOther(t *testing.T) {
 func TestStatusPublic_AnnouncedMuteShowsAsMaintenanceOnItsPageOnly(t *testing.T) {
 	server := newBench(t)
 	ctx := context.Background()
-	other, err := server.status.CreatePage(ctx, status.PageDefinition{Slug: "client-b", Title: "Client B"})
+	other, err := server.directory.CreateProject(ctx, directory.ProjectDefinition{Name: "client-b", Title: "Client B", Publication: directory.PublicationDefinition{Slug: "client-b"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	storetest.EnrollMachine(t, server.machines, servertest.RemoteID, "vps-paris-1")
 	elsewhere := storetest.EnrollMachine(t, server.machines, "33333333-2222-4333-8444-555555555555", "vps-lyon-1")
-	if _, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: server.pageID, Name: "Courrier", Members: []status.MemberRef{{Kind: status.KindMachine, ID: servertest.RemoteID}}}); err != nil {
+	if _, err := server.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: server.pageID, Name: "Courrier", Members: []status.MemberRef{{Kind: status.KindMachine, ID: servertest.RemoteID}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: other.ID, Name: "Boutique", Members: []status.MemberRef{{Kind: status.KindMachine, ID: elsewhere.ID}}}); err != nil {
+	if _, err := server.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: other.ID, Name: "Boutique", Members: []status.MemberRef{{Kind: status.KindMachine, ID: elsewhere.ID}}}); err != nil {
 		t.Fatal(err)
 	}
 	_, err = server.db.InsertMute(ctx, alert.Mute{
@@ -151,14 +152,14 @@ func TestStatusPublic_RootRedirectsToTheOnlyPage(t *testing.T) {
 			t.Fatalf("%s with one page: %d %q", path, recorder.Code, recorder.Header().Get("Location"))
 		}
 	}
-	if _, err := server.status.CreatePage(context.Background(), status.PageDefinition{Slug: "client-b"}); err != nil {
+	if _, err := server.directory.CreateProject(context.Background(), directory.ProjectDefinition{Name: "client-b", Publication: directory.PublicationDefinition{Slug: "client-b"}}); err != nil {
 		t.Fatal(err)
 	}
 	recorder := server.get("/statut")
 	if recorder.Code != http.StatusNotFound || strings.Contains(recorder.Body.String(), "client-b") || strings.Contains(recorder.Body.String(), "statut/statut") {
 		t.Fatalf("with two pages: %d %q", recorder.Code, recorder.Body.String())
 	}
-	if err := server.status.DeletePage(context.Background(), server.pageID); err != nil {
+	if err := server.directory.DeleteProject(context.Background(), server.pageID); err != nil {
 		t.Fatal(err)
 	}
 	if recorder := server.get("/statut/statut"); recorder.Code != http.StatusNotFound {

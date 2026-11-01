@@ -2,11 +2,13 @@ package status
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
@@ -141,16 +143,23 @@ func (s *Service) DeleteIncident(ctx context.Context, id string) error {
 }
 
 // Incidents rend ce que la base garde, du plus récent au plus ancien ; avec
-// une page, ceux qui touchent l'un de ses composants, tels quels : un
-// incident n'appartient pas à une page, il vise des objets. Les silences
+// un projet, ceux qui touchent l'un de ses composants, tels quels : un
+// incident n'appartient pas à un projet, il vise des objets. Les silences
 // annoncés n'y entrent pas : ils ne s'écrivent pas.
-func (s *Service) Incidents(ctx context.Context, pageID string) ([]Incident, error) {
-	if pageID != "" {
-		if _, err := s.store.GetPage(ctx, pageID); err != nil {
+func (s *Service) Incidents(ctx context.Context, projectID string) ([]Incident, error) {
+	if projectID != "" {
+		if _, err := s.reader.GetProject(ctx, projectID); err != nil {
+			if errors.Is(err, directory.ErrProjectNotFound) {
+				return nil, ErrNotFound
+			}
 			return nil, err
 		}
 	}
-	components, err := s.store.ListComponents(ctx, "")
+	known, err := s.facts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	components, err := s.componentsOf(ctx, known)
 	if err != nil {
 		return nil, err
 	}
@@ -158,23 +167,19 @@ func (s *Service) Incidents(ctx context.Context, pageID string) ([]Incident, err
 	if err != nil {
 		return nil, err
 	}
-	known, err := s.facts(ctx)
-	if err != nil {
-		return nil, err
-	}
 	known.describe(incidents, components)
-	if pageID == "" {
+	if projectID == "" {
 		return incidents, nil
 	}
-	onPage := make(map[string]bool, len(components))
+	onProject := make(map[string]bool, len(components))
 	for _, component := range components {
-		if component.PageID == pageID {
-			onPage[component.ID] = true
+		if component.ProjectID == projectID {
+			onProject[component.ID] = true
 		}
 	}
 	kept := []Incident{}
 	for _, incident := range incidents {
-		if _, touches := restrictedTo(incident, onPage); touches {
+		if _, touches := restrictedTo(incident, onProject); touches {
 			kept = append(kept, incident)
 		}
 	}
@@ -188,11 +193,11 @@ func (s *Service) GetIncident(ctx context.Context, id string) (Incident, error) 
 	if err != nil {
 		return Incident{}, err
 	}
-	components, err := s.store.ListComponents(ctx, "")
+	known, err := s.facts(ctx)
 	if err != nil {
 		return Incident{}, err
 	}
-	known, err := s.facts(ctx)
+	components, err := s.componentsOf(ctx, known)
 	if err != nil {
 		return Incident{}, err
 	}

@@ -10,6 +10,8 @@ import { AlertMuteNew } from "./pages/AlertMuteNew";
 import { ApplyDetail } from "./pages/ApplyDetail";
 import { Applies } from "./pages/Applies";
 import { Audit } from "./pages/Audit";
+import { Availability } from "./pages/Availability";
+import { PublicPage } from "./pages/availability/PublicPage";
 import { SSHKeyMatrix } from "./pages/SSHKeyMatrix";
 import { Backups } from "./pages/Backups";
 import { ContainerPage } from "./pages/Container";
@@ -26,20 +28,17 @@ import { DeclareProxmoxHost } from "./pages/machines/DeclareProxmoxHost";
 import { PlacementMachine } from "./pages/machines/PlacementMachine";
 import { ReenrollMachine } from "./pages/machines/ReenrollMachine";
 import { ProbeWizard } from "./pages/probes/ProbeWizard";
+import { ProjectWizard } from "./pages/services/ProjectWizard";
 import { ServiceWizard } from "./pages/services/ServiceWizard";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
 import { ProbePage } from "./pages/Probe";
-import { Probes } from "./pages/Probes";
-import { ProjectForm } from "./pages/ProjectForm";
 import { Overview } from "./pages/Overview";
 import { Services } from "./pages/Services";
 import { Settings } from "./pages/Settings";
-import { StatusAdmin } from "./pages/StatusAdmin";
 import { StatusComponentForm } from "./pages/StatusComponentForm";
 import { StatusIncidentPage } from "./pages/StatusIncident";
 import { StatusIncidentNew } from "./pages/StatusIncidentNew";
-import { StatusPageForm } from "./pages/StatusPageForm";
 
 // La fiche d'un conteneur s'ouvrait sur /services/:id avant d'aller sous
 // /services/conteneurs/:id : un lien d'avant mène à la nouvelle adresse, avec sa query et son ancre
@@ -92,15 +91,23 @@ export function App() {
         <Route path="services/annuaire/:id" element={<DeclaredServicePage />}>
           <Route path="modifier" element={<ServiceWizard />} />
         </Route>
-        <Route path="services/projets" element={<Services tab="projets" />} />
-        <Route path="services/projets/nouveau" element={<ProjectForm />} />
-        <Route path="services/projets/:id" element={<ProjectForm />} />
+        <Route path="services/projets" element={<Services tab="projets" />}>
+          <Route path="nouveau" element={<ProjectWizard />} />
+          <Route path=":id" element={<ProjectWizard />} />
+        </Route>
         <Route path="services/conteneurs/:id" element={<ContainerPage />} />
         {/* L'ancienne adresse d'une fiche de conteneur, gardée pour les liens déjà partagés. */}
         <Route path="services/:id" element={<ContainerRedirect />} />
-        <Route path="disponibilite" element={<Probes />}>
+        <Route path="disponibilite" element={<Availability tab="probes" />}>
           <Route path="nouvelle" element={<ProbeWizard />} />
         </Route>
+        <Route path="disponibilite/pages" element={<Availability tab="pages" />} />
+        <Route path="disponibilite/pages/:id" element={<PublicPage />} />
+        <Route path="disponibilite/composants/nouveau" element={<StatusComponentForm />} />
+        <Route path="disponibilite/composants/:id" element={<StatusComponentForm />} />
+        <Route path="disponibilite/incidents" element={<Availability tab="incidents" />} />
+        <Route path="disponibilite/incidents/nouveau" element={<StatusIncidentNew />} />
+        <Route path="disponibilite/incidents/:id" element={<StatusIncidentPage />} />
         <Route path="disponibilite/:id" element={<ProbePage />}>
           <Route path="modifier" element={<ProbeWizard />} />
         </Route>
@@ -117,14 +124,7 @@ export function App() {
         <Route path="taches/:id" element={<JobPage />}>
           <Route path="modifier" element={<JobWizard />} />
         </Route>
-        <Route path="page-statut" element={<StatusAdmin />} />
-        <Route path="page-statut/pages/nouvelle" element={<StatusPageForm />} />
-        <Route path="page-statut/pages/:id" element={<StatusPageForm />} />
-        <Route path="page-statut/composants/nouveau" element={<StatusComponentForm />} />
-        <Route path="page-statut/composants/:id" element={<StatusComponentForm />} />
-        <Route path="page-statut/incidents/nouveau" element={<StatusIncidentNew />} />
-        <Route path="page-statut/incidents/:id" element={<StatusIncidentPage />} />
-        <Route path="page-statut/:tab" element={<StatusAdmin />} />
+        <Route path="page-statut/*" element={<Navigate replace to="/disponibilite/pages" />} />
         <Route path="alertes" element={<Alerts />} />
         <Route path="alertes/alerte/:id" element={<AlertPage />} />
         <Route path="alertes/canaux/nouveau" element={<AlertChannelForm />} />

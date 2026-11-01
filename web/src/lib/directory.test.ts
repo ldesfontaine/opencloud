@@ -9,7 +9,6 @@ import {
   hasAdvancedUnitValues,
   hasLinks,
   parsePorts,
-  projectFormOf,
   projectNames,
   serviceFormOf,
   serviceFormOfDefinition,
@@ -64,8 +63,8 @@ describe("formatUnitPorts", () => {
 describe("projectNames", () => {
   it("donne le nom de chaque projet par son identifiant", () => {
     const projects = [
-      { id: "prj_1", name: "cloud", title: "Cloud", service_ids: [], created_at: "", updated_at: "" },
-      { id: "prj_2", name: "mail", title: "Courrier", service_ids: [], created_at: "", updated_at: "" },
+      { id: "prj_1", name: "cloud", title: "Cloud", service_ids: [], publication: null, created_at: "", updated_at: "" },
+      { id: "prj_2", name: "mail", title: "Courrier", service_ids: [], publication: null, created_at: "", updated_at: "" },
     ] satisfies Project[];
     const names = projectNames(projects);
     expect(names.get("prj_1")).toBe("cloud");
@@ -75,13 +74,6 @@ describe("projectNames", () => {
 
   it("ne rend rien sans projet", () => {
     expect(projectNames([]).size).toBe(0);
-  });
-});
-
-describe("projectFormOf", () => {
-  it("ne garde que le nom et le titre : le reste, le serveur le tient", () => {
-    const project = { id: "prj_1", name: "cloud", title: "Cloud", service_ids: ["svc_1"], created_at: "2026-10-18T09:00:00Z", updated_at: "2026-10-18T09:00:00Z" } satisfies Project;
-    expect(projectFormOf(project)).toEqual({ name: "cloud", title: "Cloud" });
   });
 });
 

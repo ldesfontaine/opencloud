@@ -116,7 +116,6 @@ var (
 	ErrProjectNameInvalid    = refusal.Invalid("project.name_invalid", "project name must be a lowercase label: letters, digits, dashes, underscores")
 	ErrProjectTitleInvalid   = refusal.Invalid("project.title_invalid", "project title must be at most 80 characters")
 	ErrProjectNameTaken      = refusal.Invalid("project.name_taken", "project name already used")
-	ErrProjectHasStatusPage  = refusal.Conflict("project.has_status_page", "a status page belongs to the project")
 
 	ErrIgnoreInvalid     = refusal.Invalid("directory.ignore_invalid", "ignored key needs an existing machine, a known kind and a value that fits it")
 	ErrIgnoredNotFound   = errors.New("ignored key not found")
@@ -185,14 +184,16 @@ type Unit struct {
 }
 
 // Project regroupe des services. Le lien est le seul que le projet porte :
-// ni l'un ni l'autre ne disparaît avec l'autre.
+// ni l'un ni l'autre ne disparaît avec l'autre. Sa publication, si elle
+// existe, est sa page publique.
 type Project struct {
-	ID         string
-	Name       string
-	Title      string
-	ServiceIDs []string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID          string
+	Name        string
+	Title       string
+	ServiceIDs  []string
+	Publication Publication
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // ServiceDefinition est ce que l'opérateur donne pour déclarer un service,
@@ -230,9 +231,13 @@ type UnitDefinition struct {
 	UpdatePolicy container.UpdatePolicy
 }
 
+// ProjectDefinition est ce que l'opérateur règle d'un projet, sa publication
+// comprise. Le fichier de l'annuaire ne la porte pas : il reprend celle que
+// le projet a déjà.
 type ProjectDefinition struct {
-	Name  string
-	Title string
+	Name        string
+	Title       string
+	Publication PublicationDefinition
 }
 
 // Filter restreint la liste des services ; un champ vide ne restreint pas.
@@ -262,12 +267,6 @@ func RefuseServiceDeletion(plan deletion.Plan) error {
 		deletion.KindProbes:     ErrServiceLinked,
 		deletion.KindComponents: ErrServiceLinked,
 	})
-}
-
-// RefuseProjectDeletion rend le refus de supprimer un projet que sa page de
-// statut retient, nil sinon.
-func RefuseProjectDeletion(plan deletion.Plan) error {
-	return deletion.Refuse(plan, map[deletion.Kind]error{deletion.KindStatusPages: ErrProjectHasStatusPage})
 }
 
 // NewID tire un identifiant du serveur : le préfixe de l'objet, puis

@@ -12,7 +12,6 @@ const (
 	KindProbes           Kind = "probes"
 	KindHeartbeats       Kind = "heartbeats"
 	KindComponents       Kind = "components"
-	KindStatusPages      Kind = "status_pages"
 	// La machine qui reçoit les sauvegardes : retirée, elles n'auraient plus
 	// où aller.
 	KindBackupDestinations Kind = "backup_destinations"
@@ -45,16 +44,18 @@ const (
 	KindAlerts         Kind = "alerts"
 	KindProjectLinks   Kind = "project_links"
 	KindIncidentLinks  Kind = "incident_links"
+	// La page publique d'un projet, qui répond 404 une fois le projet supprimé.
+	KindPublications Kind = "publications"
 )
 
 // Kinds rend la liste fermée : chaque genre a son libellé dans les catalogues.
 func Kinds() []Kind {
 	return []Kind{
-		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindStatusPages, KindBackupDestinations, KindBackupPlans,
+		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindBackupDestinations, KindBackupPlans,
 		KindAgents, KindEnrollmentTokens, KindMachineSamples, KindMachineNetworks, KindMachineVolumes, KindContainers,
 		KindContainerEvents, KindImageChecks, KindSSHKeys, KindProxmoxHosts, KindProxmoxLinks, KindIgnoredKeys, KindSilences,
 		KindProbeResults, KindProbeDays, KindHeartbeatPings, KindHeartbeatRuns,
-		KindUnits, KindMembers, KindAlerts, KindProjectLinks, KindIncidentLinks,
+		KindUnits, KindMembers, KindAlerts, KindProjectLinks, KindIncidentLinks, KindPublications,
 	}
 }
 

@@ -2,24 +2,25 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
 
-import type { StatusPage } from "../api/status";
+import type { Project } from "../api/directory";
 import { ComponentForm } from "./StatusComponentForm";
 
 vi.mock("../i18n/context", () => ({ useT: () => (key: string) => key }));
 
-function pageOf(id: string, slug: string, title: string): StatusPage {
-  return { id, slug, title, announcement: "", language: "fr", project_id: "", public_url: "", created_at: "", updated_at: "" };
+function projectOf(id: string, name: string, title: string): Project {
+  const publication = { slug: name, announcement: "", language: "fr", public_url: "", published_at: "" };
+  return { id, name, title, service_ids: [], publication, created_at: "", updated_at: "" };
 }
 
-// L'ordre du serveur (par adresse) met « Interne » avant la page demandée.
-const pages = [pageOf("p-interne", "interne", "Interne"), pageOf("p-etat", "services", "État des services")];
+// L'ordre du serveur (par nom) met « interne » avant le projet demandé.
+const projects = [projectOf("prj-interne", "interne", "Interne"), projectOf("prj-etat", "services", "État des services")];
 
-test("à son premier rendu, le formulaire d'un composant montre la page demandée", () => {
+test("à son premier rendu, le formulaire d'un composant montre le projet demandé", () => {
   const markup = renderToStaticMarkup(
     <MemoryRouter>
-      <ComponentForm existing={null} pageID="p-etat" pages={pages} />
+      <ComponentForm existing={null} projectID="prj-etat" projects={projects} />
     </MemoryRouter>,
   );
-  expect(markup).toContain('id="component-page"');
+  expect(markup).toContain('id="component-project"');
   expect(markup).toContain(">État des services<");
 });

@@ -18,11 +18,11 @@ func TestListComponents_AttachesTheMembersOfEachComponent(t *testing.T) {
 	declared := declaredOnLocal(t, db)
 	pageID := insertTestPage(t, db, "statut")
 	components := []status.Component{
-		{ID: "c-site", PageID: pageID, Name: "Site", Position: 2, CreatedAt: incidentNow, Members: []status.Member{
+		{ID: "c-site", ProjectID: pageID, Name: "Site", Position: 2, CreatedAt: incidentNow, Members: []status.Member{
 			{Kind: status.KindService, ID: declared.ID}, {Kind: status.KindMachine, ID: machine.LocalID},
 		}},
-		{ID: "c-empty", PageID: pageID, Name: "Vide", Position: 1, CreatedAt: incidentNow},
-		{ID: "c-host", PageID: pageID, Name: "Hôte", Position: 3, CreatedAt: incidentNow, Members: []status.Member{{Kind: status.KindMachine, ID: machine.LocalID}}},
+		{ID: "c-empty", ProjectID: pageID, Name: "Vide", Position: 1, CreatedAt: incidentNow},
+		{ID: "c-host", ProjectID: pageID, Name: "Hôte", Position: 3, CreatedAt: incidentNow, Members: []status.Member{{Kind: status.KindMachine, ID: machine.LocalID}}},
 	}
 	for _, component := range components {
 		if err := db.InsertComponent(ctx, component); err != nil {

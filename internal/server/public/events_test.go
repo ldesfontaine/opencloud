@@ -18,7 +18,7 @@ func TestPublicEvents_StreamsStatusThenReconnects(t *testing.T) {
 	if got := next(); got != "connected" {
 		t.Fatalf("first public event %q", got)
 	}
-	if _, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: server.pageID, Name: "Site web"}); err != nil {
+	if _, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{ProjectID: server.pageID, Name: "Site web"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := next(); got != "status" {

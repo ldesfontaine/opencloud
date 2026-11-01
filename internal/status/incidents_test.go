@@ -93,7 +93,7 @@ func TestChangeIncident_TheSnapshotShowsTheChange(t *testing.T) {
 	if _, err := f.status.ChangeIncident(ctx, opened.ID, status.IncidentChange{Title: "Panne corrigée", Targets: targetsOf(site, mail)}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := f.status.Snapshot(ctx, f.pageID)
+	snapshot, err := f.status.Snapshot(ctx, f.projectID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestDeleteIncident_TakesTheIncidentOffTheComponentsAndTheSnapshot(t *testin
 	if f.effective(t, site.ID) != status.StateOperational || f.effective(t, mail.ID) != status.StateDegraded {
 		t.Fatalf("site %q mail %q", f.effective(t, site.ID), f.effective(t, mail.ID))
 	}
-	snapshot, err := f.status.Snapshot(ctx, f.pageID)
+	snapshot, err := f.status.Snapshot(ctx, f.projectID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestSnapshot_IncidentOnAServiceTouchesTheComponentOfItsProbe(t *testing.T) 
 	if f.effective(t, web.ID) != status.StateDown || f.effective(t, other.ID) != status.StateOperational {
 		t.Fatalf("web %q other %q", f.effective(t, web.ID), f.effective(t, other.ID))
 	}
-	snapshot, err := f.status.Snapshot(ctx, f.pageID)
+	snapshot, err := f.status.Snapshot(ctx, f.projectID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestSnapshot_IncidentOnAMachineDoesNotTouchAProbeRunFromIt(t *testing.T) {
 	if len(fromRemote.Components) != 0 || f.effective(t, web.ID) != status.StateOperational {
 		t.Fatalf("components %+v, effective %q: the machine running the probe must not touch it", fromRemote.Components, f.effective(t, web.ID))
 	}
-	if snapshot, err := f.status.Snapshot(ctx, f.pageID); err != nil || len(snapshot.Open) != 0 {
+	if snapshot, err := f.status.Snapshot(ctx, f.projectID); err != nil || len(snapshot.Open) != 0 {
 		t.Fatalf("the incident must show on no page: %+v %v", snapshot.Open, err)
 	}
 
@@ -350,7 +350,7 @@ func TestIncident_WhoseTargetVanishedKeepsItsTextAndShowsOnNoPage(t *testing.T) 
 	if err != nil || len(all) != 1 {
 		t.Fatalf("the administration lists it: %+v %v", all, err)
 	}
-	if onPage, err := f.status.Incidents(ctx, f.pageID); err != nil || len(onPage) != 0 {
+	if onPage, err := f.status.Incidents(ctx, f.projectID); err != nil || len(onPage) != 0 {
 		t.Fatalf("no page shows it: %+v %v", onPage, err)
 	}
 }

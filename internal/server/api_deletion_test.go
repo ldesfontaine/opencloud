@@ -24,7 +24,7 @@ func TestAPI_DeleteMachine_ReadsThePlanThenRefusesThenRemoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	component, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, server.db, "statut"),
+	component, err := server.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: storetest.PublishedProject(t, server.db, "statut"),
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindMachine, ID: remoteID}},
 	})
 	if err != nil {
@@ -80,7 +80,7 @@ func TestAPI_DeleteProbeAndJob_ShownOnStatus_Answer409WithThePlan(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	component, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, server.db, "statut"),
+	component, err := server.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: storetest.PublishedProject(t, server.db, "statut"),
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindProbe, ID: watched.ID}, {Kind: status.KindHeartbeat, ID: job.ID}},
 	})
 	if err != nil {

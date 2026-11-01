@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, useStatusPages, type Incident } from "../api/status";
+import { useProjects } from "../api/directory";
+import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, type Incident } from "../api/status";
 import { Button } from "../components/Button";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
@@ -19,6 +20,7 @@ import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
 import {
   componentChoiceLabel,
+  incidentsPath,
   impactTones,
   incidentEditFormOf,
   incidentEditRequestOf,
@@ -29,7 +31,7 @@ import {
   updateStatusesFor,
 } from "../lib/status";
 import { ago, formatClock } from "../lib/time";
-import "./StatusAdmin.scss";
+import "./StatusIncident.scss";
 
 // La page d'un incident : ses faits, son fil, le formulaire pour y
 // ajouter une entrée, et la correction du titre, des cibles et de la
@@ -47,16 +49,16 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
   const [editing, setEditing] = useState(false);
   const resolved = incident.status === "resolved";
   const components = useStatusComponents(null).data?.components ?? [];
-  const pages = useStatusPages().data?.pages ?? [];
-  // Les composants que les cibles touchent, avec leur page dès qu'il y en a plusieurs.
-  const shownOn = incident.components.map((touched) => componentChoiceLabel(components.find((component) => component.id === touched.id) ?? { name: touched.name, page_id: "" }, pages));
+  const projects = useProjects().data?.projects ?? [];
+  // Les composants que les cibles touchent, avec leur projet dès qu'il y en a plusieurs.
+  const shownOn = incident.components.map((touched) => componentChoiceLabel(components.find((component) => component.id === touched.id) ?? { name: touched.name, project_id: "" }, projects));
 
   const action = useAction();
 
   const remove = () => {
     action.run(() => deleteIncident(incident.id), {
       topic: "status",
-      onDone: () => void navigate("/page-statut/incidents"),
+      onDone: () => void navigate(incidentsPath),
     });
   };
 

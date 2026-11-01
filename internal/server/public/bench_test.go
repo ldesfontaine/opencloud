@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
@@ -41,7 +42,8 @@ type bench struct {
 	probes     *probe.Service
 	bus        *live.Bus
 	db         *store.DB
-	// La page « statut » que chaque banc commence par écrire.
+	directory  *directory.Directory
+	// Le projet publié « statut » que chaque banc commence par écrire.
 	pageID string
 }
 
@@ -64,8 +66,8 @@ func newBench(t *testing.T) *bench {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := &bench{status: statusPage, machines: machines, heartbeats: heartbeats, probes: probes, bus: bus, db: db}
-	b.pageID = storetest.StatusPage(t, db, "statut")
+	b := &bench{status: statusPage, machines: machines, heartbeats: heartbeats, probes: probes, bus: bus, db: db, directory: directory.New(db, logger)}
+	b.pageID = storetest.PublishedProject(t, db, "statut")
 	b.handler = New(Options{
 		Logger:        logger,
 		Status:        statusPage,
@@ -124,7 +126,7 @@ func (b *bench) seed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.status.CreateComponent(ctx, status.ComponentDefinition{PageID: b.pageID, Name: "Nuage", Members: []status.MemberRef{
+	_, err = b.status.CreateComponent(ctx, status.ComponentDefinition{ProjectID: b.pageID, Name: "Nuage", Members: []status.MemberRef{
 		{Kind: status.KindMachine, ID: servertest.RemoteID},
 		{Kind: status.KindHeartbeat, ID: job.ID},
 		{Kind: status.KindProbe, ID: site.ID},
@@ -142,7 +144,7 @@ func (b *bench) seed(t *testing.T) {
 	if _, err := b.status.AddUpdate(ctx, opened.ID, status.StatusIdentified, "Le disque est plein."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.status.UpdatePage(ctx, b.pageID, status.PageDefinition{Slug: "statut", Title: "Statut de la maison", Announcement: "Coupure électrique samedi, de 8 h à 10 h."}); err != nil {
+	if _, err := b.directory.UpdateProject(ctx, b.pageID, directory.ProjectDefinition{Name: "statut", Title: "Statut de la maison", Publication: directory.PublicationDefinition{Slug: "statut", Announcement: "Coupure électrique samedi, de 8 h à 10 h."}}); err != nil {
 		t.Fatal(err)
 	}
 }

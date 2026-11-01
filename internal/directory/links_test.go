@@ -52,7 +52,7 @@ func watch(t *testing.T, b *bench, serviceID string) (probe.Probe, status.Compon
 		t.Fatalf("créer la sonde: %v", err)
 	}
 	statuses := status.New(b.db, b.db, b.machines, logger)
-	component, err := statuses.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, b.db, "statut"),
+	component, err := statuses.CreateComponent(ctx, status.ComponentDefinition{ProjectID: storetest.PublishedProject(t, b.db, "statut"),
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindService, ID: serviceID}},
 	})
 	if err != nil {

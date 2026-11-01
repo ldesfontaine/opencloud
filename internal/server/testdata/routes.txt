@@ -94,12 +94,6 @@ GET /api/jobs/{id}/delete-plan
 POST /api/jobs/{id}/actions/pause
 POST /api/jobs/{id}/actions/resume
 POST /api/jobs/{id}/actions/regenerate-token
-GET /api/status/pages
-POST /api/status/pages
-GET /api/status/pages/{id}
-PUT /api/status/pages/{id}
-DELETE /api/status/pages/{id}
-GET /api/status/pages/{id}/delete-plan
 GET /api/status/components
 POST /api/status/components
 GET /api/status/components/{id}

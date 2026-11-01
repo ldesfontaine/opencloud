@@ -16,13 +16,13 @@ import (
 // La méthode « * » du montage de la racine : toutes, pour un fourre-tout.
 const anyMethod = "*"
 
-// Ce que la page attend du composant statut : la page à une adresse (sa
-// langue), la liste des pages pour /statut seul, et l'instantané public
-// d'une page.
+// Ce que la page attend du composant statut : le projet publié à une adresse
+// (sa langue), la liste des pages pour /statut seul, et l'instantané public
+// d'un projet.
 type StatusReader interface {
-	PageBySlug(ctx context.Context, slug string) (status.Page, error)
-	ListPages(ctx context.Context) ([]status.Page, error)
-	Snapshot(ctx context.Context, pageID string) (status.Snapshot, error)
+	PublicationBySlug(ctx context.Context, slug string) (status.Publication, error)
+	Publications(ctx context.Context) ([]status.Publication, error)
+	Snapshot(ctx context.Context, projectID string) (status.Snapshot, error)
 }
 
 // Ce que le direct public attend du bus : un abonnement par visiteur. Ce
@@ -99,19 +99,19 @@ func (h *Handler) Routes(add func(method, pattern string, handler http.HandlerFu
 	add(anyMethod, "/statut/", h.serveUnknown)
 }
 
-// pageOf rend la page de l'adresse demandée. Un slug inconnu répond 404,
+// publicationOf rend la page de l'adresse demandée. Un slug inconnu répond 404,
 // comme tout chemin inconnu sous /statut : rien ne dit qu'une autre page
 // existe. Faux : la réponse est écrite.
-func (h *Handler) pageOf(w http.ResponseWriter, r *http.Request) (status.Page, bool) {
-	page, err := h.status.PageBySlug(r.Context(), r.PathValue("slug"))
+func (h *Handler) publicationOf(w http.ResponseWriter, r *http.Request) (status.Publication, bool) {
+	publication, err := h.status.PublicationBySlug(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, status.ErrNotFound) {
 		http.NotFound(w, nil)
-		return status.Page{}, false
+		return status.Publication{}, false
 	}
 	if err != nil {
 		h.logger.Error("status page", "error", err)
 		http.Error(w, "error", http.StatusInternalServerError)
-		return status.Page{}, false
+		return status.Publication{}, false
 	}
-	return page, true
+	return publication, true
 }

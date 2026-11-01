@@ -7,7 +7,7 @@ import type { IconName } from "../components/Icon";
 // dit quels modules existent et lesquels une machine ou l'installation porte
 // (internal/module) ; ici, ce que l'écran en fait.
 
-export type ModuleID = "containers" | "hypervisor" | "guest" | "ssh_keys" | "probes" | "firewall" | "backups" | "jobs" | "status";
+export type ModuleID = "containers" | "hypervisor" | "guest" | "ssh_keys" | "probes" | "firewall" | "backups" | "jobs";
 
 // Un chiffre du menu, et s'il demande attention (rouge).
 interface Counter {
@@ -38,6 +38,17 @@ interface ModuleDef {
   tab?: TabDef;
 }
 
+// Le chiffre de Disponibilité : les sondes, en rouge quand l'une est hors
+// ligne ou qu'un incident est ouvert. Sans sonde, les incidents ouverts
+// seuls parlent.
+function availabilityCounter(counts: Counts): Counter | null {
+  const hot = counts.probes.attention > 0 || counts.status.open_incidents > 0;
+  if (counts.probes.total > 0) {
+    return { value: counts.probes.total, hot };
+  }
+  return counts.status.open_incidents > 0 ? { value: counts.status.open_incidents, hot: true } : null;
+}
+
 // Les rangs rangent le menu et les onglets ; ils sont espacés pour qu'une
 // entrée fixe s'intercale (menuFixedEntries, fixedTabs).
 const modules: ModuleDef[] = [
@@ -52,7 +63,7 @@ const modules: ModuleDef[] = [
       href: "/disponibilite",
       icon: "globe",
       rank: 60,
-      counter: (counts) => (counts.probes.total > 0 ? { value: counts.probes.total, hot: counts.probes.attention > 0 } : null),
+      counter: availabilityCounter,
       setup: "/disponibilite/nouvelle",
     },
   },
@@ -66,16 +77,6 @@ const modules: ModuleDef[] = [
       rank: 70,
       counter: (counts) => (counts.jobs.attention > 0 ? { value: counts.jobs.attention, hot: true } : null),
       setup: "/taches/nouvelle",
-    },
-  },
-  {
-    id: "status",
-    menu: {
-      href: "/page-statut",
-      icon: "eye",
-      rank: 65,
-      counter: (counts) => (counts.status.open_incidents > 0 ? { value: counts.status.open_incidents, hot: true } : null),
-      setup: "/page-statut/pages/nouvelle",
     },
   },
 ];

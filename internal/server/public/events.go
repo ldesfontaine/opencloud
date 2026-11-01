@@ -21,7 +21,7 @@ func (h *Handler) serveEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Une adresse inconnue ne prend pas de place.
-	if _, ok := h.pageOf(w, r); !ok {
+	if _, ok := h.publicationOf(w, r); !ok {
 		return
 	}
 	if !h.tabsBySource.Take(address) {

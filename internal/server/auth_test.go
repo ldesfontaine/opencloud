@@ -172,7 +172,7 @@ func TestAuthBasic_StatusPageAndPingStayPublic(t *testing.T) {
 	servertest.RequireFront(t)
 	server := newFirstSetupServer(t)
 	server.enableBasic(t)
-	storetest.StatusPage(t, server.db, "statut")
+	storetest.PublishedProject(t, server.db, "statut")
 	if got := callAs(server.Server, http.MethodGet, "/statut/statut", "", ""); got.Code != http.StatusOK {
 		t.Fatalf("/statut/statut: status %d", got.Code)
 	}
@@ -556,7 +556,7 @@ func TestAuthForward_OnlyATrustedProxyWithTheIdentityPasses(t *testing.T) {
 	if got := callAs(server.Server, http.MethodGet, "/api/counts", testUsername, testPassword); got.Code != http.StatusUnauthorized {
 		t.Fatalf("basic credentials in forward mode: status %d", got.Code)
 	}
-	storetest.StatusPage(t, server.db, "statut")
+	storetest.PublishedProject(t, server.db, "statut")
 	if got := callForwarded(server.Server, http.MethodGet, "/statut/statut", untrustedPeer, ""); got.Code != http.StatusOK {
 		t.Fatalf("/statut/statut stays public: %d", got.Code)
 	}

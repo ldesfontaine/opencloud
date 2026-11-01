@@ -12,13 +12,13 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 )
 
-// Snapshot est ce que le public voit d'une page : ses composants, et les
-// incidents qui touchent l'un d'eux, réduits à ceux-là. Rien d'une autre
-// page n'y paraît, pas même le nom d'un composant qu'un incident touche
+// Snapshot est ce que le public voit d'un projet publié : ses composants, et
+// les incidents qui touchent l'un d'eux, réduits à ceux-là. Rien d'un autre
+// projet n'y paraît, pas même le nom d'un composant qu'un incident touche
 // aussi ailleurs. Un composant dont aucun objet ne compte et qu'aucun
 // incident ne touche n'y est pas : rien à en dire.
-func (s *Service) Snapshot(ctx context.Context, pageID string) (Snapshot, error) {
-	page, err := s.GetPage(ctx, pageID)
+func (s *Service) Snapshot(ctx context.Context, projectID string) (Snapshot, error) {
+	publication, err := s.PublicationOf(ctx, projectID)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -26,7 +26,7 @@ func (s *Service) Snapshot(ctx context.Context, pageID string) (Snapshot, error)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return view.snapshotOf(page), nil
+	return view.snapshotOf(publication), nil
 }
 
 // view est tout ce que les instantanés lisent, pour toutes les pages d'un
@@ -41,11 +41,11 @@ type view struct {
 
 func (s *Service) readView(ctx context.Context) (view, error) {
 	now := s.now()
-	components, err := s.store.ListComponents(ctx, "")
+	known, err := s.facts(ctx)
 	if err != nil {
 		return view{}, err
 	}
-	known, err := s.facts(ctx)
+	components, err := s.componentsOf(ctx, known)
 	if err != nil {
 		return view{}, err
 	}
@@ -65,15 +65,15 @@ func (s *Service) readView(ctx context.Context) (view, error) {
 	return view{now: now, components: components, incidents: incidents, days: days}, nil
 }
 
-func (v view) snapshotOf(page Page) Snapshot {
-	snapshot := Snapshot{Page: page, GeneratedAt: v.now, Components: []PublicComponent{}, Open: []Incident{}, History: []Incident{}}
-	onPage := map[string]bool{}
+func (v view) snapshotOf(publication Publication) Snapshot {
+	snapshot := Snapshot{Publication: publication, GeneratedAt: v.now, Components: []PublicComponent{}, Open: []Incident{}, History: []Incident{}}
+	onProject := map[string]bool{}
 	states := []State{}
 	for _, component := range v.components {
-		if component.PageID != page.ID {
+		if component.ProjectID != publication.ProjectID {
 			continue
 		}
-		onPage[component.ID] = true
+		onProject[component.ID] = true
 		if component.Effective == StateUnknown {
 			continue
 		}
@@ -87,7 +87,7 @@ func (v view) snapshotOf(page Page) Snapshot {
 	}
 	snapshot.Global = Worst(states)
 	for _, incident := range v.incidents {
-		touched, ok := restrictedTo(incident, onPage)
+		touched, ok := restrictedTo(incident, onProject)
 		if !ok {
 			continue
 		}
@@ -103,12 +103,12 @@ func (v view) snapshotOf(page Page) Snapshot {
 	return snapshot
 }
 
-// restrictedTo rend l'incident réduit aux composants de la page, et faux
+// restrictedTo rend l'incident réduit aux composants du projet, et faux
 // s'il n'en touche aucun.
-func restrictedTo(incident Incident, onPage map[string]bool) (Incident, bool) {
+func restrictedTo(incident Incident, onProject map[string]bool) (Incident, bool) {
 	kept := []ComponentRef{}
 	for _, component := range incident.Components {
-		if onPage[component.ID] {
+		if onProject[component.ID] {
 			kept = append(kept, component)
 		}
 	}
@@ -184,10 +184,10 @@ func (s *Service) Refresh(ctx context.Context) {
 	}
 }
 
-// digestOfPages résume ce que les visiteurs voient, page par page ; une page
-// créée ou supprimée change le résumé.
+// digestOfPages résume ce que les visiteurs voient, page par page ; un projet
+// publié ou dépublié change le résumé.
 func (s *Service) digestOfPages(ctx context.Context) (string, error) {
-	pages, err := s.ListPages(ctx)
+	publications, err := s.Publications(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -195,9 +195,9 @@ func (s *Service) digestOfPages(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	digests := make([]string, 0, len(pages))
-	for _, page := range pages {
-		digests = append(digests, page.ID+":"+digestOf(view.snapshotOf(page)))
+	digests := make([]string, 0, len(publications))
+	for _, publication := range publications {
+		digests = append(digests, publication.ProjectID+":"+digestOf(view.snapshotOf(publication)))
 	}
 	return strings.Join(digests, ","), nil
 }
@@ -219,11 +219,11 @@ func digestOf(snapshot Snapshot) string {
 		Components []ComponentRef
 	}
 	summary := struct {
-		Page       Page
-		Global     State
-		Components []component
-		Incidents  []incident
-	}{Page: snapshot.Page, Global: snapshot.Global}
+		Publication Publication
+		Global      State
+		Components  []component
+		Incidents   []incident
+	}{Publication: snapshot.Publication, Global: snapshot.Global}
 	for _, found := range snapshot.Components {
 		summary.Components = append(summary.Components, component{found.ID, found.Name, found.State})
 	}

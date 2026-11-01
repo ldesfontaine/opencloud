@@ -29,7 +29,7 @@ func nextcloudRequest(machineID string) declaredServiceRequest {
 func (ts *testServer) seedDirectory(t *testing.T) (serviceID string) {
 	t.Helper()
 	ctx := context.Background()
-	project, err := ts.directory.CreateProject(ctx, directory.ProjectDefinition{Name: "client-a", Title: "Client A"})
+	project, err := ts.directory.CreateProject(ctx, directory.ProjectDefinition{Name: "client-a", Title: "Client A", Publication: directory.PublicationDefinition{Slug: "client-a", Announcement: "Maintenance samedi.", Language: "fr"}})
 	if err != nil {
 		t.Fatal(err)
 	}

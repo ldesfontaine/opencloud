@@ -113,7 +113,7 @@ func (m *Manifest) readCurrent(ctx context.Context) (Current, error) {
 // (l'historique d'une sonde ou d'une tâche) et ce qui la retient. Un
 // composant de statut n'est pas dans le fichier, qui ne peut pas l'en
 // détacher : la suppression est refusée dans le plan, avec la liste, plutôt
-// qu'arrêtée au milieu de l'écriture. Les sondes qui visent un service
+// qu'arrêtée au milieu de l'écriture. Il en va de même d'un projet publié. Les sondes qui visent un service
 // supprimé ne comptent pas : le fichier les supprime ou les rattache ailleurs
 // avant lui.
 func (m *Manifest) describeDeletions(ctx context.Context, plan *Plan) error {
@@ -132,8 +132,12 @@ func (m *Manifest) describeDeletions(ctx context.Context, plan *Plan) error {
 		if names := blockingNames(found, deletion.KindComponents); names != "" {
 			plan.Problems = append(plan.Problems, Problem{Key: KeyPruneBlocked, Path: change.Name, Value: names})
 		}
-		if names := blockingNames(found, deletion.KindStatusPages); names != "" {
-			plan.Problems = append(plan.Problems, Problem{Key: KeyPruneStatusPage, Path: change.Name, Value: names})
+		if change.Kind == KindProject && carriesPublication(found) {
+			address, err := m.publicAddress(ctx, change.ID)
+			if err != nil {
+				return err
+			}
+			plan.Problems = append(plan.Problems, Problem{Key: KeyPrunePublished, Path: change.Name, Value: address})
 		}
 		plan.Changes[index] = *change
 	}
@@ -141,8 +145,8 @@ func (m *Manifest) describeDeletions(ctx context.Context, plan *Plan) error {
 }
 
 // deletionPlan rend le plan de suppression d'un objet que --prune retire.
-// Un projet n'est retenu que par sa page de statut, que le fichier ne porte
-// pas : comme un composant, elle se refuse dans le plan.
+// Un projet publié emporte sa page publique, que le fichier ne porte pas :
+// la suppression se refuse dans le plan, plutôt que de la retirer sans bruit.
 func (m *Manifest) deletionPlan(ctx context.Context, change Change) (deletion.Plan, error) {
 	var found deletion.Plan
 	var err error
@@ -160,6 +164,26 @@ func (m *Manifest) deletionPlan(ctx context.Context, change Change) (deletion.Pl
 		return deletion.Plan{}, fmt.Errorf("read deletion plan of %s: %w", change.Label(), err)
 	}
 	return found, nil
+}
+
+// carriesPublication dit si supprimer le projet emporterait sa page publique.
+func carriesPublication(found deletion.Plan) bool {
+	for _, removed := range found.Removes {
+		if removed.Kind == deletion.KindPublications && removed.Count > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// publicAddress rend l'adresse sous laquelle le projet est publié : son
+// slug, que le plan de suppression ne nomme pas.
+func (m *Manifest) publicAddress(ctx context.Context, projectID string) (string, error) {
+	project, err := m.deps.Reader.GetProject(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	return project.Publication.Slug, nil
 }
 
 // historyCarries dit l'historique qu'une suppression emporte, dans l'ordre du
@@ -409,24 +433,30 @@ func (e *execution) writeProject(ctx context.Context, next step) error {
 		}
 		return err
 	case ActionUpdate:
-		if err := e.guardProject(ctx, next); err != nil {
+		current, err := e.guardProject(ctx, next)
+		if err != nil {
 			return err
 		}
-		_, err := directoryService.UpdateProject(ctx, next.change.ID, next.project.Definition)
+		// Le fichier ne porte pas la publication : elle reste telle quelle.
+		definition := next.project.Definition
+		definition.Publication = directory.PublicationDefinition{
+			Slug: current.Publication.Slug, Announcement: current.Publication.Announcement, Language: current.Publication.Language,
+		}
+		_, err = directoryService.UpdateProject(ctx, next.change.ID, definition)
 		return err
 	}
-	if err := e.guardProject(ctx, next); err != nil {
+	if _, err := e.guardProject(ctx, next); err != nil {
 		return err
 	}
 	return directoryService.DeleteProject(ctx, next.change.ID)
 }
 
 // guardProject relit le projet juste avant de l'écrire : s'il n'est plus tel
-// que le plan l'a vu, rien ne s'écrit.
-func (e *execution) guardProject(ctx context.Context, next step) error {
+// que le plan l'a vu, rien ne s'écrit. Il rend le projet relu.
+func (e *execution) guardProject(ctx context.Context, next step) (directory.Project, error) {
 	projects, err := e.manifest.deps.Reader.ListProjects(ctx)
 	if err != nil {
-		return err
+		return directory.Project{}, err
 	}
 	for _, project := range projects {
 		if project.ID != next.change.ID {
@@ -434,11 +464,11 @@ func (e *execution) guardProject(ctx context.Context, next step) error {
 		}
 		now := directory.ProjectDefinition{Name: project.Name, Title: project.Title}.Complete()
 		if len(diffProject(next.project.Before, now)) > 0 {
-			return errObjectMoved
+			return directory.Project{}, errObjectMoved
 		}
-		return nil
+		return project, nil
 	}
-	return directory.ErrProjectNotFound
+	return directory.Project{}, directory.ErrProjectNotFound
 }
 
 // writeService relit le service avant de l'éditer : les unités se retrouvent

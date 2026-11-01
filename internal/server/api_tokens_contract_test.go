@@ -19,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // Le contrat avec mcp-maison (main @ 0b55aac, src/tools/opencloud) : ses
@@ -160,7 +161,7 @@ func TestAPIToken_ReplaysMCPMaisonCalls(t *testing.T) {
 	declaredID := server.seedGaps(t)
 	probeID := server.seedProbes(t, declaredID)
 	server.seedStatus(t, declaredID, jobID, probeID)
-	pageID := server.seededPageID(t)
+	projectID := server.seededProjectID(t)
 	_, alertID := server.seedAlerts(t)
 	server.seedActions(t)
 	bearer := server.issueAPIToken(t, "mcp-maison")
@@ -330,7 +331,7 @@ func TestAPIToken_ReplaysMCPMaisonCalls(t *testing.T) {
 	incidentFields := prefixed("incidents[].", []string{"id", "title", "impact", "status", "starts_at", "ends_at", "resolved_at",
 		"targets[].kind", "targets[].id", "targets[].name", "components[].name",
 		"updates[].status", "updates[].message", "updates[].created_at"})
-	incidents := read("/api/status/incidents", url.Values{"page": {pageID}})
+	incidents := read("/api/status/incidents", url.Values{"project": {projectID}})
 	requireNonEmpty(t, "incidents", incidents, "incidents")
 	requireSome(t, "incidents", incidents, "incidents[].targets[]", "incidents[].components[]", "incidents[].updates[]")
 	check("incidents", incidents, incidentFields...)
@@ -347,15 +348,15 @@ func TestAPIToken_ReplaysMCPMaisonCalls(t *testing.T) {
 	if withoutComponent != 1 {
 		t.Errorf("all incidents: %d incident(s) sans composant, 1 attendu", withoutComponent)
 	}
-	pageFields := []string{"id", "slug", "title", "announcement", "public_url"}
-	check("page", read("/api/status/pages/"+url.PathEscape(pageID), nil), pageFields...)
-	components := read("/api/status/components", url.Values{"page": {pageID}})
+	projectFields := []string{"id", "name", "title", "service_ids", "publication.slug", "publication.announcement", "publication.language", "publication.public_url", "publication.published_at"}
+	check("project", read("/api/directory/projects/"+url.PathEscape(projectID), nil), projectFields...)
+	components := read("/api/status/components", url.Values{"project": {projectID}})
 	requireNonEmpty(t, "components", components, "components")
 	check("components", components, "global", "components[].name", "components[].effective",
 		"components[].members[].kind", "components[].members[].name", "components[].members[].state")
-	pages := read("/api/status/pages", nil)
-	requireNonEmpty(t, "pages", pages, "pages")
-	check("pages", pages, prefixed("pages[].", pageFields)...)
+	projects := read("/api/directory/projects", nil)
+	requireNonEmpty(t, "projects", projects, "projects")
+	check("projects", projects, prefixed("projects[].", projectFields)...)
 
 	// opencloud_alerts : canaux, fiche, liste.
 	channels := read("/api/alerts/channels", nil)
@@ -427,6 +428,31 @@ func requireFieldsOfGaps(t *testing.T, where string, gaps map[string]any) {
 
 // Les tableaux de /api/directory/gaps que shapeGaps parcourt ne sont jamais
 // null, de l'annuaire vide aux écarts de toute nature.
+// Le jeton en lecture ouvre la liste des projets, publication comprise : elle
+// remplace l'ancienne liste des pages de statut.
+func TestAPIToken_ReadsDirectoryProjectsWithTheirPublication(t *testing.T) {
+	server := newTestServer(t)
+	storetest.PublishedProject(t, server.db, "maison")
+	bearer := server.issueAPIToken(t, "lecture")
+	got := callBearer(server.Server, "/api/directory/projects", bearer)
+	if got.Code != http.StatusOK {
+		t.Fatalf("projects: %d %s", got.Code, got.Body.String())
+	}
+	var body projectsResponse
+	decodeAPI(t, got, &body)
+	if len(body.Projects) != 1 || body.Projects[0].Publication == nil || body.Projects[0].Publication.Slug != "maison" {
+		t.Fatalf("projects %+v", body.Projects)
+	}
+	one := callBearer(server.Server, "/api/directory/projects/"+body.Projects[0].ID, bearer)
+	if one.Code != http.StatusOK {
+		t.Fatalf("project: %d %s", one.Code, one.Body.String())
+	}
+	// Lecture seule : l'écriture reste refusée au jeton.
+	if got := callBearerWith(server.Server, http.MethodPost, "/api/directory/projects", bearer, ""); got.Code != http.StatusForbidden {
+		t.Fatalf("a token wrote a project: %d", got.Code)
+	}
+}
+
 func TestAPIToken_DirectoryGapsNeverReturnNullArrays(t *testing.T) {
 	for _, scenario := range []struct {
 		name string

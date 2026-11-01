@@ -13,33 +13,21 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/reader"
 )
 
-// Ce que le service attend de la base pour ses propres objets, pages,
-// composants et incidents ; le package store le fournit. Ce qu'il dérive
-// des autres domaines (services, conteneurs, moniteurs, sondes, réglages)
-// se lit par le reader.Reader, tel que leurs composants l'écrivent.
+// Ce que le service attend de la base pour ses propres objets, composants et
+// incidents ; le package store le fournit. Ce qu'il dérive des autres
+// domaines (projets publiés, services, conteneurs, moniteurs, sondes,
+// réglages) se lit par le reader.Reader, tel que leurs composants l'écrivent.
 type Store interface {
-	// InsertPage et UpdatePage refusent un slug pris, un projet inconnu ou
-	// qui a déjà sa page, vérifiés dans leur transaction.
-	InsertPage(ctx context.Context, page Page) error
-	UpdatePage(ctx context.Context, page Page) error
-	ListPages(ctx context.Context) ([]Page, error)
-	GetPage(ctx context.Context, id string) (Page, error)
-	GetPageBySlug(ctx context.Context, slug string) (Page, error)
-	// DeletePage emporte les composants de la page et leurs membres.
-	DeletePage(ctx context.Context, id string) error
-	PageDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
-	CountPages(ctx context.Context) (int, error)
-
-	// InsertComponent refuse une page inconnue.
+	// InsertComponent refuse un projet inconnu.
 	InsertComponent(ctx context.Context, component Component) error
 	UpdateComponent(ctx context.Context, component Component) error
-	// ListComponents rend les composants d'une page ; une page vide les
+	// ListComponents rend les composants d'un projet ; un projet vide les
 	// rend tous.
-	ListComponents(ctx context.Context, pageID string) ([]Component, error)
+	ListComponents(ctx context.Context, projectID string) ([]Component, error)
 	GetComponent(ctx context.Context, id string) (Component, error)
 	DeleteComponent(ctx context.Context, id string) error
 	ComponentDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
-	CountComponents(ctx context.Context, pageID string) (int, error)
+	CountComponents(ctx context.Context, projectID string) (int, error)
 
 	InsertIncident(ctx context.Context, incident Incident) error
 	UpdateIncident(ctx context.Context, incident Incident) error

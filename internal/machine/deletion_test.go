@@ -42,7 +42,7 @@ func TestRemove_IsHeldBackByItsPlanThenPassesOnceDetached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	component, err := pages.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, db, "statut"),
+	component, err := pages.CreateComponent(ctx, status.ComponentDefinition{ProjectID: storetest.PublishedProject(t, db, "statut"),
 		Name:    "Nuage",
 		Members: []status.MemberRef{{Kind: status.KindMachine, ID: remote.ID}, {Kind: status.KindProbe, ID: watched.ID}},
 	})

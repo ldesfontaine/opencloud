@@ -17,12 +17,14 @@ import {
   openingStatuses,
   saysNothing,
   statusesFor,
-  chosenPageID,
-  pageName,
+  componentChoiceLabel,
+  componentPath,
+  newComponentPath,
+  publicPagePath,
   publicStatusPaths,
-  statusPageFormOf,
   toLocalInput,
   updateStatusesFor,
+  worstState,
 } from "./status";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join(" ");
@@ -183,9 +185,10 @@ describe("formulaire de correction", () => {
 describe("componentFormOf et componentRequestOf", () => {
   const component: StatusComponent = {
     id: "cmp_1",
-    page_id: "page_1",
+    project_id: "prj_1",
     name: "Cloud",
     position: 2,
+    implicit: false,
     members: [
       { kind: "probe", id: "prb_1", name: "site", state: "operational", counts: true, present: true },
       { kind: "service", id: "svc_1", name: "nextcloud", state: "", counts: false, present: false },
@@ -197,7 +200,7 @@ describe("componentFormOf et componentRequestOf", () => {
 
   it("renvoient au serveur le composant lu, objets réduits à leur genre et leur identifiant", () => {
     expect(componentRequestOf(componentFormOf(component))).toEqual({
-      page_id: "page_1",
+      project_id: "prj_1",
       name: "Cloud",
       position: 2,
       members: [
@@ -208,43 +211,41 @@ describe("componentFormOf et componentRequestOf", () => {
   });
 
   it("partent d'un composant sans objet, en tête de page", () => {
-    expect(componentRequestOf(emptyComponentForm("page_1"))).toEqual({ page_id: "page_1", name: "", position: 0, members: [] });
+    expect(componentRequestOf(emptyComponentForm("prj_1"))).toEqual({ project_id: "prj_1", name: "", position: 0, members: [] });
   });
 });
 
-describe("statusPageFormOf", () => {
-  it("garde ce qui se règle, pas l'adresse publique ni les dates", () => {
-    const page = {
-      id: "page_1",
-      project_id: "prj_1",
-      slug: "client-a",
-      title: "État",
-      announcement: "Travaux jeudi",
-      language: "fr",
-      public_url: "https://exemple.fr/statut/client-a",
-      created_at: "2026-10-01T10:00:00Z",
-      updated_at: "2026-10-01T10:00:00Z",
-    };
-    expect(statusPageFormOf(page)).toEqual({ slug: "client-a", title: "État", announcement: "Travaux jeudi", language: "fr", project_id: "prj_1" });
+describe("worstState", () => {
+  it("garde le pire, comme le serveur : panne, maintenance, dégradé, opérationnel", () => {
+    expect(worstState(["operational", "degraded"])).toBe("degraded");
+    expect(worstState(["degraded", "maintenance"])).toBe("maintenance");
+    expect(worstState(["maintenance", "down", "operational"])).toBe("down");
+  });
+  it("ne dit rien quand rien ne compte", () => {
+    expect(worstState([])).toBe("");
+    expect(worstState([""])).toBe("");
+    expect(worstState(["", "operational"])).toBe("operational");
   });
 });
 
-describe("pageName", () => {
-  it("prend le titre, sinon l'adresse", () => {
-    expect(pageName({ title: "Client A", slug: "client-a" })).toBe("Client A");
-    expect(pageName({ title: "", slug: "client-a" })).toBe("client-a");
+describe("les adresses de Disponibilité", () => {
+  it("échappent l'identifiant et gardent le projet en query", () => {
+    expect(publicPagePath("prj_a b")).toBe("/disponibilite/pages/prj_a%20b");
+    expect(newComponentPath("prj_1")).toBe("/disponibilite/composants/nouveau?project=prj_1");
+    expect(componentPath("cmp_1")).toBe("/disponibilite/composants/cmp_1");
   });
 });
 
-describe("chosenPageID", () => {
-  const pages = [{ id: "a" }, { id: "b" }];
-  it("garde la page demandée si elle existe", () => {
-    expect(chosenPageID(pages, "b")).toBe("b");
-  });
-  it("prend la première sinon, et aucune sans page", () => {
-    expect(chosenPageID(pages, "disparue")).toBe("a");
-    expect(chosenPageID(pages, null)).toBe("a");
-    expect(chosenPageID([], "a")).toBeNull();
+describe("componentChoiceLabel", () => {
+  const projects = [
+    { id: "prj_1", name: "client-a", title: "Client A" },
+    { id: "prj_2", name: "client-b", title: "" },
+  ];
+  it("ne nomme le projet qu'à partir de deux, deux projets pouvant avoir chacun leur « Site web »", () => {
+    expect(componentChoiceLabel({ name: "Site web", project_id: "prj_1" }, projects.slice(0, 1))).toBe("Site web");
+    expect(componentChoiceLabel({ name: "Site web", project_id: "prj_1" }, projects)).toBe("Client A · Site web");
+    expect(componentChoiceLabel({ name: "Site web", project_id: "prj_2" }, projects)).toBe("client-b · Site web");
+    expect(componentChoiceLabel({ name: "Site web", project_id: "" }, projects)).toBe("Site web");
   });
 });
 

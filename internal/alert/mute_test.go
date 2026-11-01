@@ -272,7 +272,7 @@ func TestMaintenance_OfTheStatusPage_NoLongerMutes(t *testing.T) {
 	ctx := context.Background()
 	page := status.New(f.db, f.db, f.machines, discardLogger())
 	page.SetClock(func() time.Time { return f.clock })
-	_, err := page.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, f.db, "statut"), Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}}})
+	_, err := page.CreateComponent(ctx, status.ComponentDefinition{ProjectID: storetest.PublishedProject(t, f.db, "statut"), Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}}})
 	if err != nil {
 		t.Fatal(err)
 	}

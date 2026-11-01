@@ -23,7 +23,7 @@ import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
 import type { Session } from "./session";
 import type { VerbRequest, VerbRequestsResponse } from "./verbRequests";
-import type { Incident, IncidentsResponse, PublicStatus, StatusComponent, StatusComponentsResponse, StatusPagesResponse } from "./status";
+import type { Incident, IncidentsResponse, PublicStatus, StatusComponent, StatusComponentsResponse } from "./status";
 
 // Le contrat de l'API est écrit deux fois : en Go (les balises json) et ici
 // (les types de api/*.ts). Les réponses figées par les goldens du serveur
@@ -581,7 +581,22 @@ const declaredService = shape<DeclaredServiceDetail>("DeclaredServiceDetail", {
 });
 
 const projects = shape<ProjectsResponse>("ProjectsResponse", {
-  projects: shape("Project", { id: value, name: value, title: value, service_ids: value, created_at: value, updated_at: value }),
+  projects: shape("Project", {
+    id: value,
+    name: value,
+    title: value,
+    service_ids: value,
+    // Nul pour un projet non publié : le contrat garde la forme de la page.
+    publication: shape<NonNullable<ProjectsResponse["projects"][number]["publication"]>>("ProjectPublication", {
+      slug: value,
+      announcement: value,
+      language: value,
+      public_url: value,
+      published_at: value,
+    }),
+    created_at: value,
+    updated_at: value,
+  }),
 });
 
 type ServiceGapJSON = GapsResponse["services"][number];
@@ -734,9 +749,10 @@ const incidentUpdate = shape<IncidentUpdateJSON>("IncidentUpdate", { status: val
 
 const statusComponent = shape<StatusComponent>("StatusComponent", {
   id: value,
-  page_id: value,
+  project_id: value,
   name: value,
   position: value,
+  implicit: value,
   members: shape("StatusMember", { kind: value, id: value, name: value, state: value, counts: value, present: value }),
   derived: value,
   effective: value,
@@ -1081,19 +1097,6 @@ const contract: Record<string, Shape<unknown>> = {
   }),
   "status_incident.golden.json": incident,
   "status_incidents.golden.json": shape<IncidentsResponse>("IncidentsResponse", { incidents: incident }),
-  "status_pages.golden.json": shape<StatusPagesResponse>("StatusPagesResponse", {
-    pages: shape("StatusPage", {
-      id: value,
-      project_id: value,
-      slug: value,
-      title: value,
-      announcement: value,
-      language: value,
-      public_url: value,
-      created_at: value,
-      updated_at: value,
-    }),
-  }),
   "status_public.golden.json": publicStatus,
 };
 

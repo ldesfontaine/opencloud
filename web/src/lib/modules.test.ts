@@ -5,7 +5,7 @@ import type { Machine } from "../api/machines";
 import { knownMachineTabs, machineTabsOf, menuEntries, moduleHref, modulesToConfigure, moduleSetupHref, type ModuleID } from "./modules";
 
 function countsWith(configured: ModuleID[]): Counts {
-  const all: ModuleID[] = ["probes", "firewall", "backups", "jobs", "status"];
+  const all: ModuleID[] = ["probes", "firewall", "backups", "jobs"];
   return {
     machines: { total: 3, online: 2 },
     jobs: { total: 2, attention: 1 },
@@ -46,24 +46,35 @@ test("un module n'entre au menu que configuré, à son rang", () => {
 });
 
 test("le pare-feu et les sauvegardes sont au niveau de Machines, avant Services", () => {
-  const keys = labels(menuEntries(countsWith(["backups", "firewall", "status", "probes", "jobs"])));
+  const keys = labels(menuEntries(countsWith(["backups", "firewall", "probes", "jobs"])));
   expect(keys.indexOf("machines")).toBeLessThan(keys.indexOf("firewall"));
   expect(keys.indexOf("firewall")).toBeLessThan(keys.indexOf("backups"));
   expect(keys.indexOf("backups")).toBeLessThan(keys.indexOf("services"));
-  expect(keys.indexOf("probes")).toBeLessThan(keys.indexOf("status"));
-  expect(keys.indexOf("status")).toBeLessThan(keys.indexOf("jobs"));
+  expect(keys.indexOf("services")).toBeLessThan(keys.indexOf("probes"));
+  expect(keys.indexOf("probes")).toBeLessThan(keys.indexOf("jobs"));
   expect(keys.indexOf("jobs")).toBeLessThan(keys.indexOf("alerts"));
 });
 
 test("les compteurs : machines en rouge dès qu'une est hors ligne, tâches à traiter, alertes non acquittées", () => {
-  const byKey = new Map(menuEntries(countsWith(["jobs", "probes", "status"])).map((entry) => [entry.key, entry.counter]));
+  const byKey = new Map(menuEntries(countsWith(["jobs", "probes"])).map((entry) => [entry.key, entry.counter]));
   expect(byKey.get("machines")).toEqual({ value: 3, hot: true });
   expect(byKey.get("jobs")).toEqual({ value: 1, hot: true });
   expect(byKey.get("probes")).toEqual({ value: 5, hot: true });
-  expect(byKey.get("status")).toEqual({ value: 1, hot: true });
   expect(byKey.get("services")).toEqual({ value: 4, hot: false });
   expect(byKey.get("alerts")).toEqual({ value: 3, hot: true });
   expect(byKey.get("overview")).toBeNull();
+});
+
+// Disponibilité réunit les sondes et les pages publiques sous une seule entrée :
+// le chiffre est celui des sondes, rouge pour une sonde hors ligne ou un
+// incident ouvert ; sans sonde, les incidents ouverts parlent seuls.
+test("Disponibilité : un seul chiffre pour les sondes et les incidents", () => {
+  const hot = (counts: Counts) => new Map(menuEntries(counts).map((entry) => [entry.key, entry.counter])).get("probes");
+  const base = countsWith(["probes"]);
+  expect(hot({ ...base, probes: { total: 5, attention: 0 }, status: { open_incidents: 0 } })).toEqual({ value: 5, hot: false });
+  expect(hot({ ...base, probes: { total: 5, attention: 0 }, status: { open_incidents: 2 } })).toEqual({ value: 5, hot: true });
+  expect(hot({ ...base, probes: { total: 0, attention: 0 }, status: { open_incidents: 2 } })).toEqual({ value: 2, hot: true });
+  expect(hot({ ...base, probes: { total: 0, attention: 0 }, status: { open_incidents: 0 } })).toBeNull();
 });
 
 test("les onglets d'une machine : les fixes, puis ceux des modules qu'elle porte, dans l'ordre", () => {
@@ -82,10 +93,10 @@ test("chaque onglet connu a son libellé : fixe, ou celui de son module", () => 
 
 test("la vue d'ensemble signale les modules sans objet, et l'hôte Proxmox d'une machine au rôle Proxmox", () => {
   const todos = modulesToConfigure(countsWith(["jobs"]), [machineWith("pve", ["hypervisor"]), machineWith("declared", ["hypervisor"], true), machineWith("dock", ["containers"])]);
-  expect(todos.map((todo) => todo.module)).toEqual(["probes", "firewall", "backups", "status", "hypervisor"]);
+  expect(todos.map((todo) => todo.module)).toEqual(["probes", "firewall", "backups", "hypervisor"]);
   const hypervisor = todos.at(-1);
   expect(hypervisor).toMatchObject({ kind: "hypervisor", machineName: "pve", href: "/machines/id-pve/hyperviseur" });
-  expect(modulesToConfigure(countsWith(["probes", "firewall", "backups", "jobs", "status"]), [])).toEqual([]);
+  expect(modulesToConfigure(countsWith(["probes", "firewall", "backups", "jobs"]), [])).toEqual([]);
   expect(modulesToConfigure(null, [])).toEqual([]);
 });
 
