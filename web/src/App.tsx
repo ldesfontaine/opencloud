@@ -144,6 +144,7 @@ export function App() {
           <Route path="nouveau" element={<FirewallWizard />} />
         </Route>
         <Route path="pare-feu/:id" element={<FirewallPage />}>
+          <Route path="flux" element={null} />
           <Route path="modifier" element={<FirewallWizard />} />
         </Route>
         <Route path="taches" element={<Jobs />}>

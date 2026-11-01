@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"time"
 
@@ -98,14 +100,23 @@ type firewallRulesResponse struct {
 	Rules []firewallRuleJSON `json:"rules"`
 }
 
+// firewallLeaseMachineJSON est la machine d'openCloud que le bail désigne, par
+// sa carte réseau ou son adresse.
+type firewallLeaseMachineJSON struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type firewallLeaseJSON struct {
-	Address   string     `json:"address"`
-	MAC       string     `json:"mac"`
-	Hostname  string     `json:"hostname"`
-	Interface string     `json:"interface"`
-	Server    string     `json:"server"`
-	IsStatic  bool       `json:"is_static"`
-	ExpiresAt *time.Time `json:"expires_at"`
+	// Machine : nulle quand aucune machine connue ne correspond.
+	Machine   *firewallLeaseMachineJSON `json:"machine"`
+	Address   string                    `json:"address"`
+	MAC       string                    `json:"mac"`
+	Hostname  string                    `json:"hostname"`
+	Interface string                    `json:"interface"`
+	Server    string                    `json:"server"`
+	IsStatic  bool                      `json:"is_static"`
+	ExpiresAt *time.Time                `json:"expires_at"`
 }
 
 type firewallLeasesResponse struct {
@@ -249,10 +260,15 @@ func (s *Server) listFirewallLeases(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	known, err := s.knownMachines(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
 	s.writeAPI(w, http.StatusOK, firewallLeasesResponse{
 		firewallReadingJSON: firewallReadingOf(view),
 		Leases: httpx.ConvertAll(view.Leases, func(lease firewall.Lease) firewallLeaseJSON {
 			return firewallLeaseJSON{
+				Machine: leaseMachineOf(lease, known),
 				Address: lease.Address, MAC: lease.MAC, Hostname: lease.Hostname, Interface: lease.Interface,
 				Server: lease.Server, IsStatic: lease.IsStatic, ExpiresAt: httpx.TimeOrNil(lease.ExpiresAt),
 			}
@@ -300,4 +316,33 @@ func (s *Server) writeFirewallDetail(w http.ResponseWriter, r *http.Request, id 
 
 func (s *Server) deleteFirewall(w http.ResponseWriter, r *http.Request) {
 	s.finishAPIAction(w, r, s.firewalls.Remove(r.Context(), r.PathValue("id")), firewall.ErrNotFound)
+}
+
+// knownMachines : les machines d'openCloud, réduites à ce qui les reconnaît
+// dans un bail.
+func (s *Server) knownMachines(ctx context.Context) ([]firewall.KnownMachine, error) {
+	statuses, err := s.machines.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	known := make([]firewall.KnownMachine, 0, len(statuses))
+	for _, status := range statuses {
+		known = append(known, firewall.KnownMachine{ID: status.ID, Name: status.Name, Host: hostWithoutPort(status.Address), MACs: status.MACs})
+	}
+	return known, nil
+}
+
+func hostWithoutPort(address string) string {
+	if host, _, err := net.SplitHostPort(address); err == nil {
+		return host
+	}
+	return address
+}
+
+func leaseMachineOf(lease firewall.Lease, known []firewall.KnownMachine) *firewallLeaseMachineJSON {
+	found, ok := firewall.MatchMachine(lease, known)
+	if !ok {
+		return nil
+	}
+	return &firewallLeaseMachineJSON{ID: found.ID, Name: found.Name}
 }

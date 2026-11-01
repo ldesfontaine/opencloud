@@ -45,6 +45,7 @@ DELETE /api/firewalls/{id}
 GET /api/firewalls/{id}/rules
 GET /api/firewalls/{id}/interfaces
 GET /api/firewalls/{id}/leases
+GET /api/firewalls/{id}/flows
 GET /api/ssh-keys
 GET /api/network
 GET /api/containers

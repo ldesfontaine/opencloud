@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -81,7 +82,11 @@ func seedE2E(t *testing.T, ts *testServer) {
 func seedE2EVirtualized(t *testing.T, ts *testServer) {
 	t.Helper()
 	for _, id := range []string{remoteID, machine.LocalID} {
-		if _, err := ts.db.ReplaceHostReport(context.Background(), id, machine.KindVM, hostinfo.Report{}); err != nil {
+		report := hostinfo.Report{}
+		if id == remoteID {
+			report.Interfaces = []hostinfo.Interface{{Name: "eth0", MAC: e2eRemoteMAC}}
+		}
+		if _, err := ts.db.ReplaceHostReport(context.Background(), id, machine.KindVM, report); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -124,7 +129,57 @@ func seedE2EBackups(t *testing.T, ts *testServer) {
 // seedE2EFirewall déclare un pare-feu OPNsense sur le faux serveur des bancs.
 func seedE2EFirewall(t *testing.T, ts *testServer) {
 	t.Helper()
-	declareFirewallThroughAPI(t, ts, opnsensetest.New(t))
+	fake := opnsensetest.New(t)
+	fake.Answer(opnsensetest.InterfacesPath, http.StatusOK, e2eFirewallInterfaces)
+	fake.Answer(opnsensetest.RulesPath, http.StatusOK, e2eFirewallRules())
+	fake.Answer(opnsensetest.DnsmasqLeasesPath, http.StatusOK, e2eFirewallLeases)
+	declareFirewallThroughAPI(t, ts, fake)
+}
+
+// e2eFirewallInterfaces : quatre zones, dont une sans lien, pour que la fiche
+// montre des cartes de chaque état.
+const e2eFirewallInterfaces = `{"total":4,"rowCount":4,"current":1,"rows":[
+	{"identifier":"wan","device":"igb0","description":"WAN","status":"up","addr4":"203.0.113.2/24"},
+	{"identifier":"lan","device":"igb1","description":"LAN","status":"up","addr4":"192.168.1.1/24"},
+	{"identifier":"opt1","device":"igb2","description":"DMZ","status":"down","addr4":"10.0.20.1/24"},
+	{"identifier":"opt2","device":"igb3","description":"IA","status":"no carrier","addr4":"10.0.30.1/24"}]}`
+
+// e2eFirewallLeases : le bail dnsmasq dont la carte réseau est celle de la
+// machine distante des données fictives (e2eRemoteMAC) ; les baux Kea et ISC du
+// faux restent ceux d'appareils inconnus.
+const e2eFirewallLeases = `{"total":1,"rowCount":1,"current":1,"rows":[
+	{"if_descr":"LAN","address":"192.168.1.20","hwaddr":"` + e2eRemoteMAC + `","hostname":"vps-lyon","expire":1800003600,"lease_type":"dynamic"}]}`
+
+// e2eRemoteMAC : la carte réseau que la machine distante rapporte.
+const e2eRemoteMAC = "aa:bb:cc:dd:ee:ff"
+
+// e2eFirewallRules : de quoi remplir la grille « qui parle à qui » : des règles
+// passantes, des refus en toutes lettres, une règle éteinte, une flottante.
+func e2eFirewallRules() string {
+	type rule struct{ iface, action, proto, source, destination, port, description string }
+	rules := []rule{
+		{"lan", "pass", "TCP", "192.168.1.0/24", "any", "443", "Web sortant"},
+		{"lan", "pass", "UDP", "any", "(self)", "53", "DNS"},
+		{"lan", "pass", "TCP", "any", "(self)", "22", "Administration SSH"},
+		{"lan", "pass", "TCP", "192.168.1.20", "10.0.20.0/24", "8006", "Proxmox"},
+		{"lan", "block", "any", "any", "wan", "", "Pas de VPS"},
+		{"wan", "block", "any", "any", "(self)", "", "Pas d'accès à l'administration"},
+		{"wan", "pass", "TCP", "any", "10.0.20.5", "443", "Proxy public"},
+		{"opt1", "pass", "TCP", "10.0.20.0/24", "any", "80", "Mises à jour"},
+		{"opt1", "block", "any", "any", "192.168.1.0/24", "", "La DMZ ne rentre pas"},
+		{"opt1", "pass", "TCP", "any", "any", "25", "Courrier (éteinte)"},
+		{"", "pass", "any", "any", "any", "", "Règle flottante"},
+	}
+	var rows []string
+	for index, r := range rules {
+		enabled := "1"
+		if strings.Contains(r.description, "éteinte") {
+			enabled = "0"
+		}
+		rows = append(rows, fmt.Sprintf(`{"uuid":"22222222-aaaa-bbbb-cccc-%012d","enabled":%q,"interface":%q,"action":%q,"direction":"in","protocol":%q,"source_net":%q,"destination_net":%q,"destination_port":%q,"description":%q}`,
+			index, enabled, r.iface, r.action, r.proto, r.source, r.destination, r.port, r.description))
+	}
+	return fmt.Sprintf(`{"total":%d,"rowCount":%d,"current":1,"rows":[%s]}`, len(rows), len(rows), strings.Join(rows, ","))
 }
 
 // seedE2EApply passe un fichier modifié à l'annuaire : le journal des fichiers

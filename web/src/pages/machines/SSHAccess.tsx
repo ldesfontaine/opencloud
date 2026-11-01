@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { useSSHKeyMatrix } from "../../api/sshkeys";
 import { Card, CardBody, EmptyCard } from "../../components/Card";
+import { Choice } from "../../components/Choice";
 import { Failure } from "../../components/Failure";
 import { Pill } from "../../components/Pill";
 import { Table } from "../../components/Table";
@@ -85,34 +86,6 @@ function verdictFact(t: Translate, summary: AccessSummary): string {
     return summary.partial === 1 ? t("ssh.access_fact_partial_one", summary.partial) : t("ssh.access_fact_partial", summary.partial);
   }
   return t("ssh.access_fact_ok");
-}
-
-// Un choix parmi quelques-uns : le segment de la direction artistique.
-function Choice<Value extends string>({
-  label,
-  name,
-  choices,
-  value,
-  text,
-  onChange,
-}: {
-  label: string;
-  name: string;
-  choices: readonly Value[];
-  value: Value;
-  text: (choice: Value) => string;
-  onChange: (choice: Value) => void;
-}) {
-  return (
-    <span className="seg" role="radiogroup" aria-label={label}>
-      {choices.map((choice) => (
-        <label key={choice}>
-          <input type="radio" name={name} checked={value === choice} onChange={() => onChange(choice)} />
-          <span>{text(choice)}</span>
-        </label>
-      ))}
-    </span>
-  );
 }
 
 function KeyTable({ rows }: { rows: KeyAccess[] }) {

@@ -4,20 +4,24 @@ import type { FirewallRule } from "../api/firewalls";
 import type { Translate } from "../i18n/context";
 import {
   directionLabel,
+  filterRules,
   endpointLabel,
   firewallState,
   firewallStateLabel,
   firewallTone,
   gatewayDelay,
   gatewayLoss,
+  gatewayTotals,
   gatewayTone,
+  groupRulesByInterface,
+  interfaceCardTone,
   interfaceStatusLabel,
   interfaceTone,
   readErrorLabel,
   ruleActionLabel,
   ruleActionTone,
-  ruleInterfaces,
-  rulesOfInterface,
+  ruleKind,
+  ruleTotals,
   shortAddress,
 } from "./firewalls";
 
@@ -91,12 +95,66 @@ test("une adresse et son port se lisent côte à côte, « any » quand l'adress
   expect(endpointLabel("(self)", "")).toBe("(self)");
 });
 
-test("les interfaces des règles sont dédoublonnées, une règle pouvant en nommer plusieurs", () => {
-  const rules = [rule({ interface: "lan,opt1" }), rule({ interface: "wan" }), rule({ interface: "lan" }), rule({ interface: "" })];
-  expect(ruleInterfaces(rules)).toEqual(["lan", "opt1", "wan"]);
-  expect(rulesOfInterface(rules, "opt1")).toHaveLength(1);
-  expect(rulesOfInterface(rules, "lan")).toHaveLength(2);
-  expect(rulesOfInterface(rules, "")).toHaveLength(4);
+test("une règle éteinte ne fait rien ; les autres passent, bloquent, ou sont d'une action inconnue", () => {
+  expect(ruleKind(rule())).toBe("pass");
+  expect(ruleKind(rule({ action: "block" }))).toBe("block");
+  expect(ruleKind(rule({ action: "reject" }))).toBe("block");
+  expect(ruleKind(rule({ action: "weird" }))).toBe("other");
+  expect(ruleKind(rule({ action: "pass", is_enabled: false }))).toBe("off");
+});
+
+test("les totaux comptent chaque genre, une action inconnue ne compte que dans le tout", () => {
+  const rules = [rule(), rule(), rule({ action: "block" }), rule({ action: "weird" }), rule({ is_enabled: false })];
+  expect(ruleTotals(rules)).toEqual({ all: 5, pass: 2, block: 1, off: 1 });
+  expect(ruleTotals([])).toEqual({ all: 0, pass: 0, block: 0, off: 0 });
+});
+
+test("le filtre garde un genre, et chaque mot cherché doit se trouver dans la règle", () => {
+  const rules = [
+    rule({ description: "Web sortant", destination_port: "443" }),
+    rule({ description: "DNS", protocol: "UDP", destination_port: "53", destination: "(self)" }),
+    rule({ action: "block", description: "Pas de VPS" }),
+    rule({ description: "Courrier", is_enabled: false }),
+  ];
+  expect(filterRules(rules, "all", "")).toHaveLength(4);
+  expect(filterRules(rules, "pass", "")).toHaveLength(2);
+  expect(filterRules(rules, "block", "")).toHaveLength(1);
+  expect(filterRules(rules, "off", "")).toHaveLength(1);
+  expect(filterRules(rules, "all", "dns")).toHaveLength(1);
+  expect(filterRules(rules, "all", "udp 53")).toHaveLength(1);
+  expect(filterRules(rules, "all", "udp 443")).toHaveLength(0);
+  expect(filterRules(rules, "pass", "courrier")).toHaveLength(0);
+  expect(filterRules(rules, "all", "   ")).toHaveLength(4);
+});
+
+test("les règles se groupent par interface dans l'ordre du pare-feu ; une règle à deux interfaces est dans les deux", () => {
+  const interfaces = [
+    { name: "wan", role: "WAN" },
+    { name: "lan", role: "LAN" },
+    { name: "opt1", role: "" },
+  ];
+  const rules = [rule({ interface: "lan,opt1" }), rule({ interface: "wan" }), rule({ interface: "lan" })];
+  const groups = groupRulesByInterface(rules, interfaces);
+  expect(groups.map((group) => [group.name, group.label, group.rules.length])).toEqual([
+    ["wan", "WAN", 1],
+    ["lan", "LAN", 2],
+    ["opt1", "opt1", 1],
+  ]);
+});
+
+test("une interface que le relevé ne liste pas, et la règle flottante, ont leur groupe après les autres", () => {
+  const groups = groupRulesByInterface([rule({ interface: "ovpn" }), rule({ interface: "" }), rule({ interface: "lan" })], [{ name: "lan", role: "LAN" }]);
+  expect(groups.map((group) => group.name)).toEqual(["lan", "ovpn", ""]);
+});
+
+test("les passerelles se comptent : en ligne, coupées, et le reste", () => {
+  expect(gatewayTotals([{ status: "online" }, { status: "online" }, { status: "offline" }, { status: "degraded" }, { status: "unknown" }])).toEqual({ all: 5, online: 2, offline: 1, other: 2 });
+});
+
+test("la carte d'une interface suit son état", () => {
+  expect(interfaceCardTone("up")).toBe("up");
+  expect(interfaceCardTone("down")).toBe("down");
+  expect(interfaceCardTone("no carrier")).toBe("other");
 });
 
 test("l'adresse de l'API perd son schéma pour une ligne étroite", () => {

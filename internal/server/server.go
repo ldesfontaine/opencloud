@@ -30,6 +30,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
+	"github.com/ldesfontaine/opencloud/internal/policy"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
@@ -304,6 +305,8 @@ type FirewallService interface {
 	Declare(ctx context.Context, definition firewall.Definition) (string, error)
 	Redeclare(ctx context.Context, id string, definition firewall.Definition) error
 	Remove(ctx context.Context, id string) error
+	// Policy traduit la fiche vers le modèle des échanges (internal/policy).
+	Policy(view firewall.View) (policy.Model, error)
 }
 
 // Ce que le serveur attend du composant backup : les gestes de la page

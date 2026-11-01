@@ -11,6 +11,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/ident"
+	"github.com/ldesfontaine/opencloud/internal/policy"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -55,12 +56,13 @@ type Watcher interface {
 }
 
 type Service struct {
-	store      Store
-	connectors map[string]Factory
-	watcher    Watcher
-	auditor    *audit.Recorder
-	logger     *slog.Logger
-	now        func() time.Time
+	store       Store
+	connectors  map[string]Factory
+	translators map[string]Translator
+	watcher     Watcher
+	auditor     *audit.Recorder
+	logger      *slog.Logger
+	now         func() time.Time
 
 	// reading ne laisse lire qu'un pare-feu à la fois, et ne laisse pas un
 	// relevé qui a commencé avec l'ancienne connexion écrire après une
@@ -69,7 +71,7 @@ type Service struct {
 }
 
 func New(store Store, logger *slog.Logger) *Service {
-	return &Service{store: store, connectors: map[string]Factory{}, logger: logger, now: time.Now}
+	return &Service{store: store, connectors: map[string]Factory{}, translators: map[string]Translator{}, logger: logger, now: time.Now}
 }
 
 func (s *Service) SetWatcher(watcher Watcher)         { s.watcher = watcher }
@@ -78,6 +80,22 @@ func (s *Service) SetClock(now func() time.Time)      { s.now = now }
 
 // SetConnector enseigne au service comment lire un genre de pare-feu.
 func (s *Service) SetConnector(kind string, factory Factory) { s.connectors[kind] = factory }
+
+// SetTranslator enseigne au service comment ramener le relevé d'un genre de
+// pare-feu au modèle des échanges (internal/policy).
+func (s *Service) SetTranslator(kind string, translator Translator) { s.translators[kind] = translator }
+
+// Policy traduit la fiche d'un pare-feu vers le modèle des échanges ; un genre
+// que le câblage n'a pas enseigné est refusé comme un genre inconnu.
+func (s *Service) Policy(view View) (policy.Model, error) {
+	translator, known := s.translators[view.Kind]
+	if !known {
+		return policy.Model{}, ErrKindInvalid
+	}
+	return translator(Snapshot{
+		Version: view.Version, Interfaces: view.Interfaces, Rules: view.Rules, Leases: view.Leases, Gateways: view.Gateways,
+	}), nil
+}
 
 func (s *Service) changed() {
 	if s.watcher != nil {

@@ -8,7 +8,7 @@ import type { BackupCoverage, BackupDestination, BackupInventory, BackupKeyring,
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
-import type { Firewall, FirewallCounts, FirewallDetail, FirewallInterfacesResponse, FirewallLeasesResponse, FirewallRulesResponse, FirewallsResponse } from "./firewalls";
+import type { Firewall, FirewallCounts, FirewallDetail, FirewallFlowsResponse, FirewallInterfacesResponse, FirewallLeasesResponse, FirewallRulesResponse, FirewallsResponse, FlowEndpoint, FlowRule } from "./firewalls";
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
@@ -999,7 +999,41 @@ const firewallRules = shape<FirewallRulesResponse>("FirewallRulesResponse", {
 
 const firewallLeases = shape<FirewallLeasesResponse>("FirewallLeasesResponse", {
   ...firewallReading,
-  leases: shape("FirewallLease", { address: value, mac: value, hostname: value, interface: value, server: value, is_static: value, expires_at: value }),
+  leases: shape("FirewallLease", {
+    machine: shape("FirewallLeaseMachine", { id: value, name: value }),
+    address: value,
+    mac: value,
+    hostname: value,
+    interface: value,
+    server: value,
+    is_static: value,
+    expires_at: value,
+  }),
+});
+
+const flowEndpoint = shape<FlowEndpoint>("FlowEndpoint", { zone: value, object: value, except: value });
+
+const flowRule = shape<FlowRule>("FlowRule", {
+  ref: value,
+  from: flowEndpoint,
+  to: flowEndpoint,
+  protocol: value,
+  port: value,
+  source_port: value,
+  why: value,
+  effect: value,
+  is_enabled: value,
+});
+
+const firewallFlows = shape<FirewallFlowsResponse>("FirewallFlowsResponse", {
+  ...firewallReading,
+  zones: shape("FlowZone", { id: value, label: value, kind: value, network: value, is_up: value }),
+  objects: shape("FlowObject", { id: value, kind: value, label: value, zone: value, is_negated: value }),
+  rows: value,
+  columns: value,
+  cells: shape("FlowCell", { from: value, to: value, allowed: flowRule, denied: flowRule }),
+  unplaced: flowRule,
+  disabled: value,
 });
 
 const firewalls = shape<FirewallsResponse>("FirewallsResponse", { firewalls: firewall, limit: value });
@@ -1045,6 +1079,7 @@ const contract: Record<string, Shape<unknown>> = {
   "directory_proposal.golden.json": proposal,
   "firewall.golden.json": firewallDetail,
   "firewall_interfaces.golden.json": firewallInterfaces,
+  "firewall_flows.golden.json": firewallFlows,
   "firewall_leases.golden.json": firewallLeases,
   "firewall_rules.golden.json": firewallRules,
   "firewalls.golden.json": firewalls,

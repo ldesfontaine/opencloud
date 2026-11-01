@@ -3,6 +3,8 @@ package firewall
 import (
 	"context"
 	"fmt"
+
+	"github.com/ldesfontaine/opencloud/internal/policy"
 )
 
 // Connector lit un pare-feu, en lecture seule. Il n'a aucune méthode qui
@@ -20,6 +22,10 @@ type Connector interface {
 // Factory construit le connecteur d'un pare-feu déclaré. Le câblage en pose
 // une par genre (Service.SetConnector).
 type Factory func(credentials Credentials) Connector
+
+// Translator ramène le relevé d'un genre de pare-feu au modèle des échanges ;
+// chaque connecteur fournit le sien, sans appel réseau.
+type Translator func(snapshot Snapshot) policy.Model
 
 // Read fait un relevé complet. Au premier échec rien n'est rendu : un relevé
 // à moitié lu remplacerait du vrai par du faux.

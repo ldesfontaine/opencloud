@@ -9,6 +9,12 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/counts")).not.toContain("resources");
   });
 
+  it("relit les baux d'un pare-feu quand une machine change : ils désignent des machines", () => {
+    expect(topicsOf("/api/firewalls/fw1/leases")).toEqual(["firewalls", "machines"]);
+    expect(topicsOf("/api/firewalls/fw1/rules")).toEqual(["firewalls"]);
+    expect(topicsOf("/api/firewalls/fw1/flows")).toEqual(["firewalls"]);
+  });
+
   it("sends the declared directory to its own topic, though its path says services", () => {
     expect(topicsOf("/api/directory/services")).toEqual(["directory"]);
     expect(topicsOf("/api/directory/services/svc_1")).toEqual(["directory"]);

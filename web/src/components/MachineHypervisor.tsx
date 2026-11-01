@@ -26,6 +26,7 @@ import {
 } from "../lib/proxmox";
 import { capabilityLabelKey } from "../lib/machines";
 import { reenrollPath } from "../lib/rights";
+import { hintText } from "../lib/credential";
 import { formatWhen } from "../lib/time";
 import { formatBytes, formatDecimal, meterTone } from "../lib/units";
 import { reasonText } from "./ActionsCard";
@@ -97,7 +98,7 @@ function HostCard({ machine, host }: { machine: Machine; host: ProxmoxHost }) {
         <KeyValue label={t("machine.proxmox_field_api")} value={host.api_url} mono />
         <KeyValue label={t("machine.proxmox_field_version")} value={host.version === "" ? "—" : host.version} mono />
         {host.node !== "" && <KeyValue label={t("machine.proxmox_field_node")} value={host.node} mono />}
-        <KeyValue label={t("machine.proxmox_field_token")} value={host.token_id_hint} mono />
+        <KeyValue label={t("machine.proxmox_field_token")} value={hintText(t, host.token_id_hint)} mono />
         <KeyValue label={t("machine.proxmox_field_read")} value={host.last_read_at === null ? t("machine.proxmox_never_read") : formatWhen(host.last_read_at, now)} />
         <KeyValue label={t("machine.proxmox_field_certificate")} value={host.pin === "" ? t("machine.proxmox_system_trust") : t("machine.proxmox_pinned")} />
         <Failure error={removal.error} />

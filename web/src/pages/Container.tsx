@@ -1,5 +1,4 @@
-import { useEffect, useRef } from "react";
-import { Link, useLocation, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import { useContainer, type Container, type ContainerResponse, type Transition } from "../api/containers";
 import { useOfflineMachines } from "../components/AgentGate";
@@ -14,6 +13,7 @@ import { Dot, ContainerPill } from "../components/Pill";
 import { List, RowText, RowWhen } from "../components/Table";
 import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
+import { useScrollToHash } from "../hooks/useScrollToHash";
 import { useI18n } from "../i18n/context";
 import { findingText, formatBindings, containerPill, isCleanExit, lastStateText, transitionPassage } from "../lib/containers";
 import { modeText } from "../lib/network";
@@ -208,15 +208,9 @@ function ContainerHistory({ transitions, now }: { transitions: Transition[]; now
 function LogsCard({ containerID, machineID }: { containerID: string; machineID: string }) {
   const { t } = useI18n();
   const offline = useOfflineMachines([machineID]);
-  const { hash } = useLocation();
-  const card = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (hash === "#journaux") {
-      card.current?.scrollIntoView({ block: "start" });
-    }
-  }, [hash]);
+  useScrollToHash();
   return (
-    <div id="journaux" ref={card}>
+    <div id="journaux">
       <Card>
         <CardHeader title={t("container.logs_title")} />
         {offline !== null && offline.length > 0 && (

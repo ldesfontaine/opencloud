@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openCloud · Fiche pare-feu (maquette)</title>
+<!-- Maquette de la fiche d'un pare-feu (U5). Données fictives (adresses de
+documentation seulement). ?theme=dark&tab=flux&open=lan dans l'adresse. -->
+<style>
+/* Jetons : docs/projet/21-direction-artistique.md, tels quels. */
+:root{
+  --bg:#f6f6f8;--surface:#fff;--surface-2:#f1f2f5;--line:#e5e7ec;--line-strong:#d3d6de;
+  --ink:#101216;--ink-2:#4b5160;--muted:#7a8194;--accent:#5b5be6;--accent-wash:#eeeefc;
+  --ok:#1f9d57;--ok-wash:#e4f6ec;--warn:#d78d0c;--warn-wash:#fdf2dc;--danger:#de4350;--danger-wash:#fde9eb;
+  --primary:#101216;--primary-ink:#fff;
+  --sans:"Geist",ui-sans-serif,"Segoe UI",system-ui,sans-serif;--mono:"Geist Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+[data-theme=dark]{
+  --bg:#0d0e12;--surface:#15171c;--surface-2:#1c1f26;--line:#262a33;--line-strong:#353a47;
+  --ink:#eef0f4;--ink-2:#b3b8c4;--muted:#7d8494;--accent:#7c7cf0;--accent-wash:#1f2040;
+  --ok:#3ac776;--ok-wash:#12301f;--warn:#f0a92a;--warn-wash:#33260d;--danger:#f06470;--danger-wash:#3a1a1e;
+  --primary:#eef0f4;--primary-ink:#101216;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:400 13px/1.45 var(--sans)}
+button,input{font:inherit;color:inherit}
+.mono{font-family:var(--mono);font-size:12px}.muted{color:var(--muted)}
+.ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.main{padding:28px 32px;max-width:1240px;margin:0 auto}
+
+.head{display:flex;align-items:flex-start;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.head h1{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0}
+.head p{margin:4px 0 0;color:var(--ink-2)}
+.head .actions{margin-left:auto;display:flex;gap:8px}
+.btn{height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line-strong);background:var(--surface);display:inline-flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,22,.05);white-space:nowrap}
+.btn.danger{color:var(--danger)}
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.tab{padding:8px 0 10px;color:var(--ink-2);cursor:pointer;border:0;background:none;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}
+.pill:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.sm{height:20px;padding:0 8px;font-size:11px}
+.pill.nodot:before{display:none}
+.t-ok{background:var(--ok-wash);color:var(--ok)}.t-warn{background:var(--warn-wash);color:var(--warn)}
+.t-danger{background:var(--danger-wash);color:var(--danger)}.t-neutral{background:var(--surface-2);color:var(--muted)}
+.t-accent{background:var(--accent-wash);color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.card-h{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line)}
+.card-t{font-weight:600;font-size:14px}.card-s{margin-left:auto;color:var(--muted)}
+.stack{display:flex;flex-direction:column;gap:16px}
+
+/* En un coup d'œil */
+.glance{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.stat{padding:16px 20px;display:flex;flex-direction:column;gap:6px;color:inherit;text-decoration:none}
+.stat .label{display:flex;gap:8px;align-items:center;color:var(--muted);font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase}
+.stat .v{font:600 22px var(--sans);letter-spacing:-.03em}.stat .v small{font:400 12px var(--sans);color:var(--muted);margin-left:4px;letter-spacing:0}
+.stat .foot{color:var(--muted);font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.gw{display:flex;flex-wrap:wrap;gap:8px;padding:14px 20px}
+.gw-item{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2)}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}.d-ok{background:var(--ok)}.d-warn{background:var(--warn)}.d-danger{background:var(--danger)}.d-neutral{background:var(--muted)}
+
+/* Interfaces par zone */
+.zones{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;padding:16px 20px}
+.zone{display:flex;flex-direction:column;gap:8px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);text-decoration:none;color:inherit;border-left:3px solid var(--line-strong);cursor:pointer}
+.zone.up{border-left-color:var(--ok)}.zone.down{border-left-color:var(--line-strong)}.zone.other{border-left-color:var(--warn)}
+.zone:hover{background:var(--surface-2)}
+.zone .top{display:flex;align-items:center;gap:8px}.zone .name{font-weight:600;font-size:14px}.zone .top .pill{margin-left:auto}
+.zone .net{font:12px var(--mono);color:var(--ink-2)}
+.zone .sub{color:var(--muted);font-size:12px}
+.zone .counts{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+
+/* Règles */
+.tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line)}
+.search{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);min-width:260px;flex:1;max-width:380px}
+.search input{border:0;background:none;outline:0;flex:1;min-width:0}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
+.seg button{height:32px;padding:0 12px;border:0;border-right:1px solid var(--line);background:var(--surface);cursor:pointer;color:var(--ink-2)}
+.seg button:last-child{border-right:0}.seg button.on{background:var(--surface-2);color:var(--ink);font-weight:500}
+.seg button b{font:500 11px var(--mono);margin-left:6px;color:var(--muted)}
+details.group{border-bottom:1px solid var(--line)}details.group:last-child{border-bottom:0}
+details.group>summary{list-style:none;display:flex;align-items:center;gap:12px;padding:12px 20px;cursor:pointer}
+details.group>summary::-webkit-details-marker{display:none}
+details.group>summary .chev{transition:transform .15s;color:var(--muted)}details.group[open]>summary .chev{transform:rotate(180deg)}
+details.group>summary .gname{font-weight:600}.gsum{margin-left:auto;display:flex;gap:6px}
+.rules{width:100%;border-collapse:collapse}
+.rules th{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 12px;border-top:1px solid var(--line);background:var(--surface-2)}
+.rules th:first-child,.rules td:first-child{padding-left:20px}
+.rules td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}
+.rules tr.off td{opacity:.55}
+.arrow{color:var(--muted);padding:0 6px}
+
+/* Baux */
+.lease{width:100%;border-collapse:collapse}
+.lease th{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+.lease td{padding:10px 12px;border-bottom:1px solid var(--line)}.lease tr:last-child td{border-bottom:0}
+.lease th:first-child,.lease td:first-child{padding-left:20px}
+.mach{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:7px;background:var(--accent-wash);color:var(--accent);font-weight:500;text-decoration:none}
+
+/* Qui parle à qui */
+.legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--ink-2);padding:14px 20px;border-bottom:1px solid var(--line)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.scroll{overflow-x:auto}
+.grid{border-collapse:separate;border-spacing:8px;min-width:900px;width:100%}
+.grid th{vertical-align:bottom;text-align:left;font-weight:600;padding:8px 10px}
+.grid th small{display:block;font:400 11px var(--mono);color:var(--muted)}
+.grid th.row{vertical-align:top;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;min-width:130px}
+.grid td{vertical-align:top;border:1px solid var(--line);border-radius:10px;padding:6px;min-width:190px;background:var(--surface)}
+.grid td.self{background:repeating-linear-gradient(135deg,var(--surface-2) 0 6px,var(--surface) 6px 12px);border-style:dashed}
+.grid td.empty{color:var(--muted);text-align:center;vertical-align:middle;background:var(--surface)}
+.line{display:block;border-left:3px solid var(--ok);background:var(--ok-wash);border-radius:6px;padding:4px 8px;font-size:12px;margin-bottom:4px;color:var(--ink)}
+.line.deny{border-left-color:var(--danger);background:var(--danger-wash)}
+.line .why{display:block;color:var(--muted);font-size:11px}
+.note{padding:12px 20px;color:var(--ink-2);border-top:1px solid var(--line)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+ <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+ <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+</svg>
+<div class="main">
+  <div class="head">
+    <div><h1>OPNsense maison</h1><p>OPNsense</p></div>
+    <div class="actions"><button class="btn">Pare-feu</button><button class="btn">Modifier</button><button class="btn danger">Retirer</button></div>
+  </div>
+  <nav class="tabs"><button class="tab on" data-tab="apercu">Vue d'ensemble</button><button class="tab" data-tab="flux">Qui parle à qui</button></nav>
+
+  <div id="apercu" class="stack">
+    <div class="glance">
+      <div class="card stat"><span class="label">Version</span><span class="v mono" style="font-size:18px">OPNsense 25.1.6</span><span class="foot">API <span class="mono">fw.example.lan:8443</span></span></div>
+      <div class="card stat"><span class="label">Dernier relevé</span><span class="v">il y a 2 min</span><span class="foot"><span class="pill t-ok sm">Relevé</span> toutes les 5 min</span></div>
+      <a class="card stat" href="#passerelles"><span class="label">Passerelles</span><span class="v">2<small>sur 3 en ligne</small></span><span class="foot"><span class="pill t-ok sm">2 en ligne</span><span class="pill t-danger sm">1 coupée</span></span></a>
+      <a class="card stat" href="#regles"><span class="label">Règles</span><span class="v">14<small>actives</small></span><span class="foot"><span class="pill t-ok sm">9 passantes</span><span class="pill t-danger sm">4 bloquantes</span><span class="pill t-neutral sm">1 éteinte</span></span></a>
+    </div>
+
+    <section class="card" id="passerelles"><div class="card-h"><span class="card-t">Passerelles</span><span class="card-s">3</span></div>
+      <div class="gw">
+        <span class="gw-item"><i class="dot d-ok"></i><b>WAN_DHCP</b><span class="mono muted">203.0.113.1 · 1,4 ms · 0 %</span></span>
+        <span class="gw-item"><i class="dot d-danger"></i><b>BACKUP</b><span class="mono muted">198.51.100.1 · coupée</span></span>
+        <span class="gw-item"><i class="dot d-ok"></i><b>SANS_SONDE</b><span class="mono muted">non sondée</span></span>
+      </div>
+    </section>
+
+    <section class="card"><div class="card-h"><span class="card-t">Interfaces</span><span class="card-s">4</span></div>
+      <div class="zones">
+        <a class="zone up" href="#regles" data-open="wan"><div class="top"><span class="name">WAN</span><span class="pill t-ok sm">Actif</span></div><span class="net">203.0.113.2/24</span><span class="sub">wan · igb0</span><div class="counts"><span class="pill t-neutral sm nodot">3 règles</span><span class="pill t-danger sm nodot">2 bloquantes</span></div></a>
+        <a class="zone up" href="#regles" data-open="lan"><div class="top"><span class="name">LAN</span><span class="pill t-ok sm">Actif</span></div><span class="net">192.168.1.1/24</span><span class="sub">lan · igb1</span><div class="counts"><span class="pill t-neutral sm nodot">6 règles</span><span class="pill t-danger sm nodot">1 bloquante</span></div></a>
+        <a class="zone down" href="#regles" data-open="opt1"><div class="top"><span class="name">DMZ</span><span class="pill t-neutral sm">Inactif</span></div><span class="net">10.0.20.1/24</span><span class="sub">opt1 · igb2</span><div class="counts"><span class="pill t-neutral sm nodot">4 règles</span><span class="pill t-danger sm nodot">1 bloquante</span></div></a>
+        <a class="zone other" href="#regles" data-open="opt2"><div class="top"><span class="name">IA</span><span class="pill t-warn sm">Sans lien</span></div><span class="net">10.0.30.1/24</span><span class="sub">opt2 · igb3</span><div class="counts"><span class="pill t-neutral sm nodot">1 règle</span></div></a>
+      </div>
+    </section>
+
+    <section class="card" id="regles"><div class="card-h"><span class="card-t">Règles</span><span class="card-s">14 sur 14</span></div>
+      <div class="tools">
+        <label class="search"><svg class="ico"><use href="#i-search"/></svg><input id="q" placeholder="Chercher une règle, une adresse, un port" aria-label="Chercher une règle"></label>
+        <div class="seg" id="filters"><button class="on" data-f="all">Toutes<b>14</b></button><button data-f="pass">Passantes<b>9</b></button><button data-f="block">Bloquantes<b>4</b></button><button data-f="off">Désactivées<b>1</b></button></div>
+      </div>
+      <div id="groups"></div>
+    </section>
+
+    <section class="card"><div class="card-h"><span class="card-t">Baux DHCP</span><span class="card-s">4 · 2 sur des machines connues</span></div>
+      <table class="lease"><thead><tr><th>Adresse</th><th>Nom</th><th>Machine openCloud</th><th>MAC</th><th>Interface</th><th>Échéance</th></tr></thead><tbody>
+        <tr><td class="mono">192.168.1.20</td><td>nas</td><td><a class="mach"><svg class="ico"><use href="#i-server"/></svg>nas-salon</a></td><td class="mono">aa:bb:cc:dd:ee:ff</td><td>LAN</td><td class="muted">dans 59 min</td></tr>
+        <tr><td class="mono">192.168.1.21</td><td>forge</td><td><a class="mach"><svg class="ico"><use href="#i-server"/></svg>forgejo</a></td><td class="mono">02:42:ac:11:00:02</td><td>LAN</td><td><span class="pill t-neutral sm nodot">Fixe</span></td></tr>
+        <tr><td class="mono">192.168.1.30</td><td>imprimante</td><td class="muted">—</td><td class="mono">11:22:33:44:55:66</td><td>LAN</td><td><span class="pill t-neutral sm nodot">Fixe</span></td></tr>
+        <tr><td class="mono">192.168.1.40</td><td>vieux</td><td class="muted">—</td><td class="mono">de:ad:be:ef:00:01</td><td>LAN</td><td class="muted">il y a 3 j</td></tr>
+      </tbody></table>
+    </section>
+
+    <section class="card"><details><summary class="card-h" style="cursor:pointer;list-style:none"><span class="card-t">Connexion</span><span class="card-s"><span class="pill t-ok sm">Relevé</span></span></summary>
+      <div style="padding:16px 20px;display:grid;grid-template-columns:auto 1fr;gap:8px 24px">
+        <span class="muted">Connecteur</span><span>OPNsense</span><span class="muted">Adresse de l'API</span><span class="mono">https://fw.example.lan:8443</span>
+        <span class="muted">Clé d'API</span><span class="mono">AbCd…</span><span class="muted">Certificat</span><span>Empreinte épinglée</span>
+      </div></details></section>
+  </div>
+
+  <div id="flux" class="stack" hidden>
+    <section class="card">
+      <div class="card-h"><span class="card-t">Qui parle à qui</span><span class="card-s">ligne = d'où ça part · colonne = où ça va</span></div>
+      <div class="legend"><span><i class="dot d-ok"></i>passe</span><span><i class="dot d-danger"></i>refusé en toutes lettres</span><span>case vide = refusé</span><span>hachuré = même zone, le pare-feu n'y passe pas</span></div>
+      <div class="scroll"><table class="grid" id="matrix"></table></div>
+      <p class="note">Lecture seule, d'après les règles actives lues <b>il y a 2 min</b>. L'ordre d'évaluation n'est pas rejoué : un refus placé avant un « passe » est montré à côté. 1 règle éteinte n'est pas comptée. 2 règles non placées (flottantes) : <a href="#">les voir</a>.</p>
+    </section>
+  </div>
+</div>
+<script>
+const params = new URLSearchParams(location.search);
+if (params.get("theme")) document.documentElement.dataset.theme = params.get("theme");
+const zones = [
+  {id:"self",label:"Pare-feu",sub:"lui-même"},{id:"lan",label:"LAN",sub:"192.168.1.0/24"},{id:"opt1",label:"DMZ",sub:"10.0.20.0/24"},
+  {id:"opt2",label:"IA",sub:"10.0.30.0/24"},{id:"wan",label:"Internet",sub:"WAN · 203.0.113.0/24"}];
+const rules = [
+  ["lan","pass","TCP","192.168.1.0/24","any","443","Web sortant",1],["lan","pass","UDP","any","(self)","53","DNS",1],
+  ["lan","pass","TCP","any","(self)","22","Administration SSH",1],["lan","pass","TCP","192.168.1.20","10.0.20.0/24","8006","Proxmox",1],
+  ["lan","pass","any","192.168.1.0/24","10.0.30.0/24","","IA",1],["lan","block","any","any","wan","","Pas de VPS",1],
+  ["wan","block","any","any","any","","Tout bloquer en entrée",1],["wan","block","any","any","(self)","","Pas d'accès à l'admin",1],["wan","pass","TCP","any","10.0.20.5","443","Proxy public",1],
+  ["opt1","pass","TCP","10.0.20.0/24","any","80,443","Mises à jour",1],["opt1","pass","UDP","any","(self)","53","DNS",1],["opt1","block","any","any","192.168.1.0/24","","DMZ ne rentre pas",1],
+  ["opt1","pass","TCP","any","any","25","Courrier",0],["opt2","pass","TCP","10.0.30.0/24","any","443","Agents",1]];
+const names = {lan:"LAN",wan:"WAN",opt1:"DMZ",opt2:"IA"};
+const groups = document.getElementById("groups");
+function render(){
+  const q = document.getElementById("q").value.toLowerCase(), f = document.querySelector("#filters .on").dataset.f;
+  groups.innerHTML = "";
+  for (const id of ["wan","lan","opt1","opt2"]) {
+    const mine = rules.filter(r => r[0]===id && (f==="all"||(f==="pass"&&r[1]==="pass"&&r[7])||(f==="block"&&r[1]==="block"&&r[7])||(f==="off"&&!r[7])) && (!q || r.join(" ").toLowerCase().includes(q)));
+    if (!mine.length) continue;
+    const d = document.createElement("details"); d.className="group"; d.open = params.get("open")===id || !!q;
+    const blocks = mine.filter(r=>r[1]==="block").length;
+    d.innerHTML = `<summary><svg class="ico chev"><use href="#i-chev"/></svg><span class="gname">${names[id]}</span><span class="muted mono">${id}</span><span class="gsum"><span class="pill t-neutral sm nodot">${mine.length} règle${mine.length>1?"s":""}</span>${blocks?`<span class="pill t-danger sm nodot">${blocks} bloquante${blocks>1?"s":""}</span>`:""}</span></summary>
+    <table class="rules"><thead><tr><th>Action</th><th>Protocole</th><th>Source</th><th>Destination</th><th>Description</th></tr></thead><tbody>${mine.map(r=>`<tr class="${r[7]?"":"off"}"><td><span class="pill sm ${r[7]?(r[1]==="pass"?"t-ok":"t-danger"):"t-neutral"}">${r[1]==="pass"?"Passe":"Bloque"}</span>${r[7]?"":' <span class="muted">éteinte</span>'}</td><td class="mono">${r[2]}</td><td class="mono">${r[3]}</td><td class="mono">${r[4]}${r[5]?" : "+r[5]:""}</td><td class="muted">${r[6]}</td></tr>`).join("")}</tbody></table>`;
+    groups.append(d);
+  }
+  if (!groups.children.length) groups.innerHTML = '<p class="note" style="border:0">Aucune règle ne correspond. <a href="#" onclick="reset();return false">Effacer la recherche</a></p>';
+}
+function reset(){document.getElementById("q").value="";document.querySelector('#filters [data-f=all]').click()}
+document.getElementById("q").addEventListener("input",render);
+document.querySelectorAll("#filters button").forEach(b=>b.onclick=()=>{document.querySelector("#filters .on").classList.remove("on");b.classList.add("on");render()});
+document.querySelectorAll("[data-open]").forEach(a=>a.onclick=()=>{params.set("open",a.dataset.open);render()});
+render();
+
+const cells = {
+  "lan>self":[["allow","tout le LAN → pare-feu","UDP 53","DNS"],["allow","tous → pare-feu","TCP 22","Administration SSH"]],
+  "lan>opt1":[["allow","192.168.1.20 → 10.0.20.0/24","TCP 8006","Proxmox"]],
+  "lan>opt2":[["allow","192.168.1.0/24 → 10.0.30.0/24","tout","IA"]],
+  "lan>wan":[["allow","192.168.1.0/24 → tout","TCP 443","Web sortant"],["deny","tous → tout","tout","Pas de VPS"]],
+  "opt1>self":[["allow","tous → pare-feu","UDP 53","DNS"]],
+  "opt1>wan":[["allow","10.0.20.0/24 → tout","TCP 80,443","Mises à jour"]],
+  "opt1>lan":[["deny","tous → 192.168.1.0/24","tout","DMZ ne rentre pas"]],
+  "opt2>wan":[["allow","10.0.30.0/24 → tout","TCP 443","Agents"]],
+  "wan>self":[["deny","tous → pare-feu","tout","Pas d'accès à l'admin"]],
+  "wan>opt1":[["allow","tous → 10.0.20.5","TCP 443","Proxy public"]]};
+const rows = zones.filter(z=>z.id!=="self");
+document.getElementById("matrix").innerHTML = "<thead><tr><th>de ↓ vers →</th>"+zones.map(z=>`<th>${z.label}<small>${z.sub}</small></th>`).join("")+"</tr></thead><tbody>"+
+ rows.map(r=>`<tr><th class="row">${r.label}<small>${r.sub}</small></th>${zones.map(c=>{
+   if (c.id===r.id) return '<td class="self" aria-label="même zone"></td>';
+   const l = cells[r.id+">"+c.id]; if(!l) return '<td class="empty" aria-label="refusé">—</td>';
+   return "<td>"+l.map(x=>`<span class="line ${x[0]==="deny"?"deny":""}">${x[1]} : <b>${x[2]}</b><span class="why">${x[0]==="deny"?"refusé · ":""}${x[3]}</span></span>`).join("")+"</td>";}).join("")}</tr>`).join("")+"</tbody>";
+function show(tab){document.getElementById("apercu").hidden=tab!=="apercu";document.getElementById("flux").hidden=tab!=="flux";document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.tab===tab))}
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>show(t.dataset.tab));
+if (params.get("tab")==="flux") show("flux");
+</script>
+</body>
+</html>

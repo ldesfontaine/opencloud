@@ -107,6 +107,10 @@ export function topicsOf(path: string): readonly Topic[] {
   if (path.startsWith("/api/verb-requests")) {
     return ["verb_requests"];
   }
+  // Les baux disent quelle machine ils désignent : ils suivent aussi les machines.
+  if (/^\/api\/firewalls\/[^/?]+\/leases/.test(path)) {
+    return ["firewalls", "machines"];
+  }
   // Les pare-feu et leurs relevés ont leur sujet.
   if (path.startsWith("/api/firewalls")) {
     return ["firewalls"];

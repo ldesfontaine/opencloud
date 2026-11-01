@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router";
 
 import { useMachineContainers } from "../api/containers";
@@ -31,6 +31,7 @@ import { ContainerPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useAgentHint } from "../hooks/useAgentHint";
 import { useNow } from "../hooks/useNow";
+import { useScrollToHash } from "../hooks/useScrollToHash";
 import { useT } from "../i18n/context";
 import { renamedMachineTabs, resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
@@ -78,12 +79,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
   const now = useNow();
   const resources = useMachineResources(tab === "" ? current.id : null);
   // Un lien « détail du support » mène à son ancre sur la page même.
-  const { hash } = useLocation();
-  useEffect(() => {
-    if (hash !== "") {
-      document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
-    }
-  }, [hash]);
+  useScrollToHash();
   return (
     <div className="machine-page">
       <PageHead title={current.name} actions={<Actions machine={current} />} />
