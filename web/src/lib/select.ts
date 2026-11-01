@@ -6,6 +6,8 @@
 export interface SelectOption {
   value: string;
   label: string;
+  // Un mot discret après le libellé (le type d'une machine) ; hors de la recherche.
+  hint?: string | undefined;
 }
 
 // Au-delà, la liste ouverte porte un champ de recherche en tête.

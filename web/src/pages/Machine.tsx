@@ -96,7 +96,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         <div className="machine-main">
           {tab === "" ? (
             <>
-              <MachineTodoCard machine={current} />
+              <MachineTodoCard machine={current} all={all} />
               <ResourceStats current={resources.data} />
               <ResourceHistory machineID={current.id} />
               <MachineStorage machine={current} current={resources.data} />

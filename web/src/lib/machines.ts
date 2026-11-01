@@ -1,6 +1,7 @@
 import type { Account, Agent, Capability, Machine, ReportedCapability, RoleID, TokenResponse } from "../api/machines";
 import type { SessionRole } from "../api/session";
 import type { Translate } from "../i18n/context";
+import type { SelectOption } from "./select";
 import { seenAgo } from "./time";
 
 // Le sous-titre des pages qui comptent les machines : rien, une, plusieurs.
@@ -234,4 +235,18 @@ export function liveMachines<M extends Pick<Machine, "agent">>(machines: M[]): M
 // défait pas, il attend le nom de la machine tapé tel quel.
 export function canConfirmDeletion(machineName: string, typedName: string, keepHistory: boolean): boolean {
   return keepHistory || typedName === machineName;
+}
+
+// L'option d'un menu pour une machine : son nom, puis son type en discret, pour
+// qu'on voie où elle tourne avant de la choisir.
+// Sans type (une machine que la liste ne connaît plus), pas de mot : ne rien dire
+// vaut mieux que dire « inconnu » d'une machine qu'on ne lit pas.
+export function machineOption(t: Translate, machine: { id: string; name: string; kind?: Machine["kind"] | undefined }): SelectOption {
+  return { value: machine.id, label: machine.name, hint: machine.kind === undefined ? undefined : t(`machine.kind_${machine.kind}`) };
+}
+
+// Le type de chaque machine de la liste, par identifiant : pour les écrans dont
+// les machines viennent d'ailleurs (alertes, jetons) et ne portent pas le leur.
+export function kindsByID(machines: readonly Pick<Machine, "id" | "kind">[]): ReadonlyMap<string, Machine["kind"]> {
+  return new Map(machines.map((machine) => [machine.id, machine.kind]));
 }

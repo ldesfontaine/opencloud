@@ -60,7 +60,7 @@ function PlacementDialog({ machine, all }: { machine: Machine; all: Machine[] })
         <Select
           id="placement-host"
           value={values.hostOverride}
-          options={hostOptions(t("machine.placement_host_none"), hostCandidates(machine, all))}
+          options={hostOptions(t, t("machine.placement_host_none"), hostCandidates(machine, all))}
           onChange={(host) => setValues({ ...values, hostOverride: host })}
         />
       </Field>

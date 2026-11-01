@@ -7,7 +7,7 @@ import { backupLabel, resourcesLabel } from "../lib/proxmox";
 import { formatBytes } from "../lib/units";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue } from "./Card";
-import { MachineKindPill } from "./Pill";
+import { MachineKind } from "./MachineKind";
 
 // L'identité fixe d'une machine, à droite de sa fiche : où elle tourne (type,
 // hôte, grappe), son adresse, son système, et ce que son hôte lui alloue. C'est
@@ -36,7 +36,7 @@ export function MachineIdentity({ machine, all }: { machine: Machine; all: Machi
           label={t("machine.identity_kind")}
           value={
             <>
-              <MachineKindPill kind={machine.kind} />
+              <MachineKind machine={machine} />
               {machine.kind_override !== "" && <span className="secondary"> {t("machine.identity_corrected")}</span>}
             </>
           }
