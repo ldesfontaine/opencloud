@@ -316,7 +316,7 @@ it("lastErrorRight : le droit derrière une erreur de plan, et la machine dont l
   expect(lastErrorRight(plan("backup.right_missing"), destination)).toEqual({ machineID: "m-dest", right: "backup.receive", path: "/srv/backups" });
   expect(lastErrorRight(plan("backup.source_right_missing"), destination)).toEqual({ machineID: "m-src", right: "backup.produce" });
   expect(lastErrorRight(plan("backup.target_failed:5010:right_missing:backup.produce"), destination)).toEqual({ machineID: "m-src", right: "backup.produce" });
-  expect(lastErrorRight(plan("backup.destination_gone"), destination)).toBeNull();
+  expect(lastErrorRight(plan("autre erreur"), destination)).toBeNull();
   expect(lastErrorRight(plan(""), undefined)).toBeNull();
   expect(lastErrorRight(plan("backup.right_missing"), undefined)).toBeNull();
 });
