@@ -27,6 +27,8 @@ func newOutbox(t *testing.T) (*action.Outbox, *os.Root, *time.Time) {
 	}
 	now := benchNow
 	outbox.SetClock(func() time.Time { return now })
+	// Le disque du test n'est pas celui de la machine : l'espace libre est fixé.
+	outbox.SetFreeBytes(func(string) (uint64, error) { return 1 << 40, nil })
 	return outbox, root, &now
 }
 

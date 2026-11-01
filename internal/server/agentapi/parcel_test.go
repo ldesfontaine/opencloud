@@ -136,6 +136,8 @@ func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Le disque du test n'est pas celui de la machine : l'espace libre est fixé.
+	outbox.SetFreeBytes(func(string) (uint64, error) { return 1 << 40, nil })
 	server.actions.SetOutbox(outbox)
 	upload, err := outbox.CreateForUpload(destination.ID, producer.ID)
 	if err != nil {
@@ -288,6 +290,8 @@ func TestParcelUpload_ABodyShorterThanItsLengthKeepsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Le disque du test n'est pas celui de la machine : l'espace libre est fixé.
+	outbox.SetFreeBytes(func(string) (uint64, error) { return 1 << 40, nil })
 	server.actions.SetOutbox(outbox)
 	upload, err := outbox.CreateForUpload(destination.ID, producer.ID)
 	if err != nil {
