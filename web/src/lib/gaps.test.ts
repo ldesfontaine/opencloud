@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { ContainerDirectory, GapsResponse, UndeclaredContainer, UndeclaredGroup } from "../api/directory";
-import { acceptanceTarget, containerCount, editBeforeAcceptPath, gapsByService, gapTone, hasProposals, ignoredOf, ignoreKeyOf, isOrphan, orphanKey, orphanText, proposalsOf } from "./gaps";
+import { acceptanceTarget, containerCount, editBeforeAcceptPath, gapsByService, gapTone, hasProposals, ignoredOf, ignoreKeyOf, isOrphan, orphanKey, orphanText, pickableContainers, proposalsOf } from "./gaps";
 
 const undeclaredContainer = (overrides: Partial<UndeclaredContainer>): UndeclaredContainer => ({
   id: "c1",
@@ -18,10 +18,11 @@ const undeclaredContainer = (overrides: Partial<UndeclaredContainer>): Undeclare
 const group = (overrides: Partial<UndeclaredGroup>): UndeclaredGroup => ({
   machine_id: "m1",
   machine_name: "alpha",
-  key_kind: "compose_project",
-  key_value: "blog",
+  key_kind: "compose_service",
+  key_value: "blog/web",
+  project: "blog",
+  compose_service: "web",
   ignored: false,
-  service_id: "",
   adoptable: true,
   containers: [undeclaredContainer({})],
   ...overrides,
@@ -65,7 +66,7 @@ test("gapsByService indexe par service et supporte l'absence de réponse", () =>
 
 test("une proposition n'est pas un ignoré : deux listes, jamais l'une dans l'autre", () => {
   const groups = [group({}), group({ key_value: "old", ignored: true })];
-  expect(proposalsOf(groups).map((item) => item.key_value)).toEqual(["blog"]);
+  expect(proposalsOf(groups).map((item) => item.key_value)).toEqual(["blog/web"]);
   expect(ignoredOf(groups).map((item) => item.key_value)).toEqual(["old"]);
   expect(containerCount(groups)).toBe(2);
 });
@@ -78,7 +79,7 @@ test("modifier avant d'accepter passe l'identifiant du conteneur, encodé", () =
 });
 
 test("ignorer envoie la clé d'observation du groupe", () => {
-  expect(ignoreKeyOf(group({}))).toEqual({ machine_id: "m1", kind: "compose_project", value: "blog" });
+  expect(ignoreKeyOf(group({}))).toEqual({ machine_id: "m1", kind: "compose_service", value: "blog/web" });
 });
 
 test("un conteneur étiqueté ne s'accepte pas : le groupe passe par un voisin sans label", () => {
@@ -113,4 +114,19 @@ test("isOrphan suit le motif, même quand aucun label n'est lisible", () => {
   expect(isOrphan(directoryOf({ label_problem: "invalid" }))).toBe(true);
   // Rattaché par son label : porte des labels, n'est pas orphelin.
   expect(isOrphan(directoryOf({ label_service: "svc_x", label_unit: "web" }))).toBe(false);
+});
+
+test("l'assistant ne propose que ce qui s'accepte : un conteneur par service Compose, ni ignoré ni orphelin", () => {
+  const groups = [
+    group({}),
+    group({ key_value: "blog/db", compose_service: "db", containers: [undeclaredContainer({ id: "c2", name: "blog-db-1" })] }),
+    group({ key_value: "blog/old", compose_service: "old", ignored: true, containers: [undeclaredContainer({ id: "c3" })] }),
+    group({ key_value: "blog/lost", compose_service: "lost", adoptable: false, containers: [undeclaredContainer({ id: "c4", label_service: "svc_x", label_unit: "lost" })] }),
+    group({ key_kind: "container_name", key_value: "whoami", project: "", compose_service: "", machine_name: "beta", containers: [undeclaredContainer({ id: "c5", name: "whoami" })] }),
+  ];
+  expect(pickableContainers(groups)).toEqual([
+    { value: "c2", label: "db (blog)", hint: "alpha" },
+    { value: "c1", label: "web (blog)", hint: "alpha" },
+    { value: "c5", label: "whoami", hint: "beta" },
+  ]);
 });

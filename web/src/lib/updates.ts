@@ -73,8 +73,8 @@ export function upgradeServiceID(container: Checked, directory: ContainerDirecto
 // L'offre du bouton : la version que l'agent propose, pour un service qu'un
 // ordre signé a déjà déployé (le plan le dit). Sinon, la carte garde
 // la ligne à copier.
-export function upgradeOffer(container: Checked, directory: ContainerDirectory | null, plan: Pick<DeployPlan, "deployed"> | null): { version: string } | null {
-  if (upgradeServiceID(container, directory) === null || plan === null || !plan.deployed || container.image_check === null) {
+export function upgradeOffer(container: Checked, directory: ContainerDirectory | null, plan: Pick<DeployPlan, "deployed" | "shared_with"> | null): { version: string } | null {
+  if (upgradeServiceID(container, directory) === null || plan === null || !plan.deployed || plan.shared_with.length > 0 || container.image_check === null) {
     return null;
   }
   return { version: container.image_check.newer_tag };

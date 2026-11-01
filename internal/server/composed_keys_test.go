@@ -130,6 +130,7 @@ func closedKeyLists() []composedKeys {
 		// Le choix du mode à l'activation : tous sauf « none », qui est l'état de départ.
 		{prefix: "auth.mode_", values: without(names(auth.Modes()), string(auth.ModeNone))},
 		{prefix: "directory.nature_", values: names(directory.Natures())},
+		{prefix: "directory.category_", values: names(directory.Categories())},
 		{prefix: "directory.origin_", values: names(directory.Origins())},
 		{prefix: "directory.provides_", values: names(directory.Capabilities())},
 		{prefix: "directory.declared_by_", values: names(directory.Provenances())},

@@ -11,7 +11,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 )
 
-const declaredServiceColumns = `s.id, s.machine_id, m.name, s.name, s.title, s.nature, s.origin,
+const declaredServiceColumns = `s.id, s.machine_id, m.name, s.name, s.title, s.nature, s.category, s.origin,
 	s.compose_project, s.public_url, s.declared_by, s.created_at, s.updated_at`
 
 const declaredServiceFrom = ` FROM declared_services s JOIN machines m ON m.id = s.machine_id`
@@ -25,10 +25,10 @@ func (db *DB) InsertDeclaredService(ctx context.Context, service directory.Servi
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `
-		INSERT INTO declared_services (id, machine_id, name, title, nature, origin, compose_project,
+		INSERT INTO declared_services (id, machine_id, name, title, nature, category, origin, compose_project,
 			public_url, declared_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			service.ID, service.MachineID, service.Name, service.Title, string(service.Nature), string(service.Origin),
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			service.ID, service.MachineID, service.Name, service.Title, string(service.Nature), string(service.Category), string(service.Origin),
 			service.ComposeProject, service.PublicURL, string(service.DeclaredBy),
 			service.CreatedAt.Unix(), service.UpdatedAt.Unix())
 		if err != nil {
@@ -70,10 +70,10 @@ func (db *DB) UpdateDeclaredService(ctx context.Context, service directory.Servi
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `
-		UPDATE declared_services SET machine_id = ?, name = ?, title = ?, nature = ?, origin = ?,
+		UPDATE declared_services SET machine_id = ?, name = ?, title = ?, nature = ?, category = ?, origin = ?,
 			compose_project = ?, public_url = ?, updated_at = ?
 		WHERE id = ?`,
-			service.MachineID, service.Name, service.Title, string(service.Nature), string(service.Origin),
+			service.MachineID, service.Name, service.Title, string(service.Nature), string(service.Category), string(service.Origin),
 			service.ComposeProject, service.PublicURL, service.UpdatedAt.Unix(), service.ID)
 		if err != nil {
 			return fmt.Errorf("update declared service: %w", err)
@@ -164,15 +164,16 @@ func (db *DB) ListDeclaredServices(ctx context.Context, filter directory.Filter)
 
 func scanDeclaredService(row scanner) (directory.Service, error) {
 	var service directory.Service
-	var nature, origin, declaredBy string
+	var nature, category, origin, declaredBy string
 	var createdAt, updatedAt int64
 	err := row.Scan(&service.ID, &service.MachineID, &service.MachineName, &service.Name, &service.Title,
-		&nature, &origin, &service.ComposeProject, &service.PublicURL, &declaredBy,
+		&nature, &category, &origin, &service.ComposeProject, &service.PublicURL, &declaredBy,
 		&createdAt, &updatedAt)
 	if err != nil {
 		return directory.Service{}, err
 	}
 	service.Nature = directory.Nature(nature)
+	service.Category = directory.Category(category)
 	service.Origin = directory.Origin(origin)
 	service.DeclaredBy = directory.DeclaredBy(declaredBy)
 	service.CreatedAt = time.Unix(createdAt, 0)

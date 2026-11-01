@@ -60,7 +60,7 @@ const declared: ContainerDirectory = {
   label_service: "", label_unit: "", label_problem: "", label_machine_name: "",
 };
 const minor = check({ kind: "minor", newer_tag: "16.5", target: "postgres:16.5" });
-const deployed = { deployed: true };
+const deployed = { deployed: true, shared_with: [] as string[] };
 
 test("upgradeOffer propose le tag plus récent d'un service déployé, suivi et déclaré", () => {
   const container = { update_policy: "watch" as const, image_check: minor };
@@ -74,8 +74,10 @@ test("upgradeOffer se tait quand une des quatre conditions manque", () => {
   expect(upgradeOffer(container, { ...declared, declared: false }, deployed)).toBeNull();
   expect(upgradeOffer(container, null, deployed)).toBeNull();
   // Déclaré mais jamais déployé par openCloud, ou plan pas encore lu.
-  expect(upgradeOffer(container, declared, { deployed: false })).toBeNull();
+  expect(upgradeOffer(container, declared, { deployed: false, shared_with: [] })).toBeNull();
   expect(upgradeOffer(container, declared, null)).toBeNull();
+  // Un projet Compose partagé avec d'autres services : le fichier écrit les retirerait.
+  expect(upgradeOffer(container, declared, { deployed: true, shared_with: ["authelia"] })).toBeNull();
   // Épinglé ou exclu : la mise à jour ne se montre pas.
   expect(upgradeOffer({ ...container, update_policy: "hold" }, declared, deployed)).toBeNull();
   expect(upgradeOffer({ ...container, update_policy: "ignore" }, declared, deployed)).toBeNull();

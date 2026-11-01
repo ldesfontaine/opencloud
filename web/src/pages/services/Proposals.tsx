@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-import type { DeclaredService, UndeclaredGroup } from "../../api/directory";
+import type { UndeclaredGroup } from "../../api/directory";
 import { proposedExportPath } from "../../api/manifest";
 import { Button } from "../../components/Button";
 import { Card, CardHeader } from "../../components/Card";
@@ -15,14 +15,15 @@ import { acceptanceTarget, containerCount, editBeforeAcceptPath, hasProposals, i
 import "../../components/ServiceTable.scss";
 
 // Ce que les machines font tourner sans que l'annuaire le déclare : une
-// proposition par projet Compose ou par conteneur. L'opérateur l'accepte
+// proposition par service Compose (traefik, authelia et crowdsec d'un même
+// projet sont trois propositions) ou par conteneur. L'opérateur l'accepte
 // (le service est déclaré, d'un clic), la modifie avant de l'accepter, ou la
 // dit voulue en l'ignorant. Les ignorés se replient dessous, où l'on peut les
 // proposer de nouveau. Un conteneur dont le label ne vise rien n'a pas de
 // proposition : sa pastille dit le motif, on le corrige par le label. Le
 // fichier de l'annuaire peut aussi se proposer d'un coup, à relire avant de
 // l'appliquer. Sans proposition ni ignoré, la section n'est pas là.
-export function Proposals({ groups, declared }: { groups: UndeclaredGroup[]; declared: DeclaredService[] }) {
+export function Proposals({ groups }: { groups: UndeclaredGroup[] }) {
   const t = useT();
   const actions = useProposalActions();
   const proposals = proposalsOf(groups);
@@ -30,7 +31,6 @@ export function Proposals({ groups, declared }: { groups: UndeclaredGroup[]; dec
   if (proposals.length === 0 && ignored.length === 0) {
     return null;
   }
-  const names = new Map(declared.map((service) => [service.id, service.name]));
   return (
     <Card className="scroll-x">
       <CardHeader
@@ -57,7 +57,7 @@ export function Proposals({ groups, declared }: { groups: UndeclaredGroup[]; dec
                   {group.adoptable && (
                     <>
                       <Button small variant="primary" disabled={actions.busy} onClick={() => actions.accept(acceptanceTarget(group))}>
-                        {group.service_id === "" ? t("gap.accept") : t("gap.accept_into", names.get(group.service_id) ?? group.key_value)}
+                        {t("gap.accept")}
                       </Button>
                       <Button small variant="ghost" to={editBeforeAcceptPath(acceptanceTarget(group))}>
                         {t("gap.edit_before_accept")}
@@ -108,8 +108,8 @@ function GroupRow({ group, children }: { group: UndeclaredGroup; children: React
       <td>
         <Subject icon="box">
           <span className="svc-name">
-            <span className="mono">{group.key_value}</span>
-            <span className="mono muted">{t(`gap.key_${group.key_kind}`)}</span>
+            <span className="mono">{group.compose_service === "" ? group.key_value : group.compose_service}</span>
+            <span className="mono muted">{group.project === "" ? t(`gap.key_${group.key_kind}`) : t("services.group_project", group.project)}</span>
           </span>
         </Subject>
       </td>

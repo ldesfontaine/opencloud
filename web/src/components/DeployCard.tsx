@@ -28,7 +28,8 @@ export function DeployCard({ serviceID }: { serviceID: string }) {
   const [asking, setAsking] = useState(false);
   const data = plan.data;
   const running = data?.last_run != null && inFlightStates.has(data.last_run.state);
-  const blocked = data === null || data.right === "missing" || running;
+  const shared = data !== null && data.shared_with.length > 0;
+  const blocked = data === null || data.right === "missing" || running || shared;
   return (
     <Card>
       <CardHeader
@@ -48,6 +49,7 @@ export function DeployCard({ serviceID }: { serviceID: string }) {
       <CardBody gap={10}>
         <p className="secondary">{t("deploy.subtitle")}</p>
         {plan.error && <Failure error={plan.error} />}
+        {data !== null && shared && <Note tone="warn">{t("deploy.shared_project", data.shared_with.join(", "))}</Note>}
         {data !== null && <PlanBody plan={data} />}
       </CardBody>
       {asking && data !== null && <DeployDialog plan={data} onClose={() => setAsking(false)} />}

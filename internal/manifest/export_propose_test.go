@@ -13,9 +13,8 @@ import (
 )
 
 var proposeAnnotations = manifest.Annotations{
-	Header:       testAnnotations.Header,
-	Proposed:     "Proposé depuis des conteneurs non déclarés : relisez avant apply.",
-	ProposedUnit: "Unité proposée depuis un conteneur non déclaré.",
+	Header:   testAnnotations.Header,
+	Proposed: "Proposé depuis des conteneurs non déclarés : relisez avant apply.",
 }
 
 func (b *bench) exportPropose(t *testing.T, options manifest.ExportOptions) []byte {
@@ -106,7 +105,7 @@ func TestExport_ProposeAppendsUndeclaredWithoutIDs(t *testing.T) {
 			added = append(added, item.Machine+"/"+item.Name)
 		}
 	}
-	want := []string{"app-1/blog", "app-1/front", "opencloud/another"}
+	want := []string{"app-1/cache", "app-1/db", "app-1/front", "app-1/web", "opencloud/another"}
 	if strings.Join(added, ",") != strings.Join(want, ",") {
 		t.Fatalf("propositions = %v, want %v", added, want)
 	}
@@ -116,9 +115,13 @@ func TestExport_ProposeAppendsUndeclaredWithoutIDs(t *testing.T) {
 			t.Fatalf("les propositions doivent finir la liste, dans l'ordre : %+v", last)
 		}
 	}
-	blog := last[0]
-	if blog.Origin != directory.OriginCompose || blog.ComposeProject != "blog" || len(blog.Units) != 2 || blog.Units[0].Name != "db" || blog.Units[0].Updates != container.PolicyWatch {
-		t.Fatalf("blog = %+v", blog)
+	// Un service Compose par entrée : db et web sont deux entrées du projet blog.
+	db, web := last[1], last[3]
+	if db.Origin != directory.OriginCompose || db.ComposeProject != "blog" || len(db.Units) != 1 || db.Units[0].Name != "db" || db.Units[0].Updates != container.PolicyWatch {
+		t.Fatalf("db = %+v", db)
+	}
+	if web.ComposeProject != "blog" || len(web.Units) != 1 || web.Units[0].Name != "web" {
+		t.Fatalf("web = %+v", web)
 	}
 	text := string(data)
 	// Les clés ignorées figurent dans la section « ignored », pas dans les services.
@@ -128,12 +131,14 @@ func TestExport_ProposeAppendsUndeclaredWithoutIDs(t *testing.T) {
 			t.Errorf("%q ne doit pas être proposé :\n%s", absent, services)
 		}
 	}
-	if strings.Count(text, proposeAnnotations.Proposed) != 3 {
+	if strings.Count(text, proposeAnnotations.Proposed) != 5 {
 		t.Errorf("chaque nouvelle entrée porte son commentaire :\n%s", text)
 	}
 }
 
-func TestExport_ProposeAddsMissingUnitsToTheDeclaredEntry(t *testing.T) {
+// Le service Compose qui manque à un projet déjà déclaré est une entrée à
+// part ; l'entrée du service déclaré n'est pas touchée.
+func TestExport_ProposeLeavesTheDeclaredEntryAlone(t *testing.T) {
 	b := newBench(t)
 	b.seed(t, false)
 	b.seedUndeclared(t)
@@ -144,29 +149,24 @@ func TestExport_ProposeAddsMissingUnitsToTheDeclaredEntry(t *testing.T) {
 		t.Fatal(problems)
 	}
 	var wiki manifest.Service
+	var cache manifest.Service
 	for _, item := range file.Services {
 		if item.ID == "svc_00000000000000b1" {
 			wiki = item
 		}
+		if item.Name == "cache" {
+			cache = item
+		}
 	}
-	// db et app étaient déclarées, dans cet ordre ; cache arrive à la fin.
 	names := []string{}
 	for _, unit := range wiki.Units {
 		names = append(names, unit.Name)
 	}
-	if strings.Join(names, ",") != "db,app,cache" {
-		t.Fatalf("units = %v", names)
+	if strings.Join(names, ",") != "db,app" {
+		t.Fatalf("units = %v : l'entrée déclarée ne gagne aucune unité", names)
 	}
-	if cache := wiki.Units[2]; cache.Image != "redis" || cache.Version != "7.4" || cache.Updates != container.PolicyWatch {
+	if cache.ID != "" || cache.ComposeProject != "wiki" || len(cache.Units) != 1 || cache.Units[0].Image != "redis" || cache.Units[0].Version != "7.4" || cache.Units[0].Updates != container.PolicyWatch {
 		t.Fatalf("cache = %+v", cache)
-	}
-	if strings.Count(string(data), proposeAnnotations.ProposedUnit) != 1 {
-		t.Errorf("l'unité ajoutée porte son commentaire, elle seule :\n%s", data)
-	}
-	// Le service déclaré garde son identifiant et ses unités : l'ajout ne
-	// touche que la fin de son entrée.
-	if wiki.Machine != "app-1" || wiki.ComposeProject != "wiki" {
-		t.Fatalf("wiki = %+v", wiki)
 	}
 }
 
@@ -184,7 +184,7 @@ func TestExport_ProposedFileGivesAnApplicablePlan(t *testing.T) {
 	if len(plan.Problems) > 0 || !plan.Applicable() {
 		t.Fatalf("le plan du fichier proposé n'est pas applicable : %+v", plan.Problems)
 	}
-	want := []string{"create service/app-1/blog", "create service/app-1/front", "create service/opencloud/another", "update service/app-1/wiki"}
+	want := []string{"create service/app-1/cache", "create service/app-1/db", "create service/app-1/front", "create service/app-1/web", "create service/opencloud/another"}
 	got := changeLabels(plan)
 	if len(got) != len(want) {
 		t.Fatalf("changes = %v, want %v", got, want)
@@ -199,12 +199,12 @@ func TestExport_ProposedFileGivesAnApplicablePlan(t *testing.T) {
 	}
 
 	applied, _ := b.apply(t, text, false)
-	if applied.State != manifest.ApplyApplied || applied.Created != 3 || applied.Updated != 1 {
+	if applied.State != manifest.ApplyApplied || applied.Created != 5 || applied.Updated != 0 {
 		t.Fatalf("apply = %+v", applied)
 	}
 	// Les conteneurs sont rattachés par Compose et par le nom : plus rien à proposer.
 	again := b.exportPropose(t, manifest.ExportOptions{Propose: true})
-	if strings.Contains(string(again), proposeAnnotations.Proposed) || strings.Contains(string(again), proposeAnnotations.ProposedUnit) {
+	if strings.Contains(string(again), proposeAnnotations.Proposed) {
 		t.Fatalf("un second passage propose encore :\n%s", again)
 	}
 }

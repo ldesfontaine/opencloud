@@ -27,6 +27,8 @@ function nextcloud(): DeclaredService {
     name: "nextcloud",
     title: "Nextcloud",
     nature: "application",
+    category: "",
+    category_deduced: "application",
     origin: "compose",
     compose_project: "nextcloud",
     public_url: "https://cloud.exemple.fr",
@@ -86,6 +88,7 @@ describe("serviceRequestOf", () => {
       name: "nextcloud",
       title: "Nextcloud",
       nature: "application",
+      category: "",
       origin: "compose",
       compose_project: "nextcloud",
       public_url: "https://cloud.exemple.fr",
@@ -151,6 +154,7 @@ describe("serviceFormOfDefinition", () => {
     name: "nextcloud",
     title: "",
     nature: "application",
+    category: "",
     origin: "compose",
     compose_project: "nextcloud",
     public_url: "",
@@ -189,16 +193,16 @@ describe("serviceFormOfDefinition", () => {
   });
 });
 
-// Ce que le serveur propose pour un conteneur : un service neuf (sans
-// identifiant) ou l'édition de svc_1, à laquelle s'ajoute une unité.
-function proposal(serviceID: string): ProposalResponse {
+// Ce que le serveur propose pour un conteneur : un service neuf, d'une seule
+// unité (le service Compose du conteneur).
+function proposal(): ProposalResponse {
   return {
-    service_id: serviceID,
     definition: {
       machine_id: "m2",
-      name: "nextcloud",
+      name: "redis",
       title: "",
       nature: "application",
+      category: "",
       origin: "compose",
       compose_project: "nextcloud",
       public_url: "",
@@ -210,24 +214,14 @@ function proposal(serviceID: string): ProposalResponse {
 }
 
 describe("serviceFormStart", () => {
-  it("attend le service à modifier, et la proposition tant qu'elle n'est ni arrivée ni refusée", () => {
-    expect(serviceFormStart("svc_1", null, null, false)).toBeNull();
-    expect(serviceFormStart("svc_1", nextcloud(), null, true)).toBeNull();
+  it("part du service gardé en édition", () => {
+    expect(serviceFormStart(nextcloud(), null)?.machineID).toBe("m1");
+    expect(serviceFormStart(nextcloud(), proposal())?.machineID).toBe("m1");
   });
 
-  it("part du service gardé sans proposition, ou quand elle en vise un autre", () => {
-    expect(serviceFormStart("svc_1", nextcloud(), null, false)?.machineID).toBe("m1");
-    expect(serviceFormStart("svc_1", nextcloud(), proposal("svc_9"), false)?.machineID).toBe("m1");
-  });
-
-  it("part de la proposition quand elle vise le service modifié", () => {
-    expect(serviceFormStart("svc_1", nextcloud(), proposal("svc_1"), false)?.units.map((unit) => unit.name)).toEqual(["redis"]);
-  });
-
-  it("en création, part d'une proposition de service neuf, jamais de celle qui redirige", () => {
-    expect(serviceFormStart(undefined, null, null, true)).toBeNull();
-    expect(serviceFormStart(undefined, null, proposal("svc_1"), false)).toBeNull();
-    expect(serviceFormStart(undefined, null, proposal(""), false)?.machineID).toBe("m2");
+  it("en création, part de la proposition, et attend qu'elle arrive", () => {
+    expect(serviceFormStart(null, null)).toBeNull();
+    expect(serviceFormStart(null, proposal())?.machineID).toBe("m2");
   });
 });
 
@@ -281,20 +275,15 @@ describe("hasAdvancedUnitValues", () => {
 });
 
 describe("acceptanceOf", () => {
-  it("crée un service neuf avec la proposition telle quelle, sans identifiant", () => {
-    const { id, body } = acceptanceOf(proposal(""));
-    expect(id).toBeUndefined();
-    expect(body).toMatchObject({ machine_id: "m2", name: "nextcloud", origin: "compose", compose_project: "nextcloud" });
-    // Une unité que la proposition ajoute se suit : le serveur ne la dit pas.
+  it("crée un service neuf avec la proposition telle quelle", () => {
+    const body = acceptanceOf(proposal());
+    expect(body).toMatchObject({ machine_id: "m2", name: "redis", origin: "compose", compose_project: "nextcloud", category: "" });
+    // Une unité proposée se suit : le serveur ne dit pas sa politique.
     expect(body.units.map((unit) => [unit.name, unit.update_policy])).toEqual([["redis", "watch"]]);
   });
 
-  it("modifie le service que la proposition complète, par son identifiant", () => {
-    expect(acceptanceOf(proposal("svc_1")).id).toBe("svc_1");
-  });
-
   it("envoie ce que l'assistant enverrait sans y toucher", () => {
-    const proposed = proposal("");
-    expect(acceptanceOf(proposed).body).toEqual(serviceRequestOf(serviceFormOfDefinition(proposed.definition)));
+    const proposed = proposal();
+    expect(acceptanceOf(proposed)).toEqual(serviceRequestOf(serviceFormOfDefinition(proposed.definition)));
   });
 });

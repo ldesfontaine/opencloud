@@ -42,11 +42,12 @@ func undeclaredKeys(t *testing.T, b *bench) map[directory.IgnoredKey]bool {
 	return keys
 }
 
-var blogKey = directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreComposeProject, Value: "blog"}
+var blogKey = directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreComposeService, Value: "blog/web"}
 
 // Une proposition ignorée ne revient pas : ni dans la liste proposée, ni par
 // son conteneur, même recréé sous un autre identifiant Docker. La clé suit le
-// projet Compose, pas le conteneur. Ne plus l'ignorer la rend.
+// service Compose, pas le conteneur : les autres services du projet restent
+// proposés. Ne plus l'ignorer la rend.
 func TestProposal_IgnoredOneNeverComesBack(t *testing.T) {
 	b := newBench(t)
 	ctx := context.Background()
@@ -60,8 +61,8 @@ func TestProposal_IgnoredOneNeverComesBack(t *testing.T) {
 	recordBlog(t, b, recreatedWeb, recreatedDB)
 
 	proposals, err := b.directory.Proposals(ctx)
-	if err != nil || len(proposals) != 0 {
-		t.Fatalf("an ignored group is not proposed: %+v %v", proposals, err)
+	if err != nil || len(proposals) != 1 || proposals[0].Definition.Name != "db" {
+		t.Fatalf("an ignored service is not proposed, its neighbour is: %+v %v", proposals, err)
 	}
 	if _, err := b.directory.Propose(ctx, container.ID(remoteID, recreatedWeb)); !errors.Is(err, directory.ErrContainerIgnored) || !refusal.IsConflict(err) {
 		t.Fatalf("propose the recreated container: %v", err)
@@ -101,10 +102,10 @@ func TestProposal_AcceptedTwiceMakesOneService(t *testing.T) {
 	if !errors.Is(err, directory.ErrNameTaken) || !refusal.IsConflict(err) {
 		t.Fatalf("second acceptance: %v", err)
 	}
-	// Même nom changé à la main : le projet Compose, lui, est déjà pris.
+	// Même nom changé à la main : le service Compose, lui, est déjà pris.
 	renamed := proposal.Definition
 	renamed.Name = "blog-bis"
-	if _, err := b.directory.CreateService(ctx, renamed); !errors.Is(err, directory.ErrComposeProjectTaken) || !refusal.IsConflict(err) {
+	if _, err := b.directory.CreateService(ctx, renamed); !errors.Is(err, directory.ErrComposeServiceTaken) || !refusal.IsConflict(err) {
 		t.Fatalf("same compose project: %v", err)
 	}
 	services, err := b.db.ListDeclaredServices(ctx, directory.Filter{MachineID: remoteID})
@@ -152,8 +153,9 @@ func TestProposal_DeletedServiceComesBackUnlessIgnoredWithIt(t *testing.T) {
 	if ignored, listed := undeclaredKeys(t, b)[blogKey]; !listed || !ignored {
 		t.Fatalf("deleted and ignored, no proposal: listed=%v ignored=%v", listed, ignored)
 	}
+	// Seul le service supprimé est ignoré : db, du même projet, reste proposé.
 	proposals, err := b.directory.Proposals(ctx)
-	if err != nil || len(proposals) != 0 {
+	if err != nil || len(proposals) != 1 || proposals[0].Definition.Name != "db" {
 		t.Fatalf("proposals: %+v %v", proposals, err)
 	}
 }

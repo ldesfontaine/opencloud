@@ -107,7 +107,7 @@ func TestAPI_CreateDeclaredService_RefusesWithTheKey(t *testing.T) {
 		key   string
 	}{
 		{"nom pris", func(r declaredServiceRequest) declaredServiceRequest { r.ComposeProject = "autre"; return r }, "directory.name_taken"},
-		{"projet Compose pris", func(r declaredServiceRequest) declaredServiceRequest { r.Name = "autre"; return r }, "directory.compose_project_taken"},
+		{"service Compose pris", func(r declaredServiceRequest) declaredServiceRequest { r.Name = "autre"; return r }, "directory.compose_service_taken"},
 		{"version latest", func(r declaredServiceRequest) declaredServiceRequest {
 			r.Name, r.ComposeProject = "autre", "autre"
 			r.Units[0].Version = "latest"
@@ -135,7 +135,7 @@ func TestAPI_CreateDeclaredService_RefusesWithTheKey(t *testing.T) {
 			// Un nom ou un projet Compose déjà pris est un état, pas une faute
 			// de saisie : un conflit, comme la seconde acceptation d'une proposition.
 			want := http.StatusUnprocessableEntity
-			if testCase.key == "directory.name_taken" || testCase.key == "directory.compose_project_taken" {
+			if testCase.key == "directory.name_taken" || testCase.key == "directory.compose_service_taken" {
 				want = http.StatusConflict
 			}
 			if got.Code != want || errorCode(t, got) != testCase.key {

@@ -39,7 +39,7 @@ func (d *Directory) ContainerLink(ctx context.Context, item container.Container)
 	if err != nil {
 		return ContainerLink{}, err
 	}
-	link.Ignored = isIgnored(ignored, link.Key)
+	link.Key, link.Ignored = ignoredAs(ignored, link.Key, item.Group)
 	return link, nil
 }
 

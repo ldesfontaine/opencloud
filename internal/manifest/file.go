@@ -53,11 +53,13 @@ type Project struct {
 // fait un commentaire : la lecture ne le pose jamais, l'état n'est pas dans le
 // fichier.
 type Service struct {
-	ID             string
-	Machine        string
-	Name           string
-	Title          string
-	Nature         directory.Nature
+	ID      string
+	Machine string
+	Name    string
+	Title   string
+	Nature  directory.Nature
+	// Vide : la catégorie se déduit de l'image.
+	Category       directory.Category
 	Origin         directory.Origin
 	ComposeProject string
 	PublicURL      string
@@ -83,10 +85,7 @@ type Unit struct {
 	DataPath      string
 	// Vide pour un binaire, qui n'a que « watch ».
 	Updates container.UpdatePolicy
-	// Proposée par l'export à un service déjà déclaré : elle vient d'un
-	// conteneur non déclaré. Même règle que Service.Proposed.
-	Proposed bool
-	Line     int
+	Line    int
 }
 
 // Probe : Runner vide veut dire la machine openCloud. Service s'écrit
@@ -121,7 +120,8 @@ type Heartbeat struct {
 	Line    int
 }
 
-// IgnoredKey désigne un projet Compose ou un conteneur que la machine
+// IgnoredKey désigne un service Compose (« projet/service »), un projet
+// Compose ou un conteneur que la machine
 // montre sans qu'il y ait rien à déclarer.
 type IgnoredKey struct {
 	Machine string

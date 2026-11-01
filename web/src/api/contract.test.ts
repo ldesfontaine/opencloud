@@ -558,6 +558,8 @@ const declaredServiceFields = {
   name: value,
   title: value,
   nature: value,
+  category: value,
+  category_deduced: value,
   origin: value,
   compose_project: value,
   public_url: value,
@@ -632,7 +634,8 @@ const gaps = shape<GapsResponse>("GapsResponse", {
     key_kind: value,
     key_value: value,
     ignored: value,
-    service_id: value,
+    project: value,
+    compose_service: value,
     adoptable: value,
     containers: shape("UndeclaredContainer", {
       id: value,
@@ -648,12 +651,12 @@ const gaps = shape<GapsResponse>("GapsResponse", {
 });
 
 const proposal = shape<ProposalResponse>("ProposalResponse", {
-  service_id: value,
   definition: shape("ProposalResponse.definition", {
     machine_id: value,
     name: value,
     title: value,
     nature: value,
+    category: value,
     origin: value,
     compose_project: value,
     public_url: value,
@@ -864,6 +867,7 @@ const deployPlan = shape<DeployPlan>("DeployPlan", {
   right_reason: optional(value),
   compose: value,
   data_dirs: value,
+  shared_with: value,
   last_run: actionRun,
 });
 

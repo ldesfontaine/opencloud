@@ -34,6 +34,9 @@ type deployPlanJSON struct {
 	RightReason string   `json:"right_reason,omitempty"`
 	Compose     string   `json:"compose"`
 	DataDirs    []string `json:"data_dirs"`
+	// Les noms des autres services déclarés qui partagent le projet Compose :
+	// tant qu'il y en a, déployer est refusé (deploy.project_shared).
+	SharedWith []string `json:"shared_with"`
 	// Le dernier ordre de déploiement du service, null s'il n'y en a pas ou
 	// plus.
 	LastRun *actionRunJSON `json:"last_run"`
@@ -55,7 +58,7 @@ func deployPlanToJSON(plan deploy.Plan) deployPlanJSON {
 	out := deployPlanJSON{
 		ServiceID: plan.Service.ID, MachineID: plan.Service.MachineID, MachineName: plan.MachineName,
 		RootDir: plan.RootDir, Path: plan.Path, Deployed: plan.Deployed, Right: string(plan.Right),
-		RightReason: plan.RightReason, Compose: plan.Compose, DataDirs: orEmpty(plan.DataDirs),
+		RightReason: plan.RightReason, Compose: plan.Compose, DataDirs: orEmpty(plan.DataDirs), SharedWith: orEmpty(plan.SharedWith),
 	}
 	if plan.LastRun != nil {
 		converted := actionRunToJSON(*plan.LastRun)

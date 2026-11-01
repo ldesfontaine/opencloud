@@ -239,6 +239,7 @@ func serviceOf(id string, definition ServiceDefinition, units []Unit) Service {
 		Name:           definition.Name,
 		Title:          definition.Title,
 		Nature:         definition.Nature,
+		Category:       definition.Category,
 		Origin:         definition.Origin,
 		ComposeProject: definition.ComposeProject,
 		PublicURL:      definition.PublicURL,

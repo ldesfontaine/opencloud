@@ -30,8 +30,8 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/directory/services/svc_1")).toEqual(["directory"]);
   });
 
-  it("rereads an adoption proposal only when the directory changes", () => {
-    expect(topicsOf("/api/directory/proposal?container=abc")).toEqual(["directory"]);
+  it("never rereads an adoption proposal by itself: the write it proposes would make it a 409", () => {
+    expect(topicsOf("/api/directory/proposal?container=abc")).toEqual([]);
   });
 
   it("rereads a container sheet when the directory changes, but not its sub-paths or the list", () => {

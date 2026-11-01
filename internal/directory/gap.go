@@ -88,11 +88,12 @@ type ServiceGap struct {
 type Undeclared struct {
 	MachineID string
 	Key       IgnoredKey
-	// Le service déclaré du même projet Compose sur la machine, s'il existe :
-	// c'est là que « Adopter » ajoute une unité.
-	ServiceID  string
-	Ignored    bool
-	Containers []container.Container
+	// Le groupe d'exécution (projet Compose) et le service Compose du
+	// groupe, vides pour un conteneur seul.
+	Project        string
+	ComposeService string
+	Ignored        bool
+	Containers     []container.Container
 	// Les conteneurs du groupe dont les labels ne visent aucune unité de leur
 	// machine, par identifiant de fiche, avec le motif. Un label orphelin
 	// laisse le conteneur non déclaré : rien ne se replie sur Compose ni sur
@@ -255,13 +256,33 @@ func sortedByName(containers []container.Container) []container.Container {
 	return sorted
 }
 
-// keyOf est la clé par laquelle l'opérateur ignore un conteneur : son projet
-// Compose, sinon son nom.
+// keyOf est la clé par laquelle l'opérateur ignore un conteneur : son service
+// Compose, sinon son projet Compose, sinon son nom.
 func keyOf(item container.Container) IgnoredKey {
-	if item.Group != "" {
+	switch {
+	case item.Group != "" && item.ComposeService != "":
+		return IgnoredKey{MachineID: item.MachineID, Kind: IgnoreComposeService, Value: ComposeServiceValue(item.Group, item.ComposeService)}
+	case item.Group != "":
 		return IgnoredKey{MachineID: item.MachineID, Kind: IgnoreComposeProject, Value: item.Group}
 	}
 	return IgnoredKey{MachineID: item.MachineID, Kind: IgnoreContainerName, Value: item.Name}
+}
+
+// ignoredAs dit si le conteneur de cette clé est ignoré, et par quelle clé :
+// la sienne, ou celle de tout son projet Compose (une clé de projet posée
+// avant que chaque service ait la sienne). C'est la clé à retirer pour
+// cesser d'ignorer.
+func ignoredAs(ignored []IgnoredKey, key IgnoredKey, project string) (IgnoredKey, bool) {
+	if isIgnored(ignored, key) {
+		return key, true
+	}
+	if project != "" {
+		wider := IgnoredKey{MachineID: key.MachineID, Kind: IgnoreComposeProject, Value: project}
+		if isIgnored(ignored, wider) {
+			return wider, true
+		}
+	}
+	return key, false
 }
 
 func undeclaredOf(declared []Service, living []container.Container, ignored []IgnoredKey) []Undeclared {
@@ -273,7 +294,7 @@ func undeclaredOf(declared []Service, living []container.Container, ignored []Ig
 		key := keyOf(item)
 		group, found := groups[key]
 		if !found {
-			group = &Undeclared{MachineID: item.MachineID, Key: key, ServiceID: composeServiceOf(declared, key), LabelProblems: map[string]LabelProblem{}}
+			group = &Undeclared{MachineID: item.MachineID, Key: key, Project: item.Group, ComposeService: item.ComposeService, LabelProblems: map[string]LabelProblem{}}
 			groups[key] = group
 		}
 		group.Containers = append(group.Containers, item)
@@ -285,31 +306,19 @@ func undeclaredOf(declared []Service, living []container.Container, ignored []Ig
 	undeclared := make([]Undeclared, 0, len(groups))
 	for _, group := range groups {
 		group.Containers = sortedByName(group.Containers)
-		group.Ignored = isIgnored(ignored, group.Key)
+		group.Key, group.Ignored = ignoredAs(ignored, group.Key, group.Project)
 		undeclared = append(undeclared, *group)
 	}
 	slices.SortFunc(undeclared, func(a, b Undeclared) int {
 		return cmp.Or(
 			strings.Compare(a.MachineID, b.MachineID),
+			strings.Compare(a.Project, b.Project),
+			strings.Compare(a.ComposeService, b.ComposeService),
 			strings.Compare(string(a.Key.Kind), string(b.Key.Kind)),
 			strings.Compare(a.Key.Value, b.Key.Value),
 		)
 	})
 	return undeclared
-}
-
-// composeServiceOf rend le service déclaré dont le projet Compose est celui
-// de la clé, sur la même machine.
-func composeServiceOf(declared []Service, key IgnoredKey) string {
-	if key.Kind != IgnoreComposeProject {
-		return ""
-	}
-	for _, candidate := range declared {
-		if candidate.Origin == OriginCompose && candidate.MachineID == key.MachineID && candidate.ComposeProject == key.Value {
-			return candidate.ID
-		}
-	}
-	return ""
 }
 
 func isIgnored(ignored []IgnoredKey, key IgnoredKey) bool {

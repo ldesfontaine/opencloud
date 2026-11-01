@@ -357,7 +357,7 @@ func (r *fileReader) readProjects(node *yaml.Node) []Project {
 
 func (r *fileReader) readServices(node *yaml.Node) []Service {
 	var services []Service
-	known := []string{"id", "machine", "name", "title", "nature", "origin", "compose_project", "public_url", "provides", "projects", "units"}
+	known := []string{"id", "machine", "name", "title", "nature", "category", "origin", "compose_project", "public_url", "provides", "projects", "units"}
 	for _, entry := range r.entries(node, "services") {
 		service := Service{Line: entry.Line}
 		r.fields(entry, "services", known, unsupportedService, func(key string, value *yaml.Node) {
@@ -372,6 +372,8 @@ func (r *fileReader) readServices(node *yaml.Node) []Service {
 				service.Title = r.text(value, key)
 			case "nature":
 				service.Nature = directory.Nature(r.text(value, key))
+			case "category":
+				service.Category = directory.Category(r.text(value, key))
 			case "origin":
 				service.Origin = directory.Origin(r.text(value, key))
 			case "compose_project":
@@ -527,11 +529,13 @@ func (r *fileReader) checkSecret(node *yaml.Node) {
 func (r *fileReader) readIgnored(node *yaml.Node) []IgnoredKey {
 	var keys []IgnoredKey
 	for _, entry := range r.entries(node, "ignored") {
-		var machine, composeProject, containerName string
-		r.fields(entry, "ignored", []string{"machine", "compose_project", "container_name"}, nil, func(key string, value *yaml.Node) {
+		var machine, composeService, composeProject, containerName string
+		r.fields(entry, "ignored", []string{"machine", "compose_service", "compose_project", "container_name"}, nil, func(key string, value *yaml.Node) {
 			switch key {
 			case "machine":
 				machine = r.text(value, key)
+			case "compose_service":
+				composeService = r.text(value, key)
 			case "compose_project":
 				composeProject = r.text(value, key)
 			case "container_name":
@@ -545,9 +549,11 @@ func (r *fileReader) readIgnored(node *yaml.Node) []IgnoredKey {
 		case machine == "":
 			// Une clé ignorée est celle d'une machine : sans elle, rien à ignorer.
 			r.add(KeyIgnoredInvalid, entry, "")
-		case composeProject != "" && containerName == "":
+		case composeService != "" && composeProject == "" && containerName == "":
+			key.Kind, key.Value = directory.IgnoreComposeService, composeService
+		case composeProject != "" && composeService == "" && containerName == "":
 			key.Kind, key.Value = directory.IgnoreComposeProject, composeProject
-		case containerName != "" && composeProject == "":
+		case containerName != "" && composeProject == "" && composeService == "":
 			key.Kind, key.Value = directory.IgnoreContainerName, containerName
 		default:
 			r.add(KeyIgnoredInvalid, entry, "")

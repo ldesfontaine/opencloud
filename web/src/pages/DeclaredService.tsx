@@ -18,7 +18,7 @@ import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { DeployCard } from "../components/DeployCard";
 import { ImageName } from "../components/ImageName";
-import { NaturePill } from "../components/DeclaredServiceTable";
+import { CategoryPill, shownCategory } from "../components/CategoryPill";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
 import { GapPill } from "../components/GapPill";
@@ -62,7 +62,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
       <Card>
         <CardBody gap={16}>
           <span className="machine-state">
-            <NaturePill nature={service.nature} />
+            <CategoryPill service={service} />
             {gap && <GapPill state={gap.state} weak={gap.weak} observed={gap.observed} />}
             <span className="meta">
               <Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>
@@ -77,6 +77,15 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
           <CardHeader title={t("tab.summary")} />
           <CardBody gap={10}>
             <KeyValue label={t("directory.field_machine")} value={<Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>} />
+            <KeyValue
+              label={t("directory.field_category")}
+              value={
+                <>
+                  {t(`directory.category_${shownCategory(service)}`)}
+                  {service.category === "" && <span className="muted"> · {t("directory.category_deduced_note")}</span>}
+                </>
+              }
+            />
             <KeyValue label={t("directory.field_nature")} value={t(`directory.nature_${service.nature}`)} />
             <KeyValue label={t("directory.field_origin")} value={t(`directory.origin_${service.origin}`)} />
             {service.compose_project !== "" && <KeyValue label={t("directory.field_compose_project")} value={service.compose_project} mono />}
