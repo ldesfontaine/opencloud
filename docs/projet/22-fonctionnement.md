@@ -201,17 +201,24 @@ qu'à l'écran qui le montre une fois, puis chez le client qui le garde
    avec son bouton « Copier » ; **le jeton n'est que dans le bloc `enroll`**
    (un test le garde). Dans l'ordre : `stop` (un ré-enrôlement seulement :
    arrêter l'unité, supprimer `identity.json`) ; `binary` (sauf sur la machine
-   openCloud : `scp root@<hôte de public_url>:/usr/local/bin/opencloud
-   /tmp/opencloud`, joué sur la machine, car le serveur n'offre pas son binaire
-   par HTTP ; l'hôte n'entre dans la ligne que s'il ne porte que des lettres,
-   chiffres, `. : -`, sinon `ADRESSE_DU_SERVEUR` reste à remplacer) ; `prepare` ;
+   openCloud : `machine.ReleaseDownloadLines`, le binaire de la version du
+   serveur téléchargé de la publication, `SHA256SUMS` vérifié, posé dans
+   `/tmp/opencloud` ; il s'arrête au premier échec. Le serveur n'offre pas son
+   binaire par HTTP : une version non publiée y échoue, 404) ; `prepare` ;
    `enroll` ; `unit` (l'unité `opencloud-agent.service` écrite par un heredoc
    entre apostrophes, puis `daemon-reload` et `enable --now` ; son contenu,
    `machine.AgentUnitLines`, est celui de `docs/installation/opencloud-agent.service`
    sans les commentaires, un test échoue s'ils diffèrent) ; `rights` (le drop-in
    `droits.conf` : `ReadWritePaths=` de la racine des services et des dossiers de
    `backup.receive`, seulement quand un de ces droits est coché, puis `restart`).
-   Aucun renvoi à la documentation sur la page.
+   Aucun renvoi à la documentation sur la page. **Aucun bloc ne nomme `sudo`** :
+   tous se jouent en root (`su -`), l'enrôlement prend le compte par
+   `runuser -u opencloud-agent --`. La migration de l'agent (fiche › Agent,
+   `GET /api/agent-migration`, réservée à l'opérateur) rend deux blocs :
+   `commands` avec `sudo`, `root_commands` en root ; l'écran propose le second
+   d'office pour un hôte Proxmox ou quand l'agent dit `sudo_missing`
+   (`lacksSudo`), l'autre reste au choix. Chacun commence par le
+   téléchargement vérifié.
    La **préparation** (`installPreparation`) se joue une fois en root : le compte `opencloud-agent` (`useradd --system`, sans
    shell, son dossier personnel est l'état de l'agent), le groupe `docker` s'il
    existe, l'état à ce compte, puis **sous le compte** (`runuser`) `bin/` et le

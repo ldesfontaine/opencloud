@@ -28,35 +28,60 @@ func GuardInstallLines(source string) []string {
 	}
 }
 
-// GuardMigrationLines sont les lignes qu'un opérateur non root, avec sudo,
-// colle sur une machine dont l'agent est déjà installé : arrêter l'agent, poser
-// le lanceur et la nouvelle version de l'agent (le binaire de {source}, la
-// version {number} que ce serveur est), faire lancer le lanceur par l'unité,
-// puis relancer. Rejouées, elles ne changent rien de plus (le sed ne trouve
-// plus l'ancienne ligne).
-func GuardMigrationLines(source, number string) []string {
-	asAccount := "sudo -u " + brand.AgentAccount + " "
+// ReleaseDownloadLines télécharge le binaire de la version {number} publiée,
+// vérifie sa somme SHA-256 contre SHA256SUMS et le pose dans /tmp/opencloud :
+// là où la préparation et la migration le prennent. Un bloc, joué en root ; il
+// s'arrête au premier échec (réseau, 404, somme fausse) sans rien poser.
+// L'architecture est celle de la machine (uname -m). La signature d'une version
+// signée se vérifie à part (installation.md) : ici, la somme.
+func ReleaseDownloadLines(number string) []string {
+	binary := brand.ReleaseBinaryPrefix + "$arch"
+	return []string{
+		"(cd \"$(mktemp -d)\" &&",
+		"base=" + brand.ReleaseBaseURL + "/" + number + " &&",
+		`arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') &&`,
+		`curl -fLO "$base/` + binary + `" -fLO "$base/` + brand.ReleaseSumsFile + `" &&`,
+		"sha256sum -c --ignore-missing " + brand.ReleaseSumsFile + " &&",
+		`install -m 0755 "` + binary + `" /tmp/` + brand.Command + ")",
+	}
+}
+
+// GuardMigrationLines sont les lignes qu'un opérateur colle sur une machine dont
+// l'agent est déjà installé : arrêter l'agent, poser le lanceur stable et la
+// nouvelle version de l'agent (le binaire de {source}, la version {number} que
+// ce serveur est), faire lancer le lanceur par l'unité, puis relancer. Rejouées,
+// elles ne changent rien de plus (le sed ne trouve plus l'ancienne ligne).
+// root : l'opérateur est root (su -), sans sudo, comme sur un hôte Proxmox ;
+// le compte de l'agent se prend alors par runuser. Sinon, sudo.
+func GuardMigrationLines(source, number string, root bool) []string {
+	privileged, asAccount := "sudo ", "sudo -u "+brand.AgentAccount+" "
+	if root {
+		privileged, asAccount = "", "runuser -u "+brand.AgentAccount+" -- "
+	}
 	binDir := brand.AgentStateDir + "/" + brand.AgentBinDir
 	binaryName := brand.AgentBinaryPrefix + number
 	oldExecStart := "ExecStart=" + brand.AgentCurrentPath + " "
 	lines := []string{
-		"sudo systemctl stop " + brand.AgentUnit,
+		privileged + "systemctl stop " + brand.AgentUnit,
 	}
 	for _, line := range GuardInstallLines(source) {
-		lines = append(lines, "sudo "+line)
+		lines = append(lines, privileged+line)
 	}
 	lines = append(lines,
 		asAccount+"install -m 0755 "+source+" "+binDir+"/"+binaryName,
 		asAccount+"ln -sfn "+binaryName+" "+binDir+"/"+brand.AgentCurrentLink,
-		"sudo sed -i 's|^"+oldExecStart+"|ExecStart="+guardExecStart+"|' "+UnitFile,
+		privileged+"sed -i 's|^"+oldExecStart+"|ExecStart="+guardExecStart+"|' "+UnitFile,
 		"systemctl cat "+brand.AgentUnit+" | grep '^ExecStart='",
-		"sudo systemctl daemon-reload",
-		"sudo systemctl start "+brand.AgentUnit,
+		privileged+"systemctl daemon-reload",
+		privileged+"systemctl start "+brand.AgentUnit,
 	)
 	return lines
 }
 
-// GuardMigrationText est GuardMigrationLines en un bloc à copier.
-func GuardMigrationText(source, number string) string {
-	return strings.Join(GuardMigrationLines(source, number), "\n")
+// GuardMigrationText est la migration en un bloc à copier : le téléchargement
+// vérifié du binaire, puis GuardMigrationLines. Rien n'est supposé déjà copié.
+func GuardMigrationText(number string, root bool) string {
+	source := "/tmp/" + brand.Command
+	lines := append(ReleaseDownloadLines(number), GuardMigrationLines(source, number, root)...)
+	return strings.Join(lines, "\n")
 }

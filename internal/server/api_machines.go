@@ -325,17 +325,24 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 }
 
 // La migration d'un agent installé avant le retour arrière automatique : les
-// lignes à coller, avec sudo, sur la machine. Les mêmes pour toutes ; la
-// version est celle de ce serveur, dont l'opérateur copie le binaire.
+// lignes à coller sur la machine, avec le téléchargement vérifié du binaire.
+// commands : pour un compte non root qui a sudo ; root_commands : pour root
+// (su -), sans sudo, comme sur un hôte Proxmox. Les mêmes pour toutes les
+// machines ; la version est celle de ce serveur. L'écran propose root_commands
+// d'office quand la machine est un hôte Proxmox ou que son agent dit que sudo
+// manque.
 type agentMigrationJSON struct {
-	Version  string `json:"version"`
-	Commands string `json:"commands"`
+	Version      string `json:"version"`
+	Commands     string `json:"commands"`
+	RootCommands string `json:"root_commands"`
 }
 
 func (s *Server) getAgentMigration(w http.ResponseWriter, _ *http.Request) {
 	number := version.Number()
 	s.writeAPI(w, http.StatusOK, agentMigrationJSON{
-		Version: number, Commands: machine.GuardMigrationText("/tmp/"+brand.Command, number),
+		Version:      number,
+		Commands:     machine.GuardMigrationText(number, false),
+		RootCommands: machine.GuardMigrationText(number, true),
 	})
 }
 
@@ -433,17 +440,19 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 // La commande à coller ; la langue n'y figure que si elle n'est pas celle
 // par défaut, les droits que s'ils dépassent observe, pour rester courte. Le
 // jeton passe par printf, un builtin du shell : aucun processus ne le porte
-// dans ses arguments, alors que /proc/<pid>/cmdline de l'agent et de sudo se
-// lit depuis tous les comptes de la machine. Un jeton n'a que des
+// dans ses arguments, alors que /proc/<pid>/cmdline de l'agent et de runuser
+// se lit depuis tous les comptes de la machine. Un jeton n'a que des
 // minuscules, des chiffres et « _ » : les guillemets simples suffisent. Pas
-// de « sudo VAR=… » : la variable finirait dans les arguments de sudo. Les
+// de « VAR=… runuser » : la variable finirait dans les arguments. La ligne se
+// joue en root, comme toutes les étapes : runuser, de util-linux, ne demande
+// pas sudo, qu'un hôte Proxmox n'a pas. Les
 // droits, eux, ne sont pas un secret : ils restent lisibles dans la ligne,
 // et leur forme (lettres, chiffres, « . _ - / = : , ») passe sans guillemets.
 // Le binaire est celui de l'état de l'agent, pas /usr/local/bin/opencloud : un
 // lien root vers un fichier que le compte de l'agent peut remplacer serait une
 // escalade sur une machine sans Docker.
 func installCommand(publicURL, token string, code lang.Code, capabilities []machine.Capability) string {
-	command := "printf '%s\\n' '" + token + "' | sudo -u " + brand.AgentAccount + " " + brand.AgentCurrentPath +
+	command := "printf '%s\\n' '" + token + "' | runuser -u " + brand.AgentAccount + " -- " + brand.AgentCurrentPath +
 		" agent -server " + publicURL
 	if code != lang.Default {
 		command += " -lang " + string(code)

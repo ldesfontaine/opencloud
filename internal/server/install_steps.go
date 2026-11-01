@@ -1,9 +1,6 @@
 package server
 
 import (
-	"net"
-	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -45,7 +42,7 @@ func installSteps(publicURL, token string, code lang.Code, capabilities []machin
 		steps = append(steps, installStepJSON{ID: stepStop, Command: installStop()})
 	}
 	if !target.local {
-		steps = append(steps, installStepJSON{ID: stepBinary, Command: installBinary(publicURL)})
+		steps = append(steps, installStepJSON{ID: stepBinary, Command: installBinary()})
 	}
 	steps = append(steps,
 		installStepJSON{ID: stepPrepare, Command: installPreparation(capabilities, version.Number(), target.local)},
@@ -64,26 +61,11 @@ func installStop() string {
 	return "systemctl stop " + brand.AgentUnit + "\nrm -f " + brand.AgentStateDir + "/" + brand.AgentIdentityFile
 }
 
-// serverHostPattern : ce qu'un nom ou une adresse de serveur peut porter pour
-// entrer dans une commande sans guillemets.
-var serverHostPattern = regexp.MustCompile(`^[A-Za-z0-9.:-]{1,253}$`)
-
-// installBinary copie le binaire du serveur dans /tmp de la machine, d'où la
-// préparation l'installe. Il se joue sur la machine, en root : l'adresse est
-// celle de public_url. Le serveur n'offre pas son binaire par HTTP : la copie
-// passe par SSH, avec les accès que l'opérateur a déjà. Hôte illisible : le
-// repère ADRESSE_DU_SERVEUR reste à remplacer, la page ne devine rien.
-func installBinary(publicURL string) string {
-	host := "ADRESSE_DU_SERVEUR"
-	if parsed, err := url.Parse(publicURL); err == nil && serverHostPattern.MatchString(parsed.Hostname()) {
-		host = parsed.Hostname()
-		if net.ParseIP(host) != nil && strings.Contains(host, ":") {
-			host = "[" + host + "]"
-		}
-	}
-	const source = "/usr/local/bin/" + brand.Command
-	const target = "/tmp/" + brand.Command
-	return "scp root@" + host + ":" + source + " " + target + " && chmod 0755 " + target
+// installBinary télécharge le binaire publié de cette version et vérifie sa
+// somme (machine.ReleaseDownloadLines) : le serveur n'offre pas le sien par
+// HTTP, et rien n'est supposé déjà copié sur la machine.
+func installBinary() string {
+	return strings.Join(machine.ReleaseDownloadLines(version.Number()), "\n")
 }
 
 // installUnit pose l'unité de l'agent et l'active. Le contenu est celui de

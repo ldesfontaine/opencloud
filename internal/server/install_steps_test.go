@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
 func stepCommand(steps []installStepJSON, id string) string {
@@ -67,17 +68,40 @@ func TestInstallSteps_TheTokenIsOnlyInTheEnrollment(t *testing.T) {
 	}
 }
 
-func TestInstallBinary_CopiesTheServerBinaryFromTheServerAddress(t *testing.T) {
-	cases := map[string]string{
-		"https://opencloud.example.org":     "scp root@opencloud.example.org:/usr/local/bin/opencloud /tmp/opencloud && chmod 0755 /tmp/opencloud",
-		"https://192.0.2.7:8443":            "scp root@192.0.2.7:/usr/local/bin/opencloud /tmp/opencloud && chmod 0755 /tmp/opencloud",
-		"https://[2001:db8::1]:8443":        "scp root@[2001:db8::1]:/usr/local/bin/opencloud /tmp/opencloud && chmod 0755 /tmp/opencloud",
-		"https://x.example;touch$IFS/tmp/p": "scp root@ADRESSE_DU_SERVEUR:/usr/local/bin/opencloud /tmp/opencloud && chmod 0755 /tmp/opencloud",
-		"":                                  "scp root@ADRESSE_DU_SERVEUR:/usr/local/bin/opencloud /tmp/opencloud && chmod 0755 /tmp/opencloud",
+// Le bloc du binaire se joue de bout en bout avec des commandes témoins : il
+// télécharge pour l'architecture de la machine, vérifie la somme, et ne pose
+// /tmp/opencloud que si elle est bonne.
+func TestInstallBinary_DownloadsVerifiesThenInstalls(t *testing.T) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
 	}
-	for publicURL, want := range cases {
-		if got := installBinary(publicURL); got != want {
-			t.Errorf("%q: %q, want %q", publicURL, got, want)
+	for _, sumOK := range []bool{true, false} {
+		bin := t.TempDir()
+		log := filepath.Join(t.TempDir(), "calls")
+		witness := func(name, body string) {
+			if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { // #nosec G306 -- un témoin de test, dans un dossier temporaire.
+				t.Fatal(err)
+			}
+		}
+		witness("uname", "echo aarch64")
+		witness("curl", `echo "curl $*" >> `+log+`; : > opencloud-linux-arm64`)
+		status := "0"
+		if !sumOK {
+			status = "1"
+		}
+		witness("sha256sum", `echo "sha256sum $*" >> `+log+"; exit "+status)
+		witness("install", `echo "install $*" >> `+log)
+		cmd := exec.Command(shell, "-c", installBinary()) // #nosec G204 -- le texte que le test juge, lu par un sh dont chaque commande est un témoin.
+		cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "TMPDIR=" + t.TempDir()}
+		runErr := cmd.Run()
+		calls, _ := os.ReadFile(log) // #nosec G304 -- un fichier de test.
+		text := string(calls)
+		if !strings.Contains(text, "opencloud-linux-arm64") || !strings.Contains(text, "/releases/download/"+version.Number()+"/SHA256SUMS") {
+			t.Errorf("sum ok=%v: wrong download:\n%s", sumOK, text)
+		}
+		if installed := strings.Contains(text, "install -m 0755 opencloud-linux-arm64 /tmp/opencloud"); installed != sumOK || (runErr == nil) != sumOK {
+			t.Errorf("sum ok=%v: installed=%v err=%v\n%s", sumOK, installed, runErr, text)
 		}
 	}
 }

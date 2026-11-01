@@ -59,6 +59,51 @@ test("Ajouter une machine : cinq étapes, un bloc chacune, le jeton une seule fo
   expect(findings.unknown()).toEqual([]);
 });
 
+test("Hôte Proxmox sans sudo : l'installation et la migration se collent en root, binaire téléchargé et vérifié", async ({ page, findings }) => {
+  findings.where = "/machines/nouvelle (rôle Proxmox)";
+  await page.goto("/machines/nouvelle");
+  const dialog = page.locator("dialog[open]");
+  await dialog.getByLabel(label("machine.name_label")).fill("pve-sans-sudo");
+  await dialog.locator("#machine-role").click();
+  await page.locator("[role=listbox] [role=option]").filter({ hasText: label("role.proxmox") }).click();
+  await dialog.getByRole("button", { name: label("machine.create_token") }).click();
+  const steps = dialog.locator(".checklist").first();
+  await expect(steps).toContainText(label("machine.install_binary_title"));
+  // Aucun bloc ne nomme sudo, et celui du binaire se télécharge et se vérifie.
+  const blocks = (await steps.locator(".token-box pre").allInnerTexts()).join("\n");
+  expect(blocks).not.toMatch(/\bsudo\b/);
+  expect(blocks).toContain("curl -fLO");
+  expect(blocks).toContain("sha256sum -c --ignore-missing SHA256SUMS");
+  expect(blocks).toContain("runuser -u opencloud-agent --");
+  await dialog.getByRole("button", { name: label("wizard.next") }).click();
+  await dialog.locator(".modal-foot").getByRole("button", { name: label("modal.close") }).click();
+
+  // La fiche d'un hôte Proxmox dont l'agent n'est pas migré : le bloc est en root d'office.
+  await page.route("**/api/machines/*/agent-update", (route) =>
+    route.fulfill({ json: { current: "v0.0.1", target: "v0.0.2", arch: "amd64", available: false, reason: "rollback_unavailable" } }),
+  );
+  await page.route("**/api/machines", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { machines: { role: string }[] };
+    body.machines.forEach((machine) => (machine.role = "proxmox"));
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/machines");
+  await page.locator("table a.svc").first().click();
+  await page.goto(`${new URL(page.url()).pathname.replace(/\/$/, "")}/agent`);
+  const migration = page.locator(".note", { hasText: label("machine.agent_migration_title") });
+  await expect(migration.getByRole("button", { name: label("machine.agent_migration_root") })).toHaveAttribute("aria-pressed", "true");
+  let block = await migration.locator(".token-box pre").innerText();
+  expect(block).not.toMatch(/\bsudo\b/);
+  expect(block).toContain("sha256sum -c --ignore-missing SHA256SUMS");
+  expect(block).toContain("runuser -u opencloud-agent -- install");
+  // L'autre variante reste au choix.
+  await migration.getByRole("button", { name: label("machine.agent_migration_sudo") }).click();
+  block = await migration.locator(".token-box pre").innerText();
+  expect(block).toContain("sudo systemctl stop opencloud-agent.service");
+  expect(findings.unknown()).toEqual([]);
+});
+
 test("Destination de sauvegarde : les machines sans le droit sont grisées, avec la raison et le lien", async ({ page, findings }) => {
   findings.where = "/sauvegardes/destinations/nouvelle";
   await page.goto("/sauvegardes/destinations/nouvelle");

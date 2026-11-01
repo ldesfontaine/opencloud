@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Agent, Capability, Machine } from "../api/machines";
-import { heldRights, reenrollPath, rightOfRefusal, unfitFor, wantedRightOf, withWantedRight } from "./rights";
+import { heldRights, lacksSudo, reenrollPath, rightOfRefusal, unfitFor, wantedRightOf, withWantedRight } from "./rights";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join("|");
 
@@ -75,4 +75,13 @@ test("unfitFor : une machine convient, ou dit pourquoi pas et où aller", () => 
   const unavailable = unfitFor(t, { id: "m4", agent: agentWith([], [{ name: "docker.deploy", unavailable: "docker_denied" }]) }, "docker.deploy");
   expect(unavailable?.reason).toBe("machine.capability_unavailable_docker_denied");
   expect(unavailable?.link.to).toBe("/machines/m4");
+});
+
+test("lacksSudo : un hôte Proxmox, ou un agent qui dit que sudo manque", () => {
+  const base = { role: "generic" as const, roles: [], agent: agentWith([], [{ name: "observe" }]) };
+  expect(lacksSudo(base)).toBe(false);
+  expect(lacksSudo({ ...base, role: "proxmox" })).toBe(true);
+  expect(lacksSudo({ ...base, roles: [{ name: "proxmox_ve", version: "8.2" }] })).toBe(true);
+  expect(lacksSudo({ ...base, agent: agentWith([], [{ name: "backup.produce", unavailable: "sudo_missing" }]) })).toBe(true);
+  expect(lacksSudo({ ...base, agent: null })).toBe(false);
 });

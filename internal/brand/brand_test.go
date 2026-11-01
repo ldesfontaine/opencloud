@@ -32,6 +32,7 @@ func TestValues_AreFrozen(t *testing.T) {
 		"ServerUnit":              {ServerUnit, "opencloud.service"},
 		"AgentUnit":               {AgentUnit, "opencloud-agent.service"},
 		"InstallDocURL":           {InstallDocURL, "https://github.com/ldesfontaine/opencloud/blob/dev/docs/installation.md"},
+		"ReleaseBaseURL":          {ReleaseBaseURL, "https://github.com/ldesfontaine/opencloud/releases/download"},
 		"AgentIdentityFile":       {AgentIdentityFile, "identity.json"},
 		"Command":                 {Command, "opencloud"},
 		"UserAgent":               {UserAgent, "openCloud"},

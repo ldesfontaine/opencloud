@@ -1,5 +1,6 @@
 import type { Capability, Machine } from "../api/machines";
 import type { Translate } from "../i18n/context";
+import { detectedProxmox } from "./proxmox";
 import { alwaysGranted, capabilityLabelKey, capabilityNames, describeUnavailable, type RightsValues } from "./machines";
 
 // Les droits d'un agent manquent ici ou là ; ce fichier dit comment un écran
@@ -101,4 +102,12 @@ const refusalRights: Readonly<Record<string, string>> = {
 
 export function rightOfRefusal(key: string): string | null {
   return refusalRights[key] ?? null;
+}
+
+// La machine n'a pas sudo, ou on le tient pour acquis : un hôte Proxmox n'en a pas
+// (Debian sans sudo), et l'agent le dit quand un droit en dépend (sudo_missing).
+// Les blocs à coller se proposent alors en root, sans sudo.
+export function lacksSudo(machine: Pick<Machine, "role" | "roles" | "agent">): boolean {
+  const reportsMissing = machine.agent?.capabilities.some((capability) => capability.unavailable === "sudo_missing") ?? false;
+  return machine.role === "proxmox" || detectedProxmox(machine) !== null || reportsMissing;
 }

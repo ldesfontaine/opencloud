@@ -18,6 +18,7 @@ export function EnrollmentToken({ token, checklist }: { token: TokenPageState; c
     <>
       <p className="secondary">{t("machine.token_subtitle", token.name)}</p>
       <Note tone="warn">{t("machine.token_once", expiresIn)}</Note>
+      <p className="secondary">{t("machine.install_root_note")}</p>
       <InstallSteps steps={token.steps} produces={token.rights.some((right) => right.name === "backup.produce")} done={checklist.done} onToggle={checklist.toggle} />
       {token.proxmox_commands !== "" && <ProxmoxToken commands={token.proxmox_commands} />}
       {token.url_local && <Note tone="danger">{t("machine.url_local")}</Note>}

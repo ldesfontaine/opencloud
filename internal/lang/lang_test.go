@@ -193,7 +193,7 @@ func TestLoad_ExpandsPlaceholders(t *testing.T) {
 			}
 		}
 		// La ligne que l'agent cite quand le jeton manque est celle de l'installation.
-		if got := catalog.Get("agent.token_missing"); !strings.Contains(got, "sudo -u "+brand.AgentAccount+" "+brand.AgentCurrentPath+" agent") {
+		if got := catalog.Get("agent.token_missing"); !strings.Contains(got, "runuser -u "+brand.AgentAccount+" -- "+brand.AgentCurrentPath+" agent") {
 			t.Errorf("%s: agent.token_missing = %q, want the install line", code, got)
 		}
 		if got := catalog.Get("machine.prepare_docker_note"); !strings.Contains(got, brand.AgentAccount) {

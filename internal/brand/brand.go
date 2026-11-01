@@ -101,6 +101,7 @@ const (
 
 // Les fichiers d'une version publiée, et le commentaire de sa signature.
 const (
+	ReleaseBaseURL          = "https://github.com/ldesfontaine/opencloud/releases/download"
 	ReleaseBinaryPrefix     = ID + "-linux-"
 	ReleaseSumsFile         = "SHA256SUMS"
 	ReleaseSignatureFile    = ReleaseSumsFile + ".minisig"
