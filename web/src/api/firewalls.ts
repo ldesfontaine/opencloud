@@ -96,7 +96,15 @@ export interface FirewallRulesResponse extends FirewallReading {
   rules: FirewallRule[];
 }
 
+// La machine d'openCloud que le bail désigne, par sa carte réseau ou son adresse.
+interface FirewallLeaseMachine {
+  id: string;
+  name: string;
+}
+
 export interface FirewallLease {
+  // Nulle quand aucune machine connue ne correspond.
+  machine: FirewallLeaseMachine | null;
   address: string;
   mac: string;
   hostname: string;
@@ -109,6 +117,68 @@ export interface FirewallLease {
 
 export interface FirewallLeasesResponse extends FirewallReading {
   leases: FirewallLease[];
+}
+
+// Le modèle des échanges, indépendant du pare-feu (internal/policy) : des zones,
+// des objets que les règles désignent, et la grille « qui parle à qui ».
+type ZoneKind = "network" | "self" | "internet";
+
+export interface FlowZone {
+  id: string;
+  // Vide pour une zone que le serveur a ajoutée (self, internet) : l'écran la nomme.
+  label: string;
+  kind: ZoneKind;
+  network: string;
+  is_up: boolean;
+}
+
+type FlowObjectKind = "any" | "self" | "zone" | "host" | "network" | "named";
+
+export interface FlowObject {
+  id: string;
+  kind: FlowObjectKind;
+  label: string;
+  zone: string;
+  is_negated: boolean;
+}
+
+export interface FlowEndpoint {
+  // L'identifiant d'une zone, « * » pour toute zone, vide si la règle ne la dit pas.
+  zone: string;
+  object: string;
+  except: string;
+}
+
+export interface FlowRule {
+  ref: string;
+  from: FlowEndpoint;
+  to: FlowEndpoint;
+  // Vides : tous.
+  protocol: string;
+  port: string;
+  source_port: string;
+  why: string;
+  effect: "allow" | "deny";
+  is_enabled: boolean;
+}
+
+export interface FlowCell {
+  from: string;
+  to: string;
+  allowed: FlowRule[];
+  denied: FlowRule[];
+}
+
+export interface FirewallFlowsResponse extends FirewallReading {
+  zones: FlowZone[];
+  objects: FlowObject[];
+  // Les zones de départ (lignes) et d'arrivée (colonnes). Une case absente de
+  // cells est une case vide : refusé.
+  rows: string[];
+  columns: string[];
+  cells: FlowCell[];
+  unplaced: FlowRule[];
+  disabled: number;
 }
 
 interface FirewallDefinition {
@@ -138,6 +208,10 @@ export function useFirewallRules(id: string): Resource<FirewallRulesResponse> {
 
 export function useFirewallLeases(id: string): Resource<FirewallLeasesResponse> {
   return useResource<FirewallLeasesResponse>(() => `/api/firewalls/${segment(id)}/leases`);
+}
+
+export function useFirewallFlows(id: string): Resource<FirewallFlowsResponse> {
+  return useResource<FirewallFlowsResponse>(() => `/api/firewalls/${segment(id)}/flows`);
 }
 
 export function declareFirewall(definition: FirewallDefinition): Promise<FirewallDetail> {
