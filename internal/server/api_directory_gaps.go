@@ -44,7 +44,7 @@ type containerVerdictJSON struct {
 
 // Ce que la machine montre sans que rien ne le déclare, par clé. Adoptable :
 // au moins un conteneur du groupe n'a pas de label ; un groupe d'orphelins se
-// corrige par le label, pas par l'adoption.
+// corrige par le label, pas en l'acceptant.
 type undeclaredJSON struct {
 	MachineID   string                `json:"machine_id"`
 	MachineName string                `json:"machine_name"`
@@ -74,7 +74,7 @@ type gapsResponse struct {
 	Undeclared []undeclaredJSON `json:"undeclared"`
 }
 
-// La proposition d'adoption a la forme du corps de la création : le
+// La proposition a la forme du corps de la création : le
 // formulaire la reprend telle quelle. Avec service_id, c'est l'édition de ce
 // service, qui garde ses unités et en gagne.
 type proposalResponse struct {

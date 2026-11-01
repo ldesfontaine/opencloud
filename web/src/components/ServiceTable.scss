@@ -71,3 +71,11 @@
   padding: 0 0 0 28px;
   background: var(--surface-2);
 }
+
+// Les gestes d'une proposition tiennent sur une ligne ; le tableau défile
+// plutôt que de les empiler.
+.cluster.proposal-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  white-space: nowrap;
+}

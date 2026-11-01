@@ -132,8 +132,14 @@ func TestAPI_CreateDeclaredService_RefusesWithTheKey(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			got := callAPI(server.Server, http.MethodPost, "/api/directory/services", testCase.build(nextcloudRequest(remoteID)))
-			if got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != testCase.key {
-				t.Fatalf("%d %s, attendu 422 %s", got.Code, got.Body.String(), testCase.key)
+			// Un nom ou un projet Compose déjà pris est un état, pas une faute
+			// de saisie : un conflit, comme la seconde acceptation d'une proposition.
+			want := http.StatusUnprocessableEntity
+			if testCase.key == "directory.name_taken" || testCase.key == "directory.compose_project_taken" {
+				want = http.StatusConflict
+			}
+			if got.Code != want || errorCode(t, got) != testCase.key {
+				t.Fatalf("%d %s, attendu %d %s", got.Code, got.Body.String(), want, testCase.key)
 			}
 		})
 	}

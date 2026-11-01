@@ -142,6 +142,9 @@ type DirectoryService interface {
 	// DeleteService refuse avec un *deletion.RefusedError tant que des
 	// sondes ou des composants de statut visent le service.
 	DeleteService(ctx context.Context, id string) error
+	// DeleteServiceAndIgnore retire le service puis ignore les clés que ses
+	// conteneurs laissent non déclarés : ils ne reviennent pas en proposition.
+	DeleteServiceAndIgnore(ctx context.Context, id string) error
 	DeleteServicePlan(ctx context.Context, id string) (deletion.Plan, error)
 	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) (directory.Service, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
@@ -149,7 +152,7 @@ type DirectoryService interface {
 	DeleteProject(ctx context.Context, id string) error
 	DeleteProjectPlan(ctx context.Context, id string) (deletion.Plan, error)
 	// L'écart entre ce qui est déclaré et ce que les machines montrent, et
-	// ce qui en découle : adopter un conteneur, ignorer une clé, dire à quoi
+	// ce qui en découle : accepter une proposition, ignorer une clé, dire à quoi
 	// se rattache une fiche.
 	Gaps(ctx context.Context, filter directory.Filter) (directory.GapReport, error)
 	Propose(ctx context.Context, containerID string) (directory.Proposal, error)

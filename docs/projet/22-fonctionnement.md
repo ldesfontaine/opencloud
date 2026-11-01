@@ -2218,14 +2218,19 @@ le rapprochement des deux est dit dans la section suivante.
   `GET/POST /api/directory/projects`, `GET/PUT/DELETE
   /api/directory/projects/{id}`, et le plan de chaque suppression en `GET
   …/{id}/delete-plan`. Les refus sont des clés de catalogue
-  (`directory.*`, `project.*`) en 422, 404 si l'objet n'existe pas.
+  (`directory.*`, `project.*`) en 422, 404 si l'objet n'existe pas ; un nom,
+  un projet Compose ou un conteneur déjà déclarés sur la machine
+  (`directory.name_taken`, `compose_project_taken`, `match_key_taken`) sont un
+  **409** : c'est un état, la même demande passerait ailleurs. `DELETE
+  /api/directory/services/{id}?ignore=true` supprime le service puis ignore ce
+  que ses conteneurs laissent (voir « Les propositions »).
 - **L'interface** : l'onglet Annuaire et l'onglet Projets de la page Services,
   la fiche d'un service et l'assistant (déclaration et édition, « Les fenêtres
   d'une saisie »). **Il n'y a plus d'onglet Conteneurs** : la liste des
   services montre, par service, le nombre de ses conteneurs
   (`declared_service_id` de `GET /api/containers`, groupés par
   `lib/containers.ts`) et les déplie sous sa ligne ; un conteneur qu'aucun
-  service ne porte est sous « Non déclarés ». `/services/conteneurs` mène à
+  service ne porte est dans la section « Propositions ». `/services/conteneurs` mène à
   `/services` ; la fiche d'un conteneur (`/services/conteneurs/{id}`) reste.
 
 **La reprise de l'existant** (l'ancienne migration 024, qui repointait sur
@@ -2280,7 +2285,7 @@ label se lit à la machine de l'agent, et le service déclaré à sa propre
 machine : un label vers un service d'une autre machine est donc orphelin.
 
 **Un label orphelin** est un conteneur non déclaré, avec le motif que la fiche
-et la liste « Non déclarés » montrent (`label_problem`), dans l'ordre où il est vérifié :
+et la section « Propositions » montrent (`label_problem`), dans l'ordre où il est vérifié :
 
 | Motif | Quand |
 | --- | --- |
@@ -2379,32 +2384,57 @@ par la clé qu'on peut ignorer : le projet Compose (`compose_project`), à défa
 le nom du conteneur (`container_name`). Un groupe dont le projet Compose est
 déjà déclaré sur la machine porte l'identifiant de ce service.
 
-- **Adopter** (`GET /api/directory/proposal?container=<id de fiche>`) : le
+- **La proposition** (`GET /api/directory/proposal?container=<id de fiche>`) : le
   serveur lit le conteneur et ses voisins du même projet et rend une
-  définition au format du corps de la création, que le formulaire reprend.
-  Rien n'est écrit. Projet Compose non déclaré : un service d'origine Compose,
+  définition au format du corps de la création. Rien n'est écrit. Projet Compose non déclaré : un service d'origine Compose,
   une unité par service Compose du projet. Projet déjà déclaré : la réponse
   porte `service_id` et la définition du service, ses identifiants d'unités
   compris, plus les unités qui manquent (sans identifiant, comme l'édition
-  l'attend) ; le formulaire s'ouvre alors en édition de ce service. Conteneur
+  l'attend). Conteneur
   sans projet : un service « conteneur seul ». L'image se propose sans tag ni
   empreinte, la version vient du tag sauf `latest`, les ports de ceux que
   Docker publie. Au plus 32 unités par proposition, celle du conteneur demandé toujours
-  retenue en tête ; un projet plus gros s'adopte en plusieurs fois. Un
+  retenue en tête ; un projet plus gros s'accepte en plusieurs fois. Un
   service déjà déclaré avec 32 unités ne peut plus rien recevoir : 409
   `directory.units_full`. 404 `directory.container_not_found` si la fiche a
   disparu, 409 `directory.container_declared` si elle est déjà rattachée,
+  409 `directory.container_ignored` si l'opérateur l'ignore,
   409 `directory.container_labelled` si elle porte un label (orphelin, voir plus haut).
+- **Accepter** : le front relit la proposition à l'instant d'écrire, puis
+  l'envoie telle quelle à `POST /api/directory/services` (déclaration neuve) ou
+  à `PUT /api/directory/services/{id}` (le projet Compose est déjà déclaré :
+  les unités qui manquent s'ajoutent). Il n'y a pas de route d'acceptation :
+  c'est le chemin unique de la déclaration, `declared_by = operator`.
+  **Modifier avant d'accepter** ouvre l'assistant « Déclarer un service »
+  pré-rempli par la même proposition (`/services/annuaire/nouveau?container=`).
 - **Ignorer** (`POST /api/directory/ignored`, corps `machine_id`, `kind`,
-  `value`) : une ligne de `ignored_keys`, idempotente. Le groupe reste dans la
-  liste, derrière « Montrer les ignorés », et ne compte plus parmi les
+  `value`) : une ligne de `ignored_keys`, idempotente. Le groupe passe sous
+  « Ignorés (n) », replié sous les propositions, et ne compte plus parmi les
   conteneurs à régler. `DELETE /api/directory/ignored?machine=&kind=&value=`
-  le retire (404 `directory.ignore_not_found`). Un refus de forme est un 422
+  le retire (404 `directory.ignore_not_found`) : il redevient une proposition. Un refus de forme est un 422
   `directory.ignore_invalid`.
-- **L'interface** : la colonne « Écart » de l'onglet Annuaire, la liste « Non
-  déclarés » dessous (masquée quand un projet est choisi : un projet ne regroupe
-  que du déclaré), l'écart par unité et les conteneurs rattachés sur la fiche
-  d'un service déclaré, la carte « Annuaire » sur la fiche d'un conteneur.
+- **L'interface** : la colonne « Écart » de l'onglet Annuaire, la section
+  « Propositions » **au-dessus** (absente s'il n'y a ni proposition ni ignoré ;
+  masquée quand un projet est choisi : un projet ne regroupe que du déclaré),
+  l'écart par unité et les conteneurs rattachés sur la fiche
+  d'un service déclaré, la carte « Annuaire » sur la fiche d'un conteneur
+  (mêmes gestes : Accepter, Modifier avant d'accepter, Ignorer).
+
+**Une proposition ne revient ni ne disparaît par surprise.** Elle se calcule à
+chaque lecture depuis les conteneurs observés ; aucune table ne la garde, et
+**rien n'est écrit dans l'annuaire sans un geste de l'opérateur** (ni service,
+ni projet, ni clé ignorée : l'agent ne fait que rapporter des conteneurs).
+
+| Cas | Ce qui se passe |
+| --- | --- |
+| Proposition ignorée | Ne revient pas tant que la clé existe ; la clé suit le projet Compose ou le nom du conteneur, pas l'identifiant Docker : recréer le conteneur n'y change rien |
+| Accepter une proposition ignorée entre-temps | 409 `directory.container_ignored`, la liste se relit |
+| Accepter deux fois | Le second `POST` reçoit 409 (`directory.name_taken` ou `compose_project_taken`), aucun doublon ; la proposition relue dit 409 `container_declared` |
+| `apply` d'un fichier qui ne liste pas une clé ignorée | Sans `--prune`, la clé est gardée et dite « hors fichier ». Avec `--prune`, le **plan nomme** la clé (`delete ignored/…`) et l'application la retire : la proposition revient, nommée avant |
+| `apply` d'un fichier qui ne liste pas un service accepté | Un service comme les autres : gardé sans `--prune`, supprimé avec `--prune` et nommé au plan ; ses conteneurs tournent encore, il redevient une **proposition**, jamais un service |
+| Supprimer un service accepté depuis l'interface | Il redevient une proposition ; **Supprimer et ignorer** (`DELETE …/services/{id}?ignore=true`) le supprime puis ignore sa clé (le projet Compose, ou chaque nom de conteneur ; rien pour un binaire). Le service part d'abord : un refus (des sondes le visent) n'ignore rien |
+| La machine disparaît | Ses clés ignorées partent avec elle (`ON DELETE CASCADE`) |
+
 - **Les sujets du direct** : l'écart croise l'annuaire et les conteneurs ; il se
   relit quand l'un ou l'autre change. La fiche d'un conteneur suit aussi
   l'annuaire.
@@ -2429,7 +2459,7 @@ propositions) sont régénérés, la lecture ne les lit pas.
   l'interface.
 - **Avec propositions.** `opencloud export -propose` (route `?propose=1`) ajoute à la fin du fichier
   ce que les conteneurs non déclarés laissent deviner, avec le calcul de
-  « Adopter » (`directory.ProposeAll`) : un service nouveau par groupe adoptable
+  « Accepter » (`directory.ProposeAll`) : un service nouveau par groupe adoptable
   non ignoré, **sans `id`** et précédé d'un commentaire « Proposé depuis des
   conteneurs non déclarés : relisez avant apply », et, pour un projet Compose
   déjà déclaré, les unités qui manquent à la fin de son entrée, chacune

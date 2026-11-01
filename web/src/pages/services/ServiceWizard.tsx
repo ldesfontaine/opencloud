@@ -44,7 +44,9 @@ import "./ServiceWizard.scss";
 // Avec ?container=, l'assistant part de ce que le serveur propose pour ce
 // conteneur : une déclaration nouvelle, ou, si son projet Compose est déjà
 // déclaré, la modification de ce service, à laquelle les unités qui manquent
-// s'ajoutent. Rien n'est écrit tant que l'opérateur n'a pas validé.
+// s'ajoutent. C'est « Modifier avant d'accepter » ; « Accepter » écrit la même
+// proposition sans passer par ici. Rien n'est écrit tant que l'opérateur n'a
+// pas validé.
 export function ServiceWizard() {
   const { id } = useParams();
   const isEditing = id !== undefined;
@@ -84,7 +86,7 @@ export function ServiceWizard() {
   if (!isEditing && proposal.data !== null && proposal.data.service_id !== "") {
     return <Navigate replace to={`/services/annuaire/${proposal.data.service_id}/modifier?container=${encodeURIComponent(container)}`} />;
   }
-  const adopting = container !== "" && proposal.error === null;
+  const accepting = container !== "" && proposal.error === null;
   // Une proposition refusée laisse un assistant vide, comme sans conteneur.
   const ready = form.isFilled || (!isEditing && !awaitingProposal);
   const base = start ?? { ...empty, machineID: first?.id ?? "" };
@@ -97,7 +99,7 @@ export function ServiceWizard() {
     });
   };
 
-  const header = heading(t, isEditing, adopting);
+  const header = heading(t, isEditing, accepting);
   return (
     <Modal title={header.title} onClose={close} dirty={ready && isFormModified(values, base)} wide>
       <p className="secondary">{header.subtitle}</p>
@@ -119,13 +121,13 @@ export function ServiceWizard() {
   );
 }
 
-// Le titre dit si l'on déclare, modifie, ou accepte un conteneur que la
+// Le titre dit si l'on déclare, modifie, ou accepte (en le relisant) un conteneur que la
 // machine montre.
-function heading(t: Translate, isEditing: boolean, adopting: boolean) {
-  if (adopting) {
+function heading(t: Translate, isEditing: boolean, accepting: boolean) {
+  if (accepting) {
     return isEditing
-      ? { title: t("gap.adopt_into_title"), subtitle: t("gap.adopt_into_subtitle") }
-      : { title: t("gap.adopt_title"), subtitle: t("gap.adopt_subtitle") };
+      ? { title: t("gap.accept_into_title"), subtitle: t("gap.accept_into_subtitle") }
+      : { title: t("gap.accept_title"), subtitle: t("gap.accept_subtitle") };
   }
   return isEditing
     ? { title: t("directory.edit_title"), subtitle: t("directory.edit_subtitle") }
