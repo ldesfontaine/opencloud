@@ -52,6 +52,38 @@ async function cancelDialog(dialog: Locator): Promise<void> {
   await dialog.waitFor({ state: "detached", timeout: 3000 }).catch(() => undefined);
 }
 
+// La barre d'étapes ne coupe aucun libellé : la barre tient dans sa largeur,
+// le nom de l'étape courante aussi, et chaque autre étape garde son titre
+// complet (title) sous sa pastille.
+async function checkStepBar(dialog: Locator, findings: Findings): Promise<void> {
+  const bar = dialog.locator(".wizard-steps");
+  if (!(await bar.isVisible())) {
+    return;
+  }
+  const problems = await bar.evaluate((list) => {
+    const found: string[] = [];
+    if (list.scrollWidth > list.clientWidth) {
+      found.push("la barre déborde de sa largeur");
+    }
+    for (const step of Array.from(list.querySelectorAll(".wizard-step"))) {
+      const name = step.querySelector<HTMLElement>(".wizard-name");
+      const jump = step.querySelector<HTMLElement>(".wizard-jump");
+      const full = name?.textContent?.trim() ?? "";
+      if (step.classList.contains("wizard-step-current")) {
+        if (name !== null && name.scrollWidth > name.clientWidth) {
+          found.push(`« ${full} » est coupé`);
+        }
+      } else if (jump?.getAttribute("title") !== full) {
+        found.push(`« ${full} » n'a pas son titre complet`);
+      }
+    }
+    return found;
+  });
+  for (const problem of problems) {
+    findings.add(`barre d'étapes : ${problem}`);
+  }
+}
+
 const maxSteps = 12;
 
 // Mène un assistant de l'étape 1 jusqu'au récapitulatif : remplit, choisit
@@ -61,6 +93,7 @@ async function walkWizard(page: Page, dialog: Locator, findings: Findings): Prom
   const summary = dialog.locator(".wizard-summary");
   let attempts = 0;
   for (let turn = 0; turn < maxSteps * 2; turn++) {
+    await checkStepBar(dialog, findings);
     if (await summary.isVisible()) {
       findings.done.wizards++;
       return;

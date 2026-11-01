@@ -244,8 +244,11 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   sauvegarde). Toujours dans une `Modal` large ; pas pour une page de
   réglages (Paramètres) ni pour un formulaire de trois champs (`ModalForm`) :
   il ajoute des clics là où tout tient à l'écran.
-  - **Barre d'étapes** : une pastille numérotée et le nom ; la courante en
-    encre pleine, une étape faite cochée, à venir en discret. Sous 860 px,
+  - **Barre d'étapes** : une pastille numérotée par étape ; la courante en
+    encre pleine, avec son nom **en entier**, une étape faite cochée, à venir
+    en discret. Les autres n'ont que leur pastille, leur titre complet en
+    infobulle (`title`) et lu par les lecteurs d'écran : un libellé ne se
+    coupe jamais, et le parcours e2e le vérifie sur chaque assistant. Sous 860 px,
     une ligne, « Étape 2 sur 4 » : le nom suit, en tête de la fenêtre.
   - **Une étape à l'écran**, son titre en tête de fenêtre (le focus y passe,
     il s'annonce). Précédent en secondaire, Suivant en principal, Annuler

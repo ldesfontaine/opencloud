@@ -145,7 +145,9 @@ export function Wizard({
 }
 
 // La barre d'étapes : numéro et nom, la courante marquée. En modification,
-// chaque étape y mène. Sous 860 px, elle se réduit à « Étape 2 sur 4 » : le
+// chaque étape y mène. Seule la courante porte son nom, en entier : les autres
+// se réduisent à leur pastille (titre complet en title et pour les lecteurs
+// d'écran), un nom ne se coupe jamais. Sous 860 px, elle se réduit à « Étape 2 sur 4 » : le
 // nom est juste dessous, en tête de carte.
 export function WizardBar({
   titles,
@@ -175,11 +177,13 @@ export function WizardBar({
           return (
             <li key={index} className={`wizard-step wizard-step-${mark}`} aria-current={mark === "current" ? "step" : undefined}>
               {canJump && mark !== "current" ? (
-                <button type="button" className="wizard-jump" onClick={() => onJump(index)}>
+                <button type="button" className="wizard-jump" title={stepTitle} onClick={() => onJump(index)}>
                   {content}
                 </button>
               ) : (
-                <span className="wizard-jump">{content}</span>
+                <span className="wizard-jump" title={stepTitle}>
+                  {content}
+                </span>
               )}
             </li>
           );
