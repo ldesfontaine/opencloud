@@ -1,0 +1,12 @@
+# L2 : code mort avant / après (#451)
+
+Avant = origin/dev (1af9100, L1 et U5 comprises), après = fin de la branche orca/v052-l2.
+
+deadcode ./... (Go) : 79 avant, 79 après ; seule la ligne de `deletion.Kinds` change de numéro (plan.go:52 → 53, un genre ajouté au-dessus). Aucune ligne n'est née dans ce chantier.
+knip@5.88.1, `npx knip@5.88.1 --reporter compact` dans web/ : avant 7 fichiers (hors sources : dist/ et public/theme.js, src/statut/*), 1 export (`isMaintenance`), 3 types non utilisés (`TextPart`, `AvailabilityTab`, `MachinesTab`) ; après : les mêmes (seul le nom haché du fichier de dist/ change).
+
+Supprimé dans ce chantier
+- Rien de ce qui existait avant n'est devenu inutile : L2 ajoute une lecture (unités systemd) à côté des autres, elle n'en remplace aucune.
+- Remplacé sur place, sans reste : le texte `directory.pick_manual_help` (« Un binaire sous systemd, ou… » : le binaire a maintenant son chemin), `useProposal(containerID)` / `proposalPath(containerID)` (deviennent `useProposal(source)` : un conteneur ou une unité), `hasAdvancedUnitValues(unit)` (prend l'origine : le port d'un binaire n'est plus sous « Avancé »), le champ Ports de l'assistant, qui n'est plus rendu dans le pli pour un binaire.
+- Né puis retiré dans le chantier (jamais livré) : la clé `directory.port_declare_link` (le lien « Port à déclarer » suffit).
+- Documents : « Une unité binaire ne rapproche jamais rien » et « un binaire est non observé (aucun agent ne le regarde encore) » (22-fonctionnement.md, match.go, 24-modele-cible.md) réécrits ; `23-direction.md` (ligne « Unités binaires », décision de Lucas) n'est pas touché, voir le rapport.
