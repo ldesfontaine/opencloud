@@ -6,15 +6,15 @@ import { describeAccount } from "../lib/machines";
 import { hasDenied, isWeak, shortFingerprint } from "../lib/sshkeys";
 import { formatWhen } from "../lib/time";
 import type { Tone } from "../lib/tone";
-import { Card, CardBody, CardHeader, Note } from "./Card";
+import { Card, CardBody, CardHeader } from "./Card";
 import { Failure } from "./Failure";
 import { Pill } from "./Pill";
 import { Table } from "./Table";
 import "./MachineSSHKeys.scss";
 
-const stateTones: Record<SSHState, Tone> = { read: "ok", none: "neutral", denied: "warn", unsafe: "warn", too_large: "warn" };
+const stateTones: Record<SSHState, Tone> = { read: "ok", none: "neutral", denied: "neutral", unsafe: "warn", too_large: "warn" };
 
-// L'onglet « Clés SSH » d'une machine : pour chaque compte, l'état de la
+// L'onglet « Accès SSH » d'une machine : pour chaque compte, l'état de la
 // lecture et les clés que l'agent y a trouvées. Lecture seule : ni bouton,
 // ni formulaire. Le direct relit sur le sujet des machines.
 export function MachineSSHKeys({ machine }: { machine: Machine }) {
@@ -36,8 +36,8 @@ export function MachineSSHKeys({ machine }: { machine: Machine }) {
         <CardHeader title={t("ssh.machine_title")} />
         <CardBody gap={8}>
           <span className="secondary">{report.reported_at === null ? t("ssh.never_reported") : t("ssh.reported", formatWhen(report.reported_at, now))}</span>
-          {report.truncated && <Note tone="warn">{t("ssh.truncated_report")}</Note>}
-          {hasDenied(report) && <Note tone="warn">{t("ssh.dedicated_account")}</Note>}
+          {report.truncated && <span className="secondary">{t("ssh.truncated_report")}</span>}
+          {hasDenied(report) && <span className="secondary">{t("ssh.dedicated_account")}</span>}
         </CardBody>
       </Card>
       {report.accounts.map((account) => (

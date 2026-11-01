@@ -151,13 +151,24 @@ export function buildMachineAccess(reports: SSHReport[]): MachineAccess[] {
     .sort((left, right) => left.machineName.localeCompare(right.machineName));
 }
 
+// Un fichier que l'agent refuse de lire (non sûr, trop gros) : l'opérateur
+// peut le corriger sur la machine. C'est ce qui mérite « À regarder » ; un
+// compte simplement illisible pour l'agent, lui, est l'état normal d'un
+// compte dédié (audit G7).
+export function needsGesture(report: SSHReport): boolean {
+  return report.accounts.some((account) => account.state === "unsafe" || account.state === "too_large");
+}
+
 export interface AccessSummary {
   keys: number;
   privileged: number;
   weak: number;
   single: number;
-  // Les machines dont on ne voit pas toutes les clés.
+  // Les machines dont un fichier demande un geste de l'opérateur.
   incomplete: number;
+  // Les machines lues en partie pour une raison normale (comptes que l'agent
+  // ne lit pas, relevé tronqué, pas encore relevée) : en gris, sans alarme.
+  partial: number;
 }
 
 export function summarizeAccess(rows: KeyAccess[], reports: SSHReport[]): AccessSummary {
@@ -166,6 +177,7 @@ export function summarizeAccess(rows: KeyAccess[], reports: SSHReport[]): Access
     privileged: filterKeys(rows, "privileged").length,
     weak: filterKeys(rows, "weak").length,
     single: filterKeys(rows, "single").length,
-    incomplete: reports.filter((report) => !isComplete(report)).length,
+    incomplete: reports.filter(needsGesture).length,
+    partial: reports.filter((report) => !isComplete(report) && !needsGesture(report)).length,
   };
 }

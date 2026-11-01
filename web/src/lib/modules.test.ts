@@ -111,6 +111,6 @@ test("Machines n'a d'onglet que pour les modules que l'une des machines porte", 
   expect(machinesListTabs([machineWith("a", ["containers"])])).toEqual([{ to: "/machines", key: "machines.tab_list" }]);
   expect(machinesListTabs([machineWith("a", ["containers"]), machineWith("b", ["ssh_keys"])])).toEqual([
     { to: "/machines", key: "machines.tab_list" },
-    { to: "/machines/acces-ssh", key: "machines.tab_ssh" },
+    { to: "/machines/acces-ssh", key: "module.ssh_keys" },
   ]);
 });

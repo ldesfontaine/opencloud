@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import { auditPath } from "../api/audit";
 import type { Translate } from "../i18n/context";
-import { actorLabel, actorParts, actorTone, detailEntries, objectLabel, verbOf } from "./audit";
+import { actionLabel, actorLabel, isSingletonKind, actorParts, actorTone, detailEntries, objectLabel, verbOf } from "./audit";
 
 // Un faux catalogue : la clé et ses arguments, pour lire ce qui est demandé.
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -69,4 +69,15 @@ test("the path carries the cursor and the followed object", () => {
 test("the path carries the actor filters", () => {
   expect(auditPath(null, null, { kind: "api", search: "" })).toBe("/api/audit?actor_kind=api");
   expect(auditPath(7, null, { kind: "", search: "agent veille" })).toBe("/api/audit?actor=agent+veille&before=7");
+});
+
+test("la révocation de tous les jetons se dit en entier, avec ou sans jeton", () => {
+  expect(actionLabel(t, { action: "api_token.revoke", details: { all: "true", api_tokens: "0" } })).toBe("audit.verb_revoke_none");
+  expect(actionLabel(t, { action: "api_token.revoke", details: { all: "true", api_tokens: "3" } })).toBe("audit.verb_revoke_all:3");
+  expect(actionLabel(t, { action: "api_token.revoke", details: {} })).toBe("audit.verb_revoke");
+});
+
+test("l'accès à l'interface n'a qu'une instance : sa sorte suffit", () => {
+  expect(isSingletonKind("auth")).toBe(true);
+  expect(isSingletonKind("probe")).toBe(false);
 });

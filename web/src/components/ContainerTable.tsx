@@ -5,6 +5,7 @@ import { useI18n } from "../i18n/context";
 import { formatPublishedPorts, type Filter } from "../lib/containers";
 import { formatBytes, formatCPU } from "../lib/units";
 import { updateAvailable, updateLabel } from "../lib/updates";
+import { ImageName } from "./ImageName";
 import { Pill, ContainerPill } from "./Pill";
 import { Subject, Table } from "./Table";
 import "./ServiceTable.scss";
@@ -61,7 +62,7 @@ export function ContainerTable({ containers }: { containers: Container[] }) {
               </td>
               <td className="num wide-only">
                 <span className="image-cell">
-                  {container.image}
+                  <ImageName image={container.image} />
                   {updateAvailable(container) && container.image_check !== null && (
                     <Pill tone="accent" dot={false}>
                       {updateLabel(t, container.image_check)}

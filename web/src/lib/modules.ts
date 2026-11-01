@@ -67,7 +67,7 @@ const modules: ModuleDef[] = [
   { id: "containers", tab: { slug: "services", rank: 10 } },
   { id: "hypervisor", tab: { slug: "hyperviseur", rank: 50 } },
   { id: "guest" },
-  { id: "ssh_keys", tab: { slug: "ssh", rank: 40 }, listTab: { href: "/machines/acces-ssh", label: "machines.tab_ssh", rank: 10 } },
+  { id: "ssh_keys", tab: { slug: "ssh", rank: 40 }, listTab: { href: "/machines/acces-ssh", label: "module.ssh_keys", rank: 10 } },
   {
     id: "probes",
     tab: { slug: "disponibilite", rank: 20 },

@@ -47,8 +47,15 @@ export function lifecycleText(t: Translate, lifecycle: Lifecycle, language: stri
     case "unknown_product":
       return isSystem ? t("lifecycle.unknown_system") : t("lifecycle.unknown_product");
     case "pending":
-      return isSystem ? t("lifecycle.pending_system") : t("lifecycle.pending");
+      return isSystem ? t("lifecycle.reading") : t("lifecycle.pending");
   }
+}
+
+// L'en-tête d'une machine, sur tous les onglets, ne dit que ce qui est connu :
+// « en attente » est une lecture en cours, dite une fois dans la carte
+// « Support du système » du résumé (audit F-2).
+export function showsInMachineHead(lifecycle: Lifecycle): boolean {
+  return lifecycle.status !== "pending";
 }
 
 // Le support a-t-il autre chose à dire que son état et sa phrase : la dernière

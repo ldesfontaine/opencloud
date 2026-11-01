@@ -100,7 +100,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
               <ResourceStats current={resources.data} />
               <ResourceHistory machineID={current.id} />
               <MachineStorage machine={current} current={resources.data} />
-              {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
+              {current.lifecycle !== undefined && (lifecycleHasDetails(current.lifecycle) || current.lifecycle.status === "pending") && <SystemSupport lifecycle={current.lifecycle} />}
               <RoleCard machine={current} />
             </>
           ) : tab === "agent" ? (
@@ -133,7 +133,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
 }
 
 // Le détail du support du système : l'état et sa phrase sont dans l'en-tête,
-// la carte garde le reste (branches, lecture, source).
+// la carte garde le reste (branches, lecture, source). Tant que la source n'a
+// pas été lue, elle seule le dit, en une ligne.
 function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
   const t = useT();
   return (
@@ -141,7 +142,7 @@ function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
       <Card>
         <CardHeader title={t("lifecycle.title_system")} />
         <CardBody gap={8}>
-          <SupportDetails lifecycle={lifecycle} />
+          {lifecycle.status === "pending" ? <span className="secondary">{t("lifecycle.reading")}</span> : <SupportDetails lifecycle={lifecycle} />}
         </CardBody>
       </Card>
     </div>
