@@ -11,7 +11,7 @@ export interface InstanceGroup {
 
 // Les services d'un projet Compose (le groupe d'exécution, lu et non déclaré).
 // Project vide : ceux qui n'ont pas de projet Compose.
-export interface ProjectSection {
+interface ProjectSection {
   project: string;
   groups: InstanceGroup[];
 }

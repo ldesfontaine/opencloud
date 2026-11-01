@@ -1,9 +1,9 @@
 # L1 : code mort avant / après (#449)
 
-Avant = e50cda5 (dev), après = fin de la branche orca/v052-l1.
+Avant = origin/dev (ccab708, U4 comprise), après = fin de la branche orca/v052-l1 rebasée dessus.
 
-deadcode ./... (Go) avant : 79 ; après : 79, rapport identique (aux numéros de ligne près). Aucune des 79 lignes n'est née dans ce chantier.
-knip, `npx knip --reporter compact` dans web/ avant : 8 types non utilisés ; après : les mêmes 8 (seul le numéro de ligne de `DeployRight` bouge). Aucun fichier ni export neuf non utilisé.
+deadcode ./... (Go) : 79 avant et après dans le relevé fait sur e50cda5 ; aucune ligne n'est née dans ce chantier.
+knip@5.88.1, `npx knip@5.88.1 --reporter compact` dans web/ : avant (dev) 7 fichiers (hors sources : dist/ et public/theme.js, src/statut/*), 1 export (`isMaintenance`), 3 types non utilisés (`TextPart`, `AvailabilityTab`, `MachinesTab`) ; après : les mêmes. Le type `ProjectSection` de `lib/serviceGroups.ts`, exporté sans servir, n'est plus exporté. (Le relevé précédent, « 8 types », venait d'un knip non épinglé : à ignorer.)
 
 Supprimé dans ce chantier
 - Go, annuaire : `ErrComposeProjectTaken` (remplacée par `ErrComposeServiceTaken`), `ErrUnitsFull`, `Proposal.ServiceID`, `Undeclared.ServiceID`, `composeServiceOf`, `requestedFirst`, `composeUnitsToAdopt`, `proposeIntoService`, `proposeComposeProject` (une proposition ne complète plus un service du même projet), le paramètre des voisins de `Propose`.
