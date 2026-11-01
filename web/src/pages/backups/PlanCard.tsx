@@ -5,11 +5,12 @@ import { Button } from "../../components/Button";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "../../components/Card";
 import { Failure } from "../../components/Failure";
+import { MissingRightButton } from "../../components/MissingRight";
 import { Pill } from "../../components/Pill";
 import { useAction } from "../../hooks/useAction";
 import { useNow } from "../../hooks/useNow";
 import { useT } from "../../i18n/context";
-import { editPlanPath, lastErrorText, passSummary, planTitle, sourceLabel } from "../../lib/backups";
+import { editPlanPath, lastErrorRight, lastErrorText, passSummary, planTitle, sourceLabel } from "../../lib/backups";
 import type { Tone } from "../../lib/tone";
 import { formatWhen } from "../../lib/time";
 
@@ -29,6 +30,7 @@ export function PlanCard({ plan, overview }: { plan: BackupPlan; overview: Backu
   const output = run === null ? "" : run.output.map((line) => line.line).join("\n");
   const title = planTitle(plan, t("backup.source_kind_database"));
   const pass = passSummary(t, plan);
+  const missing = lastErrorRight(plan, destination);
   const stop = () => {
     action.run(() => deleteBackupPlan(plan.subject), { topic: "backups" });
   };
@@ -48,7 +50,12 @@ export function PlanCard({ plan, overview }: { plan: BackupPlan; overview: Backu
       />
       <CardBody gap={10}>
         <Failure error={action.error} />
-        {plan.last_error !== "" && <Note tone="danger">{t("backup.last_error", lastErrorText(t, plan.last_error, (reason) => reasonText(t, reason)))}</Note>}
+        {plan.last_error !== "" && (
+          <Note tone="danger">
+            <p>{t("backup.last_error", lastErrorText(t, plan.last_error, (reason) => reasonText(t, reason)))}</p>
+            {missing !== null && <MissingRightButton machineID={missing.machineID} right={missing.right} path={missing.path} />}
+          </Note>
+        )}
         <KeyValue label={t("backup.plan_source")} value={sourceLabel(t, plan)} />
         <KeyValue label={t("backup.plan_destination_label")} value={destination === undefined ? "" : `${destination.name} · ${destination.machine_name}`} />
         <KeyValue label={t("backup.plan_keep_label")} value={plan.keep} />

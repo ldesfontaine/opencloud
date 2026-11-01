@@ -105,6 +105,16 @@ test("un agent pas migré ne se met pas à jour : la fiche dit pourquoi et donne
   expect(markup).not.toContain("machine.agent_rollback<");
 });
 
+test("un droit qui manque porte son geste : Ré-enrôler avec « Mettre à jour l'agent »", () => {
+  offer = { current: "v0.0.2", target: "v0.0.3", arch: "amd64", available: false, reason: "right_missing" };
+  const markup = render();
+  expect(markup).toContain("machine.agent_update_reason_right_missing");
+  expect(markup).toContain('href="/machines/m1/reenroller?droit=agent.update"');
+  expect(markup).toContain("machine.reenroll_with(machine.capability_agent_update)");
+  // La phrase seule ne se répète pas en ligne grise : un seul endroit la dit.
+  expect(markup.split("machine.agent_update_reason_right_missing").length).toBe(2);
+});
+
 test("une machine hors ligne garde ses gestes, grisés, avec la raison à côté", () => {
   const markup = render({ online: false });
   expect(markup).toContain("agent.offline_reason");

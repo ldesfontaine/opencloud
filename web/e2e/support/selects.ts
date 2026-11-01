@@ -25,8 +25,22 @@ async function exerciseSelect(page: Page, trigger: Locator, findings: Findings):
       await page.keyboard.press("Escape");
       return;
     }
-    const other = list.locator("[role=option][aria-selected=false]").first();
-    const option = (await other.count()) > 0 ? other : list.locator("[role=option]").first();
+    // Une option grisée ne convient pas : elle dit pourquoi et mène à ce qui y
+    // remédie ; elle ne se choisit pas, le parcours choisit une autre.
+    const grayed = list.locator("[role=option][aria-disabled=true]");
+    for (let index = 0; index < (await grayed.count()); index++) {
+      const reason = grayed.nth(index).locator("xpath=following-sibling::*[contains(@class,'select-option-reason')]");
+      if ((await reason.count()) === 0 || (await reason.locator("a").count()) === 0) {
+        findings.add(`menu déroulant ${name} : une option grisée ne dit pas pourquoi, ou ne mène nulle part`);
+      }
+    }
+    const usable = list.locator("[role=option]:not([aria-disabled=true])");
+    const other = usable.and(list.locator("[aria-selected=false]")).first();
+    if ((await usable.count()) === 0) {
+      await page.keyboard.press("Escape");
+      return;
+    }
+    const option = (await other.count()) > 0 ? other : usable.first();
     await option.click({ timeout: 1500 });
     await list.waitFor({ state: "hidden", timeout: 1500 });
     findings.done.selects++;

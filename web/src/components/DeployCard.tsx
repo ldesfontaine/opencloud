@@ -143,7 +143,7 @@ function DeployDialog({ plan, onClose }: { plan: DeployPlan; onClose: () => void
       <p className="mono deploy-dialog-path">
         {plan.machine_name} · {plan.path}
       </p>
-      <Failure error={action.error} />
+      <Failure error={action.error} gesture={{ machineID: plan.machine_id, right: "docker.deploy" }} />
       <Field label={t("deploy.env_label")} htmlFor="deploy-env" help={t("deploy.env_help")}>
         <Textarea
           id="deploy-env"

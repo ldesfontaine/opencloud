@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BackupPlan, BackupRun, BackupSource, Backups } from "../api/backups";
 import type { Translate } from "../i18n/context";
-import { backupsPath, editPlanPath, emptyPlanForm, failedAttemptOf, isBackedUp, lastBackupOf, protectionOf, runReasonText, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
+import { backupsPath, editPlanPath, emptyPlanForm, failedAttemptOf, isBackedUp, lastBackupOf, lastErrorRight, protectionOf, runReasonText, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -308,4 +308,15 @@ describe("les adresses des fenêtres de Sauvegardes", () => {
     expect(editPlanPath("pve-nuit")).toBe("/sauvegardes/plans/pve-nuit/modifier");
     expect(editPlanPath("a b")).toBe("/sauvegardes/plans/a%20b/modifier");
   });
+});
+
+it("lastErrorRight : le droit derrière une erreur de plan, et la machine dont l'agent doit l'avoir", () => {
+  const destination = { machine_id: "m-dest", path: "/srv/backups" };
+  const plan = (last_error: string) => ({ last_error, source_machine_id: "m-src" });
+  expect(lastErrorRight(plan("backup.right_missing"), destination)).toEqual({ machineID: "m-dest", right: "backup.receive", path: "/srv/backups" });
+  expect(lastErrorRight(plan("backup.source_right_missing"), destination)).toEqual({ machineID: "m-src", right: "backup.produce" });
+  expect(lastErrorRight(plan("backup.target_failed:5010:right_missing:backup.produce"), destination)).toEqual({ machineID: "m-src", right: "backup.produce" });
+  expect(lastErrorRight(plan("backup.destination_gone"), destination)).toBeNull();
+  expect(lastErrorRight(plan(""), undefined)).toBeNull();
+  expect(lastErrorRight(plan("backup.right_missing"), undefined)).toBeNull();
 });

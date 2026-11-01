@@ -6,6 +6,7 @@ import { ActionButton } from "../components/ActionButton";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
+import { MissingRightButton } from "../components/MissingRight";
 import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
@@ -132,6 +133,7 @@ function DestinationsCard({ overview }: { overview: BackupsOverview }) {
                   <td>
                     <Pill tone={rightTones[destination.right]}>{t(`backup.right_${destination.right}`)}</Pill>
                     {destination.right === "unavailable" && <div className="secondary">{reasonText(t, destination.right_reason ?? "")}</div>}
+                    {destination.right === "missing" && <MissingRightButton machineID={destination.machine_id} right="backup.receive" path={destination.path} />}
                     <Button small variant="ghost" icon="x" disabled={action.busy} onClick={() => remove(destination)}>
                       {t("backup.destination_delete")}
                     </Button>

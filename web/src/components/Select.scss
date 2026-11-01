@@ -166,27 +166,24 @@
 }
 
 // Une option qui ne convient pas : grisée, avec sa raison et le lien qui y
-// remédie sur une seconde ligne.
+// remédie juste dessous, hors de l'option pour que le lien reste actif.
 .select-option-disabled {
-  flex-wrap: wrap;
-  padding-top: 6px;
-  padding-bottom: 6px;
   cursor: default;
 
   .select-option-label {
     color: var(--muted);
   }
+}
 
-  .select-option-reason {
-    flex-basis: 100%;
-    color: var(--muted);
-    font-size: 12px;
-    white-space: normal;
+.select-option-reason {
+  display: block;
+  padding: 0 8px 6px;
+  color: var(--muted);
+  font-size: 12px;
 
-    a {
-      color: var(--accent);
-      text-decoration: underline;
-    }
+  a {
+    color: var(--accent);
+    text-decoration: underline;
   }
 }
 
