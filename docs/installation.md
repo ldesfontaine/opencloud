@@ -1386,6 +1386,12 @@ un hôte Proxmox se lit ». La machine doit d'abord être ajoutée à openCloud
    coché. Ce rôle ne donne que `Sys.Audit`, `VM.Audit`, `Datastore.Audit` et
    leurs semblables : lire, jamais modifier.
 
+`PVEAuditor` lit les VM et les stockages, **pas les sauvegardes** : si le jeton
+ne les lit pas, l'onglet Hyperviseur le dit (« Inconnue » sur chaque VM) et
+donne les deux commandes `pveum` à coller, sur le stockage seulement.
+`docs/projet/22-fonctionnement.md`, « Lire les sauvegardes », dit ce que ce
+droit ouvre.
+
 La même chose en ligne de commande, sur l'hôte Proxmox :
 
 ```sh

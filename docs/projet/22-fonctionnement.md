@@ -104,7 +104,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
 | Alerte Matrix | openCloud → le serveur d'accueil | TLS : le serveur d'accueil est exigé en `https://` | openCloud écrit au nom du bot par `Authorization: Bearer <jeton>`, le jeton du canal ; qui a ce jeton parle au nom du bot partout où il est invité. Le serveur d'accueil prouve qui il est par son certificat. Le message dit ce que dit le corps d'un webhook, et le salon le garde |
-| Hyperviseur | openCloud → l'API de Proxmox (`https://hôte:8006`), en lecture, toutes les cinq minutes | TLS : le certificat se juge par le magasin du système, ou par l'**empreinte SHA-256** que l'opérateur a épinglée (un Proxmox livre un certificat auto-signé) ; pas de redirection suivie | Un jeton d'API Proxmox en lecture seule (rôle `PVEAuditor`), dans `Authorization: PVEAPIToken=…` ; le jeton ne voyage nulle part ailleurs. Voir « Comment un hôte Proxmox se lit » |
+| Hyperviseur | openCloud → l'API de Proxmox (`https://hôte:8006`), en lecture, toutes les cinq minutes | TLS : le certificat se juge par le magasin du système, ou par l'**empreinte SHA-256** que l'opérateur a épinglée (un Proxmox livre un certificat auto-signé) ; pas de redirection suivie | Un jeton d'API Proxmox en lecture seule (rôle `PVEAuditor`, plus un droit sur le stockage des sauvegardes : « Lire les sauvegardes »), dans `Authorization: PVEAPIToken=…` ; le jeton ne voyage nulle part ailleurs. Voir « Comment un hôte Proxmox se lit » |
 | Alerte | openCloud → le canal | Celui de l'URL : TLS si elle est en `https://`, rien sinon, et l'interface le dit | openCloud prouve au récepteur que c'est lui, par `OpenCloud-Signature`, HMAC-SHA256 du corps avec le secret du canal, quand il y en a un. Le récepteur ne prouve rien : un 2xx suffit. Le corps dit le nom de l'objet, de la machine, la cible d'une sonde, le point de montage : ce qu'un canal reçoit, son service le garde |
 
 Donc non, rien ne passe en clair sur le LAN de l'infra : le seul clair est sur
@@ -707,6 +707,7 @@ côté navigateur avec cela (`web/src/lib/machineTree.ts`), sans route de plus.
 | Fiche, résumé | Le bloc **À faire** en tête (agent absent ; agent en retard sur le serveur ; droits cochés que le compte ne peut pas exercer ; système en fin de support ; type inconnu hors agent en retard, dont le geste est déjà celui de l'agent ; hôte Proxmox à déclarer ou dont le relevé échoue), un bouton chacun ; sans rien à faire, il n'est pas là. Une machine archivée n'a rien à faire. Puis les tuiles et l'historique, la carte **Stockage** | `lib/machineTodo.ts`, `components/MachineTodoCard.tsx` |
 | Fiche, carte Stockage | Les volumes montés, les **disques physiques** (nom, modèle, nature, taille, amovible), les **pools** (genre, niveau, état, disques, taille ; « — » quand le noyau ne la dit pas), et, pour un hôte, le disque que chaque invité se fait allouer. **Aucun relevé SMART** | `components/MachineStorage.tsx`, `GET /api/machines/{id}/storage` |
 | Fiche, onglet Agent | La carte de l'agent et ses ordres, qui étaient dans le résumé | `pages/Machine.tsx` |
+| Fiche, onglet Hyperviseur (v0.5.2 P1, #459) | L'hôte en bande de faits ; si le jeton ne lit pas les archives, la carte « Les sauvegardes ne sont pas lisibles avec ce jeton » (deux commandes `pveum`, « Relire maintenant ») ; les **stockages** en cartes à jauge ; les **VM et conteneurs** en cartes (état, type, ressources allouées en jauges relatives à la plus grosse VM, machine liée, dernière sauvegarde en pastille : récente / ancienne / perdue de vue au-delà de 48 h et 7 j, « Aucune », « Inconnue »), les arrêtées repliées, les modèles à part ; les gestes au menu « … » de chaque carte. Le bloc « À faire » de la machine ajoute « jeton qui ne lit pas les sauvegardes » | `components/MachineHypervisor.tsx`, `EntityCard` (`to` facultatif, `children`, fait `wide`), `lib/proxmox.ts` (`groupGuests`, `allocationShares`, `backupTone`) ; maquette `docs/projet/maquettes/hyperviseur.html` |
 
 **Migration `026`** (`machine_placement`) : les colonnes `kind`, `kind_override`,
 `host_override`, les tables `machine_interfaces`, `machine_block_devices`,
@@ -743,7 +744,52 @@ d'agir ou d'alerter viendra, s'il vient, d'une décision à part.
 | `/cluster/resources?type=storage` | Chaque stockage, un par nœud pour un stockage local : type, taille, utilisé, libre, contenus acceptés, actif ou non |
 | `/cluster/status` | Le nom de la grappe (entrée de type `cluster`) ; un nœud seul n'en a pas. Un refus n'arrête pas le relevé |
 | `/nodes/{nœud}/{qemu\|lxc}/{vmid}/config` | Les adresses MAC des cartes de l'invité, pour le rapprochement (« Comment openCloud sait où tourne une machine »). Un invité illisible garde ses adresses vides ; un refus arrête ces lectures |
-| `/nodes/{nœud}/storage/{stockage}/content?content=backup` | Les archives de sauvegarde, pour chaque stockage **actif qui accepte les sauvegardes** ; on retient, par VM, la plus récente et sa taille. Le nœud et le stockage viennent de l'API : ils sont échappés avant d'entrer dans le chemin |
+| `/access/permissions?path=/storage/{stockage}` (et `path=/vms` si besoin) | Les privilèges **du jeton lui-même**, avant de croire une liste d'archives (ouvert à tout jeton pour ses propres droits). Une panne de cette lecture fait échouer le relevé |
+| `/nodes/{nœud}/storage/{stockage}/content?content=backup` | Les archives de sauvegarde, pour chaque stockage **actif qui accepte les sauvegardes et que le jeton sait lister** ; on retient, par VM, la plus récente et sa taille. Le nœud et le stockage viennent de l'API : ils sont échappés avant d'entrer dans le chemin |
+
+**Lire les sauvegardes** (chantier P1, v0.5.2). Avec `PVEAuditor`, Proxmox
+répond `200` et une **liste vide**, sans erreur : v0.5.1 en tirait « Aucune »
+pour chaque VM. Cause, dans le source de Proxmox (`pve-storage`,
+`src/PVE/API2/Storage/Content.pm`, route « index » ; `src/PVE/Storage.pm`,
+`check_volume_access`) : la route n'exige que `Datastore.Audit` pour répondre,
+puis **retire en silence** chaque archive dont `check_volume_access` refuse
+l'accès. Une archive de sauvegarde d'une VM n'y passe que par
+`Datastore.Allocate` sur `/storage/<id>`, ou par `Datastore.AllocateSpace` sur
+`/storage/<id>` **et** `VM.Backup` sur `/vms/<vmid>`. `PVEAuditor` n'a aucun
+des deux.
+
+| Ce que fait openCloud | Pourquoi |
+| --- | --- |
+| Lit les droits du jeton sur chaque stockage de sauvegardes avant de lister (`internal/proxmox/backup_access.go`) | Une liste vide ne dit pas si elle est vide ou filtrée |
+| Un stockage dont le jeton n'a ni `Datastore.Allocate`, ni `AllocateSpace` + `VM.Backup` sur `/vms` n'est **pas listé** : il est nommé « illisible » | Jamais de « Aucune » faux |
+| Les VM sans archive connue disent **Inconnue** (pastille neutre), pas « Aucune » ; l'écran Sauvegardes dit « Inconnue » à la place de « Aucune sauvegarde » | « Inconnue » n'est ni une alerte ni une absence (DA) |
+| La fiche de l'hôte montre la carte « Les sauvegardes ne sont pas lisibles avec ce jeton », avec deux commandes `pveum` à coller et « Relire maintenant » (`POST /api/machines/{id}/actions/refresh-proxmox`) | Le plus petit droit, sur `/storage/<id>` seulement |
+
+Les commandes écrites par l'écran (jeton et stockages tels que Proxmox les
+nomme, écartés s'ils n'ont pas la forme d'un identifiant) :
+
+```sh
+pveum role add OpenCloudSauvegardes --privs "Datastore.Audit Datastore.Allocate"
+pveum acl modify /storage/<stockage> --roles OpenCloudSauvegardes --tokens '<utilisateur>@<domaine>!<nom>'
+```
+
+**Le coût, dit franchement.** Aucun privilège de pure lecture ne fait lister les
+archives : `Datastore.Allocate` permet aussi de **supprimer** des archives de ce
+stockage (openCloud ne fait que `GET`, mais un jeton volé le pourrait ; le
+secret est chiffré en base). L'autre voie, `Datastore.AllocateSpace` sur le
+stockage et `VM.Backup` sur `/vms`, ne supprime rien mais permet de **lancer**
+des sauvegardes de toutes les VM : ni plus petite, ni sur le stockage seul. Le
+choix est à Lucas ; l'écran propose la première. L'identifiant complet du jeton
+figure dans ces commandes (`backup_grant.commands`) : ce n'est pas un secret, le
+secret ne sort jamais.
+
+**Où l'état est gardé, sans migration.** La colonne `machine_proxmox.last_error`
+porte deux faits : la clé du refus du dernier relevé qui a échoué, puis, après
+`|`, les stockages illisibles du dernier relevé réussi (`a,b`). Un échec ne perd
+pas les stockages illisibles ; un relevé réussi les réécrit. Le serveur les rend
+en `backup_blind_storages` et `backup_grant` (fiche de l'hôte), `backup_unknown`
+(par invité), `backup_blind` (résumé de machine), `observed_unknown`
+(inventaire des sauvegardes) ; `last_error` reste la seule clé de refus.
 
 **Le rythme.** Un premier relevé part dès la déclaration, puis la boucle
 `proxmox` relit chaque hôte au démarrage de `serve` et toutes les cinq minutes
@@ -766,9 +812,9 @@ raison. Un secret que la perte de `secret.key` a vidé est lu comme un jeton
 refusé : l'hôte reste déclaré, l'opérateur ressaisit le jeton.
 
 **Le jeton.** Un jeton d'API Proxmox, créé pour openCloud, **en lecture seule** :
-le rôle `PVEAuditor` sur `/` suffit, soit les privilèges `Sys.Audit`,
-`VM.Audit` et `Datastore.Audit` (ce dernier sert à lister les archives des
-stockages de sauvegarde). Sa création est décrite dans
+le rôle `PVEAuditor` sur `/` (`Sys.Audit`, `VM.Audit`, `Datastore.Audit`) suffit
+pour les VM et les stockages, **pas pour les sauvegardes** : voir « Lire les
+sauvegardes » ci-dessous. Sa création est décrite dans
 `installation.md`, « Déclarer un hôte Proxmox ». Il part dans l'en-tête
 `Authorization: PVEAPIToken=<identifiant>=<secret>` et nulle part ailleurs : ni
 dans l'adresse, ni dans une erreur, ni dans un journal, ni dans l'audit. Son
@@ -5703,3 +5749,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Type de machine, puce MCP, assistant OPNsense (v0.5.2 U4, #456) | `machine.IsPublicAddress` et `Placement.Address` (une VM sans hôte n'est un VPS que sur une adresse publique), la puce MCP retirée (`useAgentHint` : une infobulle, `action.agent_hint`), `internal/tlsinspect` et `POST /api/certificate/inspect`, `credential.Mask` (`api_key_hint`, `token_id_hint`), les libellés OPNsense dans les catalogues (`firewall.menu_*`, `firewall.label_*`), les privilèges DHCP réduits à Dnsmasq ou Kea. Aucune migration |
 | Fiche pare-feu visuelle (v0.5.2 U5, #458) | `internal/policy` (zones, objets, règles « de → vers : quoi, pourquoi », `Model.Grid`), `opnsense.Policy`, `firewall.Translator` et `Service.Policy`, `firewall.MatchMachine`, `GET /api/firewalls/{id}/flows` (ouverte aux jetons en lecture), `machine` dans chaque bail, `source_not` et `destination_not` lus par le connecteur (marque `!` dans `Rule.Source` et `Destination`, sans colonne de plus), l'onglet « Qui parle à qui », la maquette `docs/projet/maquettes/pare-feu-fiche.html`, les composants `Choice` (segment partagé) et `useScrollToHash`. Aucune migration, aucune dépendance, aucun champ d'agent |
 | Instances systemd (v0.5.2 L2, #451) | Le paquet `internal/systemdunits` (relevé par liste blanche, `Exec` à environnement vide, bornes), la section `systemd_units` du signal, la migration `029_systemd_units.sql` (`systemd_reports`, `systemd_units`), `directory.ObserveUnits` / `ApplyUnitObservations` / `ProposeUnit`, la route `GET /api/machines/{id}/systemd-units`, `?machine=&unit=` sur la proposition, le module `systemd_units` (onglet de la machine), la colonne « État de l'unité » et « Port à déclarer » de la fiche du service, le port d'un binaire hors du pli « Avancé » |
+| Fiche Proxmox visuelle et dernière sauvegarde réelle (v0.5.2 P1, #459) | `internal/proxmox/backup_access.go` (droits du jeton lus par `GET /access/permissions`, `GrantFor`), `Reading.BlindStorages`, `Guest.BackupUnknown`, `last_error` à deux faits (sans migration), `POST /api/machines/{id}/actions/refresh-proxmox`, champs `backup_blind_storages`, `backup_grant`, `backup_unknown`, `last_backup_storage`, `backup_blind`, `observed_unknown`, la maquette `docs/projet/maquettes/hyperviseur.html`, `EntityCard` partagé par les VM et les stockages. Aucune migration, aucune dépendance, aucun champ d'agent |
