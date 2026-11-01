@@ -5043,6 +5043,19 @@ rafraîchissement par un rapport ne s'écrit pas, comme une mesure.
 « Comment un agent IA lit openCloud » : un jeton ne lit pas les liens
 (décision à prendre, voir `services-modele.md` §4.1).
 
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API, rien n'a été relu côté mcp-maison).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| `edges[].source` (`compose`, `link`) **disparaît** | `GET /api/machines/{id}/network` (jeton ouvert), `GET /api/network` | Lire `edges[].signal` (`depends_on`, `container_link`, `operator`) ; un client qui lisait `source` ne trouve plus rien |
+| `edges[]` d'une dépendance gagne `link_id`, `nature`, `proof`, `stale` | idem | Afficher la preuve et « ancien » ; champs absents d'une arête publique |
+| `GET /api/network` gagne `links[]` | route d'opérateur seul | Les liens entre machines (`from`, `to` : `machine_id`, `machine_name`, `key`, `label`, `service_id`, `service_name`, `unit_name`, `container_id`) |
+| `GET /api/directory/services/{id}/links` | opérateur seul, **hors liste des jetons** | Un outil de lecture des liens d'un service si Lucas le veut : il faut une entrée dans `apiTokenRoutes` |
+| `POST /api/directory/links`, `DELETE /api/directory/links/{id}` | opérateur seul, **aucun verbe** | Aucun geste MCP aujourd'hui ; en faire des verbes (`link.create`, `link.delete`) est une décision, le registre des verbes ne change pas |
+| `links` du détail d'un service (sondes, composants de statut) | inchangé | Rien : même nom, autre sens que la carte Liens ; l'écran l'appelle « Ce qui le lie » |
+| Audit : objet `link`, actions `link.create`, `link.delete` | `GET /api/audit` | Les connaître dans les filtres et les libellés |
+
 **Ce que L3 ne fait pas.** Pas de lien déduit (`public_url` et capacité `proxy`,
 L4), pas de variable d'environnement (L5), pas de connexion vue (L6), pas de route
 Traefik (L7), pas de « Confirmer » ni d'« Écarter » (ils n'ont de sens que pour un
