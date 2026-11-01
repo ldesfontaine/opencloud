@@ -3167,7 +3167,7 @@ bad_response = "Le pare-feu a répondu autre chose que prévu : cette adresse es
 
 [systemd]
 machine_title = "Unités systemd"
-intro = "Lecture seule : l'agent relève chaque minute le nom et l'état des services. Pour suivre un binaire (Forgejo, openCloud…), déclarez son unité."
+intro = "Lecture seule : l'agent relève chaque minute le nom et l'état des services. Pour suivre un binaire (Forgejo, un reverse proxy…), déclarez son unité."
 reported = "Relevé %s"
 never_reported = "Pas encore relevé : l'agent relève chaque minute."
 unavailable = "systemd n'a pas pu être lu sur cette machine."
@@ -3194,7 +3194,6 @@ presence_missing = "Absente de la machine"
 presence_missing_help = "systemd est lu et ne connaît pas cette unité : vérifiez son nom."
 presence_unknown = "Non relevée"
 presence_unknown_help = "L'agent de cette machine n'a pas encore relevé ses unités."
-seen = "vue %s"
 load_loaded = "Chargée"
 load_masked = "Masquée"
 load_error = "En erreur"

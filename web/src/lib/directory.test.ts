@@ -35,8 +35,8 @@ function nextcloud(): DeclaredService {
     declared_by: "operator",
     provides: [],
     units: [
-      { id: "unit_1", name: "app", kind: "container", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", data_path: "/var/www/html", ports: ["8080:80", "443/tcp"], update_policy: "hold" },
-      { id: "unit_2", name: "db", kind: "container", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [], update_policy: "watch" },
+      { id: "unit_1", name: "app", kind: "container", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", data_path: "/var/www/html", ports: ["8080:80", "443/tcp"], update_policy: "hold", observed: null },
+      { id: "unit_2", name: "db", kind: "container", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [], update_policy: "watch", observed: null },
     ],
     project_ids: ["prj_1"],
     created_at: "2026-10-18T09:00:00Z",

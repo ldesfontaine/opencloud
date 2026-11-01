@@ -3167,7 +3167,7 @@ bad_response = "The firewall answered something unexpected: is this address the 
 
 [systemd]
 machine_title = "systemd units"
-intro = "Read only: the agent reads the name and state of the services every minute. To follow a binary (Forgejo, openCloud…), declare its unit."
+intro = "Read only: the agent reads the name and state of the services every minute. To follow a binary (Forgejo, un reverse proxy…), declare its unit."
 reported = "Read %s"
 never_reported = "Not read yet: the agent reads every minute."
 unavailable = "systemd could not be read on this machine."
@@ -3194,7 +3194,6 @@ presence_missing = "Missing from the machine"
 presence_missing_help = "systemd was read and does not know this unit: check its name."
 presence_unknown = "Not read"
 presence_unknown_help = "This machine's agent has not read its units yet."
-seen = "seen %s"
 load_loaded = "Loaded"
 load_masked = "Masked"
 load_error = "In error"

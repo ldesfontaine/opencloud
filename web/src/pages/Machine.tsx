@@ -20,6 +20,7 @@ import { MachineIdentity } from "../components/MachineIdentity";
 import { MachineStorage } from "../components/MachineStorage";
 import { MachineTodoCard } from "../components/MachineTodoCard";
 import { MachineSSHKeys } from "../components/MachineSSHKeys";
+import { MachineSystemdUnits } from "../components/MachineSystemdUnits";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
 import { RoleCard } from "../components/RoleCard";
@@ -111,6 +112,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
             <NetworkView machineID={current.id} />
           ) : tab === "ssh" ? (
             <MachineSSHKeys machine={current} />
+          ) : tab === "systemd" ? (
+            <MachineSystemdUnits machineID={current.id} />
           ) : tab === "hyperviseur" ? (
             <MachineHypervisor machine={current} />
           ) : tab === "journaux" ? (
