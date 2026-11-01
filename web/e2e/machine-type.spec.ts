@@ -31,8 +31,8 @@ for (const theme of ["light", "dark"] as const) {
 
     await page.goto("/machines");
     await expect(page.locator("table .machine-kind").first()).toBeVisible();
-    await expect(page.locator("table").getByText(label("machine.kind_vm"), { exact: true })).toBeVisible();
-    await expect(page.locator("table").getByText(label("machine.kind_vps"), { exact: true })).toBeVisible();
+    await expect(page.locator("table").getByText(label("machine.kind_vm"), { exact: true }).first()).toBeVisible();
+    await expect(page.locator("table").getByText(label("machine.kind_vps"), { exact: true }).first()).toBeVisible();
     await shoot("machines-types");
 
     // La fiche de la machine distante : le bouton Supprimer sans puce, avec son infobulle.

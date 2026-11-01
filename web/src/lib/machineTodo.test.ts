@@ -80,3 +80,12 @@ test("un hôte déclaré dont le relevé échoue le dit, un hôte qui lit bien s
   expect(machineTodos(machine({ proxmox: { ...unrelatedProxmox, declared: true, last_error: "proxmox.unauthorized" } }), [], "v0.4.2")).toEqual([{ kind: "proxmox_read_failed", key: "proxmox.unauthorized" }]);
   expect(machineTodos(machine({ proxmox: { ...unrelatedProxmox, declared: true } }), [], "v0.4.2")).toEqual([]);
 });
+
+test("un hôte dont le jeton ne lit pas les sauvegardes le dit, avec ou sans relevé en échec", () => {
+  const blind = { ...unrelatedProxmox, declared: true, backup_blind: true };
+  expect(machineTodos(machine({ proxmox: blind }), [], "v0.4.2")).toEqual([{ kind: "proxmox_backup_blind" }]);
+  expect(machineTodos(machine({ proxmox: { ...blind, last_error: "proxmox.unreachable" } }), [], "v0.4.2")).toEqual([
+    { kind: "proxmox_read_failed", key: "proxmox.unreachable" },
+    { kind: "proxmox_backup_blind" },
+  ]);
+});

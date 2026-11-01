@@ -134,10 +134,8 @@ for (const theme of ["light", "dark"] as const) {
     await page.addInitScript((value) => localStorage.setItem("theme", value), theme);
     const shoot = shooter(page, theme);
     const firewall = await declaredFirewall(page);
-    const machines = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string }[] };
-    const id = machines.machines.find((machine) => machine.id !== "local")?.id ?? "";
-
-    await page.goto(`/machines/${id}/proxmox`);
+    // La machine openCloud : la distante porte déjà l'hôte garni des données fictives.
+    await page.goto("/machines/local/proxmox");
     const dialog = page.locator("dialog[open]");
     await expect(dialog).toBeVisible();
     const next = dialog.getByRole("button", { name: label("wizard.next"), exact: true });

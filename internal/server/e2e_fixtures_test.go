@@ -274,24 +274,19 @@ func seedE2ESystemd(t *testing.T, ts *testServer) {
 	}
 }
 
-// seedE2EProxmox déclare deux hôtes Proxmox garnis : celui de la machine
-// distante est lu avec un jeton PVEAuditor (les archives ne sont pas lisibles :
-// la fiche dit le droit qui manque, les VM disent « Inconnue »), celui de la
-// machine openCloud avec le droit de lecture des archives (les VM disent leur
-// dernière sauvegarde). La VM 5012 de la distante porte le nom d'hôte de la
-// machine openCloud : le rapprochement la lie.
+// seedE2EProxmox déclare un hôte Proxmox garni sur la machine distante, lu avec
+// un jeton PVEAuditor : les archives ne sont pas lisibles, la fiche dit le droit
+// qui manque, les VM disent « Inconnue ». Son jeton « !complet » (même secret
+// fictif) lit aussi les archives : le parcours s'en sert pour déclarer un second
+// hôte sur la machine openCloud. La VM 5012 porte le nom d'hôte de la machine
+// openCloud : le rapprochement la lie.
 func seedE2EProxmox(t *testing.T, ts *testServer) {
 	t.Helper()
 	wireProxmox(t, ts, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	for _, host := range []struct {
-		machineID, linkedName string
-		auditor               bool
-	}{{remoteID, "opencloud-host", true}, {machine.LocalID, "docker1", false}} {
-		api := newFakeProxmox(t)
-		api.rich, api.auditor = true, host.auditor
-		api.setGuestName(host.linkedName)
-		if got := putProxmox(ts, host.machineID, api.request(pveTokenSecret)); got.Code != http.StatusOK {
-			t.Fatalf("proxmox %s: %d %s", host.machineID, got.Code, got.Body.String())
-		}
+	api := newFakeProxmox(t)
+	api.rich, api.auditor = true, true
+	api.setGuestName("opencloud-host")
+	if got := putProxmox(ts, remoteID, api.request(pveTokenSecret)); got.Code != http.StatusOK {
+		t.Fatalf("proxmox: %d %s", got.Code, got.Body.String())
 	}
 }

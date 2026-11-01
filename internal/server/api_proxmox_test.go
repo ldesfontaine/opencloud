@@ -23,9 +23,11 @@ import (
 )
 
 const (
-	pveID           = remoteID
-	dockerVMID      = "77777777-8888-4999-8aaa-bbbbbbbbbbbb"
-	pveTokenID      = "lecteur@pve!lecture"
+	pveID      = remoteID
+	dockerVMID = "77777777-8888-4999-8aaa-bbbbbbbbbbbb"
+	pveTokenID = "lecteur@pve!lecture"
+	// Le jeton qui lit aussi les archives, pour le parcours navigateur : même secret fictif.
+	pveFullTokenID  = "lecteur@pve!complet"
 	pveTokenSecret  = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9" // gitleaks:allow -- faux secret de test
 	pveGoldenURL    = "https://pve.lan:8006"
 	pveGoldenPinHex = "abababababababababababababababababababababababababababababababab"
@@ -53,12 +55,13 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 	t.Helper()
 	api := &fakeProxmox{}
 	api.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "PVEAPIToken="+pveTokenID+"="+pveTokenSecret {
+		full := r.Header.Get("Authorization") == "PVEAPIToken="+pveFullTokenID+"="+pveTokenSecret
+		if !full && r.Header.Get("Authorization") != "PVEAPIToken="+pveTokenID+"="+pveTokenSecret {
 			http.Error(w, `{"data":null}`, http.StatusUnauthorized)
 			return
 		}
 		api.mu.Lock()
-		broken, auditor, rich := api.broken, api.auditor, api.rich
+		broken, auditor, rich := api.broken, api.auditor && !full, api.rich
 		runningName := api.runningName
 		api.mu.Unlock()
 		if runningName == "" {
