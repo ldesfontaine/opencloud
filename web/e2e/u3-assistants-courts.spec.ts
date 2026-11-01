@@ -1,4 +1,4 @@
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { label } from "./support/catalog";
 import { expect, test } from "./support/findings";
@@ -77,10 +77,13 @@ test("une tâche : un nom, un intervalle, Créer ; la note de l'adresse locale e
 
   // L'adresse du banc est locale : une note neutre, pas une alerte rouge.
   await expect(page).toHaveURL(/\/taches\/[^/]+$/);
-  const note = page.locator(".note-neutral", { hasText: label("public_url.local_note").replace("{config_path}", "/etc/opencloud/config.toml") });
+  const note = page.locator(".note-neutral", { hasText: label("public_url.example_label") });
   await expect(note).toBeVisible();
-  await expect(note.locator(".token-box").first()).toContainText('public_url = "https://…"');
-  await expect(note.locator(".token-box").nth(1)).toContainText(label("public_url.restart_command").replace("{server_unit}", "opencloud.service"));
+  // La forme attendue est un exemple : aucune ligne à copier, donc un seul bouton Copier, celui de la relance.
+  await expect(note.locator(".public-url-example")).toContainText('public_url = "https://opencloud.exemple.fr"');
+  await expect(note.getByRole("button", { name: label("machine.copy") })).toHaveCount(1);
+  await expect(note.locator(".token-box")).toHaveCount(1);
+  await expect(note.locator(".token-box")).toContainText("sudo systemctl restart opencloud.service");
   await expect(page.locator(".note-danger")).toHaveCount(0);
   expect(findings.unknown()).toEqual([]);
 });
@@ -147,5 +150,150 @@ test("un plan de sauvegarde : la source et la destination en un écran, le nombr
   await dialog.locator("details.fold summary").click();
   await expect(dialog.locator("#backup-plan-keep")).toBeVisible();
   await dialog.getByRole("button", { name: label("modal.cancel"), exact: true }).first().click();
+  expect(findings.unknown()).toEqual([]);
+});
+
+// L'édition de chaque assistant d'un écran, menée jusqu'à l'enregistrement :
+// les Réglages repliés s'ouvrent, un menu déroulant y choisit une option, puis
+// la fenêtre est rouverte pour relire ce qui a été gardé.
+const normalized = (text: string) => text.replace(/\s+/g, " ").trim();
+
+async function openSettings(dialog: Locator): Promise<void> {
+  await dialog.locator("details.fold > summary").first().click();
+}
+
+// Ouvre le menu, choisit une autre option que la courante (ou la seule qu'il y a)
+// et rend son premier mot, que le bouton du menu doit ensuite porter.
+async function chooseOther(page: Page, dialog: Locator, trigger: string): Promise<string> {
+  await dialog.locator(trigger).click();
+  const list = page.locator("[role=listbox]").last();
+  await expect(list).toBeVisible();
+  const usable = list.locator("[role=option]:not([aria-disabled=true])");
+  const other = usable.and(list.locator("[aria-selected=false]"));
+  const option = (await other.count()) > 0 ? other.first() : usable.first();
+  const chosen = normalized(await option.innerText()).split(" ")[0] ?? "";
+  await option.click();
+  await expect(list).toBeHidden();
+  return chosen;
+}
+
+async function hrefOfLink(page: Page, list: string, name: string): Promise<string> {
+  await page.goto(list);
+  const href = await page.locator("main a", { hasText: name }).first().getAttribute("href");
+  expect(href, `lien « ${name} » dans ${list}`).not.toBeNull();
+  return href ?? "";
+}
+
+test("modifier une sonde : service choisi dans un menu, seuil changé, relus après enregistrement", async ({ page, findings }) => {
+  const path = await hrefOfLink(page, "/disponibilite", "site essai u3 bis");
+  findings.where = `${path}/modifier`;
+  await page.goto(`${path}/modifier`);
+  const dialog = page.locator("dialog[open]");
+  await expectOneScreen(dialog, label("probe.save"));
+  await openSettings(dialog);
+  const service = await chooseOther(page, dialog, "#probe-service");
+  await dialog.locator("#probe-failure").fill("4");
+  await dialog.getByRole("button", { name: label("probe.save"), exact: true }).click();
+  await expect(page).toHaveURL(/\/disponibilite\/[^/]+$/);
+
+  await page.goto(`${path}/modifier`);
+  const again = page.locator("dialog[open]");
+  await openSettings(again);
+  await expect(again.locator("#probe-failure")).toHaveValue("4");
+  await expect(again.locator("#probe-service")).toContainText(service);
+  expect(findings.unknown()).toEqual([]);
+});
+
+test("modifier une tâche : machine choisie dans un menu, grâce changée, relues après enregistrement", async ({ page, findings }) => {
+  const path = await hrefOfLink(page, "/taches", "sauvegarde essai u3");
+  findings.where = `${path}/modifier`;
+  await page.goto(`${path}/modifier`);
+  const dialog = page.locator("dialog[open]");
+  await expectOneScreen(dialog, label("job.save"));
+  await openSettings(dialog);
+  const machine = await chooseOther(page, dialog, "#job-machine");
+  await dialog.locator("#job-grace").fill("20");
+  await dialog.getByRole("button", { name: label("job.save"), exact: true }).click();
+  await expect(page).toHaveURL(/\/taches\/[^/]+$/);
+
+  await page.goto(`${path}/modifier`);
+  const again = page.locator("dialog[open]");
+  await openSettings(again);
+  await expect(again.locator("#job-grace")).toHaveValue("20");
+  await expect(again.locator("#job-machine")).toContainText(machine);
+  expect(findings.unknown()).toEqual([]);
+});
+
+test("modifier un canal : gravité choisie dans un menu, nom changé, relus après enregistrement", async ({ page, findings }) => {
+  const path = await hrefOfLink(page, "/parametres", "salon essai u3");
+  findings.where = path;
+  await page.goto(path);
+  const dialog = page.locator("dialog[open]");
+  await expectOneScreen(dialog, label("channel.save"));
+  await dialog.locator("#channel-name").fill("salon essai u3 bis");
+  await openSettings(dialog);
+  const severity = await chooseOther(page, dialog, "#channel-severity");
+  await dialog.getByRole("button", { name: label("channel.save"), exact: true }).click();
+  await expect(page).toHaveURL(/\/parametres$/);
+
+  await page.goto(path);
+  const again = page.locator("dialog[open]");
+  await expect(again.locator("#channel-name")).toHaveValue("salon essai u3 bis");
+  await openSettings(again);
+  await expect(again.locator("#channel-severity")).toContainText(severity);
+  expect(findings.unknown()).toEqual([]);
+});
+
+test("un silence : type choisi dans un menu et motif sous Réglages, relus dans la liste", async ({ page, findings }) => {
+  findings.where = "/parametres/silences/nouveau";
+  await page.goto("/parametres/silences/nouveau");
+  const dialog = page.locator("dialog[open]");
+  await openSettings(dialog);
+  const kind = await chooseOther(page, dialog, "#silence-kind");
+  await dialog.locator("#silence-reason").fill("relecture u3");
+  await expect(dialog.locator(":scope details.fold > summary .fold-hint").first()).not.toContainText(label("silence.hint_kind_any"));
+  await dialog.getByRole("button", { name: label("silence.create"), exact: true }).click();
+  await expect(page).toHaveURL(/\/parametres$/);
+  const row = page.locator("tr", { hasText: "relecture u3" });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText(kind);
+  expect(findings.unknown()).toEqual([]);
+});
+
+test("modifier un projet : titre changé, relu après enregistrement, page publique gardée", async ({ page, findings }) => {
+  const path = await hrefOfLink(page, "/services/projets", "projet-essai-u3");
+  findings.where = path;
+  await page.goto(path);
+  const dialog = page.locator("dialog[open]");
+  await expectOneScreen(dialog, label("project.save"));
+  await dialog.locator("#project-title").fill("Titre relu u3");
+  await dialog.getByRole("button", { name: label("project.save"), exact: true }).click();
+  await expect(page).toHaveURL(/\/services\/projets$/);
+
+  await page.goto(path);
+  const again = page.locator("dialog[open]");
+  await expect(again.locator("#project-title")).toHaveValue("Titre relu u3");
+  await expect(again.locator("#project-slug")).toBeVisible();
+  expect(findings.unknown()).toEqual([]);
+});
+
+test("modifier un plan : destination choisie dans un menu, nombre gardé changé, relus après enregistrement", async ({ page, findings }) => {
+  findings.where = "/sauvegardes/plans/database/modifier";
+  await page.goto("/sauvegardes/plans/database/modifier");
+  const dialog = page.locator("dialog[open]");
+  await expectOneScreen(dialog, label("backup.plan_save"));
+  const destination = await chooseOther(page, dialog, "#backup-plan-destination");
+  await openSettings(dialog);
+  await dialog.locator("#backup-plan-name").fill("base essai u3");
+  await dialog.locator("#backup-plan-keep").fill("7");
+  await dialog.getByRole("button", { name: label("backup.plan_save"), exact: true }).click();
+  await expect(page).toHaveURL(/\/sauvegardes$/);
+
+  await page.goto("/sauvegardes/plans/database/modifier");
+  const again = page.locator("dialog[open]");
+  await expect(again.locator("#backup-plan-destination")).toContainText(destination);
+  await openSettings(again);
+  await expect(again.locator("#backup-plan-keep")).toHaveValue("7");
+  await expect(again.locator("#backup-plan-name")).toHaveValue("base essai u3");
   expect(findings.unknown()).toEqual([]);
 });

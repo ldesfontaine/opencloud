@@ -87,10 +87,12 @@ alerts_unacknowledged = "%d to acknowledge"
 alerts_acknowledged = "All acknowledged"
 
 [public_url]
-local_note = "Local trial: a remote machine will not reach this address. To add one, put this line in {config_path}, then restart the service."
+local_note = "Local trial: a remote machine will not reach this address. To add one, add a public_url line to {config_path} with the real public address of {product}, then restart the service."
+example_label = "Expected form, as an example (not to be copied)"
+example_line = "public_url = \"{example_url}\""
 mismatch_note = "The {product} address is set to a local one while this page is public: a remote machine will not reach it. Put this line in {config_path}, then restart the service."
 restart_label = "Then restart the service"
-restart_command = "systemctl restart {server_unit}"
+restart_command = "sudo systemctl restart {server_unit}"
 
 [machine]
 kind_physical = "Hardware"

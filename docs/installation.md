@@ -311,11 +311,12 @@ Elle sert à deux choses.
    requête (et de `X-Forwarded-Host` / `-Proto` d'un mandataire de
    confiance). Si l'adresse paraît locale, la page du jeton et celle de la
    tâche posent une **note neutre** avec la ligne à écrire :
-   `public_url = "https://…"` dans `/etc/opencloud/config.toml`, puis
-   `systemctl restart opencloud.service`. Un essai local n'est pas une
-   erreur. La note ne devient **rouge** que si la page est lue par une adresse
-   publique alors que `public_url` est locale : la ligne porte alors
-   l'adresse de la page.
+   la forme attendue en exemple (`public_url = "https://opencloud.exemple.fr"`,
+   non copiable : l'adresse publique réelle est à mettre dans
+   `/etc/opencloud/config.toml`), puis `sudo systemctl restart
+   opencloud.service`. Un essai local n'est pas une erreur. La note ne devient **rouge** que si la page est lue par une adresse
+   publique alors que `public_url` est locale : la ligne, cette fois à
+   copier, porte l'adresse de la page.
 2. **Reconnaître le nom de l'interface.** Toute requête sur `/api/…` doit
    arriver avec un `Host` connu : l'hôte de
    `public_url`, `localhost`, une adresse IP, ou l'hôte de `listen`.

@@ -302,3 +302,14 @@ a.stat-link {
     border-color: var(--line-strong);
   }
 }
+
+// Un exemple qui ne se copie pas : la même boîte qu'une ligne à copier, sans bouton.
+.public-url-example {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--line-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}

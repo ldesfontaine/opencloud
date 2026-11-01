@@ -87,10 +87,12 @@ alerts_unacknowledged = "%d à acquitter"
 alerts_acknowledged = "Toutes acquittées"
 
 [public_url]
-local_note = "Essai local : une machine distante ne joindra pas cette adresse. Pour en ajouter une, posez cette ligne dans {config_path}, puis relancez le service."
+local_note = "Essai local : une machine distante ne joindra pas cette adresse. Pour en ajouter une, ajoutez une ligne public_url dans {config_path} avec l'adresse publique réelle d'{product}, puis relancez le service."
+example_label = "Forme attendue, à titre d'exemple (ne se copie pas)"
+example_line = "public_url = \"{example_url}\""
 mismatch_note = "L'adresse d'{product} est réglée sur du local alors que cette page est publique : une machine distante ne la joindra pas. Posez cette ligne dans {config_path}, puis relancez le service."
 restart_label = "Puis relancer le service"
-restart_command = "systemctl restart {server_unit}"
+restart_command = "sudo systemctl restart {server_unit}"
 
 [machine]
 kind_physical = "Matériel"

@@ -117,6 +117,7 @@ var placeholders = strings.NewReplacer(
 	"{label_prefix}", brand.LabelPrefix,
 	"{config_path}", brand.ConfigPath,
 	"{server_unit}", brand.ServerUnit,
+	"{example_url}", "https://"+brand.ID+".exemple.fr",
 	"{agent_unit}", brand.AgentUnit,
 	"{agent_account}", brand.AgentAccount,
 	"{agent_binary}", brand.AgentCurrentPath,

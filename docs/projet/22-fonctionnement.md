@@ -4627,10 +4627,12 @@ la commande d'une machine s'écrivent depuis `public_url`, ou à défaut depuis
 l'adresse de la requête. Si elle paraît locale, `url_local` est vrai ; la
 réponse porte aussi `url_suggestion`, l'adresse de la page **quand celle-ci est
 publique**, vide sinon. L'écran (`PublicUrlNote`) en tire deux notes : un essai
-local (page locale) est une **note neutre** avec la ligne à poser,
-`public_url = "https://…"` dans le fichier de configuration, puis le
-redémarrage du service ; une page publique avec un `public_url` local est
-**rouge**, et la ligne porte l'adresse de la page.
+local (page locale) est une **note neutre** : l'adresse publique réelle
+n'est pas connue, donc la forme attendue n'est qu'un **exemple non copiable**
+(`public_url = "https://opencloud.exemple.fr"`), puis la relance du service
+(`sudo systemctl restart opencloud.service`, qui se copie) ; une page publique
+avec un `public_url` local est **rouge**, et la ligne, à copier, porte
+l'adresse de la page.
 
 **Les derniers formulaires** (refonte UX, C11) : plus aucune page de
 formulaire. Le pare-feu est un `Wizard` dans une `Modal`
