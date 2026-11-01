@@ -9,3 +9,7 @@
 *.db-shm
 .env
 coverage.out
+# Parcours navigateur : le serveur de données fictives compilé, les rapports.
+/web/e2e/.fixture.test
+/web/e2e/.results/
+/web/playwright-report/
