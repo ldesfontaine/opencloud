@@ -82,7 +82,7 @@ function SourceRow({ source }: { source: BackupSource }) {
         <Protection source={source} />
       </td>
       <td>
-        {last === null ? <span className="secondary">{t("backup.inventory_never")}</span> : formatWhen(last.at, now)}
+        {last === null ? <span className="secondary">{t(source.observed_unknown ? "backup.inventory_protection_unknown" : "backup.inventory_never")}</span> : formatWhen(last.at, now)}
         {last !== null && <div className="secondary">{t(last.origin === "plan" ? "backup.inventory_origin_plan" : "backup.inventory_origin_observed")}</div>}
         {source.observed !== null && <div className="secondary">{t("backup.inventory_observed_detail", source.observed.count, formatBytes(t, language, source.observed.total_bytes))}</div>}
         {failed !== null && (
@@ -106,6 +106,9 @@ function Protection({ source }: { source: BackupSource }) {
   const protection = protectionOf(source);
   if (protection === "none") {
     return <Pill tone="danger">{t("backup.inventory_protection_none")}</Pill>;
+  }
+  if (protection === "unknown") {
+    return <Pill tone="neutral">{t("backup.inventory_protection_unknown")}</Pill>;
   }
   if (protection === "observed") {
     return <Pill tone="warn">{t("backup.inventory_protection_observed")}</Pill>;

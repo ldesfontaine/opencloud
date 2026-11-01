@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,9 @@ type fakeProxmox struct {
 	broken bool
 	// auditor : le jeton n'a que PVEAuditor, comme celui de Lucas.
 	auditor bool
+	// rich : un hôte garni (plusieurs VM, un modèle, des stockages dont un NFS de
+	// sauvegardes) pour le parcours navigateur et les captures.
+	rich bool
 	// Le nom de la VM 5012, que le rapprochement lie à une machine du même nom d'hôte.
 	runningName string
 }
@@ -54,7 +58,7 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 			return
 		}
 		api.mu.Lock()
-		broken, auditor := api.broken, api.auditor
+		broken, auditor, rich := api.broken, api.auditor, api.rich
 		runningName := api.runningName
 		api.mu.Unlock()
 		if runningName == "" {
@@ -67,6 +71,12 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 		case broken:
 			http.Error(w, "boom", http.StatusInternalServerError)
 			return
+		case rich && r.URL.Path == "/api2/json/cluster/resources" && r.URL.Query().Get("type") == "vm":
+			body = richGuests(runningName)
+		case rich && r.URL.Path == "/api2/json/cluster/resources" && r.URL.Query().Get("type") == "storage":
+			body = richStorages
+		case rich && r.URL.Path == "/api2/json/nodes/pve/storage/pi-sauvegardes/content":
+			body = richArchives()
 		case r.URL.Path == "/api2/json/cluster/resources" && r.URL.Query().Get("type") == "vm":
 			body = `{"data":[
 				{"type":"qemu","vmid":5012,"name":"` + runningName + `","node":"pve","status":"running","template":0,"maxcpu":2,"maxmem":2147483648,"maxdisk":34359738368},
@@ -125,14 +135,9 @@ func proxmoxBench(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer) {
 	return server, api, journal
 }
 
-// proxmoxBenchWithKey rend aussi la clé de l'agent de l'hôte, pour ouvrir son
-// flux : un ordre n'est écrit que pour une machine en ligne.
-func proxmoxBenchWithKey(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer, ed25519.PrivateKey) {
+// wireProxmox branche au serveur d'essai un vrai composant Proxmox.
+func wireProxmox(t *testing.T, server *testServer, logger *slog.Logger) {
 	t.Helper()
-	server := newTestServer(t)
-	var journal bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&journal, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	server.logger = logger
 	component := proxmox.New(server.db, server.machines, logger)
 	component.SetClock(func() time.Time { return testNow })
 	component.SetWatcher(server.bus)
@@ -148,6 +153,17 @@ func proxmoxBenchWithKey(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer
 		component.WaitBackground()
 	})
 	server.Server.proxmox = component
+}
+
+// proxmoxBenchWithKey rend aussi la clé de l'agent de l'hôte, pour ouvrir son
+// flux : un ordre n'est écrit que pour une machine en ligne.
+func proxmoxBenchWithKey(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer, ed25519.PrivateKey) {
+	t.Helper()
+	server := newTestServer(t)
+	var journal bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&journal, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	server.logger = logger
+	wireProxmox(t, server, logger)
 	_, hostKey := server.enroll(t, "pve", pveID)
 	server.enroll(t, "docker1", dockerVMID)
 	return server, newFakeProxmox(t), &journal, hostKey
@@ -504,4 +520,36 @@ func TestProxmox_RefreshNowReadsAgainAndKeepsARefusalOnTheCard(t *testing.T) {
 	if got.Code != http.StatusOK || host.LastError != "proxmox.bad_response" || !slices.Equal(host.BlindStorages, []string{"local"}) {
 		t.Fatalf("a refusal must stay on the card: %d %+v", got.Code, host)
 	}
+}
+
+// Un hôte garni, tel qu'une petite installation : quatre VM et conteneurs en
+// marche ou arrêtés, un modèle, trois stockages dont un NFS de sauvegardes.
+func richGuests(linkedName string) string {
+	return `{"data":[
+		{"type":"qemu","vmid":5012,"name":"` + linkedName + `","node":"pve","status":"running","template":0,"maxcpu":4,"maxmem":8589934592,"maxdisk":68719476736},
+		{"type":"qemu","vmid":102,"name":"vpn","node":"pve","status":"running","template":0,"maxcpu":2,"maxmem":2147483648,"maxdisk":17179869184},
+		{"type":"lxc","vmid":104,"name":"dns","node":"pve","status":"running","template":0,"maxcpu":1,"maxmem":536870912,"maxdisk":8589934592},
+		{"type":"qemu","vmid":105,"name":"immich","node":"pve","status":"running","template":0,"maxcpu":4,"maxmem":17179869184,"maxdisk":274877906944},
+		{"type":"qemu","vmid":201,"name":"windows-test","node":"pve","status":"stopped","template":0,"maxcpu":4,"maxmem":8589934592,"maxdisk":85899345920},
+		{"type":"lxc","vmid":202,"name":"vieux-wiki","node":"pve","status":"stopped","template":0,"maxcpu":1,"maxmem":1073741824,"maxdisk":12884901888},
+		{"type":"qemu","vmid":9000,"name":"debian-12","node":"pve","status":"stopped","template":1,"maxcpu":2,"maxmem":1073741824,"maxdisk":4294967296}]}`
+}
+
+const richStorages = `{"data":[
+	{"type":"storage","storage":"local","node":"pve","plugintype":"dir","status":"available","content":"iso,vztmpl","maxdisk":107374182400,"disk":23622320128},
+	{"type":"storage","storage":"local-lvm","node":"pve","plugintype":"lvmthin","status":"available","content":"images,rootdir","maxdisk":1099511627776,"disk":670000000000},
+	{"type":"storage","storage":"pi-sauvegardes","node":"pve","plugintype":"nfs","status":"available","content":"backup","maxdisk":2199023255552,"disk":1759218604441}]}`
+
+// Les archives de la nuit, datées d'après l'heure réelle : l'écran juge leur
+// âge à l'horloge du navigateur. 9 h pour les VM sauvegardées chaque nuit, 3 jours
+// pour immich, 20 jours pour le vieux wiki, aucune pour windows-test.
+func richArchives() string {
+	at := func(age time.Duration) int64 { return time.Now().Add(-age).Unix() }
+	return fmt.Sprintf(`{"data":[
+		{"vmid":5012,"ctime":%d,"size":13300000000,"volid":"pi-sauvegardes:backup/vzdump-qemu-5012-a"},
+		{"vmid":102,"ctime":%d,"size":3300000000,"volid":"pi-sauvegardes:backup/vzdump-qemu-102-a"},
+		{"vmid":104,"ctime":%d,"size":640000000,"volid":"pi-sauvegardes:backup/vzdump-lxc-104-a"},
+		{"vmid":105,"ctime":%d,"size":44000000000,"volid":"pi-sauvegardes:backup/vzdump-qemu-105-a"},
+		{"vmid":202,"ctime":%d,"size":1300000000,"volid":"pi-sauvegardes:backup/vzdump-lxc-202-a"}]}`,
+		at(9*time.Hour), at(9*time.Hour), at(9*time.Hour), at(72*time.Hour), at(20*24*time.Hour))
 }

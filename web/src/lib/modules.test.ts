@@ -19,7 +19,7 @@ function countsWith(configured: ModuleID[]): Counts {
 }
 
 function machineWith(name: string, modules: ModuleID[], declared = false): Machine {
-  return { id: `id-${name}`, name, modules, proxmox: { declared, guests: 0, last_error: "", hosted: null } } as Machine;
+  return { id: `id-${name}`, name, modules, proxmox: { declared, guests: 0, last_error: "", backup_blind: false, hosted: null } } as Machine;
 }
 
 const labels = (entries: ReturnType<typeof menuEntries>) => entries.map((entry) => entry.key);

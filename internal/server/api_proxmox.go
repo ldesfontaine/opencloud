@@ -67,6 +67,8 @@ type proxmoxGuestJSON struct {
 	LinkedMachineID *string    `json:"linked_machine_id"`
 	LastBackupAt    *time.Time `json:"last_backup_at"`
 	LastBackupBytes int64      `json:"last_backup_bytes"`
+	// Le stockage où se trouve la plus récente ; vide sans archive.
+	LastBackupStorage string `json:"last_backup_storage"`
 	// Vrai quand last_backup_at est null faute de droit de lecture des archives,
 	// non faute d'archive.
 	BackupUnknown bool `json:"backup_unknown"`
@@ -179,7 +181,7 @@ func proxmoxGuestToJSON(guest proxmox.Guest, ownSnapshots []string) proxmoxGuest
 	converted := proxmoxGuestJSON{
 		VMID: guest.VMID, Kind: guest.Kind, Name: guest.Name, Status: guest.Status, Template: guest.Template, Node: guest.Node,
 		CPUs: guest.CPUs, MaxMemory: guest.MaxMem, MaxDisk: guest.MaxDisk,
-		LastBackupAt: httpx.TimeOrNil(guest.LastBackupAt), LastBackupBytes: guest.LastBackupBytes, BackupUnknown: guest.BackupUnknown,
+		LastBackupAt: httpx.TimeOrNil(guest.LastBackupAt), LastBackupBytes: guest.LastBackupBytes, LastBackupStorage: guest.LastBackupStorage, BackupUnknown: guest.BackupUnknown,
 		OwnSnapshots: orEmpty(ownSnapshots),
 	}
 	if guest.LinkedMachineID != "" {

@@ -149,6 +149,9 @@ export interface BackupSource {
   used_by: string[];
   covered_by: BackupCoverage[];
   observed: BackupObserved | null;
+  // Vrai quand observed est null faute de droit de lecture sur les stockages
+  // Proxmox, non faute d'archive.
+  observed_unknown: boolean;
   last_run: BackupRun | null;
   last_ok: BackupRun | null;
 }

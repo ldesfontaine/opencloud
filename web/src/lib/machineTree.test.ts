@@ -16,7 +16,7 @@ function machine(id: string, over: Partial<Machine> = {}): Machine {
     update_last: false,
     last_seen_at: null,
     agent: null,
-    proxmox: { declared: false, guests: 0, last_error: "", node: "", cluster: null, guest_list: [], hosted: null },
+    proxmox: { declared: false, guests: 0, last_error: "", backup_blind: false, node: "", cluster: null, guest_list: [], hosted: null },
     roles: [],
     role: "generic",
     modules: [],
@@ -36,7 +36,7 @@ function hostOf(machineID: string, source: MachineHost["source"] = "guest", node
 }
 
 function hypervisor(id: string, node: string, guests: ProxmoxMember[], cluster: ProxmoxCluster | null = null, over: Partial<Machine> = {}): Machine {
-  return machine(id, { proxmox: { declared: true, guests: guests.length, last_error: "", node, cluster, guest_list: guests, hosted: null }, ...over });
+  return machine(id, { proxmox: { declared: true, guests: guests.length, last_error: "", backup_blind: false, node, cluster, guest_list: guests, hosted: null }, ...over });
 }
 
 // Une ligne en une chaîne, pour lire l'arbre d'un coup d'œil : « profondeur type nom ».

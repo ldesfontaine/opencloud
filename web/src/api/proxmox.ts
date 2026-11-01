@@ -27,6 +27,11 @@ export interface ProxmoxGuest {
   linked_machine_id: string | null;
   last_backup_at: string | null;
   last_backup_bytes: number;
+  // Le stockage où se trouve la plus récente ; vide sans archive.
+  last_backup_storage: string;
+  // Vrai quand last_backup_at est null faute de droit de lecture des archives,
+  // non faute d'archive : l'écran dit « Inconnue », jamais « Aucune ».
+  backup_unknown: boolean;
   // Les instantanés (oc-AAAAMMJJ-HHMMSS) que les ordres de ce produit ont
   // créés et que nul n'a supprimés depuis : les seuls qu'on propose de supprimer.
   own_snapshots: string[];
@@ -44,6 +49,14 @@ export interface ProxmoxStorage {
   active: boolean;
 }
 
+// Les commandes pveum qui donnent au jeton la lecture des archives, sur les
+// seuls stockages qu'il n'a pas pu lister.
+export interface BackupGrant {
+  privileges: string[];
+  role: string;
+  commands: string[];
+}
+
 export interface ProxmoxHost {
   api_url: string;
   // Les quatre premiers caractères de l'identifiant : le serveur ne le rend jamais en entier.
@@ -56,6 +69,9 @@ export interface ProxmoxHost {
   last_read_at: string | null;
   // La clé du refus du dernier relevé qui a échoué ; vide s'il a réussi.
   last_error: string;
+  // Les stockages dont le jeton n'a pas pu lister les archives faute de droit.
+  backup_blind_storages: string[];
+  backup_grant: BackupGrant | null;
   guests: ProxmoxGuest[];
   storages: ProxmoxStorage[];
 }
@@ -75,6 +91,7 @@ interface ProxmoxHosted {
   max_disk: number;
   last_backup_at: string | null;
   last_backup_bytes: number;
+  backup_unknown: boolean;
 }
 
 // La grappe que plusieurs hôtes déclarés partagent.
@@ -103,6 +120,8 @@ export interface ProxmoxSummary {
   declared: boolean;
   guests: number;
   last_error: string;
+  // Vrai quand le jeton ne peut pas lister les archives d'un stockage.
+  backup_blind: boolean;
   // Pour un hôte déclaré : son nœud, sa grappe (null pour un nœud seul) et ses
   // invités. Vides pour une machine sans hôte.
   node: string;
@@ -126,6 +145,12 @@ export function useMachineProxmox(machineID: string, wanted: boolean): Resource<
 
 export function setMachineProxmox(machineID: string, definition: ProxmoxDefinition): Promise<ProxmoxHost> {
   return api.send<ProxmoxHost>(route("PUT /api/machines/{id}/proxmox", { id: machineID }), definition);
+}
+
+// Relire l'hôte tout de suite ; la réponse est la fiche relue (ou, si l'hôte
+// refuse, la fiche avec la raison).
+export function refreshMachineProxmox(machineID: string): Promise<ProxmoxHost> {
+  return api.send<ProxmoxHost>(route("POST /api/machines/{id}/actions/refresh-proxmox", { id: machineID }));
 }
 
 export async function removeMachineProxmox(machineID: string): Promise<void> {

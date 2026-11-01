@@ -63,7 +63,7 @@ export function MachineIdentity({ machine, all }: { machine: Machine; all: Machi
           <>
             <KeyValue label={t("machine.identity_guest")} value={`${hosted.vmid} · ${hosted.name}`} mono />
             <KeyValue label={t("machine.identity_allocation")} value={`${resourcesLabel(t, language, hosted.cpus, hosted.max_memory)} · ${formatBytes(t, language, hosted.max_disk)}`} />
-            <KeyValue label={t("machine.proxmox_col_backup")} value={backupLabel(t, language, hosted.last_backup_at, hosted.last_backup_bytes, now)} />
+            <KeyValue label={t("machine.proxmox_col_backup")} value={backupLabel(t, language, { at: hosted.last_backup_at, bytes: hosted.last_backup_bytes, unknown: hosted.backup_unknown }, now)} />
           </>
         )}
         {machine.proxmox.declared && (

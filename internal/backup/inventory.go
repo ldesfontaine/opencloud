@@ -220,8 +220,11 @@ func (s *Service) Inventory(ctx context.Context) (Inventory, error) {
 func protectionOf(source Source) int {
 	switch {
 	case len(source.CoveredBy) > 0:
-		return 2
+		return 3
 	case source.Observed != nil:
+		return 2
+	case source.ObservedUnknown:
+		// Ni « rien » ni « Proxmox seul » : on ne sait pas. Après « rien », avant le reste.
 		return 1
 	}
 	return 0

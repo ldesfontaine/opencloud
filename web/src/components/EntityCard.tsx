@@ -14,6 +14,8 @@ interface EntityFact {
   label: string;
   value: ReactNode;
   mono?: boolean;
+  // Sur toute la largeur de la carte : une phrase ou une pastille avec son détail.
+  wide?: boolean;
 }
 
 interface EntityMeter {
@@ -33,7 +35,10 @@ export function CardGrid({ children }: { children: ReactNode }) {
 // déclaré, une page de statut) : nom, type, pastille, deux à quatre faits en
 // mono, des mini-jauges au besoin. Toute la carte mène à la fiche : le lien du
 // nom s'étire sur elle, ce qui garde un vrai lien (Ctrl-clic, clavier) sans
-// mettre le bouton « … » dans un lien.
+// mettre le bouton « … » dans un lien. Sans `to`, un objet qui n'a pas de fiche
+// (une VM que nulle machine enrôlée ne porte) : le nom est du texte, la carte
+// n'est pas cliquable. `children` : ce qui suit les jauges (la confirmation
+// d'un geste, son avancement).
 export function EntityCard({
   to,
   icon,
@@ -43,8 +48,9 @@ export function EntityCard({
   facts,
   meters = [],
   actions = [],
+  children,
 }: {
-  to: string;
+  to?: string;
   icon: IconName;
   name: string;
   kind: string;
@@ -52,6 +58,7 @@ export function EntityCard({
   facts: EntityFact[];
   meters?: EntityMeter[];
   actions?: MenuAction[];
+  children?: ReactNode;
 }) {
   const t = useT();
   return (
@@ -60,9 +67,13 @@ export function EntityCard({
         <span className="entity-icon">
           <Icon name={icon} />
         </span>
-        <Link className="entity-link" to={to}>
-          {name}
-        </Link>
+        {to === undefined ? (
+          <span className="entity-link">{name}</span>
+        ) : (
+          <Link className="entity-link linked" to={to}>
+            {name}
+          </Link>
+        )}
         <span className="entity-sub">
           <span className="entity-kind">{kind}</span>
           {state}
@@ -71,7 +82,7 @@ export function EntityCard({
       </div>
       <dl className="entity-facts">
         {facts.map((fact) => (
-          <div key={fact.label}>
+          <div key={fact.label} className={fact.wide === true ? "wide" : undefined}>
             <dt>{fact.label}</dt>
             <dd className={fact.mono === false ? undefined : "mono"}>{fact.value}</dd>
           </div>
@@ -90,6 +101,7 @@ export function EntityCard({
           ))}
         </div>
       )}
+      {children !== undefined && <div className="entity-extra">{children}</div>}
     </article>
   );
 }

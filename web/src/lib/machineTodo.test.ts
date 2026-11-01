@@ -20,7 +20,7 @@ function agent(over: Partial<Agent> = {}): Agent {
   };
 }
 
-const unrelatedProxmox: Machine["proxmox"] = { declared: false, guests: 0, last_error: "", node: "", cluster: null, guest_list: [], hosted: null };
+const unrelatedProxmox: Machine["proxmox"] = { declared: false, guests: 0, last_error: "", backup_blind: false, node: "", cluster: null, guest_list: [], hosted: null };
 
 function machine(over: Partial<Machine> = {}): Machine {
   return { id: "m", name: "m", agent: agent(), kind: "vm", kind_override: "", role: "generic", roles: [], proxmox: unrelatedProxmox, ...over } as Machine;

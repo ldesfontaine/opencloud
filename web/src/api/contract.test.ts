@@ -18,7 +18,7 @@ import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
-import type { ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
+import type { BackupGrant, ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
 import type { SystemdReport } from "./systemd";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
@@ -140,6 +140,7 @@ const machine = shape<Machine>("Machine", {
     declared: value,
     guests: value,
     last_error: value,
+    backup_blind: value,
     node: value,
     cluster: shape<ProxmoxCluster>("ProxmoxCluster", { id: value, name: value }),
     guest_list: shape<ProxmoxMember>("ProxmoxMember", {
@@ -167,6 +168,7 @@ const machine = shape<Machine>("Machine", {
       max_disk: value,
       last_backup_at: value,
       last_backup_bytes: value,
+      backup_unknown: value,
     }),
   }),
 });
@@ -332,6 +334,8 @@ const proxmoxHost = shape<ProxmoxHost>("ProxmoxHost", {
   verified_at: value,
   last_read_at: value,
   last_error: value,
+  backup_blind_storages: value,
+  backup_grant: shape<BackupGrant>("BackupGrant", { privileges: value, role: value, commands: value }),
   guests: shape("ProxmoxGuest", {
     vmid: value,
     kind: value,
@@ -345,6 +349,8 @@ const proxmoxHost = shape<ProxmoxHost>("ProxmoxHost", {
     linked_machine_id: value,
     last_backup_at: value,
     last_backup_bytes: value,
+    last_backup_storage: value,
+    backup_unknown: value,
     own_snapshots: value,
   }),
   storages: shape("ProxmoxStorage", { node: value, name: value, type: value, total: value, used: value, avail: value, content: value, active: value }),
@@ -946,6 +952,7 @@ const backupInventory = shape<BackupInventory>("BackupInventory", {
     driver: value,
     used_by: value,
     covered_by: shape<BackupCoverage>("BackupCoverage", { subject: value, plan_name: value, destination_id: value, destination_name: value }),
+    observed_unknown: value,
     observed: shape<BackupObserved>("BackupObserved", { storage: value, count: value, total_bytes: value, last_at: value, last_bytes: value }),
     last_run: backupRun,
     last_ok: backupRun,
