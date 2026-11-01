@@ -16,7 +16,7 @@ import { useCertificateInspector, type CertificateInspector } from "../../hooks/
 import { useChecklist } from "../../hooks/useChecklist";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
-import { maskCredential } from "../../lib/credential";
+import { credentialText, hintText } from "../../lib/credential";
 import { displayPin } from "../../lib/fingerprint";
 import { isCredential, isHTTPSAddress } from "../../lib/firewallForm";
 import { isFormModified } from "../../lib/modal";
@@ -208,7 +208,7 @@ function stepsOf(
       title: t("firewall.step_access"),
       render: () => (
         <>
-          <Field label={t("firewall.key_label")} htmlFor="firewall-key" help={keyHint === null ? t("firewall.key_help") : t("firewall.key_current", keyHint)}>
+          <Field label={t("firewall.key_label")} htmlFor="firewall-key" help={keyHint === null ? t("firewall.key_help") : t("firewall.key_current", hintText(t, keyHint))}>
             <Input id="firewall-key" mono value={values.apiKey} onChange={(event) => form.change("apiKey", event.target.value)} autoComplete="off" />
           </Field>
           <Field label={t("firewall.secret_label")} htmlFor="firewall-secret" help={t("firewall.secret_help")}>
@@ -223,7 +223,7 @@ function stepsOf(
         return isCredential(values.apiSecret) ? null : "firewall.secret_invalid";
       },
       summary: () => [
-        { label: t("firewall.key_label"), value: maskCredential(values.apiKey.trim()), mono: true },
+        { label: t("firewall.key_label"), value: credentialText(t, values.apiKey), mono: true },
         { label: t("firewall.secret_label"), value: t("firewall.secret_hidden") },
       ],
     },

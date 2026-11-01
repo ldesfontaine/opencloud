@@ -32,6 +32,9 @@ function shooter(page: Page, theme: "light" | "dark") {
   return async (name: string, fullPage = false) => {
     if (capturing) {
       mkdirSync(captureFolder, { recursive: true });
+      // La barre latérale est collante : une page défilée la décale dans une
+      // capture entière. On revient en haut, comme un lecteur qui la regarde.
+      await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({ path: `${captureFolder}U5-pare-feu-${name}-${suffix}.png`, fullPage });
     }
   };

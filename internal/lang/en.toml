@@ -3,6 +3,9 @@
 [app]
 name = "{product}"
 
+[credential]
+not_shown = "Not shown"
+
 [nav]
 overview = "Overview"
 machines = "Machines"

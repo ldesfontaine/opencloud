@@ -10,7 +10,7 @@ import { useAction } from "../../hooks/useAction";
 import { useCertificateInspector, type CertificateInspector } from "../../hooks/useCertificateInspector";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
-import { maskCredential } from "../../lib/credential";
+import { credentialText, hintText } from "../../lib/credential";
 import { displayPin } from "../../lib/fingerprint";
 import { isHTTPSAddress } from "../../lib/firewallForm";
 import { detectedProxmox, emptyProxmoxForm, isProxmoxFormModified, proxmoxAccessMissing, proxmoxDefinitionOf, proxmoxFormOf, suggestedProxmoxURL, type ProxmoxFormValues } from "../../lib/proxmox";
@@ -70,7 +70,7 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<ProxmoxFormValues
             <Input id="proxmox-url" mono value={values.apiURL} placeholder="https://pve.lan:8006" onChange={(event) => form.change("apiURL", event.target.value)} autoComplete="off" autoFocus />
           </Field>
           <AddressCheck inspector={inspector} isAddressValid={isHTTPSAddress(values.apiURL)} />
-          <Field label={t("machine.proxmox_token_id_label")} htmlFor="proxmox-token-id" help={tokenIDHint === null ? t("machine.proxmox_token_id_help") : t("machine.proxmox_token_id_current", tokenIDHint)}>
+          <Field label={t("machine.proxmox_token_id_label")} htmlFor="proxmox-token-id" help={tokenIDHint === null ? t("machine.proxmox_token_id_help") : t("machine.proxmox_token_id_current", hintText(t, tokenIDHint))}>
             <Input id="proxmox-token-id" mono value={values.tokenID} placeholder="lecteur@pve!lecture" onChange={(event) => form.change("tokenID", event.target.value)} autoComplete="off" />
           </Field>
           <Field label={t("machine.proxmox_secret_label")} htmlFor="proxmox-secret" help={t("machine.proxmox_secret_help")}>
@@ -81,7 +81,7 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<ProxmoxFormValues
       validate: () => (proxmoxAccessMissing(values) ? "machine.proxmox_access_missing" : null),
       summary: () => [
         { label: t("machine.proxmox_url_label"), value: values.apiURL.trim(), mono: true },
-        { label: t("machine.proxmox_token_id_label"), value: maskCredential(values.tokenID.trim()), mono: true },
+        { label: t("machine.proxmox_token_id_label"), value: credentialText(t, values.tokenID), mono: true },
         { label: t("machine.proxmox_secret_label"), value: t("machine.proxmox_secret_hidden") },
       ],
     },
