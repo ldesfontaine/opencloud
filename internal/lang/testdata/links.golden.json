@@ -1,0 +1,22 @@
+[
+  {
+    "id": "channels",
+    "path": "/parametres#canaux",
+    "label": "Paramètres → Notifications → Canaux"
+  },
+  {
+    "id": "api_tokens",
+    "path": "/parametres#jetons-api",
+    "label": "Paramètres → Agent IA → Jetons d'API"
+  },
+  {
+    "id": "mail",
+    "path": "/parametres#e-mails",
+    "label": "Paramètres → E-mails"
+  },
+  {
+    "id": "projects",
+    "path": "/services/projets",
+    "label": "Services → Projets"
+  }
+]

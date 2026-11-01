@@ -6,6 +6,7 @@ import { useMachines, type Machine } from "../../api/machines";
 import { Button } from "../../components/Button";
 import { Fold } from "../../components/Disclosure";
 import { Failure } from "../../components/Failure";
+import { Rich } from "../../components/Rich";
 import { Checkbox, Checks, Field, Input } from "../../components/Field";
 import { MachineSelect } from "../../components/MachineSelect";
 import { Modal } from "../../components/Modal";
@@ -270,7 +271,9 @@ function stepsOf(t: Translate, form: ServiceForm, machines: Pick<Machine, "id" |
         <>
           <p className="secondary">{t("directory.projects_help")}</p>
           {projects.length === 0 ? (
-            <span className="secondary">{t("directory.projects_none")}</span>
+            <span className="secondary">
+              <Rich text={t("directory.projects_none")} />
+            </span>
           ) : (
             <Checks>
               {projects.map((project) => (

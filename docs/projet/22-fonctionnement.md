@@ -562,20 +562,27 @@ module a une entrée de menu, un onglet ou un premier geste) :
 - **Le menu** : Vue d'ensemble, Machines, Pare-feu, Sauvegardes, Services,
   Disponibilité (sondes, pages publiques et incidents, sous un seul onglet de
   trois), Tâches planifiées, Alertes, Journal ; en bas,
-  Paramètres, la langue et le thème. Un module de l'installation n'y est que
-  **configuré**. Plus de section « Administration ». Avant la première lecture
-  des compteurs, seules les entrées fixes s'affichent, sans chiffre inventé.
+  Paramètres, la langue et le thème. **Les quatre modules de l'installation
+  (Pare-feu, Sauvegardes, Disponibilité, Tâches planifiées) sont au menu dès le
+  premier lancement** (décision de Lucas, 01/11/2026) ; un **point** signale
+  celui qui n'a encore aucun objet (`MenuEntry.toConfigure`), il s'efface au
+  premier objet. Plus de section « Administration ». Avant la première lecture
+  des compteurs, ni point ni chiffre ne sont inventés.
 - **Les onglets d'une fiche** : Résumé, Réseau, Journaux, Agent (la carte de
   l'agent et ses ordres), et ceux des modules que la machine porte (Conteneurs,
-  Disponibilité, Clés SSH, Hyperviseur). L'adresse d'un onglet reste servie sans
+  Disponibilité, Accès SSH, Hyperviseur). L'adresse d'un onglet reste servie sans
   son module : un lien gardé ne tombe pas sur une page introuvable.
 - **Les onglets de Machines** : la liste, puis la vue globale de chaque module que
   l'une des machines porte (aujourd'hui « Accès SSH », `/machines/acces-ssh`).
   `/cles-ssh` y mène.
 - **Paramètres › Modules** (`/parametres#modules`) : les modules de
   l'installation, configuré ou « à configurer », avec un bouton vers leur page
-  ou vers leur premier geste. C'est ici qu'un module sans objet se configure :
-  il n'a pas d'entrée de menu avant son premier objet.
+  ou vers leur premier geste. Même rôle que le point du menu, avec la phrase
+  du module.
+- **Les tuiles de la vue d'ensemble** (Machines, Conteneurs, Disponibilité,
+  Tâches planifiées, Alertes) sont toutes des liens vers leur liste
+  (`Stat`, propriété `to`) : `/machines`, `/services`, `/disponibilite`,
+  `/taches`, `/alertes`.
 - **La carte « À configurer »** de la vue d'ensemble : les modules de
   l'installation sans objet, et l'hôte Proxmox d'une machine au rôle Proxmox
   tant qu'il n'est pas déclaré. Sans rien à faire, elle n'est pas là.
@@ -2915,6 +2922,9 @@ leur registre, ce qu'openCloud appelle à l'extérieur sans qu'on le lui ait
 demandé : la carte des Paramètres le dit.
 Elle vaut pour l'image d'un service et pour le système d'une machine. Pour
 le système c'est une information seule : aucune commande n'est proposée.
+Tant que la source n'a pas été lue (« En attente »), l'en-tête de la machine
+se tait sur tous les onglets ; la carte « Support du système » du résumé dit
+seule « Lecture en cours ».
 
 | Ce que ça rapporte | Ce que ça coûte |
 | --- | --- |
@@ -4634,7 +4644,8 @@ seau.
 
 C'est la première étape de #152 : **lire**, jamais écrire. L'agent inventorie
 les fichiers `authorized_keys` et `authorized_keys2` de chaque compte de sa
-machine ; openCloud les affiche, par machine (onglet « Clés SSH » de la fiche)
+machine ; openCloud les affiche, par machine (onglet « Accès SSH » de la fiche,
+le même nom que l'onglet de Machines)
 et toutes ensemble (onglet « Accès SSH » de Machines : qui peut se connecter à
 quoi, par clé ou par machine). **Aucune écriture** sur une machine : ni
 fichier, ni dossier, ni ordre. Le droit est `observe`, toujours acquis ; aucun
@@ -4712,10 +4723,30 @@ pas).
 **Une clé est dite faible** quand elle est DSA, ou RSA sous 3072 bits : un mot
 sur la ligne, rien de plus. Sur l'onglet « Accès SSH », une ligne par empreinte
 dit les machines et les comptes qui l'acceptent ; `root` (uid 0) est en rouge.
-Le verdict passe à « À regarder » s'il reste une clé faible ou une machine mal
-lue (pas relevée, tronquée, compte illisible) : sur celle-ci, l'absence d'une clé
-ne prouve rien. Filtres : faibles, accès root, sur une seule machine. La lecture
+Le verdict passe à « À regarder » s'il reste une clé faible ou un fichier que
+l'agent refuse de lire (non sûr, trop gros : l'opérateur peut le corriger).
+Une machine **lue en partie** (compte que l'agent ne lit pas, relevé tronqué,
+pas encore relevée) est l'état normal d'un compte dédié : le verdict reste
+« Rien à signaler », avec une ligne grise « Pour tout lire, gardez l'agent en
+root » ; sur cette machine, l'absence d'une clé ne prouve rien. La fiche de la
+machine suit la même règle (compte illisible : pastille neutre, phrase grise). Filtres : faibles, accès root, sur une seule machine. La lecture
 « Par machine » liste les comptes qui ont une clé ou qu'on n'a pas pu lire.
+
+## Comment un renvoi de menu devient un lien
+
+Un texte qui renvoie à un écran (« réglez-le dans Paramètres → E-mails ») n'écrit
+jamais le chemin : il pose un marqueur, `{link:mail}`, dans le catalogue.
+
+| Étape | Ce qui se passe | Où |
+| --- | --- | --- |
+| Table | Liste fermée des cibles : identifiant, adresse de l'interface (avec ancre) et clés de catalogue des étapes du chemin. Aujourd'hui : `channels`, `api_tokens`, `mail`, `projects` | `internal/lang/links.go` |
+| Chargement | Chaque `{link:id}` devient un lien Markdown `[Paramètres → E-mails](/parametres#e-mails)`, libellés pris dans la langue chargée : un menu renommé change le texte sans le toucher. Un identifiant inconnu **refuse le démarrage** | `lang.Load` |
+| Écran | `Rich` (utilisé par `Note`, `Field`, `SectionHead`, `Empty`) fait de chaque lien Markdown **dont l'adresse commence par `/`** un lien du routeur ; toute autre adresse reste du texte | `components/Rich.tsx`, `lib/richText.ts` |
+| Client de l'API | Reçoit la phrase telle quelle : le chemin lisible, puis l'adresse | — |
+| Tests | Go : un chemin « X › Y » écrit à la main dans un catalogue échoue (`TestLoad_NoMenuPathWrittenByHand`) ; le golden `internal/lang/testdata/links.golden.json` fige cibles et libellés. Front : chaque adresse du golden est une route du routeur et chaque ancre existe dans Paramètres (`menuLinks.test.ts`) | `internal/lang`, `web/src/lib` |
+
+Coût : une cible de plus est une ligne dans la table **et** une ancre côté
+écran ; le test échoue tant que l'un des deux manque.
 
 ## Comment une suppression se décide
 
@@ -4775,6 +4806,12 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
   avec leur objet ; le plan les compte quand même.
 
 ## Le journal d'audit
+
+Deux lectures sont réglées à l'écran, sans toucher aux lignes : l'accès à
+l'interface (un seul objet, nommé `interface` en base) se désigne par sa sorte,
+et la révocation de tous les jetons posée à la création du compte
+(`api_token.revoke`, `all=true`) se lit « Compte créé : les jetons d'API
+existants sont révoqués (n) », ou « aucun jeton d'API à révoquer ».
 
 Qui a fait quoi, quand, sur quel objet. Chaque geste qui **écrit un objet
 déclaré ou une autorité** ajoute, une fois réussi, une ligne à `audit_events`

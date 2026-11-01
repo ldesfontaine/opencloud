@@ -11,7 +11,7 @@ import { Pill } from "../components/Pill";
 import { Select } from "../components/Select";
 import { Table } from "../components/Table";
 import { useT } from "../i18n/context";
-import { actorParts, actorTone, detailEntries, objectLabel, verbOf } from "../lib/audit";
+import { actionLabel, actorParts, actorTone, detailEntries, isSingletonKind, objectLabel } from "../lib/audit";
 import { formatClock } from "../lib/time";
 import "./Audit.scss";
 
@@ -144,6 +144,7 @@ function Actor({ event }: { event: AuditEvent }) {
 function AuditRow({ event, onFollow }: { event: AuditEvent; onFollow: (object: AuditObject) => void }) {
   const t = useT();
   const name = objectLabel(event);
+  const kind = t(`audit.object_${event.object_kind}`);
   const details = detailEntries(event.details);
   return (
     <tr>
@@ -151,20 +152,26 @@ function AuditRow({ event, onFollow }: { event: AuditEvent; onFollow: (object: A
       <td>
         <Actor event={event} />
       </td>
-      <td>{t(`audit.verb_${verbOf(event.action)}`)}</td>
+      <td>{actionLabel(t, event)}</td>
       <td>
-        <span className="muted">{t(`audit.object_${event.object_kind}`)}</span>{" "}
-        {event.object_id !== "" ? (
-          <button
-            type="button"
-            className="audit-object"
-            title={t("audit.follow")}
-            onClick={() => onFollow({ kind: event.object_kind, id: event.object_id, name: name })}
-          >
-            {name}
-          </button>
+        {isSingletonKind(event.object_kind) ? (
+          <span>{kind}</span>
         ) : (
-          <span>{name}</span>
+          <>
+            <span className="muted">{kind}</span>{" "}
+            {event.object_id !== "" ? (
+              <button
+                type="button"
+                className="audit-object"
+                title={t("audit.follow")}
+                onClick={() => onFollow({ kind: event.object_kind, id: event.object_id, name: name })}
+              >
+                {name}
+              </button>
+            ) : (
+              <span>{name}</span>
+            )}
+          </>
         )}
       </td>
       <td className="wide-only">

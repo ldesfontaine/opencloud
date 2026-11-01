@@ -40,7 +40,9 @@ interface ListTabDef {
 
 interface ModuleDef {
   id: ModuleID;
-  // Un module de l'installation a une entrée de menu, une fois configuré.
+  // Un module de l'installation a une entrée de menu dès le premier lancement :
+  // on cherche « Disponibilité » là où elle sera, pas dans une carte qui
+  // disparaît une fois le module configuré (audit G3).
   menu?: MenuDef;
   // Un module de machine a un onglet sur la fiche des machines qui le portent.
   tab?: TabDef;
@@ -65,7 +67,7 @@ const modules: ModuleDef[] = [
   { id: "containers", tab: { slug: "services", rank: 10 } },
   { id: "hypervisor", tab: { slug: "hyperviseur", rank: 50 } },
   { id: "guest" },
-  { id: "ssh_keys", tab: { slug: "ssh", rank: 40 }, listTab: { href: "/machines/acces-ssh", label: "machines.tab_ssh", rank: 10 } },
+  { id: "ssh_keys", tab: { slug: "ssh", rank: 40 }, listTab: { href: "/machines/acces-ssh", label: "module.ssh_keys", rank: 10 } },
   {
     id: "probes",
     tab: { slug: "disponibilite", rank: 20 },
@@ -99,6 +101,9 @@ export interface MenuEntry {
   icon: IconName;
   counter: Counter | null;
   rank: number;
+  // Un module sans aucun objet : un point le signale (« à configurer »). Faux
+  // tant que les compteurs ne sont pas lus : on n'invente pas un état.
+  toConfigure: boolean;
 }
 
 // Les entrées qui ne sont pas des modules.
@@ -133,11 +138,11 @@ const fixedEntries: { key: string; label: string; href: string; icon: IconName; 
 
 // Paramètres n'est pas un module : il est en bas du menu, au-dessus de la langue
 // et du thème.
-export const settingsEntry: MenuEntry = { key: "settings", label: "nav.settings", href: "/parametres", icon: "settings", rank: 0, counter: null };
+export const settingsEntry: MenuEntry = { key: "settings", label: "nav.settings", href: "/parametres", icon: "settings", rank: 0, counter: null, toConfigure: false };
 
-// Le menu : les entrées fixes et celles des modules configurés, dans l'ordre
-// des rangs. Sans compteurs lus, les modules ne sont pas encore connus : seules
-// les entrées fixes s'affichent, et aucun chiffre n'est inventé.
+// Le menu : les entrées fixes et celles de tous les modules, configurés ou non,
+// dans l'ordre des rangs. Sans compteurs lus, on ne sait pas encore lesquels
+// sont configurés : aucun point ni chiffre n'est inventé.
 export function menuEntries(counts: Counts | null): MenuEntry[] {
   const configured = new Set((counts?.modules ?? []).filter((state) => state.configured).map((state) => state.id));
   const entries: MenuEntry[] = fixedEntries.map((entry) => ({
@@ -147,9 +152,10 @@ export function menuEntries(counts: Counts | null): MenuEntry[] {
     icon: entry.icon,
     rank: entry.rank,
     counter: counts !== null && entry.counter !== undefined ? entry.counter(counts) : null,
+    toConfigure: false,
   }));
   for (const module of modules) {
-    if (module.menu === undefined || !configured.has(module.id)) {
+    if (module.menu === undefined) {
       continue;
     }
     entries.push({
@@ -159,6 +165,7 @@ export function menuEntries(counts: Counts | null): MenuEntry[] {
       icon: module.menu.icon,
       rank: module.menu.rank,
       counter: counts !== null && module.menu.counter !== undefined ? module.menu.counter(counts) : null,
+      toConfigure: counts !== null && !configured.has(module.id),
     });
   }
   return entries.sort((first, second) => first.rank - second.rank);

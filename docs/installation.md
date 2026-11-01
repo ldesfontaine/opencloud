@@ -210,7 +210,7 @@ l'écran de première configuration montre la ligne qui l'installe, avec le
 droit d'observer seul, et au-dessus d'elle **la préparation** : le compte
 `opencloud-agent`, son dossier et son binaire. Jouez les deux **sur cette
 machine**, en root, puis installez l'unité de l'agent. La préparation prend le
-binaire du serveur, `/usr/local/bin/opencloud` (v0.5.1 : la version que
+binaire du serveur, `/usr/local/bin/opencloud` (v0.0.1 : la version que
 `opencloud version` affiche) :
 
 ```sh
@@ -219,7 +219,7 @@ useradd --system --home-dir /var/lib/opencloud-agent --shell /usr/sbin/nologin o
 getent group docker >/dev/null && usermod -aG docker opencloud-agent
 install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent
 runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin
-runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 # Le lanceur stable que l'unité lance (à root, hors de bin/) : il ramène l'agent à la version précédente si une mise à jour ne tient pas
 install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
 install -m 0755 -o root -g root /usr/local/bin/opencloud /usr/local/lib/opencloud-agent/opencloud-guard
@@ -726,7 +726,7 @@ domaine de l'expéditeur, pas d'openCloud.
 
 **Paramètres → E-mails** : serveur, port, chiffrement, identifiant,
 mot de passe, adresse d'expéditeur, puis « Envoyer un e-mail de test » vers
-une adresse saisie. Ensuite **Alertes → Canaux → Ajouter un canal**, format
+une adresse saisie. Ensuite **Paramètres → Notifications → Canaux → Ajouter un canal**, format
 « E-mail », jusqu'à 10 destinataires.
 
 | Chiffrement | Port | Quand |
@@ -1008,14 +1008,14 @@ scp bin/opencloud root@machine:/tmp/opencloud          # bin/opencloud-arm64 pou
 Puis, **sur la machine, en root**, la préparation que la page du jeton affiche
 au-dessus de la ligne d'installation. Pour un agent qui déploie
 (`docker.deploy`) et reçoit des sauvegardes (`backup.receive=/srv/backups`),
-la version v0.5.1 donne :
+la version v0.0.1 donne :
 
 ```sh
 useradd --system --home-dir /var/lib/opencloud-agent --shell /usr/sbin/nologin opencloud-agent
 getent group docker >/dev/null && usermod -aG docker opencloud-agent
 install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent
 runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin
-runuser -u opencloud-agent -- install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+runuser -u opencloud-agent -- install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
 install -m 0755 -o root -g root /tmp/opencloud /usr/local/lib/opencloud-agent/opencloud-guard
 test ! -L /srv/workspace && install -d -m 0755 -o opencloud-agent -g opencloud-agent /srv/workspace # docker.deploy
@@ -1040,7 +1040,7 @@ test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-age
   openCloud n'envoie aucune mise à jour à l'agent.
 - **Le binaire** est copié dans `bin/` de l'état de l'agent, et le lien `current`
   désigne celui qui tourne : c'est ce qui permet à l'agent de se mettre à jour
-  seul (voir [Mettre à jour](#mettre-à-jour)). `v0.5.1` est la version du
+  seul (voir [Mettre à jour](#mettre-à-jour)). `v0.0.1` est la version du
   serveur : l'agent doit parler son protocole. Le lien n'est posé que si
   `install` a réussi, pour ne jamais viser un fichier absent. **Pas de lien
   `/usr/local/bin/opencloud`.** `/tmp/opencloud` doit être lisible par le
@@ -1283,7 +1283,7 @@ safe`) ; sur une machine neuve :
 ```sh
 # Le binaire (copié en /tmp/opencloud, étape 2) et l'état, à root
 install -d -m 0700 /var/lib/opencloud-agent /var/lib/opencloud-agent/bin
-install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1 && ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 # Les dossiers des droits, à root (les mêmes qu'à l'étape 2, sans « -o … -g … »)
 install -d -m 0755 /srv/workspace
 # L'enrôlement : la ligne de l'écran, sans « -u opencloud-agent »
@@ -1480,13 +1480,13 @@ systemctl restart opencloud
 # L'agent a son binaire dans son état (bin/), sur la machine openCloud comme
 # ailleurs : depuis la fiche (voir plus bas), ou à la main, sous son compte
 # (bin/ est à lui : root n'y écrit pas). Ailleurs, le binaire copié en /tmp/opencloud.
-runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1
-runuser -u opencloud-agent -- ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1
+runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 systemctl restart opencloud-agent
 ```
 
 `install` remplace le binaire pendant que le service tourne (vérifié ici) ;
-le nouveau prend effet au redémarrage. `v0.5.1` est la version installée
+le nouveau prend effet au redémarrage. `v0.0.1` est la version installée
 (`opencloud version`). Un agent gardé en root ([Garder l'agent en
 root](#garder-lagent-en-root)) : les mêmes lignes sans `runuser -u opencloud-agent --`. Sur une machine
 que l'agent met à jour seul, le binaire de `bin/` n'a pas de lien
@@ -1613,15 +1613,15 @@ scp opencloud-linux-amd64 vous@machine:/tmp/opencloud          # arm64 pour une 
 sudo systemctl stop opencloud-agent.service
 sudo install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
 sudo install -m 0755 -o root -g root /tmp/opencloud /usr/local/lib/opencloud-agent/opencloud-guard
-sudo -u opencloud-agent install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1
-sudo -u opencloud-agent ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+sudo -u opencloud-agent install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1
+sudo -u opencloud-agent ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 sudo sed -i 's|^ExecStart=/var/lib/opencloud-agent/bin/current |ExecStart=/usr/local/lib/opencloud-agent/opencloud-guard guard -state /var/lib/opencloud-agent |' /etc/systemd/system/opencloud-agent.service
 systemctl cat opencloud-agent.service | grep '^ExecStart='
 sudo systemctl daemon-reload
 sudo systemctl start opencloud-agent.service
 ```
 
-(`v0.5.1` : le numéro que `opencloud version` affiche pour ce binaire.) La
+(`v0.0.1` : le numéro que `opencloud version` affiche pour ce binaire.) La
 ligne `sed` garde les options de l'agent (`-ca-file`, `-allow-plain`…) ; la
 rejouer ne change rien. N'ajoutez **pas** de lien `bin/previous` à la main : il
 naît à la première mise à jour.
@@ -1739,7 +1739,7 @@ deux cas, ne gardez pas l'ancien état : ré-enrôlez la machine. L'agent le
 refuserait de toute façon (`identity.json` d'un autre compte : `state dir is
 not safe`).
 
-Puis le binaire de l'agent, `v0.5.1` étant ce que `opencloud version` affiche.
+Puis le binaire de l'agent, `v0.0.1` étant ce que `opencloud version` affiche.
 Les liens de `bin/` sont relatifs : ils ont suivi le déplacement.
 
 - **Une autre machine, dont l'agent lançait déjà `…/bin/current`** : le lien
@@ -1754,8 +1754,8 @@ Les liens de `bin/` sont relatifs : ils ont suivi le déplacement.
   de `bin/`) :
 
   ```sh
-  install -D -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1
-  ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+  install -D -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1
+  ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
   ln -sfn /var/lib/opencloud-agent/bin/current /usr/local/bin/opencloud
   ```
 
@@ -1763,8 +1763,8 @@ Les liens de `bin/` sont relatifs : ils ont suivi le déplacement.
   `/usr/local/bin/opencloud` (c'est le binaire du serveur), et plus de drop-in.
 
   ```sh
-  install -D -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1
-  ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+  install -D -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1
+  ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
   rm /etc/systemd/system/opencloud-agent.service.d/machine-opencloud.conf
   ```
 
@@ -1774,7 +1774,7 @@ d'abord (une copie du binaire, à root), sans quoi l'unité ne démarre pas :
 
 ```sh
 install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
-install -m 0755 -o root -g root /var/lib/opencloud-agent/bin/opencloud-v0.5.1 /usr/local/lib/opencloud-agent/opencloud-guard
+install -m 0755 -o root -g root /var/lib/opencloud-agent/bin/opencloud-v0.0.1 /usr/local/lib/opencloud-agent/opencloud-guard
 install -m 0644 docs/installation/opencloud-agent.service /etc/systemd/system/opencloud-agent.service
 # Les options notées au début (-allow-plain, -ca-file, -docker-socket), en fin de ligne, par exemple :
 sed -i 's|^ExecStart=.*|& -ca-file /etc/ssl/ca-interne.pem|' /etc/systemd/system/opencloud-agent.service
@@ -1901,7 +1901,7 @@ mêmes `chown -h`, à `root:root`, puis `userdel opencloud-agent`.
 
 ## Sauvegarder et restaurer
 
-**La sauvegarde intégrée.** Administration → **Sauvegardes** envoie chaque
+**La sauvegarde intégrée.** **Sauvegardes** envoie chaque
 nuit (après 3 h, heure du serveur) un instantané chiffré de la base, avec
 `secret.key` et `server.key`, à l'agent d'une **autre machine**. openCloud n'en
 garde aucune copie. Trois gestes, dans l'ordre :
@@ -1942,7 +1942,7 @@ déploiement.
 
 | Où | Quoi | Perte |
 | --- | --- | --- |
-| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), jetons d'API et authentification, et le journal d'audit (Administration → Journal : qui a fait quoi, un an), que les canaux « Recevoir le journal » (Alertes › Canaux) reçoivent aussi : cochez-en un, une base effacée n'efface plus la trace. `opencloud auth disable` et `opencloud secrets forget` s'y inscrivent sous le compte qui les lance |
+| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), jetons d'API et authentification, et le journal d'audit (Journal : qui a fait quoi, un an), que les canaux « Recevoir le journal » (Paramètres → Notifications → Canaux) reçoivent aussi : cochez-en un, une base effacée n'efface plus la trace. `opencloud auth disable` et `opencloud secrets forget` s'y inscrivent sous le compte qui les lance |
 | Serveur, `state_dir` | `secret.key` | La clé des secrets de la base : sans elle, la base garde ses données mais perd le mot de passe du relais, l'URL et le secret des canaux, les URL de ping, les jetons des hôtes Proxmox (voir [Clé perdue](#clé-perdue)) |
 | Serveur, `state_dir` | `server.key` | La clé qui signe les ordres aux agents, tirée au premier démarrage : chaque agent a épinglé sa moitié publique. Sans elle, `serve` en tire une neuve et **chaque agent refuse les ordres** (`bad_signature`) jusqu'à son ré-enrôlement ; l'observation continue. Qui l'a commande toutes les machines : même soin que `secret.key` |
 | Serveur | `/etc/opencloud/config.toml` | La configuration |
@@ -2378,7 +2378,7 @@ jour](#mettre-à-jour)).
 
 ### 3. Le plan
 
-Administration → **Sauvegardes** → Plans → **Ajouter un plan** :
+**Sauvegardes** → Plans → **Ajouter un plan** :
 
 | Champ | Valeur |
 | --- | --- |

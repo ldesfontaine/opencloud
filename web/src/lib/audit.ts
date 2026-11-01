@@ -8,6 +8,26 @@ export function verbOf(action: string): string {
   return dot < 0 ? action : action.slice(dot + 1);
 }
 
+// Le libellé de l'action d'une ligne. La révocation de tous les jetons, posée
+// quand un compte est créé ou recréé, se dit en entier : sans cela, la
+// première ligne d'un journal neuf, « Révocation », est une énigme (audit F-3).
+export function actionLabel(t: Translate, event: Pick<AuditEvent, "action" | "details">): string {
+  if (event.action === "api_token.revoke" && event.details.all === "true") {
+    const revoked = event.details.api_tokens ?? "0";
+    return revoked === "0" ? t("audit.verb_revoke_none") : t("audit.verb_revoke_all", revoked);
+  }
+  return t(`audit.verb_${verbOf(event.action)}`);
+}
+
+// Un objet qui n'a qu'une instance (l'accès à l'interface) se désigne par sa
+// sorte : son nom technique répéterait le libellé (« Accès à l'interface
+// interface »). Les lignes d'avant portent ce nom : on ne le montre pas.
+const singletonKinds: ReadonlySet<string> = new Set(["auth"]);
+
+export function isSingletonKind(kind: string): boolean {
+  return singletonKinds.has(kind);
+}
+
 // L'acteur d'une ligne, décomposé pour l'écran : le genre (dont la pastille
 // se déduit), le nom à montrer et, pour un jeton d'API, pour qui il agit.
 // forWhom est null hors jeton ; "" quand le jeton n'a pas dit pour qui.

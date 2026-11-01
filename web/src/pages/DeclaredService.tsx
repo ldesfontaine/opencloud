@@ -17,6 +17,7 @@ import {
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { DeployCard } from "../components/DeployCard";
+import { ImageName } from "../components/ImageName";
 import { NaturePill } from "../components/DeclaredServiceTable";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
@@ -154,7 +155,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
               {service.units.map((unit) => (
                 <tr key={unit.id}>
                   <td className="mono">{unit.name}</td>
-                  <td className="mono wide-only">{unit.image !== "" ? unit.image : "—"}</td>
+                  <td className="mono wide-only">{unit.image !== "" ? <ImageName image={unit.image} /> : "—"}</td>
                   <td className="mono">{unit.version !== "" ? unit.version : "—"}</td>
                   {service.origin !== "compose" && <td className="mono wide-only">{unitKeyOf(unit, service.origin)}</td>}
                   <td className="mono td-end wide-only">{unit.ports.length > 0 ? formatUnitPorts(unit.ports) : "—"}</td>
@@ -209,7 +210,9 @@ function AttachedContainers({ gap }: { gap: ServiceGap | undefined }) {
                     {container.name}
                   </Link>
                 </td>
-                <td className="mono wide-only">{container.image}</td>
+                <td className="mono wide-only">
+                  <ImageName image={container.image} />
+                </td>
                 <td>
                   <span className="stack">
                     <GapPill state={container.verdict} weak={container.match_level === "name"} observed={gap?.observed ?? true} />

@@ -16,6 +16,7 @@ import { useNow } from "../../hooks/useNow";
 import { useT } from "../../i18n/context";
 import { emptyTokenForm, envBlock, expiryLabel, hasProxmoxVerb, lifetimeLabel, reachLines, scopeLabel, toggleVerb, tokenRequestOf } from "../../lib/apiTokens";
 import { ago, formatClock } from "../../lib/time";
+import { settingsBlockAnchors } from "../../lib/settingsSections";
 import { ReachChoices } from "./ReachChoices";
 import { ReachEditor } from "./ReachEditor";
 import { VerbChoices } from "./VerbChoices";
@@ -67,7 +68,7 @@ export function APITokensBlock({ state, reload }: { state: APITokensState; reloa
   };
   return (
     <>
-      <div className="setting-subhead">
+      <div className="setting-subhead" id={settingsBlockAnchors.apiTokens}>
         <span className="card-t">{t("api_token.title")}</span>
         <span className="secondary">{t("api_token.text")}</span>
       </div>

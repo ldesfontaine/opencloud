@@ -8,15 +8,13 @@
   }
 }
 
-// L'image et, à côté, la pastille de mise à jour. Un nom d'image long
-// passe à la ligne plutôt que de pousser la mémoire hors du tableau.
+// L'image (ImageName, sur une ligne) et, à côté, la pastille de mise à jour,
+// qui passe dessous quand la place manque.
 .image-cell {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 8px;
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 .table .th-num,

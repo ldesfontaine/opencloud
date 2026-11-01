@@ -270,3 +270,25 @@
   padding: 8px 20px;
   border-top: 1px solid var(--line);
 }
+
+// Une tuile qui mène à sa liste (Stat, prop to) : même dessin, le trait
+// s'appuie au survol.
+a.stat-link {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: 14px;
+
+  &,
+  &:hover {
+    color: inherit;
+  }
+
+  > .card {
+    flex: 1;
+  }
+
+  &:hover > .card {
+    border-color: var(--line-strong);
+  }
+}
