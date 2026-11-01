@@ -30,12 +30,22 @@ interface TabDef {
   rank: number;
 }
 
+// Un onglet de la page Machines, pour les modules dont la vue d'ensemble porte
+// sur toutes les machines qui les portent.
+interface ListTabDef {
+  href: string;
+  label: string;
+  rank: number;
+}
+
 interface ModuleDef {
   id: ModuleID;
   // Un module de l'installation a une entrée de menu, une fois configuré.
   menu?: MenuDef;
   // Un module de machine a un onglet sur la fiche des machines qui le portent.
   tab?: TabDef;
+  // Un module de machine peut aussi avoir une vue globale, en onglet de Machines.
+  listTab?: ListTabDef;
 }
 
 // Le chiffre de Disponibilité : les sondes, en rouge quand l'une est hors
@@ -55,7 +65,7 @@ const modules: ModuleDef[] = [
   { id: "containers", tab: { slug: "services", rank: 10 } },
   { id: "hypervisor", tab: { slug: "hyperviseur", rank: 50 } },
   { id: "guest" },
-  { id: "ssh_keys", tab: { slug: "ssh", rank: 40 } },
+  { id: "ssh_keys", tab: { slug: "ssh", rank: 40 }, listTab: { href: "/machines/acces-ssh", label: "machines.tab_ssh", rank: 10 } },
   {
     id: "probes",
     tab: { slug: "disponibilite", rank: 20 },
@@ -91,9 +101,7 @@ export interface MenuEntry {
   rank: number;
 }
 
-// Les entrées qui ne sont pas des modules. « Clés SSH » y reste tant que sa
-// vue globale n'est pas un onglet de Machines : sans elle, la page serait
-// sans porte.
+// Les entrées qui ne sont pas des modules.
 const fixedEntries: { key: string; label: string; href: string; icon: IconName; rank: number; counter?: (counts: Counts) => Counter | null }[] = [
   { key: "overview", label: "nav.overview", href: "/", icon: "grid", rank: 10 },
   {
@@ -104,7 +112,6 @@ const fixedEntries: { key: string; label: string; href: string; icon: IconName; 
     rank: 20,
     counter: (counts) => (counts.machines.total > 0 ? { value: counts.machines.total, hot: counts.machines.online < counts.machines.total } : null),
   },
-  { key: "ssh_keys", label: "nav.ssh_keys", href: "/cles-ssh", icon: "shield", rank: 25 },
   {
     key: "services",
     label: "nav.services",
@@ -155,6 +162,19 @@ export function menuEntries(counts: Counts | null): MenuEntry[] {
     });
   }
   return entries.sort((first, second) => first.rank - second.rank);
+}
+
+// Les onglets de la page Machines : la liste, puis la vue globale de chaque
+// module que l'une des machines porte.
+export function machinesListTabs(machines: readonly Machine[]): { to: string; key: string }[] {
+  const extra: ListTabDef[] = [];
+  for (const module of modules) {
+    if (module.listTab !== undefined && machines.some((machine) => machine.modules.includes(module.id))) {
+      extra.push(module.listTab);
+    }
+  }
+  extra.sort((first, second) => first.rank - second.rank);
+  return [{ to: "/machines", key: "machines.tab_list" }, ...extra.map((tab) => ({ to: tab.href, key: tab.label }))];
 }
 
 // Un onglet de la fiche d'une machine : son adresse et la clé de son libellé.

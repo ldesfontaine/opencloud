@@ -15,7 +15,6 @@ import { ComponentRedirect } from "./pages/availability/ComponentRedirect";
 import { IncidentEditModal } from "./pages/availability/IncidentEditModal";
 import { IncidentModal } from "./pages/availability/IncidentModal";
 import { PublicPage } from "./pages/availability/PublicPage";
-import { SSHKeyMatrix } from "./pages/SSHKeyMatrix";
 import { Backups } from "./pages/Backups";
 import { DestinationModal } from "./pages/backups/DestinationModal";
 import { KeyringModal } from "./pages/backups/KeyringModal";
@@ -86,9 +85,10 @@ export function App() {
       <Route element={<Layout />}>
         <Route index element={<Overview />} />
         {/* Les fenêtres modales sont des routes filles : la liste (ou la fiche) reste le fond, et chaque fenêtre garde son adresse. */}
-        <Route path="machines" element={<Machines />}>
+        <Route path="machines" element={<Machines tab="list" />}>
           <Route path="nouvelle" element={<AddMachine />} />
         </Route>
+        <Route path="machines/acces-ssh" element={<Machines tab="ssh" />} />
         <Route path="machines/:id" element={<MachinePage />}>
           <Route path="reenroller" element={<ReenrollMachine />} />
           <Route path="proxmox" element={<DeclareProxmoxHost />} />
@@ -162,7 +162,8 @@ export function App() {
           <Route path="canaux/:id" element={<ChannelWizard />} />
           <Route path="silences/nouveau" element={<MuteWizard />} />
         </Route>
-        <Route path="cles-ssh" element={<SSHKeyMatrix />} />
+        {/* La vue globale des clés SSH s'appelait « Clés SSH » (/cles-ssh) avant d'être un onglet de Machines. */}
+        <Route path="cles-ssh" element={<Navigate to="/machines/acces-ssh" replace />} />
         <Route path="journal" element={<Audit />} />
         {VisualSystem && (
           <Route

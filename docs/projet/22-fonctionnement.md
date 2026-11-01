@@ -559,8 +559,7 @@ lisent un registre de modules.
 Ce que l'écran en fait (`web/src/lib/modules.ts`, le seul lieu qui sait qu'un
 module a une entrée de menu, un onglet ou un premier geste) :
 
-- **Le menu** : Vue d'ensemble, Machines, Clés SSH (entrée fixe tant que sa vue
-  globale n'est pas un onglet de Machines), Pare-feu, Sauvegardes, Services,
+- **Le menu** : Vue d'ensemble, Machines, Pare-feu, Sauvegardes, Services,
   Disponibilité (sondes, pages publiques et incidents, sous un seul onglet de
   trois), Tâches planifiées, Alertes, Journal ; en bas,
   Paramètres, la langue et le thème. Un module de l'installation n'y est que
@@ -570,6 +569,9 @@ module a une entrée de menu, un onglet ou un premier geste) :
   l'agent et ses ordres), et ceux des modules que la machine porte (Conteneurs,
   Disponibilité, Clés SSH, Hyperviseur). L'adresse d'un onglet reste servie sans
   son module : un lien gardé ne tombe pas sur une page introuvable.
+- **Les onglets de Machines** : la liste, puis la vue globale de chaque module que
+  l'une des machines porte (aujourd'hui « Accès SSH », `/machines/acces-ssh`).
+  `/cles-ssh` y mène.
 - **Paramètres › Modules** (`/parametres#modules`) : les modules de
   l'installation, configuré ou « à configurer », avec un bouton vers leur page
   ou vers leur premier geste. C'est ici qu'un module sans objet se configure :
@@ -4615,8 +4617,8 @@ seau.
 C'est la première étape de #152 : **lire**, jamais écrire. L'agent inventorie
 les fichiers `authorized_keys` et `authorized_keys2` de chaque compte de sa
 machine ; openCloud les affiche, par machine (onglet « Clés SSH » de la fiche)
-et toutes ensemble (page « Clés SSH » du menu, une ligne par
-empreinte, une colonne par machine). **Aucune écriture** sur une machine : ni
+et toutes ensemble (onglet « Accès SSH » de Machines : qui peut se connecter à
+quoi, par clé ou par machine). **Aucune écriture** sur une machine : ni
 fichier, ni dossier, ni ordre. Le droit est `observe`, toujours acquis ; aucun
 droit nouveau.
 
@@ -4690,10 +4692,12 @@ empreintes ; la liste fermée de « Comment un agent IA lit openCloud » ne chan
 pas).
 
 **Une clé est dite faible** quand elle est DSA, ou RSA sous 3072 bits : un mot
-sur la ligne, rien de plus. Dans la matrice, une cellule dit les comptes de la
-machine qui acceptent la clé ; « — » quand la machine est relevée sans cette
-clé ; « ? » quand elle ne l'est pas, ou qu'un de ses comptes n'a pas pu être
-lu (l'absence n'y prouve rien).
+sur la ligne, rien de plus. Sur l'onglet « Accès SSH », une ligne par empreinte
+dit les machines et les comptes qui l'acceptent ; `root` (uid 0) est en rouge.
+Le verdict passe à « À regarder » s'il reste une clé faible ou une machine mal
+lue (pas relevée, tronquée, compte illisible) : sur celle-ci, l'absence d'une clé
+ne prouve rien. Filtres : faibles, accès root, sur une seule machine. La lecture
+« Par machine » liste les comptes qui ont une clé ou qu'on n'a pas pu lire.
 
 ## Comment une suppression se décide
 

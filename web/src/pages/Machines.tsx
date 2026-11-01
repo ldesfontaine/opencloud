@@ -8,6 +8,7 @@ import { Button } from "../components/Button";
 import { Card, CardHeader } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
+import { TabNav } from "../components/TabNav";
 import { Dot, Pill } from "../components/Pill";
 import { List, RowText, Table } from "../components/Table";
 import { Verdict } from "../components/Verdict";
@@ -16,10 +17,16 @@ import { useAction } from "../hooks/useAction";
 import { useT, type Translate } from "../i18n/context";
 import { buildMachineTree, summarizeMachines, type TreeSummary } from "../lib/machineTree";
 import { liveMachines, machinesSubtitle } from "../lib/machines";
+import { machinesListTabs } from "../lib/modules";
 import { formatRemaining } from "../lib/time";
 import { MachineTreeRows } from "./machines/MachineTree";
+import { SSHAccess } from "./machines/SSHAccess";
 
-export function Machines() {
+export type MachinesTab = "list" | "ssh";
+
+// La page Machines : la liste, et la vue globale des modules que les machines
+// portent (l'accès SSH), en onglets.
+export function Machines({ tab }: { tab: MachinesTab }) {
   const t = useT();
   const now = useNow();
   const machines = useMachines();
@@ -40,8 +47,10 @@ export function Machines() {
           </ActionButton>
         }
       />
+      {machines.data && <TabNav tabs={machinesListTabs(list)} />}
       {machines.error && <Failure error={machines.error} />}
-      {machines.data && (
+      {machines.data && tab === "ssh" && <SSHAccess />}
+      {machines.data && tab === "list" && (
         <>
           {list.length > 0 && <MachinesVerdict summary={summarizeMachines(list, rows)} />}
           <Card>
