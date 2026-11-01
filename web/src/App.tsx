@@ -2,11 +2,10 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 
 import { Layout } from "./components/Layout";
+import { renamedAlertLocation } from "./lib/alerts";
 import { renamedProbePath } from "./lib/probes";
 import { AlertPage } from "./pages/Alert";
-import { AlertChannelForm } from "./pages/AlertChannelForm";
 import { Alerts } from "./pages/Alerts";
-import { AlertMuteNew } from "./pages/AlertMuteNew";
 import { ApplyDetail } from "./pages/ApplyDetail";
 import { Applies } from "./pages/Applies";
 import { Audit } from "./pages/Audit";
@@ -36,6 +35,8 @@ import { ProbePage } from "./pages/Probe";
 import { Overview } from "./pages/Overview";
 import { Services } from "./pages/Services";
 import { Settings } from "./pages/Settings";
+import { ChannelWizard } from "./pages/settings/ChannelWizard";
+import { MuteWizard } from "./pages/settings/MuteWizard";
 import { StatusComponentForm } from "./pages/StatusComponentForm";
 import { StatusIncidentPage } from "./pages/StatusIncident";
 import { StatusIncidentNew } from "./pages/StatusIncidentNew";
@@ -55,6 +56,16 @@ function ContainerRedirect() {
 function ProbesRedirect() {
   const location = useLocation();
   return <Navigate replace to={{ pathname: renamedProbePath(location.pathname), search: location.search, hash: location.hash }} />;
+}
+
+// Les canaux et les silences étaient des onglets de /alertes (et leurs
+// formulaires des pages) avant Paramètres › Notifications : un lien d'avant
+// mène à la fenêtre ou à la section qui les porte, avec sa query et son ancre.
+// Les autres onglets (acquittées, résolues) mènent à la boîte.
+function AlertsRedirect() {
+  const location = useLocation();
+  const target = renamedAlertLocation(location.pathname);
+  return <Navigate replace to={{ pathname: target.pathname, search: location.search, hash: target.hash !== "" ? target.hash : location.hash }} />;
 }
 
 // La page de démonstration du système visuel ne sert qu'en développement :
@@ -127,11 +138,13 @@ export function App() {
         <Route path="page-statut/*" element={<Navigate replace to="/disponibilite/pages" />} />
         <Route path="alertes" element={<Alerts />} />
         <Route path="alertes/alerte/:id" element={<AlertPage />} />
-        <Route path="alertes/canaux/nouveau" element={<AlertChannelForm />} />
-        <Route path="alertes/canaux/:id" element={<AlertChannelForm />} />
-        <Route path="alertes/silences/nouveau" element={<AlertMuteNew />} />
-        <Route path="alertes/:tab" element={<Alerts />} />
-        <Route path="parametres" element={<Settings />} />
+        {/* Les onglets et les formulaires d'avant : les liens enregistrés suivent. */}
+        <Route path="alertes/*" element={<AlertsRedirect />} />
+        <Route path="parametres" element={<Settings />}>
+          <Route path="canaux/nouveau" element={<ChannelWizard />} />
+          <Route path="canaux/:id" element={<ChannelWizard />} />
+          <Route path="silences/nouveau" element={<MuteWizard />} />
+        </Route>
         <Route path="cles-ssh" element={<SSHKeyMatrix />} />
         <Route path="journal" element={<Audit />} />
         {VisualSystem && (

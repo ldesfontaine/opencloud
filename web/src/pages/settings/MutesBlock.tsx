@@ -1,18 +1,17 @@
 import { deleteMute, useMutes, type Mute } from "../../api/alerts";
 import { useRefresh } from "../../api/refresh";
-import { Card, CardHeader, EmptyCard } from "../../components/Card";
+import { Button } from "../../components/Button";
 import { ConfirmInline } from "../../components/ConfirmInline";
 import { Failure } from "../../components/Failure";
-import { Loaded } from "../../components/Loaded";
 import { Pill } from "../../components/Pill";
+import { SettingBlock, SettingFoot } from "../../components/SettingRow";
 import { Table } from "../../components/Table";
 import { useAction } from "../../hooks/useAction";
 import { useNow } from "../../hooks/useNow";
 import { useT, type Translate } from "../../i18n/context";
-import { muteStateOf, muteTargets, type MuteState } from "../../lib/alerts";
+import { muteStateOf, muteTargets, newMutePath, type MuteState } from "../../lib/alerts";
 import type { Tone } from "../../lib/tone";
 import { formatClock } from "../../lib/time";
-import "./Alerts.scss";
 
 const muteStateTones: Record<MuteState, Tone> = {
   active: "accent",
@@ -20,39 +19,50 @@ const muteStateTones: Record<MuteState, Tone> = {
   expired: "neutral",
 };
 
-// Les silences, sous ce nom à l'écran : ce qui tait les alertes, tout de
-// suite ou à l'heure dite.
-export function MutesTab() {
+// Les silences : ce qui tait les alertes, tout de suite ou à l'heure dite. Une
+// ligne par silence, avec son état et son auteur ; la pose est dans le pied
+// du bloc, sa fenêtre à son adresse.
+export function MutesBlock() {
   const t = useT();
   const mutes = useMutes();
   return (
-    <Loaded resource={mutes}>
-      {(data) =>
-        data.mutes.length === 0 ? (
-          <EmptyCard icon="pause" title={t("silence.empty_title")} text={t("silence.empty_text")} />
-        ) : (
-          <Card className="scroll-x">
-            <CardHeader title={t("alerts.tab_silences")} />
-            <Table>
-              <thead>
-                <tr>
-                  <th>{t("silence.col_silence")}</th>
-                  <th>{t("silence.col_reason")}</th>
-                  <th>{t("silence.col_author")}</th>
-                  <th>{t("silence.col_until")}</th>
-                  <th className="th-end"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.mutes.map((mute) => (
-                  <MuteRow key={mute.id} mute={mute} />
-                ))}
-              </tbody>
-            </Table>
-          </Card>
-        )
-      }
-    </Loaded>
+    <>
+      <div className="setting-subhead">
+        <span className="card-t">{t("silence.title")}</span>
+        <span className="secondary">{t("silence.intro")}</span>
+      </div>
+      {mutes.data === null ? (
+        <SettingBlock>
+          <Failure error={mutes.error} />
+        </SettingBlock>
+      ) : mutes.data.mutes.length === 0 ? (
+        <SettingBlock>
+          <p className="secondary">{t("silence.empty_text")}</p>
+        </SettingBlock>
+      ) : (
+        <Table>
+          <thead>
+            <tr>
+              <th>{t("silence.col_silence")}</th>
+              <th>{t("silence.col_reason")}</th>
+              <th>{t("silence.col_author")}</th>
+              <th>{t("silence.col_until")}</th>
+              <th className="th-end"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {mutes.data.mutes.map((mute) => (
+              <MuteRow key={mute.id} mute={mute} />
+            ))}
+          </tbody>
+        </Table>
+      )}
+      <SettingFoot>
+        <Button icon="pause" to={newMutePath}>
+          {t("silence.add")}
+        </Button>
+      </SettingFoot>
+    </>
   );
 }
 

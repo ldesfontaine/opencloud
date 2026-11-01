@@ -33,7 +33,7 @@ export function AlertRow({
   const text = describeAlert(t, alert, now, disks);
   const state = stateOf(alert);
   const path = objectPath(alert.object, alert.machine_id);
-  // On relit même après un refus : l'alerte a pu être acquittée ou résolue
+  // On relit même après un refus : l'alerte a pu être vue ou résolue
   // entre-temps, et la ligne doit le dire.
   const acknowledge = () => {
     action.run(() => acknowledgeAlert(alert.id), { onSettled: () => refresh("alerts") });
@@ -67,13 +67,13 @@ export function AlertRow({
               {t("alert.muted")}
             </Pill>
           )}
-          <Pill tone={alertStateTones[state]}>{t(`alert.status_${state}`)}</Pill>
+          <Pill tone={alertStateTones[state]}>{t(`alert.state_${state}`)}</Pill>
           <span className="secondary nowrap">{when(t, alert, now)}</span>
         </span>
         <Failure error={action.error} />
         {!compact && state !== "resolved" && (
           <span className="actions">
-            {state === "open" && (
+            {state === "unseen" && (
               <Button small icon="check" onClick={acknowledge} disabled={action.busy}>
                 {t("alert.acknowledge")}
               </Button>

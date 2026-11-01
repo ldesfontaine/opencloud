@@ -9,7 +9,7 @@ import { Pill } from "../components/Pill";
 import { List } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useDiskThresholds, useT } from "../i18n/context";
-import { deliveryFailure, deliveryTones, describeAlert } from "../lib/alerts";
+import { channelPathOf, deliveryFailure, deliveryTones, describeAlert, newChannelPath } from "../lib/alerts";
 import { formatClock } from "../lib/time";
 import { AlertRow } from "./alerts/AlertRow";
 
@@ -51,14 +51,14 @@ function AlertView({ detail, channels }: { detail: AlertResponse; channels: Chan
         <Card>
           <CardHeader title={t("alert.deliveries")} />
           {detail.deliveries.length === 0 ? (
-            <Empty text={t("alert.no_delivery")} action={<Button small icon="plus" to="/alertes/canaux/nouveau">{t("channel.add")}</Button>} />
+            <Empty text={t("alert.no_delivery")} action={<Button small icon="plus" to={newChannelPath}>{t("channel.add")}</Button>} />
           ) : (
             <List>
               {detail.deliveries.map((delivery) => (
                 <div className="row" key={delivery.id}>
                   <span className="txt">
                     <b>
-                      <Link to={`/alertes/canaux/${delivery.channel_id}`}>{channelName(delivery.channel_id)}</Link> · {t(`alert.event_${delivery.event}`)}
+                      <Link to={channelPathOf(delivery.channel_id)}>{channelName(delivery.channel_id)}</Link> · {t(`alert.event_${delivery.event}`)}
                     </b>
                     {delivery.status === "failed" && <span>{deliveryFailure(t, delivery)}</span>}
                   </span>

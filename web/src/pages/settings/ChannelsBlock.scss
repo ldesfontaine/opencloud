@@ -1,0 +1,6 @@
+// L'adresse d'un canal sous son nom : longue, elle se tronque.
+.channel-url {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

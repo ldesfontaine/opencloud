@@ -308,7 +308,7 @@ export function VisualSystem() {
 
           <section>
             <h2 className="side-label section-label">{t("visual.settings.title")}</h2>
-            <SectionHead id="vs-settings-title" title={t("settings.section_alerts")} text={t("settings.disk_intro")} />
+            <SectionHead id="vs-settings-title" title={t("settings.section_notifications")} text={t("settings.disk_intro")} />
             <Card className="setting-stack">
               <SettingRow label={t("settings.disk_attention_label")} description={t("settings.disk_percent_help", 50, 99)} htmlFor="vs-attention" width="short">
                 <Input id="vs-attention" type="number" defaultValue={85} />

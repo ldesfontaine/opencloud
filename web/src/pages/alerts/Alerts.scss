@@ -103,10 +103,25 @@
   border-bottom: 1px solid var(--line);
 }
 
-.channel-url {
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+// Les filtres de la boîte, en une rangée qui passe à la ligne.
+.alert-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+// Une section de la boîte : son titre et la pastille de son compteur.
+.inbox-section {
+  margin-bottom: 20px;
+}
+
+.inbox-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
 }
 
 @media (max-width: 860px) {

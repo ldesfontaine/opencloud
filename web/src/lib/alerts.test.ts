@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Alert, Channel } from "../api/alerts";
 import {
+  alertFilterOf,
   alertsSubtitle,
   channelFormOf,
   channelRequestOf,
@@ -10,6 +11,10 @@ import {
   deliveryFailure,
   emptyChannelForm,
   canAnnounce,
+  filterAlerts,
+  filterChoicesOf,
+  inboxOf,
+  isFiltering,
   emptyMuteForm,
   muteRequestOf,
   mutePathOf,
@@ -17,7 +22,9 @@ import {
   muteTargets,
   mostUrgentAlert,
   objectPath,
+  renamedAlertLocation,
   stateOf,
+  withAlertFilter,
 } from "./alerts";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join(" ");
@@ -95,9 +102,9 @@ describe("describeAlert", () => {
 });
 
 describe("stateOf", () => {
-  it("distingue ouverte, acquittée, résolue", () => {
-    expect(stateOf(alert({}))).toBe("open");
-    expect(stateOf(alert({ acknowledged_at: "2026-09-22T09:30:00Z" }))).toBe("acknowledged");
+  it("distingue non vue, vue, résolue", () => {
+    expect(stateOf(alert({}))).toBe("unseen");
+    expect(stateOf(alert({ acknowledged_at: "2026-09-22T09:30:00Z" }))).toBe("seen");
     expect(stateOf(alert({ status: "resolved", resolved_at: "2026-09-22T09:30:00Z" }))).toBe("resolved");
   });
 });
@@ -177,15 +184,15 @@ describe("muteRequestOf", () => {
 
 describe("mutePathOf", () => {
   it("tait un volume par le disque de sa machine", () => {
-    expect(mutePathOf(alert({}))).toBe("/alertes/silences/nouveau?kind=disk_full&target_kind=machine&target_id=local&target_name=vps-lyon-2");
+    expect(mutePathOf(alert({}))).toBe("/parametres/silences/nouveau?kind=disk_full&target_kind=machine&target_id=local&target_name=vps-lyon-2");
   });
   it("tait un conteneur par son service déclaré, ou lui seul s'il n'est pas déclaré", () => {
     const container = { kind: "container" as const, id: "local:abc", name: "shop-app-1" };
     expect(mutePathOf(alert({ kind: "service_down", object: container, service_id: "svc_1" }))).toBe(
-      "/alertes/silences/nouveau?kind=service_down&target_kind=service&target_id=svc_1&target_name=",
+      "/parametres/silences/nouveau?kind=service_down&target_kind=service&target_id=svc_1&target_name=",
     );
     expect(mutePathOf(alert({ kind: "service_down", object: container }))).toBe(
-      "/alertes/silences/nouveau?kind=service_down&target_kind=container&target_id=local%3Aabc&target_name=shop-app-1",
+      "/parametres/silences/nouveau?kind=service_down&target_kind=container&target_id=local%3Aabc&target_name=shop-app-1",
     );
   });
 });
@@ -274,5 +281,85 @@ describe("mostUrgentAlert", () => {
   it("une résolue n'est jamais la plus urgente", () => {
     const resolved = alert({ id: 1, severity: "danger", status: "resolved", resolved_at: "2026-09-22T09:40:00Z" });
     expect(mostUrgentAlert([resolved, alert({ id: 2, acknowledged_at: acknowledged })])?.id).toBe(2);
+  });
+});
+
+describe("inboxOf", () => {
+  const seenAt = "2026-09-22T09:30:00Z";
+  it("met les non vues en tête, les vues ensuite, chacune dans l'ordre du serveur", () => {
+    const list = [alert({ id: 1, acknowledged_at: seenAt }), alert({ id: 2 }), alert({ id: 3, acknowledged_at: seenAt }), alert({ id: 4 })];
+    const inbox = inboxOf(list);
+    expect(inbox.unseen.map((entry) => entry.id)).toEqual([2, 4]);
+    expect(inbox.seen.map((entry) => entry.id)).toEqual([1, 3]);
+  });
+  it("ne garde pas une résolue : elle est de l'historique", () => {
+    const inbox = inboxOf([alert({ id: 1, status: "resolved", resolved_at: seenAt })]);
+    expect(inbox).toEqual({ unseen: [], seen: [] });
+  });
+});
+
+describe("filtres de la boîte", () => {
+  const emptyAlertFilter = alertFilterOf(new URLSearchParams());
+  const list = [
+    alert({ id: 1, kind: "disk_full", severity: "danger", machine_id: "m1", machine_name: "vps-lyon-2" }),
+    alert({ id: 2, kind: "service_down", severity: "attention", machine_id: "m2", machine_name: "nas", service_id: "svc_1" }),
+    alert({ id: 3, kind: "job_late", severity: "attention", machine_id: "", machine_name: "" }),
+  ];
+  const ids = (filtered: Alert[]) => filtered.map((entry) => entry.id);
+
+  it("ne filtre rien sans choix", () => {
+    expect(isFiltering(emptyAlertFilter)).toBe(false);
+    expect(ids(filterAlerts(list, emptyAlertFilter))).toEqual([1, 2, 3]);
+  });
+  it("filtre par gravité, genre, machine et service, et les croise", () => {
+    expect(ids(filterAlerts(list, { ...emptyAlertFilter, severity: "attention" }))).toEqual([2, 3]);
+    expect(ids(filterAlerts(list, { ...emptyAlertFilter, kind: "disk_full" }))).toEqual([1]);
+    expect(ids(filterAlerts(list, { ...emptyAlertFilter, machineID: "m2" }))).toEqual([2]);
+    expect(ids(filterAlerts(list, { ...emptyAlertFilter, serviceID: "svc_1" }))).toEqual([2]);
+    expect(ids(filterAlerts(list, { ...emptyAlertFilter, severity: "attention", kind: "disk_full" }))).toEqual([]);
+    expect(isFiltering({ ...emptyAlertFilter, kind: "disk_full" })).toBe(true);
+  });
+  it("lit le filtre dans l'adresse et ignore une valeur inconnue", () => {
+    const params = new URLSearchParams("gravite=danger&genre=disk_full&machine=m1&service=svc_1");
+    expect(alertFilterOf(params)).toEqual({ severity: "danger", kind: "disk_full", machineID: "m1", serviceID: "svc_1" });
+    expect(alertFilterOf(new URLSearchParams("gravite=critique&genre=nimporte"))).toEqual(emptyAlertFilter);
+  });
+  it("pose un choix dans l'adresse, et le retire quand il est vide, sans toucher aux autres", () => {
+    const params = new URLSearchParams("genre=disk_full");
+    expect(withAlertFilter(params, "severity", "danger").toString()).toBe("genre=disk_full&gravite=danger");
+    expect(withAlertFilter(params, "kind", "").toString()).toBe("");
+    expect(params.toString()).toBe("genre=disk_full");
+  });
+  it("ne propose que ce que les alertes portent", () => {
+    expect(filterChoicesOf(list, emptyAlertFilter)).toEqual({
+      kinds: ["service_down", "job_late", "disk_full"],
+      machines: [
+        { id: "m2", name: "nas" },
+        { id: "m1", name: "vps-lyon-2" },
+      ],
+      serviceIDs: ["svc_1"],
+    });
+  });
+  it("garde dans les menus un choix que plus aucune alerte ne porte", () => {
+    const choices = filterChoicesOf(list, { ...emptyAlertFilter, kind: "probe_down", machineID: "m9", serviceID: "svc_9" });
+    expect(choices.kinds).toContain("probe_down");
+    expect(choices.machines).toContainEqual({ id: "m9", name: "m9" });
+    expect(choices.serviceIDs).toContain("svc_9");
+  });
+});
+
+describe("renamedAlertLocation", () => {
+  it("mène les onglets Canaux et Silences à leur section de Paramètres", () => {
+    expect(renamedAlertLocation("/alertes/canaux")).toEqual({ pathname: "/parametres", hash: "#notifications" });
+    expect(renamedAlertLocation("/alertes/silences")).toEqual({ pathname: "/parametres", hash: "#notifications" });
+  });
+  it("mène une fenêtre d'avant à la même fenêtre sous Paramètres", () => {
+    expect(renamedAlertLocation("/alertes/canaux/nouveau")).toEqual({ pathname: "/parametres/canaux/nouveau", hash: "" });
+    expect(renamedAlertLocation("/alertes/canaux/12")).toEqual({ pathname: "/parametres/canaux/12", hash: "" });
+    expect(renamedAlertLocation("/alertes/silences/nouveau")).toEqual({ pathname: "/parametres/silences/nouveau", hash: "" });
+  });
+  it("mène les autres onglets à la boîte", () => {
+    expect(renamedAlertLocation("/alertes/acquittees")).toEqual({ pathname: "/alertes", hash: "" });
+    expect(renamedAlertLocation("/alertes/resolues")).toEqual({ pathname: "/alertes", hash: "" });
   });
 });
