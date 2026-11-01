@@ -47,7 +47,7 @@ function ProxmoxDialog({ machine }: { machine: Machine }) {
   return (
     <Modal title={t("machine.proxmox_form_title", machine.name)} onClose={close} dirty={form.isFilled && isProxmoxFormModified(values, base)} wide>
       <p className="secondary">{t("machine.proxmox_form_subtitle")}</p>
-      {form.isFilled && <Wizard steps={stepsOf(t, form)} mode="create" onSubmit={save} submitLabel={t("machine.proxmox_submit")} submitIcon="check" busy={action.busy} error={action.error} inModal />}
+      {form.isFilled && <Wizard steps={stepsOf(t, form)} mode="create" onSubmit={save} submitLabel={t("machine.proxmox_submit")} submitIcon="check" busy={action.busy} error={action.error} />}
     </Modal>
   );
 }

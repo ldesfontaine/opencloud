@@ -540,13 +540,14 @@ function ModalSample() {
   );
 }
 
-// Un assistant de démonstration : trois étapes, une validation qui bloque
-// (le nom vide, l'intervalle hors bornes), le récapitulatif. Le mode se
-// change pour voir la modification, qui part du récapitulatif ; la clé
-// remonte l'assistant à chaque changement.
+// Un assistant de démonstration, dans sa fenêtre : trois étapes, une
+// validation qui bloque (le nom vide, l'intervalle hors bornes), le
+// récapitulatif. Le mode se choisit avant d'ouvrir, pour voir la
+// modification, qui part du récapitulatif.
 function WizardSample() {
   const { t } = useI18n();
   const [mode, setMode] = useState<WizardMode>("create");
+  const [open, setOpen] = useState(false);
   const filled = { name: "sauvegarde-nocturne", interval: "1440", notify: true };
   const empty = { name: "", interval: "60", notify: false };
   return (
@@ -563,12 +564,19 @@ function WizardSample() {
           </label>
         </span>
       </div>
-      <SampleWizard key={mode} mode={mode} initial={mode === "edit" ? filled : empty} />
+      <div>
+        <Button onClick={() => setOpen(true)}>{t("visual.wizard.open")}</Button>
+      </div>
+      {open && (
+        <Modal title={t("visual.wizard.title")} onClose={() => setOpen(false)} wide>
+          <SampleWizard mode={mode} initial={mode === "edit" ? filled : empty} onDone={() => setOpen(false)} />
+        </Modal>
+      )}
     </div>
   );
 }
 
-function SampleWizard({ mode, initial }: { mode: WizardMode; initial: { name: string; interval: string; notify: boolean } }) {
+function SampleWizard({ mode, initial, onDone }: { mode: WizardMode; initial: { name: string; interval: string; notify: boolean }; onDone: () => void }) {
   const { t } = useI18n();
   const { values, change } = useForm(initial);
   const steps: WizardStep[] = [
@@ -611,13 +619,11 @@ function SampleWizard({ mode, initial }: { mode: WizardMode; initial: { name: st
     <Wizard
       steps={steps}
       mode={mode}
-      onSubmit={() => undefined}
+      onSubmit={onDone}
       submitLabel={t("visual.wizard.submit")}
       submitIcon={mode === "edit" ? "check" : "plus"}
       busy={false}
       error={null}
-      cancelLabel={t("confirm.cancel")}
-      onCancel={() => undefined}
     />
   );
 }

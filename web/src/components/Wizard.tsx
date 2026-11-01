@@ -15,7 +15,7 @@ import {
   type WizardMode,
 } from "../lib/wizard";
 import { Button } from "./Button";
-import { Card, KeyValue } from "./Card";
+import { KeyValue } from "./Card";
 import { Failure } from "./Failure";
 import { Icon, type IconName } from "./Icon";
 import { ModalCancel } from "./Modal";
@@ -43,9 +43,9 @@ export interface WizardStep {
 // récapitulatif et l'action finale. Entrée dans un champ vaut Suivant ;
 // seule l'action du récapitulatif écrit. L'erreur du serveur (error) se dit
 // sur le récapitulatif.
-// inModal : l'assistant est le contenu d'une fenêtre (Modal), qui fait le
-// cadre ; « Annuler » est alors celui de la fenêtre, qui demande avant
-// d'abandonner une saisie, et cancelLabel, cancelTo et onCancel ne servent pas.
+// L'assistant est le contenu d'une fenêtre (Modal), qui fait le cadre :
+// « Annuler » est celui de la fenêtre, qui demande avant d'abandonner une
+// saisie.
 export function Wizard({
   steps,
   mode,
@@ -54,10 +54,6 @@ export function Wizard({
   submitIcon,
   busy,
   error,
-  cancelLabel,
-  cancelTo,
-  onCancel,
-  inModal = false,
 }: {
   steps: WizardStep[];
   mode: WizardMode;
@@ -66,10 +62,6 @@ export function Wizard({
   submitIcon: IconName;
   busy: boolean;
   error: ApiError | string | null;
-  cancelLabel?: string;
-  cancelTo?: string;
-  onCancel?: () => void;
-  inModal?: boolean;
 }) {
   const t = useT();
   const stepCount = steps.length;
@@ -120,63 +112,34 @@ export function Wizard({
   const titles = [...steps.map((step) => step.title), t("wizard.summary")];
   const forwardLabel = reached >= summaryPosition(stepCount) ? t("wizard.back_to_summary") : t("wizard.next");
 
-  const Heading = inModal ? "h3" : "h2";
-  const heading = (
-    <Heading className="card-t wizard-title" ref={title} tabIndex={-1}>
-      {titles[position]}
-    </Heading>
-  );
-  const leave =
-    cancelLabel === undefined ? null : cancelTo !== undefined ? (
-      <Button variant="ghost" to={cancelTo}>
-        {cancelLabel}
-      </Button>
-    ) : onCancel !== undefined ? (
-      <Button variant="ghost" onClick={onCancel}>
-        {cancelLabel}
-      </Button>
-    ) : null;
-  const content = (
-    <>
-      {onSummary ? <WizardSummary steps={steps} onEdit={go} /> : steps[position]?.render()}
-      {/* Annoncée dès qu'elle paraît : le focus reste sur le champ ou le bouton. */}
-      {shownError !== null && (
-        <div role="alert">
-          <Failure error={shownError} />
-        </div>
-      )}
-      <div className="cluster">
-        {position > 0 && <Button onClick={() => go(previousPosition(position))}>{t("wizard.previous")}</Button>}
-        {onSummary ? (
-          <Button type="submit" variant="primary" icon={submitIcon} disabled={busy} onClick={ignoreRepeatedClick}>
-            {submitLabel}
-          </Button>
-        ) : (
-          <Button type="submit" variant="primary">
-            {forwardLabel}
-          </Button>
-        )}
-        {inModal ? <ModalCancel /> : leave}
-      </div>
-    </>
-  );
-
   return (
     <div className="wizard">
       <WizardBar titles={titles} position={position} reached={reached} canJump={canJumpFromBar(mode)} onJump={go} />
-      {inModal ? (
-        <form className="wizard-modal" onSubmit={submit}>
-          {heading}
-          {content}
-        </form>
-      ) : (
-        <Card>
-          <form onSubmit={submit}>
-            <div className="card-h">{heading}</div>
-            <div className="card-b">{content}</div>
-          </form>
-        </Card>
-      )}
+      <form className="wizard-modal" onSubmit={submit}>
+        <h3 className="card-t wizard-title" ref={title} tabIndex={-1}>
+          {titles[position]}
+        </h3>
+        {onSummary ? <WizardSummary steps={steps} onEdit={go} /> : steps[position]?.render()}
+        {/* Annoncée dès qu'elle paraît : le focus reste sur le champ ou le bouton. */}
+        {shownError !== null && (
+          <div role="alert">
+            <Failure error={shownError} />
+          </div>
+        )}
+        <div className="cluster">
+          {position > 0 && <Button onClick={() => go(previousPosition(position))}>{t("wizard.previous")}</Button>}
+          {onSummary ? (
+            <Button type="submit" variant="primary" icon={submitIcon} disabled={busy} onClick={ignoreRepeatedClick}>
+              {submitLabel}
+            </Button>
+          ) : (
+            <Button type="submit" variant="primary">
+              {forwardLabel}
+            </Button>
+          )}
+          <ModalCancel />
+        </div>
+      </form>
     </div>
   );
 }

@@ -1,17 +1,16 @@
 import { useNavigate, useParams } from "react-router";
 
-import { declareFirewall, firewallKinds, redeclareFirewall, useFirewall, type FirewallDetail, type FirewallKind } from "../api/firewalls";
-import { Field, Input } from "../components/Field";
-import { Select } from "../components/Select";
-import { Failure } from "../components/Failure";
-import { FormPage } from "../components/FormPage";
-import { PageHead } from "../components/PageHead";
-import { Wizard, type WizardStep } from "../components/Wizard";
-import { useAction } from "../hooks/useAction";
-import { useForm } from "../hooks/useForm";
-import { useT, type Translate } from "../i18n/context";
-import { isCredential, isHTTPSAddress } from "../lib/firewallForm";
-import { NotFound } from "./NotFound";
+import { declareFirewall, firewallKinds, redeclareFirewall, useFirewall, type FirewallDetail, type FirewallKind } from "../../api/firewalls";
+import { Field, Input } from "../../components/Field";
+import { Failure } from "../../components/Failure";
+import { Modal } from "../../components/Modal";
+import { Select } from "../../components/Select";
+import { Wizard, type WizardStep } from "../../components/Wizard";
+import { useAction } from "../../hooks/useAction";
+import { useForm } from "../../hooks/useForm";
+import { useT, type Translate } from "../../i18n/context";
+import { isCredential, isHTTPSAddress } from "../../lib/firewallForm";
+import { isFormModified } from "../../lib/modal";
 
 interface FirewallFormValues {
   name: string;
@@ -30,34 +29,21 @@ function formOf(firewall: FirewallDetail): FirewallFormValues {
   return { name: firewall.name, kind: firewall.kind, apiURL: firewall.api_url, apiKey: firewall.api_key, apiSecret: "", pin: firewall.pin };
 }
 
-// Déclarer (ou modifier) un pare-feu, pas à pas. Le serveur interroge l'API avec
-// la paire de clés avant de rien garder ; un refus se dit sur le récapitulatif.
-export function FirewallForm() {
-  const { id } = useParams();
-  if (id === undefined) {
-    return <FirewallWizard firewall={null} />;
-  }
-  return <EditFirewall id={id} />;
-}
-
-function EditFirewall({ id }: { id: string }) {
-  const firewall = useFirewall(id);
-  if (firewall.error?.status === 404) {
-    return <NotFound />;
-  }
-  if (!firewall.data) {
-    return firewall.error ? <Failure error={firewall.error} /> : null;
-  }
-  return <FirewallWizard firewall={firewall.data} />;
-}
-
-function FirewallWizard({ firewall }: { firewall: FirewallDetail | null }) {
+// « Déclarer un pare-feu » : la fenêtre de la liste, à /pare-feu/nouveau, ou de
+// la fiche, à /pare-feu/:id/modifier. Trois étapes (identité, accès,
+// certificat) et le récapitulatif. Le serveur interroge l'API avec la paire de
+// clés avant de rien garder ; un refus se dit sur le récapitulatif.
+export function FirewallWizard() {
   const t = useT();
   const navigate = useNavigate();
-  const action = useAction();
-  const form = useForm(emptyForm, firewall === null ? null : { source: firewall, fill: formOf });
+  const { id } = useParams();
+  const isEditing = id !== undefined;
+  const existing = useFirewall(id ?? null);
+  const form = useForm(emptyForm, isEditing ? { source: existing.data, fill: formOf } : null);
   const { values } = form;
-  const isEdit = firewall !== null;
+  const action = useAction();
+
+  const close = () => void navigate(isEditing ? `/pare-feu/${id}` : "/pare-feu", { replace: true });
   const save = () => {
     const definition = {
       name: values.name.trim(),
@@ -67,29 +53,34 @@ function FirewallWizard({ firewall }: { firewall: FirewallDetail | null }) {
       api_secret: values.apiSecret,
       pin: values.pin.trim(),
     };
-    action.run(() => (firewall === null ? declareFirewall(definition) : redeclareFirewall(firewall.id, definition)), {
+    action.run(() => (id === undefined ? declareFirewall(definition) : redeclareFirewall(id, definition)), {
       topic: "firewalls",
-      onDone: (saved) => void navigate(`/pare-feu/${saved.id}`),
+      onDone: (saved) => void navigate(`/pare-feu/${saved.id}`, { replace: true }),
     });
   };
-  const steps = stepsOf(t, form);
+
+  const base = existing.data === null ? emptyForm : formOf(existing.data);
   return (
-    <FormPage width="wizard">
-      <PageHead title={isEdit ? t("firewall.form_title_edit", firewall.name) : t("firewall.form_title_new")} subtitle={t("firewall.form_subtitle")} />
+    <Modal
+      title={existing.data === null ? t("firewall.form_title_new") : t("firewall.form_title_edit", existing.data.name)}
+      onClose={close}
+      dirty={form.isFilled && isFormModified(values, base)}
+      wide
+    >
+      <p className="secondary">{t("firewall.form_subtitle")}</p>
+      <Failure error={existing.error} />
       {form.isFilled && (
         <Wizard
-          steps={steps}
-          mode={isEdit ? "edit" : "create"}
+          steps={stepsOf(t, form)}
+          mode={isEditing ? "edit" : "create"}
           onSubmit={save}
-          submitLabel={isEdit ? t("firewall.submit_edit") : t("firewall.submit_new")}
-          submitIcon={isEdit ? "check" : "plus"}
+          submitLabel={isEditing ? t("firewall.submit_edit") : t("firewall.submit_new")}
+          submitIcon={isEditing ? "check" : "plus"}
           busy={action.busy}
           error={action.error}
-          cancelLabel={t("firewall.cancel")}
-          cancelTo={isEdit ? `/pare-feu/${firewall.id}` : "/pare-feu"}
         />
       )}
-    </FormPage>
+    </Modal>
   );
 }
 

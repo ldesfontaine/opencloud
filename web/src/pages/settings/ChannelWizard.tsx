@@ -61,7 +61,6 @@ export function ChannelWizard() {
           submitIcon={isEditing ? "check" : "plus"}
           busy={action.busy}
           error={action.error}
-          inModal
         />
       )}
     </Modal>

@@ -27,7 +27,7 @@ import { List, Table } from "../components/Table";
 import { useT } from "../i18n/context";
 import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
 import { newMutePath } from "../lib/alerts";
-import { componentPath } from "../lib/status";
+import { componentLookupPath } from "../lib/status";
 import { probePath } from "../lib/probes";
 import { formatClock } from "../lib/time";
 import { AlertRow } from "./alerts/AlertRow";
@@ -272,7 +272,7 @@ function LinksCard({ links }: { links: ServiceLinks }) {
         ) : (
           <>
             <LinkList label={t("directory.links_probes")} objects={links.probes} to={(object) => probePath(object.id)} />
-            <LinkList label={t("directory.links_components")} objects={links.components} to={(object) => componentPath(object.id)} />
+            <LinkList label={t("directory.links_components")} objects={links.components} to={(object) => componentLookupPath(object.id)} />
           </>
         )}
       </CardBody>

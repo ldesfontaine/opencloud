@@ -56,7 +56,7 @@ export function MuteWizard() {
   return (
     <Modal title={t("silence.new_title")} onClose={close} dirty={isFormModified(values, initial)} wide>
       <p className="secondary">{t("silence.new_subtitle")}</p>
-      <Wizard steps={stepsOf(t, form, options, alertContainer)} mode="create" onSubmit={save} submitLabel={t("silence.create")} submitIcon="pause" busy={action.busy} error={action.error} inModal />
+      <Wizard steps={stepsOf(t, form, options, alertContainer)} mode="create" onSubmit={save} submitLabel={t("silence.create")} submitIcon="pause" busy={action.busy} error={action.error} />
     </Modal>
   );
 }

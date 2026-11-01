@@ -1,5 +1,5 @@
 import { Field, Input } from "../../components/Field";
-import { FormActions, FormBody } from "../../components/FormCard";
+import { FormActions, FormBody } from "../../components/FormBody";
 import { useForm } from "../../hooks/useForm";
 import { useT } from "../../i18n/context";
 import { defaultForwardHeader } from "../../lib/auth";

@@ -214,27 +214,25 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   ligne. Une action impossible **reste au menu, grisée, avec sa raison**
   (`hint`, en dessous) : elle ne se cache jamais, et choisir une entrée grisée
   ne fait rien.
-- **Formulaire** (`FormPage`) : l'en-tête de page et la carte dans une
-  colonne de 560 px au plus, centrée comme Paramètres ; sur un téléphone,
-  pleine largeur dans les marges de page. Toute page de formulaire
-  (création, modification) y passe. Un formulaire logé
-  dans une carte partagée ou une grille (Paramètres, Sauvegardes, la mise à
-  jour d'un incident) garde sa place ; ouvert sous la fiche d'un objet (la
-  correction d'un incident), il en prend la largeur.
+- **Formulaire** (`ModalForm`) : une fenêtre à une seule étape (`Modal`), les
+  champs puis l'erreur de l'écriture ; « Annuler » et l'action sont dans le
+  pied, liés au formulaire (Entrée envoie). Tout ajout ou toute correction
+  d'un objet s'ouvre ainsi, à son adresse, sur la page qui reste en fond.
+  Un formulaire qui règle une valeur en place (Paramètres, le fil d'un
+  incident) garde sa carte (`FormBody`, `SettingRow`).
   - **Aide de champ** : une ligne, ce qu'il faut savoir pour remplir, pas
     plus. Le détail, s'il sert vraiment, va dans le « ? » à côté de
     l'étiquette (`tip` de `Field`) : une info-bulle qui passe à la ligne, au
     clavier comme à la souris ; Échap la referme.
 - **Assistant** (`Wizard`) : la création d'un objet à plus de cinq champs
-  environ ou à plusieurs notions (service, sonde, tâche, page de statut).
-  Pas pour une page de réglages (Paramètres, Sauvegardes) ni pour un
-  formulaire de trois champs : il ajoute des clics là où tout tient à
-  l'écran. Colonne de 720 px (`FormPage width="wizard"`), la place de la
-  barre d'étapes.
+  environ ou à plusieurs notions (service, sonde, pare-feu, plan de
+  sauvegarde). Toujours dans une `Modal` large ; pas pour une page de
+  réglages (Paramètres) ni pour un formulaire de trois champs (`ModalForm`) :
+  il ajoute des clics là où tout tient à l'écran.
   - **Barre d'étapes** : une pastille numérotée et le nom ; la courante en
     encre pleine, une étape faite cochée, à venir en discret. Sous 860 px,
-    une ligne, « Étape 2 sur 4 » : le nom suit, en tête de carte.
-  - **Une étape à l'écran**, son titre en tête de carte (le focus y passe,
+    une ligne, « Étape 2 sur 4 » : le nom suit, en tête de la fenêtre.
+  - **Une étape à l'écran**, son titre en tête de fenêtre (le focus y passe,
     il s'annonce). Précédent en secondaire, Suivant en principal, Annuler
     discret : une seule action principale. Entrée dans un champ vaut
     Suivant. Une étape en erreur retient : la note sous les champs dit

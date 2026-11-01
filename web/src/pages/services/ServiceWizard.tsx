@@ -114,7 +114,6 @@ export function ServiceWizard() {
           submitIcon={isEditing ? "check" : "plus"}
           busy={action.busy}
           error={action.error}
-          inModal
         />
       )}
     </Modal>

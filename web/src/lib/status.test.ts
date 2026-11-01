@@ -18,7 +18,9 @@ import {
   saysNothing,
   statusesFor,
   componentChoiceLabel,
+  componentLookupPath,
   componentPath,
+  editIncidentPath,
   newComponentPath,
   publicPagePath,
   publicStatusPaths,
@@ -229,10 +231,15 @@ describe("worstState", () => {
 });
 
 describe("les adresses de Disponibilité", () => {
-  it("échappent l'identifiant et gardent le projet en query", () => {
+  it("échappent l'identifiant et ouvrent les fenêtres sur la page de leur projet", () => {
     expect(publicPagePath("prj_a b")).toBe("/disponibilite/pages/prj_a%20b");
-    expect(newComponentPath("prj_1")).toBe("/disponibilite/composants/nouveau?project=prj_1");
-    expect(componentPath("cmp_1")).toBe("/disponibilite/composants/cmp_1");
+    expect(newComponentPath("prj_1")).toBe("/disponibilite/pages/prj_1/composants/nouveau");
+    expect(componentPath("prj_1", "cmp_1")).toBe("/disponibilite/pages/prj_1/composants/cmp_1");
+  });
+
+  it("retrouvent un composant par son seul identifiant, et l'incident à corriger", () => {
+    expect(componentLookupPath("cmp 1")).toBe("/disponibilite/composants/cmp%201");
+    expect(editIncidentPath("inc_1")).toBe("/disponibilite/incidents/inc_1/modifier");
   });
 });
 

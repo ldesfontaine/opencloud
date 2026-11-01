@@ -1,11 +1,9 @@
-import { useId, useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 
 import { setMachinePlacement, useMachines, type KindID, type Machine } from "../../api/machines";
-import { Button } from "../../components/Button";
-import { Failure } from "../../components/Failure";
 import { Field } from "../../components/Field";
-import { Modal, ModalCancel } from "../../components/Modal";
+import { ModalForm } from "../../components/ModalForm";
 import { Select } from "../../components/Select";
 import { useAction } from "../../hooks/useAction";
 import { useT } from "../../i18n/context";
@@ -30,13 +28,11 @@ function PlacementDialog({ machine, all }: { machine: Machine; all: Machine[] })
   const t = useT();
   const navigate = useNavigate();
   const action = useAction();
-  const formID = useId();
   const initial = placementOf(machine);
   const [values, setValues] = useState<PlacementValues>(initial);
   const close = () => void navigate(`/machines/${machine.id}`, { replace: true });
 
-  const save = (event: FormEvent) => {
-    event.preventDefault();
+  const save = () => {
     action.run(() => setMachinePlacement(machine.id, values.kindOverride, values.hostOverride), { topic: "machines", onDone: close });
   };
 
@@ -45,34 +41,29 @@ function PlacementDialog({ machine, all }: { machine: Machine; all: Machine[] })
     ...kindIDs.map((kind) => ({ value: kind, label: t(`machine.kind_${kind}`) })),
   ];
   return (
-    <Modal
+    <ModalForm
       title={t("machine.placement_title", machine.name)}
       onClose={close}
       dirty={isPlacementModified(values, initial)}
-      actions={
-        <>
-          <ModalCancel />
-          <Button type="submit" form={formID} variant="primary" icon="check" disabled={action.busy || !isPlacementModified(values, initial)}>
-            {t("machine.placement_save")}
-          </Button>
-        </>
-      }
+      onSubmit={save}
+      submitLabel={t("machine.placement_save")}
+      submitIcon="check"
+      busy={action.busy}
+      canSubmit={isPlacementModified(values, initial)}
+      error={action.error}
     >
-      <form id={formID} className="modal-form" onSubmit={save}>
-        <p className="secondary">{t("machine.placement_text")}</p>
-        <Field label={t("machine.placement_kind")} htmlFor="placement-kind" help={t("machine.placement_kind_help")}>
-          <Select id="placement-kind" value={values.kindOverride} options={kindOptions} onChange={(kind) => setValues({ ...values, kindOverride: kind as KindID | "" })} />
-        </Field>
-        <Field label={t("machine.placement_host")} htmlFor="placement-host" help={t("machine.placement_host_help")}>
-          <Select
-            id="placement-host"
-            value={values.hostOverride}
-            options={hostOptions(t("machine.placement_host_none"), hostCandidates(machine, all))}
-            onChange={(host) => setValues({ ...values, hostOverride: host })}
-          />
-        </Field>
-        <Failure error={action.error} />
-      </form>
-    </Modal>
+      <p className="secondary">{t("machine.placement_text")}</p>
+      <Field label={t("machine.placement_kind")} htmlFor="placement-kind" help={t("machine.placement_kind_help")}>
+        <Select id="placement-kind" value={values.kindOverride} options={kindOptions} onChange={(kind) => setValues({ ...values, kindOverride: kind as KindID | "" })} />
+      </Field>
+      <Field label={t("machine.placement_host")} htmlFor="placement-host" help={t("machine.placement_host_help")}>
+        <Select
+          id="placement-host"
+          value={values.hostOverride}
+          options={hostOptions(t("machine.placement_host_none"), hostCandidates(machine, all))}
+          onChange={(host) => setValues({ ...values, hostOverride: host })}
+        />
+      </Field>
+    </ModalForm>
   );
 }

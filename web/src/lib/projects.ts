@@ -55,16 +55,6 @@ export function publicAddressOf(slug: string): string {
   return `/statut/${slug}`;
 }
 
-// Le projet dont l'écran des composants montre les composants : celui que
-// l'adresse demande s'il est dans la liste, sinon le premier ; aucun sans
-// projet.
-export function chosenProjectID(projects: readonly Pick<Project, "id">[], requested: string | null): string | null {
-  if (requested !== null && projects.some((project) => project.id === requested)) {
-    return requested;
-  }
-  return projects[0]?.id ?? null;
-}
-
 export function projectsSubtitle(t: Translate, count: number): string {
   if (count === 0) {
     return t("project.subtitle_none");
