@@ -195,9 +195,24 @@ qu'à l'écran qui le montre une fois, puis chez le client qui le garde
    d'un agent », plus bas). openCloud tire un jeton, en garde
    l'empreinte et les droits demandés, affiche le clair une seule fois avec la
    commande à coller.
-2. Sur la machine, en deux temps. D'abord la **préparation**, que le serveur
-   fabrique (`installPreparation`) et rend avec le jeton (`preparation`), à
-   jouer une fois en root : le compte `opencloud-agent` (`useradd --system`, sans
+2. Sur la machine, en **étapes** : le serveur rend avec le jeton la liste
+   `steps` (`installSteps`, `internal/server/install_steps.go`), un bloc à coller
+   par étape, que la page montre en cases numérotées (`InstallSteps`), chacune
+   avec son bouton « Copier » ; **le jeton n'est que dans le bloc `enroll`**
+   (un test le garde). Dans l'ordre : `stop` (un ré-enrôlement seulement :
+   arrêter l'unité, supprimer `identity.json`) ; `binary` (sauf sur la machine
+   openCloud : `scp root@<hôte de public_url>:/usr/local/bin/opencloud
+   /tmp/opencloud`, joué sur la machine, car le serveur n'offre pas son binaire
+   par HTTP ; l'hôte n'entre dans la ligne que s'il ne porte que des lettres,
+   chiffres, `. : -`, sinon `ADRESSE_DU_SERVEUR` reste à remplacer) ; `prepare` ;
+   `enroll` ; `unit` (l'unité `opencloud-agent.service` écrite par un heredoc
+   entre apostrophes, puis `daemon-reload` et `enable --now` ; son contenu,
+   `machine.AgentUnitLines`, est celui de `docs/installation/opencloud-agent.service`
+   sans les commentaires, un test échoue s'ils diffèrent) ; `rights` (le drop-in
+   `droits.conf` : `ReadWritePaths=` de la racine des services et des dossiers de
+   `backup.receive`, seulement quand un de ces droits est coché, puis `restart`).
+   Aucun renvoi à la documentation sur la page.
+   La **préparation** (`installPreparation`) se joue une fois en root : le compte `opencloud-agent` (`useradd --system`, sans
    shell, son dossier personnel est l'état de l'agent), le groupe `docker` s'il
    existe, l'état à ce compte, puis **sous le compte** (`runuser`) `bin/` et le
    binaire (`/tmp/opencloud` copié par l'opérateur, `/usr/local/bin/opencloud`
@@ -343,7 +358,10 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   s'ajoute toujours ; les droits se rangent dans l'ordre du tableau, les
   chemins triés, sans doublon (`machine.NormalizeCapabilities`).
 - **À l'émission** : `POST /api/machines/tokens` reçoit `{name,
-  capabilities: [{name, paths}]}` ; un droit inconnu, un chemin faux ou une
+  capabilities: [{name, paths}]}` et répond `{name, token, steps: [{id,
+  command}], proxmox_commands, expires_at, url_local}` (`command` et
+  `preparation` d'avant #447 sont remplacés par `steps` ; route réservée à
+  l'opérateur, `grantsAuthority`, comme `local-enrollment` et `reenroll`) ; un droit inconnu, un chemin faux ou une
   portée fausse se refusent en 422 (`machine.capability_unknown`,
   `machine.capability_path`, `machine.capability_scope`,
   `machine.capability_producer` : un producteur hors liste). Le jeton garde la
@@ -481,6 +499,23 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   rapporté ses droits sans celui-là est refusé tout de suite,
   `409 action.right_missing`, sans run ni journal. Tant que l'agent n'a rien
   rapporté, l'ordre part et l'agent juge.
+- **Un refus de droit porte son geste** (#447) : partout où l'interface dit qu'un
+  droit manque, elle montre « Ré-enrôler avec « <droit> » », qui ouvre la fenêtre
+  Ré-enrôler avec ce droit déjà coché (`reenrollPath`, `lib/rights.ts`). La cause
+  est corrigée au composant partagé : `Failure` reçoit la machine (`gesture`) et
+  lit le droit dans le refus (`deploy.right_missing`, `backup.right_missing`,
+  `backup.source_right_missing`) ou chez l'écran qui sait quel ordre il a envoyé ;
+  `MissingRight` dit un manque connu d'avance (déployer, mettre à jour un service,
+  mettre à jour l'agent, sondes vers le réseau local, destination, plan, ordres
+  refusés). Un droit coché d'avance reste un geste de l'opérateur : rien ne se
+  coche seul, le jeton neuf reste à créer.
+- **Un sélecteur de machine n'offre que celles qui conviennent** (#447) : la liste
+  garde toutes les machines, celles qui ne conviennent pas sont grisées avec la
+  raison et un lien (`unfitFor`, `MachineSelect`, option `disabled` de `Select`) :
+  destination (`backup.receive`), machine qui produit (`backup.produce`), machine
+  qui sonde (un agent actif), destinations d'un plan (`unfitDestination`).
+  Services, tâches, filtres et navigation entre machines ne demandent rien de la
+  machine : ils les offrent toutes.
 - **Les changer, c'est ré-enrôler** (décision 10, prise le 21 octobre 2026) :
   fiche › **Ré-enrôler**, dont la première étape montre les droits cochés du
   jeton courant ; « Créer le jeton » émet un jeton de ré-enrôlement avec les
@@ -536,7 +571,7 @@ toujours eue : c'est par lui qu'elle garde son historique.
 | Étape | Ce qui se passe |
 | --- | --- |
 | Premier démarrage | Tant que la machine openCloud n'a **jamais** eu d'agent (pas de ligne `local`, ou une ligne sans agent), `serve` émet le jeton de son agent (`OfferLocalEnrollment`) : `observe` et `probe.lan` (ses sondes visent d'abord ses propres services), nommé d'après le nom d'hôte (sans le domaine ; un nom d'hôte qui ne fait pas un nom de machine laisse `opencloud`), un jeton de ré-enrôlement si la ligne existe. Le clair ne vit qu'en mémoire. Le journal dit, en `INFO` et dans la langue de l'interface, qu'un jeton attend pour cette machine et où trouver la ligne ; **jamais le jeton** |
-| Première configuration | Le compte créé, l'écran montre la ligne d'installation de l'agent de cette machine (`POST /api/machines/local-enrollment` : le jeton déjà émis s'il attend encore, un neuf sinon), avec la préparation de la machine au-dessus d'elle (le compte `opencloud-agent`, son état, le binaire pris de `/usr/local/bin/opencloud`, sans lien dans `/usr/local/bin`) et le rappel d'activer `opencloud-agent.service` : la même installation que les autres machines. « Ouvrir l'interface » passe à la suite. Si la ligne ne s'obtient pas, l'interface s'ouvre directement |
+| Première configuration | Le compte créé, l'écran montre les étapes d'installation de l'agent de cette machine (`POST /api/machines/local-enrollment` : le jeton déjà émis s'il attend encore, un neuf sinon) : préparation (le compte `opencloud-agent`, son état, le binaire pris de `/usr/local/bin/opencloud`, sans lien dans `/usr/local/bin`), enrôlement, unité : la même installation que les autres machines, sans l'étape du binaire. « Ouvrir l'interface » passe à la suite. Si la ligne ne s'obtient pas, l'interface s'ouvre directement |
 | Ensuite | `409 machine.local_enrolled` dès que la machine a, ou a eu, un agent : un agent révoqué ne se réinstalle pas de lui-même. La ligne se redonne par la fiche › **Ré-enrôler**, ou par Ajouter une machine, jouée sur elle (l'empreinte la rattache à `local`) |
 | À chaque démarrage | Le jeton est émis de nouveau tant que la machine n'a jamais eu d'agent : celui d'avant, dont le clair est perdu, expire seul dans l'heure |
 | Hors ligne | Sans le flux de son agent, la machine openCloud est hors ligne, comme les autres ; tant qu'elle n'a pas d'agent actif, elle n'est jamais déclarée **perdue** |
@@ -4412,8 +4447,8 @@ services, des sondes et des tâches (« Les fenêtres d'une saisie ») :
 
 | Adresse | Fond | Fenêtre |
 | --- | --- | --- |
-| `/machines/nouvelle` | la liste | Ajouter une machine : trois étapes (nommer et choisir le rôle, droits sous « Avancé » ; la commande à coller ; l'attente de l'agent) |
-| `/machines/{id}/reenroller` | la fiche | Ré-enrôler, aussi pour changer les droits : trois étapes (les droits, cochés comme le jeton de l'agent courant les demandait ; la commande ; l'attente du nouvel agent) |
+| `/machines/nouvelle` | la liste | Ajouter une machine : trois étapes (nommer et choisir le rôle, droits sous « Avancé » ; les étapes à coller, une case et un bloc chacune ; l'attente de l'agent) |
+| `/machines/{id}/reenroller` | la fiche | Ré-enrôler, aussi pour changer les droits : trois étapes (les droits, cochés comme le jeton de l'agent courant les demandait ; les étapes à coller, la première arrête l'agent en place ; l'attente du nouvel agent). `?droit=<nom>[&chemin=<dossier>]` coche ce droit d'avance : c'est où mène « Ré-enrôler avec ce droit » |
 | `/machines/{id}/proxmox` | la fiche | Déclarer (ou modifier) l'hôte Proxmox : un `Wizard` dans la fenêtre, deux étapes (l'accès ; le certificat) puis le récapitulatif |
 
 Le jeton vit dans la fenêtre seule, jamais dans l'adresse ni dans l'historique :

@@ -929,9 +929,14 @@ détail, les refus et le journal d'audit :
 
 Dans l'interface : Machines → **Ajouter une machine**, un nom en lettres
 minuscules, chiffres et tirets, et les **droits** de l'agent à cocher.
-openCloud affiche une seule fois la ligne à coller, et au-dessus d'elle la
-**préparation** de la machine (étape 2). Avec les droits par défaut
-(`probe.lan` coché, voir ci-dessous), la ligne porte `-rights` :
+openCloud affiche une seule fois **cinq blocs à coller**, dans l'ordre, chacun
+avec son bouton Copier : le binaire (`scp`), la **préparation** (étape 2),
+l'enrôlement (étape 3), l'unité (étape 4) et, si un droit écrit ailleurs que dans
+l'état de l'agent, les dossiers qu'il autorise (le drop-in `droits.conf`, étape 4).
+Ce qui suit explique ces blocs ; la page, elle, suffit seule. Un ré-enrôlement en
+ajoute un premier : arrêter l'agent et supprimer `identity.json`. Avec les droits
+par défaut (`probe.lan` coché, voir ci-dessous), la ligne d'enrôlement porte
+`-rights` :
 
 ```sh
 printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://opencloud.example.org -rights observe,probe.lan
@@ -1201,7 +1206,7 @@ dédié, il ne lit pas celles des autres comptes, et ne doit pas recevoir
 **Un droit qui écrit ailleurs que dans l'état** (« Recevoir des sauvegardes »,
 « Déployer » et « Mettre à jour un service Docker ») demande un fichier de
 plus : l'unité n'écrit que dans son état (`ProtectSystem=strict`), le dossier
-du droit doit être autorisé. La page du jeton donne le fichier ; par exemple
+du droit doit être autorisé. La dernière étape de la page du jeton donne le fichier ; par exemple
 pour `/srv/backups` (le dossier est déjà créé, au compte de l'agent, par la
 préparation de l'étape 2) :
 

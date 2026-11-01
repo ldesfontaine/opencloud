@@ -6,7 +6,7 @@ import { alwaysGranted, capabilityLabelKey, capabilityNames, describeUnavailable
 // le sait, et où il mène l'opérateur : le ré-enrôlement, déjà coché du droit.
 
 // Un droit voulu : son nom et, pour un droit borné, le chemin à ajouter.
-export interface WantedRight {
+interface WantedRight {
   name: string;
   path: string;
 }
