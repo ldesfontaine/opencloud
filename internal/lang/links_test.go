@@ -24,7 +24,7 @@ func TestLinks_GoldenFile(t *testing.T) {
 		Label string `json:"label"`
 	}
 	var entries []entry
-	for _, link := range Links() {
+	for _, link := range links {
 		rendered, err := renderLink(link.ID, catalogs[French].strings)
 		if err != nil {
 			t.Fatal(err)

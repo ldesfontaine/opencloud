@@ -27,12 +27,6 @@ var links = []Link{
 	{"projects", "/services/projets", []string{"nav.services", "services.tab_projects"}},
 }
 
-// Links rend la liste fermée des cibles, pour le test de cohérence et pour
-// le banc du front (qui vérifie que chaque adresse existe encore).
-func Links() []Link {
-	return append([]Link(nil), links...)
-}
-
 const linkOpen = "{link:"
 
 // expandLinks remplace chaque {link:id} d'une valeur par son lien Markdown ;
