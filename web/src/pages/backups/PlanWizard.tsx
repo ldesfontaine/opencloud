@@ -13,8 +13,9 @@ import { Wizard, type WizardStep } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
-import { backupsPath, emptyPlanForm, planFormOf, planRequestOf, planTitle, producers, sourceKinds, sourceKindsFor, subjectProblem, type PlanFormValues } from "../../lib/backups";
+import { backupsPath, emptyPlanForm, unfitDestination, planFormOf, planRequestOf, planTitle, producers, sourceKinds, sourceKindsFor, subjectProblem, type PlanFormValues } from "../../lib/backups";
 import { isFormModified } from "../../lib/modal";
+import { unfitFor } from "../../lib/rights";
 import { GuestSelector } from "./GuestSelector";
 
 type PlanForm = ReturnType<typeof useForm<PlanFormValues>>;
@@ -43,9 +44,9 @@ function PlanDialog({ overview, editing }: { overview: Backups; editing: BackupP
   const t = useT();
   const navigate = useNavigate();
   const hasDatabasePlan = overview.plans.some((plan) => plan.source_kind === "database");
-  // Un plan neuf part de la première destination ; la saisie se compare à
+  // Un plan neuf part de la première destination qui convient ; la saisie se compare à
   // l'état d'ouverture, pas à ce que le direct relit ensuite.
-  const [initial] = useState(() => (editing === null ? { ...emptyPlanForm(hasDatabasePlan), destination: overview.destinations[0]?.id ?? "" } : planFormOf(editing)));
+  const [initial] = useState(() => (editing === null ? { ...emptyPlanForm(hasDatabasePlan), destination: overview.destinations.find((candidate) => unfitDestination(t, candidate) === null)?.id ?? "" } : planFormOf(editing)));
   const form = useForm(initial);
   const { values } = form;
   const action = useAction();
@@ -125,14 +126,17 @@ function stepsOf(t: Translate, form: PlanForm, overview: Backups, isEditing: boo
     {
       id: "destination",
       title: t("backup.plan_step_destination"),
-      validate: () => (overview.destinations.length === 0 ? "backup.plan_destination_missing" : null),
+      validate: () => (values.destination !== "" ? null : overview.destinations.length === 0 ? "backup.plan_destination_missing" : "backup.plan_destination_unfit"),
       render: () => (
         <>
           <Field label={t("backup.plan_destination_label")} htmlFor="backup-plan-destination">
             <Select
               id="backup-plan-destination"
               value={values.destination}
-              options={overview.destinations.map((candidate) => ({ value: candidate.id, label: candidate.name }))}
+              options={overview.destinations.map((candidate) => {
+                const unfit = unfitDestination(t, candidate);
+                return unfit === null ? { value: candidate.id, label: candidate.name } : { value: candidate.id, label: candidate.name, disabled: true, reason: unfit.reason, link: unfit.link };
+              })}
               onChange={(chosen) => change("destination", chosen)}
             />
           </Field>
@@ -165,7 +169,7 @@ function AgentSource({ form }: { form: PlanForm }) {
     <>
       <Failure error={machines.error} />
       <Field label={t("backup.plan_machine")} htmlFor="backup-plan-machine" help={t("backup.plan_machine_help")}>
-        <MachineSelect id="backup-plan-machine" machines={machines.data?.machines ?? []} value={values.machine} onChange={(id) => change("machine", id)} noneLabel={t("backup.destination_machine_choose")} />
+        <MachineSelect id="backup-plan-machine" machines={machines.data?.machines ?? []} fit={(machine) => unfitFor(t, machine, "backup.produce")} value={values.machine} onChange={(id) => change("machine", id)} noneLabel={t("backup.destination_machine_choose")} />
       </Field>
       <Field label={t("backup.plan_producer")} htmlFor="backup-plan-producer">
         <EnumSelect id="backup-plan-producer" value={values.producer} values={producers} labelKey="backup.producer_" onChange={(producer) => change("producer", producer)} />

@@ -165,6 +165,31 @@
   }
 }
 
+// Une option qui ne convient pas : grisée, avec sa raison et le lien qui y
+// remédie sur une seconde ligne.
+.select-option-disabled {
+  flex-wrap: wrap;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  cursor: default;
+
+  .select-option-label {
+    color: var(--muted);
+  }
+
+  .select-option-reason {
+    flex-basis: 100%;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: normal;
+
+    a {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+  }
+}
+
 .select-hint {
   color: var(--muted);
   font-size: 12px;

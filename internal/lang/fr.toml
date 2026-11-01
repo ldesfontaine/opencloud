@@ -2790,6 +2790,7 @@ plan_step_destination = "Destination et rétention"
 plan_machine_missing = "Choisissez la machine qui produit la sauvegarde."
 plan_selector_missing = "Indiquez ce que le plan sauvegarde (« all » ou des identifiants)."
 plan_destination_missing = "Ajoutez d'abord une destination : un plan a besoin d'un endroit où envoyer ses sauvegardes."
+plan_destination_unfit = "Aucune destination ne peut recevoir pour l'instant : ouvrez la liste, le lien sous chacune dit quoi faire."
 
 [deploy]
 title = "Déploiement"

@@ -68,13 +68,17 @@ export interface Unfit {
   link: { to: string; label: string };
 }
 
-// Dit si la machine peut faire ce que demande right, ou pourquoi elle ne le
-// peut pas. Un droit coché que le compte de l'agent ne peut pas exercer ne
-// convient pas non plus : la raison est celle que la fiche donne.
-export function unfitFor(t: Translate, machine: Pick<Machine, "id" | "agent">, right: string): Unfit | null {
+// Dit si la machine peut faire ce que demande right (null : il suffit d'un
+// agent actif), ou pourquoi elle ne le peut pas. Un droit coché que le compte
+// de l'agent ne peut pas exercer ne convient pas non plus : la raison est celle
+// que la fiche donne.
+export function unfitFor(t: Translate, machine: Pick<Machine, "id" | "agent">, right: string | null): Unfit | null {
   const agent = machine.agent;
   if (agent === null || agent.revoked_at !== null) {
     return { reason: t("machine.fit_no_agent"), link: { to: reenrollPath(machine.id), label: t("machine.fit_enroll") } };
+  }
+  if (right === null) {
+    return null;
   }
   const held = heldRights(agent).find((capability) => capability.name === right);
   if (held === undefined) {

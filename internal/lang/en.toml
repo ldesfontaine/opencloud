@@ -2790,6 +2790,7 @@ plan_step_destination = "Destination and retention"
 plan_machine_missing = "Choose the machine that produces the backup."
 plan_selector_missing = "Say what the plan backs up (\"all\" or identifiers)."
 plan_destination_missing = "Add a destination first: a plan needs somewhere to send its backups."
+plan_destination_unfit = "No destination can receive right now: open the list, the link under each one says what to do."
 
 [deploy]
 title = "Deployment"

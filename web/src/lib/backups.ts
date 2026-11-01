@@ -1,6 +1,7 @@
-import type { BackupObserved, BackupPlan, BackupRun, BackupSource, BackupSourceKind, Backups, PlanRequest } from "../api/backups";
+import type { BackupDestination, BackupObserved, BackupPlan, BackupRun, BackupSource, BackupSourceKind, Backups, PlanRequest } from "../api/backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 import type { Translate } from "../i18n/context";
+import { reenrollPath, type Unfit } from "./rights";
 
 // Les adresses de la page et de ses fenêtres.
 export const backupsPath = "/sauvegardes";
@@ -255,4 +256,17 @@ export function runReasonText(t: Translate, reason: string, describeReason: (rea
     return "";
   }
   return reason.startsWith("backup.") ? t(reason) : describeReason(reason);
+}
+
+// Une destination dont l'agent n'a plus le droit de recevoir ici ne convient
+// pas à un plan : elle reste dans la liste, grisée, avec la raison et le lien
+// qui y remédie. « unknown » (droits pas encore rapportés) laisse choisir.
+export function unfitDestination(t: Translate, destination: Pick<BackupDestination, "machine_id" | "path" | "right">): Unfit | null {
+  if (destination.right === "missing") {
+    return { reason: t("backup.right_missing"), link: { to: reenrollPath(destination.machine_id, { name: "backup.receive", path: destination.path }), label: t("machine.reenroll_with_right") } };
+  }
+  if (destination.right === "unavailable") {
+    return { reason: t("backup.right_unavailable"), link: { to: `/machines/${destination.machine_id}`, label: t("machine.fit_open") } };
+  }
+  return null;
 }
