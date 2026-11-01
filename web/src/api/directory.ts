@@ -323,7 +323,9 @@ function proposalPath(source: ProposalSource): string {
   if ("container" in source) {
     return `${directoryPath}/proposal?container=${segment(source.container)}`;
   }
-  return `${directoryPath}/proposal?machine=${segment(source.machine)}&unit=${segment(source.unit)}`;
+  // Le nom d'une unité n'est pas un identifiant (il porte un point) : il
+  // s'échappe comme un texte, la machine, elle, reste un identifiant.
+  return `${directoryPath}/proposal?machine=${segment(source.machine)}&unit=${encodeURIComponent(source.unit)}`;
 }
 
 // Ce que le serveur propose pour cette source ; source nulle : rien à lire.

@@ -353,6 +353,22 @@ function UnitEditor({
 }) {
   const t = useT();
   const prefix = `unit-${String(index)}`;
+  // Le port d'un binaire est ce que le relevé systemd ne dit pas : il se
+  // demande à côté de l'unité, pas sous « Avancé ». Pour un conteneur, il
+  // vient de la détection et reste un réglage fin.
+  const portsField = (
+    <Field label={t("directory.unit_ports_label")} htmlFor={`${prefix}-ports`} help={t("directory.unit_ports_help")}>
+      <Input
+        id={`${prefix}-ports`}
+        mono
+        type="text"
+        value={unit.ports}
+        onChange={(event) => change("ports", event.target.value)}
+        placeholder={t("directory.unit_ports_placeholder")}
+        autoComplete="off"
+      />
+    </Field>
+  );
   return (
     <div className="unit-card">
       <div className="unit-head">
@@ -402,23 +418,14 @@ function UnitEditor({
             />
           </Field>
         )}
+        {origin === "binary" && portsField}
       </div>
-      <Fold label={t("wizard.advanced")} initiallyOpen={hasAdvancedUnitValues(unit)}>
+      <Fold label={t("wizard.advanced")} initiallyOpen={hasAdvancedUnitValues(unit, origin)}>
         <div className="grid-2">
           <Field label={t("directory.unit_version_label")} htmlFor={`${prefix}-version`} help={t("directory.unit_version_help")}>
             <Input id={`${prefix}-version`} mono type="text" value={unit.version} onChange={(event) => change("version", event.target.value)} maxLength={128} autoComplete="off" />
           </Field>
-          <Field label={t("directory.unit_ports_label")} htmlFor={`${prefix}-ports`} help={t("directory.unit_ports_help")}>
-            <Input
-              id={`${prefix}-ports`}
-              mono
-              type="text"
-              value={unit.ports}
-              onChange={(event) => change("ports", event.target.value)}
-              placeholder={t("directory.unit_ports_placeholder")}
-              autoComplete="off"
-            />
-          </Field>
+          {origin !== "binary" && portsField}
         </div>
         {origin !== "binary" && (
           <>

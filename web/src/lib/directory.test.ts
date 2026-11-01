@@ -263,14 +263,19 @@ describe("unitSummary", () => {
 
 describe("hasAdvancedUnitValues", () => {
   it("est faux pour une unité neuve ou à peine nommée", () => {
-    expect(hasAdvancedUnitValues(emptyUnitForm())).toBe(false);
-    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), name: "app", image: "x" })).toBe(false);
+    expect(hasAdvancedUnitValues(emptyUnitForm(), "compose")).toBe(false);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), name: "app", image: "x" }, "compose")).toBe(false);
   });
 
   it("est vrai dès qu'un réglage technique est rempli", () => {
-    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), ports: "80" })).toBe(true);
-    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), dataPath: "/data" })).toBe(true);
-    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), updatePolicy: "hold" })).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), ports: "80" }, "compose")).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), dataPath: "/data" }, "container")).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), updatePolicy: "hold" }, "container")).toBe(true);
+  });
+
+  it("ne compte pas le port d'un binaire : il est demandé hors du pli", () => {
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), ports: "3000" }, "binary")).toBe(false);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), version: "9.0" }, "binary")).toBe(true);
   });
 });
 

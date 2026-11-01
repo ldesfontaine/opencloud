@@ -27,7 +27,7 @@ describe("isShown", () => {
 
   test("la vue et le texte se cumulent", () => {
     expect(isShown(forgejo, "failed", "forge")).toBe(false);
-    expect(isShown(backup, "failed", "back")).toBe(true);
+    expect(isShown(backup, "failed", "night")).toBe(true);
   });
 });
 

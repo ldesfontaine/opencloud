@@ -216,9 +216,11 @@ export function unitSummary(unit: UnitFormValues, origin: Origin): string {
 
 // Les réglages techniques d'une unité (version, ports, dossier de données,
 // empreinte, politique) sont-ils remplis ? Le pli « Avancé » s'ouvre alors :
-// ce qu'une proposition a rempli ne reste pas caché.
-export function hasAdvancedUnitValues(unit: UnitFormValues): boolean {
-  return [unit.version, unit.ports, unit.dataPath, unit.digest].some((value) => value.trim() !== "") || unit.updatePolicy !== "watch";
+// ce qu'une proposition a rempli ne reste pas caché. Le port d'un binaire n'y
+// est pas : il se demande à côté de l'unité.
+export function hasAdvancedUnitValues(unit: UnitFormValues, origin: Origin): boolean {
+  const ports = origin === "binary" ? "" : unit.ports;
+  return [unit.version, ports, unit.dataPath, unit.digest].some((value) => value.trim() !== "") || unit.updatePolicy !== "watch";
 }
 
 export function toggled<Value>(values: readonly Value[], value: Value): Value[] {
