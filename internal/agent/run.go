@@ -30,6 +30,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/wait"
 )
@@ -85,6 +86,8 @@ type Options struct {
 	// vraie machine. Non exporté, pour la même raison que readSSHKeys.
 	detectRoles func() role.Report
 	readHost    func(ctx context.Context) hostinfo.Report
+	// readUnits relève les unités systemd ; nil vaut la vraie machine.
+	readUnits func(ctx context.Context) systemdunits.Report
 	// GuardVersion est la version du lanceur stable sous lequel l'agent tourne
 	// (GuardVersionFromEnv), 0 s'il n'en a pas : l'agent ne rapporte alors pas
 	// de retour arrière, et refuse de basculer son lien.
@@ -220,8 +223,15 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	hostReported := &hostReports{}
 	go hostLoop(ctx, readMachineHost, hostReported, hostPeriod, opts.Logger)
+	// Les unités systemd : relevées de même, en lecture seule, à part du flux.
+	readMachineUnits := opts.readUnits
+	if readMachineUnits == nil {
+		readMachineUnits = readUnits
+	}
+	unitsReported := &unitReports{}
+	go unitsLoop(ctx, readMachineUnits, unitsReported, unitsPeriod, opts.Logger)
 	err = keepConnected(ctx, client, identity, &pending{
-		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported, host: hostReported,
+		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported, host: hostReported, units: unitsReported,
 		logs: watcher, probes: prober, updates: updater, orders: orders, outcome: outcome,
 	}, catalogs.For(identity.Language), opts)
 	if updated.Load() {
@@ -242,6 +252,7 @@ type pending struct {
 	sshKeys  *sshReports
 	roles    *roleReports
 	host     *hostReports
+	units    *unitReports
 	logs     container.LogSource
 	probes   probe.Assignable
 	updates  update.Assignable
@@ -413,6 +424,7 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	pending.sshKeys.markReplayed()
 	pending.roles.markReplayed()
 	pending.host.markReplayed()
+	pending.units.markReplayed()
 
 	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, pending.orders, opts.Logger)
 	lost := make(chan error, 1)
@@ -457,6 +469,7 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 			sshKeys:    pending.sshKeys.take(),
 			roles:      pending.roles.take(),
 			host:       pending.host.take(),
+			units:      pending.units.take(),
 		}
 		rejected, err := client.Signal(ctx, session, sent.request())
 		var refused *ServerError
@@ -499,10 +512,11 @@ type signalBatch struct {
 	sshKeys    *sshkeys.Report
 	roles      *role.Report
 	host       *hostinfo.Report
+	units      *systemdunits.Report
 }
 
 func (b signalBatch) request() agentwire.SignalRequest {
-	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys, Roles: b.roles, Host: b.host}
+	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys, Roles: b.roles, Host: b.host, SystemdUnits: b.units}
 }
 
 // restoreAfter remet dans le tampon les sections qui suivent celle
@@ -541,6 +555,8 @@ func (b signalBatch) restore(pending *pending, section string) {
 		pending.roles.restore(b.roles)
 	case agentwire.SectionHost:
 		pending.host.restore(b.host)
+	case agentwire.SectionSystemd:
+		pending.units.restore(b.units)
 	}
 }
 

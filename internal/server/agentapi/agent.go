@@ -26,6 +26,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -412,7 +413,19 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	if request.Host != nil {
 		keep(agentwire.SectionHost, h.recordHost(ctx, machineID, *request.Host), hostinfo.ErrReportInvalid)
 	}
+	if request.SystemdUnits != nil {
+		keep(agentwire.SectionSystemd, h.recordSystemdUnits(ctx, machineID, *request.SystemdUnits), systemdunits.ErrReportInvalid)
+	}
 	return rejected, failed
+}
+
+// recordSystemdUnits écrit le relevé des unités systemd ; sans composant, la
+// section est refusée.
+func (h *Handler) recordSystemdUnits(ctx context.Context, machineID string, report systemdunits.Report) error {
+	if h.systemd == nil {
+		return systemdunits.ErrReportInvalid
+	}
+	return h.systemd.Record(ctx, machineID, report)
 }
 
 // recordHost écrit où tourne la machine et ses disques ; sans composant, la

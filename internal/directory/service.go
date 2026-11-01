@@ -87,6 +87,7 @@ type Directory struct {
 	watcher    Watcher
 	containers Containers
 	checks     ImageChecks
+	units      Units
 	rematcher  Rematcher
 	assigner   Assigner
 	auditor    *audit.Recorder

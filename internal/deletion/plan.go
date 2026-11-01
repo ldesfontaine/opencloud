@@ -29,6 +29,7 @@ const (
 	KindContainerEvents  Kind = "container_events"
 	KindImageChecks      Kind = "image_checks"
 	KindSSHKeys          Kind = "ssh_keys"
+	KindSystemdUnits     Kind = "systemd_units"
 	// L'hôte Proxmox déclaré sur la machine part avec elle ; les VM d'un autre
 	// hôte qui lui étaient rapprochées restent, sans le lien.
 	KindProxmoxHosts   Kind = "proxmox_hosts"
@@ -53,7 +54,7 @@ func Kinds() []Kind {
 	return []Kind{
 		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindBackupDestinations, KindBackupPlans,
 		KindAgents, KindEnrollmentTokens, KindMachineSamples, KindMachineNetworks, KindMachineVolumes, KindContainers,
-		KindContainerEvents, KindImageChecks, KindSSHKeys, KindProxmoxHosts, KindProxmoxLinks, KindIgnoredKeys, KindSilences,
+		KindContainerEvents, KindImageChecks, KindSSHKeys, KindSystemdUnits, KindProxmoxHosts, KindProxmoxLinks, KindIgnoredKeys, KindSilences,
 		KindProbeResults, KindProbeDays, KindHeartbeatPings, KindHeartbeatRuns,
 		KindUnits, KindMembers, KindAlerts, KindProjectLinks, KindIncidentLinks, KindPublications,
 	}

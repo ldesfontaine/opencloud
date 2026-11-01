@@ -20,6 +20,7 @@ var machineModuleRules = map[module.ID]string{
 	module.Hypervisor: `m.role = 'proxmox' OR EXISTS (SELECT 1 FROM machine_proxmox h WHERE h.machine_id = m.id)`,
 	module.Guest:      `EXISTS (SELECT 1 FROM proxmox_guests g WHERE g.linked_machine_id = m.id)`,
 	module.SSHKeys:    `EXISTS (SELECT 1 FROM ssh_reports r WHERE r.machine_id = m.id)`,
+	module.Systemd:    `EXISTS (SELECT 1 FROM systemd_reports r WHERE r.machine_id = m.id AND r.available = 1)`,
 	module.Probes:     `EXISTS (SELECT 1 FROM probes p WHERE p.machine_id = m.id)`,
 }
 

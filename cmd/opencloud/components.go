@@ -33,6 +33,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/verbrequest"
 	"github.com/ldesfontaine/opencloud/internal/version"
@@ -46,6 +47,7 @@ type components struct {
 	db           *store.DB
 	actions      *action.Service
 	sshKeys      *sshkeys.Service
+	systemd      *systemdunits.Service
 	roles        *role.Service
 	proxmox      *proxmox.Service
 	firewalls    *firewall.Service
@@ -149,6 +151,9 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	}
 	// Les clés SSH autorisées que les agents relèvent, en lecture seule.
 	sshKeys := sshkeys.New(db, logger)
+	// Les unités systemd que les agents relèvent, en lecture seule.
+	systemd := systemdunits.New(db, logger)
+	declared.SetUnits(systemd)
 	roles := role.New(db, logger)
 	// Les hôtes Proxmox que des machines déclarent, lus en lecture seule ; la
 	// boucle de relevé est à serve seul.
@@ -191,7 +196,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, apiTokens: apiTokens, verbRequests: verbRequests, operator: operator,
-		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, deployer: deployer,
+		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, systemd: systemd, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, deployer: deployer,
 	}, nil
 }
 
@@ -221,6 +226,7 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		Auth:           c.operator,
 		Actions:        c.actions,
 		SSHKeys:        c.sshKeys,
+		Systemd:        c.systemd,
 		Roles:          c.roles,
 		Host:           c.machines,
 		Proxmox:        c.proxmox,

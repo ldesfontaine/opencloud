@@ -11,6 +11,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -38,6 +39,8 @@ func TestWire_JSONLabelsAreFrozen(t *testing.T) {
 			`{"actions":{"results":[{"run_id":"r","state":"refused","reason":"replayed"}]}}`},
 		{"ssh keys section", SignalRequest{SSHKeys: &sshkeys.Report{Accounts: []sshkeys.Account{{Name: "root", State: sshkeys.StateNone, Keys: []sshkeys.Key{}}}}},
 			`{"ssh_keys":{"accounts":[{"name":"root","uid":0,"state":"none","truncated":false,"ignored":0,"keys":[]}],"truncated":false}}`},
+		{"systemd units section", SignalRequest{SystemdUnits: &systemdunits.Report{Available: true, Units: []systemdunits.Unit{{Name: "forgejo.service", Load: systemdunits.LoadLoaded, Active: systemdunits.ActiveActive, Sub: systemdunits.SubRunning}}}},
+			`{"systemd_units":{"available":true,"units":[{"name":"forgejo.service","load":"loaded","active":"active","sub":"running"}]}}`},
 		{"order body", OrderBody{RunID: "r", MachineID: "m", AgentID: "a", Kind: KindAgentPing, NotAfter: 1, Seq: 2},
 			`{"run_id":"r","machine_id":"m","agent_id":"a","kind":"agent.ping","not_after":1,"seq":2}`},
 		{"signed order", SignedOrder{Body: []byte("{}"), Signature: []byte{1}, Key: "SHA256:x"}, `{"body":"e30=","signature":"AQ==","key":"SHA256:x"}`},
@@ -57,7 +60,7 @@ func TestWire_JSONLabelsAreFrozen(t *testing.T) {
 // Le serveur écrit les sections dans cet ordre, et un agent lit « bad_services »
 // pour la section des conteneurs : clés figées.
 func TestSignalSections_KeepTheirOrderAndRefusalKeys(t *testing.T) {
-	want := []string{"readings", "services", "probes", "images", "actions", "ssh_keys", "roles", "host"}
+	want := []string{"readings", "services", "probes", "images", "actions", "ssh_keys", "roles", "host", "systemd_units"}
 	got := SignalSections()
 	if len(got) != len(want) {
 		t.Fatalf("sections %v", got)

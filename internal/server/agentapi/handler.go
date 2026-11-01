@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -87,6 +88,12 @@ type SSHKeysService interface {
 	Record(ctx context.Context, machineID string, report sshkeys.Report) error
 }
 
+// Ce que l'agent attend du composant systemdunits : le signal écrit le relevé
+// des unités systemd de sa machine.
+type SystemdUnitsService interface {
+	Record(ctx context.Context, machineID string, report systemdunits.Report) error
+}
+
 // Ce que l'agent attend du composant role : le signal écrit ce que l'agent
 // reconnaît sur sa machine.
 type RolesService interface {
@@ -108,6 +115,7 @@ type Options struct {
 	Updates    UpdateService
 	Actions    ActionService
 	SSHKeys    SSHKeysService
+	Systemd    SystemdUnitsService
 	Roles      RolesService
 	Host       HostService
 	// ClientAddress rend l'adresse du client telle que le serveur la résout,
@@ -126,6 +134,7 @@ type Handler struct {
 	updates       UpdateService
 	actions       ActionService
 	sshKeys       SSHKeysService
+	systemd       SystemdUnitsService
 	roles         RolesService
 	host          HostService
 	clientAddress func(r *http.Request) string
@@ -144,6 +153,7 @@ func New(opts Options) *Handler {
 		updates:       opts.Updates,
 		actions:       opts.Actions,
 		sshKeys:       opts.SSHKeys,
+		systemd:       opts.Systemd,
 		roles:         opts.Roles,
 		host:          opts.Host,
 		clientAddress: opts.ClientAddress,

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -51,6 +52,9 @@ type unitJSON struct {
 	// Ce que l'opérateur veut des mises à jour de l'image : watch, hold,
 	// ignore.
 	UpdatePolicy string `json:"update_policy"`
+	// Ce que le relevé des unités systemd dit d'une unité binaire ; nul pour
+	// une unité conteneur.
+	Observed *observedUnitJSON `json:"observed"`
 }
 
 // La fiche d'un service déclaré dit en plus ce qui le lie : tant que des
@@ -174,6 +178,24 @@ func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
 	}
 }
 
+// observedServices écrit les services pour le front, chaque unité binaire avec
+// ce que le relevé de sa machine en dit : un seul relevé lu pour toute la liste.
+func (s *Server) observedServices(ctx context.Context, services []directory.Service) ([]declaredServiceJSON, error) {
+	observed, err := s.directory.ObservedUnits(ctx, services)
+	if err != nil {
+		return nil, err
+	}
+	written := httpx.ConvertAll(services, declaredServiceToJSON)
+	for index := range written {
+		for position := range written[index].Units {
+			if observation, ok := observed[written[index].Units[position].ID]; ok {
+				written[index].Units[position].Observed = observedUnitOf(observation)
+			}
+		}
+	}
+	return written, nil
+}
+
 func unitToJSON(unit directory.Unit) unitJSON {
 	return unitJSON{
 		ID:            unit.ID,
@@ -286,8 +308,11 @@ func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := declaredServicesResponse{Services: httpx.ConvertAll(found, declaredServiceToJSON)}
-	s.writeAPI(w, http.StatusOK, response)
+	services, err := s.observedServices(r.Context(), found)
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, declaredServicesResponse{Services: services})
 }
 
 func (s *Server) getDeclaredService(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +324,11 @@ func (s *Server) getDeclaredService(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, declaredServiceDetailJSON{declaredServiceJSON: declaredServiceToJSON(found), Links: linksToJSON(links)})
+	observed, err := s.observedServices(r.Context(), []directory.Service{found})
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, declaredServiceDetailJSON{declaredServiceJSON: observed[0], Links: linksToJSON(links)})
 }
 
 // L'opérateur déclare le service, ses unités et ce qu'il fournit ; le
@@ -313,7 +342,11 @@ func (s *Server) createDeclaredService(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusCreated, declaredServiceToJSON(created))
+	observed, err := s.observedServices(r.Context(), []directory.Service{created})
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, observed[0])
 }
 
 // L'édition remplace la définition entière : les unités dont le corps
@@ -327,7 +360,11 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, directory.ErrNotFound) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(updated))
+	observed, err := s.observedServices(r.Context(), []directory.Service{updated})
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, observed[0])
 }
 
 // Supprimer un service que des sondes ou des composants de statut visent

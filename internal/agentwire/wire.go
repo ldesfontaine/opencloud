@@ -8,6 +8,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -142,6 +143,10 @@ type SignalRequest struct {
 	// envoyé quand il change et à chaque ouverture du flux. Un agent plus vieux
 	// ne l'envoie pas : le type de la machine reste inconnu.
 	Host *hostinfo.Report `json:"host,omitempty"`
+	// Les unités de service systemd de la machine, nom et états seulement : le
+	// dernier relevé, envoyé quand il change et à chaque ouverture du flux. Un
+	// agent plus vieux ne l'envoie pas : la machine n'a pas d'unités relevées.
+	SystemdUnits *systemdunits.Report `json:"systemd_units,omitempty"`
 }
 
 // Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
@@ -156,11 +161,12 @@ const (
 	SectionSSHKeys  = "ssh_keys"
 	SectionRoles    = "roles"
 	SectionHost     = "host"
+	SectionSystemd  = "systemd_units"
 )
 
 // SignalSections rend les sections dans l'ordre où le serveur les écrit.
 func SignalSections() []string {
-	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles, SectionHost}
+	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles, SectionHost, SectionSystemd}
 }
 
 // SectionRefusal rend la clé d'erreur d'une section refusée.

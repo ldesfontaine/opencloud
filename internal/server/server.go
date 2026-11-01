@@ -43,6 +43,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/web"
 )
@@ -160,6 +161,12 @@ type DirectoryService interface {
 	Ignore(ctx context.Context, key directory.IgnoredKey) error
 	Unignore(ctx context.Context, key directory.IgnoredKey) error
 	ContainerLink(ctx context.Context, item container.Container) (directory.ContainerLink, error)
+	// Les unités systemd relevées : celles d'une machine avec le service
+	// déclaré qui les porte, l'état des unités binaires déclarées, et la
+	// proposition pour une unité non déclarée.
+	MachineUnits(ctx context.Context, machineID string) (systemdunits.Snapshot, []directory.MachineUnit, error)
+	ObservedUnits(ctx context.Context, services []directory.Service) (map[string]directory.UnitObservation, error)
+	ProposeUnit(ctx context.Context, machineID, unitName string) (directory.Proposal, error)
 }
 
 // Ce que le serveur attend du composant manifest : le fichier de l'annuaire,
@@ -289,6 +296,15 @@ type SSHKeysService interface {
 	Matrix(ctx context.Context) ([]sshkeys.Snapshot, error)
 }
 
+// Ce que le serveur attend du composant systemdunits : le relevé d'une machine
+// et celui de toutes, pour l'état des unités déclarées. Le signal de l'agent
+// l'écrit (agentapi).
+type SystemdUnitsService interface {
+	Record(ctx context.Context, machineID string, report systemdunits.Report) error
+	Machine(ctx context.Context, machineID string) (systemdunits.Snapshot, error)
+	All(ctx context.Context) ([]systemdunits.Snapshot, error)
+}
+
 // Ce que le serveur attend du composant proxmox : déclarer et retirer l'hôte
 // d'une machine. Ce que la fiche lit passe par le Reader.
 type ProxmoxService interface {
@@ -358,6 +374,7 @@ type Server struct {
 	auth         AuthService
 	actions      ActionService
 	sshKeys      SSHKeysService
+	systemd      SystemdUnitsService
 	proxmox      ProxmoxService
 	firewalls    FirewallService
 	backups      Backups
@@ -431,6 +448,8 @@ type Options struct {
 	Actions ActionService
 	// SSHKeys garde le relevé des clés SSH autorisées ; voir api_sshkeys.go.
 	SSHKeys SSHKeysService
+	// Systemd garde le relevé des unités systemd ; voir api_systemd.go.
+	Systemd SystemdUnitsService
 	// Roles garde ce que l'agent reconnaît sur sa machine ; le signal l'écrit.
 	Roles agentapi.RolesService
 	// Host garde où tourne la machine et ses disques ; le signal l'écrit.
@@ -502,6 +521,7 @@ func New(opts Options) (*Server, error) {
 		auth:           opts.Auth,
 		actions:        opts.Actions,
 		sshKeys:        opts.SSHKeys,
+		systemd:        opts.Systemd,
 		proxmox:        opts.Proxmox,
 		firewalls:      opts.Firewalls,
 		backups:        opts.Backups,
@@ -533,6 +553,7 @@ func New(opts Options) (*Server, error) {
 		Updates:       opts.Updates,
 		Actions:       opts.Actions,
 		SSHKeys:       opts.SSHKeys,
+		Systemd:       opts.Systemd,
 		Roles:         opts.Roles,
 		Host:          opts.Host,
 		ClientAddress: server.clientAddress,

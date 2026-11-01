@@ -29,6 +29,7 @@ GET /api/machines/{id}/containers
 GET /api/machines/{id}/network
 GET /api/machines/{id}/probes
 GET /api/machines/{id}/ssh-keys
+GET /api/machines/{id}/systemd-units
 GET /api/machines/{id}/proxmox
 PUT /api/machines/{id}/proxmox
 POST /api/machines/{id}/actions/remove-proxmox

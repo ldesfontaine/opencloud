@@ -13,6 +13,8 @@ const (
 	Guest ID = "guest"
 	// Les clés SSH que l'agent a relevées sur la machine.
 	SSHKeys ID = "ssh_keys"
+	// Les unités systemd que l'agent a relevées sur la machine.
+	Systemd ID = "systemd_units"
 	// La disponibilité : les sondes, et les pages publiques des projets
 	// publiés. Sur une machine, ses sondes seules.
 	Probes ID = "probes"
@@ -45,6 +47,7 @@ var registry = []module{
 	{Hypervisor, []Scope{ScopeMachine}},
 	{Guest, []Scope{ScopeMachine}},
 	{SSHKeys, []Scope{ScopeMachine}},
+	{Systemd, []Scope{ScopeMachine}},
 	{Probes, []Scope{ScopeMachine, ScopeInstallation}},
 	{Firewall, []Scope{ScopeInstallation}},
 	{Backups, []Scope{ScopeInstallation}},

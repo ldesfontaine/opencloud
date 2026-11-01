@@ -61,6 +61,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/machines/{id}/network", s.getMachineNetwork},
 		{"GET", "/api/machines/{id}/probes", s.listMachineProbes},
 		{"GET", "/api/machines/{id}/ssh-keys", s.getMachineSSHKeys},
+		{"GET", "/api/machines/{id}/systemd-units", s.getMachineSystemdUnits},
 		{"GET", "/api/machines/{id}/proxmox", s.getMachineProxmox},
 		{"PUT", "/api/machines/{id}/proxmox", s.setMachineProxmox},
 		// Un retrait en action et non en DELETE /api/machines/{id}/proxmox : ce

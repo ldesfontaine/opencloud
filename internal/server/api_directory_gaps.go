@@ -7,6 +7,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
@@ -177,18 +178,32 @@ func (s *Server) getDirectoryGaps(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, response)
 }
 
+// La proposition part d'un conteneur (?container=) ou d'une unité systemd
+// relevée (?machine=&unit=).
 func (s *Server) getDirectoryProposal(w http.ResponseWriter, r *http.Request) {
-	proposal, err := s.directory.Propose(r.Context(), r.URL.Query().Get("container"))
-	// Un 404 qui garde sa clé : le front dit que le conteneur est parti, pas
-	// que la route manque. refusal ne porte que 422 et 409.
+	proposal, err := s.proposalOf(r)
+	// Un 404 qui garde sa clé : le front dit que le conteneur ou l'unité est
+	// parti, pas que la route manque. refusal ne porte que 422 et 409.
 	if errors.Is(err, directory.ErrContainerNotFound) {
 		s.apiRefuse(w, http.StatusNotFound, "directory.container_not_found")
+		return
+	}
+	if errors.Is(err, directory.ErrSystemdUnitNotObserved) || errors.Is(err, machine.ErrNotFound) {
+		s.apiRefuse(w, http.StatusNotFound, "directory.systemd_unit_not_observed")
 		return
 	}
 	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, proposalResponse{Definition: declaredServiceRequestOf(proposal.Definition)})
+}
+
+func (s *Server) proposalOf(r *http.Request) (directory.Proposal, error) {
+	query := r.URL.Query()
+	if unit := query.Get("unit"); unit != "" {
+		return s.directory.ProposeUnit(r.Context(), query.Get("machine"), unit)
+	}
+	return s.directory.Propose(r.Context(), query.Get("container"))
 }
 
 // declaredServiceRequestOf est l'inverse de declaredServiceDefinition : la
