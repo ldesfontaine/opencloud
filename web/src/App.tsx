@@ -10,13 +10,20 @@ import { ApplyDetail } from "./pages/ApplyDetail";
 import { Applies } from "./pages/Applies";
 import { Audit } from "./pages/Audit";
 import { Availability } from "./pages/Availability";
+import { ComponentModal } from "./pages/availability/ComponentModal";
+import { ComponentRedirect } from "./pages/availability/ComponentRedirect";
+import { IncidentEditModal } from "./pages/availability/IncidentEditModal";
+import { IncidentModal } from "./pages/availability/IncidentModal";
 import { PublicPage } from "./pages/availability/PublicPage";
 import { SSHKeyMatrix } from "./pages/SSHKeyMatrix";
 import { Backups } from "./pages/Backups";
+import { DestinationModal } from "./pages/backups/DestinationModal";
+import { KeyringModal } from "./pages/backups/KeyringModal";
+import { PlanWizard } from "./pages/backups/PlanWizard";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
 import { FirewallPage } from "./pages/Firewall";
-import { FirewallForm } from "./pages/FirewallForm";
+import { FirewallWizard } from "./pages/firewalls/FirewallWizard";
 import { Firewalls } from "./pages/Firewalls";
 import { JobPage } from "./pages/Job";
 import { Jobs } from "./pages/Jobs";
@@ -37,9 +44,7 @@ import { Services } from "./pages/Services";
 import { Settings } from "./pages/Settings";
 import { ChannelWizard } from "./pages/settings/ChannelWizard";
 import { MuteWizard } from "./pages/settings/MuteWizard";
-import { StatusComponentForm } from "./pages/StatusComponentForm";
 import { StatusIncidentPage } from "./pages/StatusIncident";
-import { StatusIncidentNew } from "./pages/StatusIncidentNew";
 
 // La fiche d'un conteneur s'ouvrait sur /services/:id avant d'aller sous
 // /services/conteneurs/:id : un lien d'avant mène à la nouvelle adresse, avec sa query et son ancre
@@ -113,22 +118,34 @@ export function App() {
           <Route path="nouvelle" element={<ProbeWizard />} />
         </Route>
         <Route path="disponibilite/pages" element={<Availability tab="pages" />} />
-        <Route path="disponibilite/pages/:id" element={<PublicPage />} />
-        <Route path="disponibilite/composants/nouveau" element={<StatusComponentForm />} />
-        <Route path="disponibilite/composants/:id" element={<StatusComponentForm />} />
-        <Route path="disponibilite/incidents" element={<Availability tab="incidents" />} />
-        <Route path="disponibilite/incidents/nouveau" element={<StatusIncidentNew />} />
-        <Route path="disponibilite/incidents/:id" element={<StatusIncidentPage />} />
+        <Route path="disponibilite/pages/:id" element={<PublicPage />}>
+          <Route path="composants/nouveau" element={<ComponentModal />} />
+          <Route path="composants/:componentId" element={<ComponentModal />} />
+        </Route>
+        <Route path="disponibilite/composants/:id" element={<ComponentRedirect />} />
+        <Route path="disponibilite/incidents" element={<Availability tab="incidents" />}>
+          <Route path="nouveau" element={<IncidentModal />} />
+        </Route>
+        <Route path="disponibilite/incidents/:id" element={<StatusIncidentPage />}>
+          <Route path="modifier" element={<IncidentEditModal />} />
+        </Route>
         <Route path="disponibilite/:id" element={<ProbePage />}>
           <Route path="modifier" element={<ProbeWizard />} />
         </Route>
         {/* L'ancien nom de la page : les liens enregistrés suivent, chemin, query et ancre gardés. */}
         <Route path="domaines/*" element={<ProbesRedirect />} />
-        <Route path="sauvegardes" element={<Backups />} />
-        <Route path="pare-feu" element={<Firewalls />} />
-        <Route path="pare-feu/nouveau" element={<FirewallForm />} />
-        <Route path="pare-feu/:id" element={<FirewallPage />} />
-        <Route path="pare-feu/:id/modifier" element={<FirewallForm />} />
+        <Route path="sauvegardes" element={<Backups />}>
+          <Route path="cle" element={<KeyringModal />} />
+          <Route path="destinations/nouvelle" element={<DestinationModal />} />
+          <Route path="plans/nouveau" element={<PlanWizard />} />
+          <Route path="plans/:subject/modifier" element={<PlanWizard />} />
+        </Route>
+        <Route path="pare-feu" element={<Firewalls />}>
+          <Route path="nouveau" element={<FirewallWizard />} />
+        </Route>
+        <Route path="pare-feu/:id" element={<FirewallPage />}>
+          <Route path="modifier" element={<FirewallWizard />} />
+        </Route>
         <Route path="taches" element={<Jobs />}>
           <Route path="nouvelle" element={<JobWizard />} />
         </Route>

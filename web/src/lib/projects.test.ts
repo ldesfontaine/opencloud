@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Project } from "../api/directory";
-import { chosenProjectID, emptyProjectForm, projectFormOf, projectLabel, projectRequestOf, projectsSubtitle, publicAddressOf, slugSuggestionOf } from "./projects";
+import { emptyProjectForm, projectFormOf, projectLabel, projectRequestOf, projectsSubtitle, publicAddressOf, slugSuggestionOf } from "./projects";
 
 const published: Project = {
   id: "prj_1",
@@ -50,18 +50,6 @@ describe("projectLabel et publicAddressOf", () => {
     expect(projectLabel(published)).toBe("Client A");
     expect(projectLabel(draft)).toBe("brouillon");
     expect(publicAddressOf("client-a")).toBe("/statut/client-a");
-  });
-});
-
-describe("chosenProjectID", () => {
-  const projects = [{ id: "a" }, { id: "b" }];
-  it("garde le projet demandé s'il existe", () => {
-    expect(chosenProjectID(projects, "b")).toBe("b");
-  });
-  it("prend le premier sinon, et aucun sans projet", () => {
-    expect(chosenProjectID(projects, "disparu")).toBe("a");
-    expect(chosenProjectID(projects, null)).toBe("a");
-    expect(chosenProjectID([], "a")).toBeNull();
   });
 });
 

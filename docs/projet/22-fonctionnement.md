@@ -1438,9 +1438,10 @@ produite par un agent »).
 **L'interface** : la page **Sauvegardes** (`/sauvegardes`, au menu une fois
 le module configuré) : la clé, les destinations (avec la pastille du droit de
 leur agent), puis la liste des plans, chacun avec son état, « Sauvegarder
-maintenant », « Modifier » et « Supprimer le plan », et le formulaire
-d'ajout ou de modification (le sujet et le type de source ne changent plus une
-fois le plan créé). Routes : `GET /api/backups` (`plans: []`), `POST
+maintenant », « Modifier » et « Supprimer le plan ». La clé, une destination
+et un plan s'ajoutent ou se modifient dans une fenêtre (« Les fenêtres d'une
+saisie »), le plan par le bouton principal de l'en-tête ; le sujet et le type
+de source ne changent plus une fois le plan créé. Routes : `GET /api/backups` (`plans: []`), `POST
 /api/backups/keyring`, `POST`/`DELETE /api/backups/destinations[/{id}]`,
 `PUT`/`DELETE /api/backups/plans/{subject}`, `POST
 /api/backups/plans/{subject}/actions/run`. Sujet du direct : `backups` (et
@@ -3413,8 +3414,8 @@ l'adresse `/disponibilite`, en trois onglets : les sondes, les pages publiques
 (un projet publié par ligne, avec son adresse et son état d'ensemble) et les
 incidents. Un clic sur une page ouvre ses composants
 (`/disponibilite/pages/<projet>`, avec le lien vers sa page publique et ses
-composants implicites marqués) ; les composants et les incidents ont leur
-formulaire sous `/disponibilite/composants` et `/disponibilite/incidents`.
+composants implicites marqués) ; les composants et les incidents se saisissent
+dans une fenêtre de la page qui reste en fond (« Les fenêtres d'une saisie »).
 L'API : `GET /api/status/components?project=<id>` (sans le paramètre : tous),
 `GET /api/status/incidents?project=<id>` (ceux qui touchent un composant du
 projet), `POST`/`PUT`/`DELETE /api/status/components…` et
@@ -4414,6 +4415,35 @@ changé : le même corps, la même route (`POST` ou `PUT`), les mêmes refus.
 | `/taches/nouvelle` | la liste des tâches | Surveiller une tâche : une étape (nom, machine, intervalle, grâce) puis le récapitulatif |
 | `/taches/{id}/modifier` | la fiche de la tâche | Le même assistant, ouvert sur le récapitulatif |
 
+**Les derniers formulaires** (refonte UX, C11) : plus aucune page de
+formulaire. Le pare-feu et le plan de sauvegarde sont des `Wizard` dans une
+`Modal` (`pages/firewalls/FirewallWizard.tsx`, `pages/backups/PlanWizard.tsx`) ;
+la clé, la destination, le composant et l'incident sont des `ModalForm`, une
+fenêtre à une seule étape dont l'action est dans le pied
+(`pages/backups/KeyringModal.tsx`, `DestinationModal.tsx`,
+`pages/availability/ComponentModal.tsx`, `IncidentModal.tsx`,
+`IncidentEditModal.tsx`). Ce qu'ils écrivent n'a pas changé : mêmes routes,
+mêmes corps, mêmes refus.
+
+| Adresse | Fond | Fenêtre |
+| --- | --- | --- |
+| `/pare-feu/nouveau` | la liste des pare-feu | Déclarer un pare-feu : trois étapes (l'identité ; l'accès, la paire de clés ; le certificat) puis le récapitulatif |
+| `/pare-feu/{id}/modifier` | la fiche du pare-feu | Le même assistant, ouvert sur le récapitulatif ; le secret se ressaisit |
+| `/sauvegardes/cle` | la page Sauvegardes | Créer ou remplacer la clé : la phrase de passe, deux fois ; remplacer demande confirmation |
+| `/sauvegardes/destinations/nouvelle` | la page Sauvegardes | Ajouter une destination : nom, machine, dossier |
+| `/sauvegardes/plans/nouveau` | la page Sauvegardes | Ajouter un plan : deux étapes (la source ; la destination et le nombre de sauvegardes gardées) |
+| `/sauvegardes/plans/{sujet}/modifier` | la page Sauvegardes | Le même assistant, ouvert sur le récapitulatif ; le sujet et la sorte de source ne changent pas |
+| `/disponibilite/pages/{projet}/composants/nouveau` | la page publique du projet | Ajouter un composant : le projet est celui de l'adresse |
+| `/disponibilite/pages/{projet}/composants/{id}` | la page publique du projet | Modifier ou supprimer un composant (le plan de suppression s'ouvre dans une seconde fenêtre) |
+| `/disponibilite/composants/{id}` | — | Redirige vers la ligne précédente : un lien qui ne connaît que l'identifiant du composant (la fiche d'un service) retrouve son projet |
+| `/disponibilite/incidents/nouveau` | l'onglet Incidents | Ouvrir un incident ou planifier une maintenance |
+| `/disponibilite/incidents/{id}/modifier` | la fiche de l'incident | Corriger le titre, les cibles, la fenêtre d'une maintenance. L'entrée au fil de l'incident reste en ligne dans la fiche |
+
+La phrase de passe de la clé ne vit que dans sa fenêtre : démontée, elle n'est
+nulle part. Coût : la saisie d'un plan ou d'un pare-feu se perd d'un
+rechargement (aucun brouillon n'est gardé) ; les anciennes adresses
+`/disponibilite/composants/nouveau?project=` ne mènent plus à rien.
+
 ## Comment l'interface se met à jour sans recharger
 
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
@@ -5299,6 +5329,7 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Journal d'audit | La table `audit_events` (migration `029_audit.sql`, ajout seul par déclencheur, `apply_id` en `set null`), le paquet `internal/audit` (acteur dans le contexte, `Recorder`, rétention d'un an purgée par la boucle des alertes), `store/audit.go` et `ListAuditEvents` sur le `reader.Reader`, un événement par geste dans `machine`, `directory`, `probe`, `heartbeat`, `status`, `alert`, `settings`, `auth`, `mcp` (`SetAuditor`), l'acteur posé par `server` (`withOperatorActor`), la socket de commande, `guarded`, `agentapi`, `serve` (`rule`), `opencloud auth disable` et `opencloud secrets forget`, `GET /api/audit`, l'outil MCP `list_audit` (dix-neuf lectures), l'onglet « Journal » (`/journal`), la section `audit` des catalogues, les goldens `audit.golden.json` et `mcp_list_audit.golden.json`. L'envoi aux canaux est la ligne « Journal vers les canaux » |
 | Pages de statut multiples | La migration `034_status_pages.sql` (`status_pages` : `slug` unique, titre, annonce, langue, `project_id` unique facultatif en `restrict` ; `status_components.page_id` en `cascade` ; la page unique reprise en page `statut` sans projet si elle montrait quelque chose ; `settings` reconstruite sans `status_*`), `status.Service` (`CreatePage`, `UpdatePage`, `DeletePage` et son plan, `ListPages`, `PageBySlug`, `Snapshot(pageID)`, `Components(pageID)`, `Incidents(pageID)` ; `status.Settings` et `settings.SetStatusPage` retirés), le refus `project.has_status_page` et `deletion.KindStatusPages`, le refus d'`apply --prune` `manifest.prune_status_page`, les routes `/api/status/pages…` et `/statut/<slug>…` (`/statut` redirige vers la seule page), l'outil MCP `list_status_pages` et le paramètre `page` de `get_status_page` et `list_incidents` (vingt lectures), l'audit `status_page.create` et `.delete`, l'onglet « Pages » de l'administration (`StatusPageForm`, sélecteur de page des composants) et le slug lu dans l'adresse par `statut.html` |
 | Projet + publication, module Disponibilité (refonte UX, C9) | La migration `027_project_publication.sql` (`projects` gagne `slug` unique et non nul quand publié, annonce, langue, `published_at` ; `status_components.project_id` en `cascade` remplace `page_id` ; `status_pages` disparaît, une page sans projet devient un projet nommé par son adresse), `directory.Publication` et `ProjectDefinition.Publication` (validation, plafond de 64 pages), `status.Publication`/`Publications`/`PublicationOf`, les composants implicites (un par service), le plan de suppression d'un projet (`publications`, `components`, `members`, plus de refus), `manifest.prune_published`, la route `PUT /api/directory/projects/{id}` qui publie, `GET /api/directory/projects` ouverte aux jetons ; routes `/api/status/pages…` et module `status` retirés (fondu dans `probes`), actions d'audit `status_page.*` lues comme anciennes ; l'assistant de projet à deux étapes et la page Disponibilité à trois onglets (`/disponibilite`, `/disponibilite/pages`, `/disponibilite/incidents`) | La page n'a plus de titre à elle ; l'annonce et la langue se règlent à la publication |
+| Derniers formulaires (refonte UX, C11) | Aucune migration, aucune route d'API ni verbe changés. `ModalForm` (une fenêtre à une étape, action liée par `form=`), le pare-feu, le plan de sauvegarde, la clé, la destination, le composant et l'incident en fenêtres à leur adresse ; `FormPage` et `FormCard` disparaissent (`FormBody` reste pour la première configuration et le fil d'un incident, dans `FormBody.tsx`) ; `Wizard` n'existe plus qu'en fenêtre ; le projet d'un composant vient de l'adresse (plus de menu Projet) | Une saisie en cours se perd d'un rechargement ; les anciennes adresses de composant avec `?project=` sont perdues, `/disponibilite/composants/{id}` redirige |
 | Schéma unique | Les 33 migrations écrasées en `migrations/001_schema.sql`, écrit à la main et groupé par domaine ; le test d'équivalence (`internal/store/schema_test.go`) le compare, colonne par colonne et index par index, aux anciennes migrations rejouées suivies de l'élagage (`testdata/legacy_trim.sql`) ; deux garde-fous : chaque clé étrangère vise une clé, chaque table et chaque colonne sert au store. Élagage : `probe_certificates` (les huit `cert_*` de `probes`), `machine_rollups` (`machine_samples_hourly` et `_daily`), `heartbeats.token_sealed` et `token_lookup` (`token` et `token_hash`), `containers.kind` et trois colonnes mortes d'`agents` retirés. Une base qui note une migration que le binaire n'embarque pas est refusée au démarrage (`store.ErrUnknownSchema`). Retirés : l'étape Go de la 024 (`store/migrate_024.go`, `directory/migrate.go`) et les tests de montée |
 | Ordres signés (#146, 1/3) | La migration `002_actions.sql` (`action_runs`, `run_logs`, `agents.server_key_fingerprint` et `last_order_seq`), le paquet `internal/action` (clé `server.key` et sa signature, `Service.Ping`, `Record`, la boucle d'expiration et de purge), le protocole entier dans `internal/agentwire` (`Kind` et `Command` typés à la place de `machine.Command{Name, Payload any}` et des quatre noms de `container`, `probe`, `update` ; `OrderBody`, `SignedOrder`, `KeyFingerprint`, la section `actions` du signal, l'en-tête `OpenCloud-Server-Key`, `agent_id` et `server_key` à l'enrôlement), les commandeurs typés par domaine (`RequestLogs`, `AssignProbes`, `AssignImages`) servis par `server/commands.go`, le juge d'ordres de l'agent (`internal/agent/orders.go`) et `identity.json` (`agent_id`, `server_key`, `last_order_seq`), `fsx.ReadPrivate`, les routes `POST /api/machines/{id}/actions/ping`, `GET /api/actions`, `GET /api/agents/server-key`, l'outil MCP `list_actions` (vingt et une lectures), l'audit `action.order`, le sujet du direct `actions`, la carte « Ordres » de la fiche, les goldens `actions.golden.json` et `mcp_list_actions.golden.json` |
 | Droits appliqués (#146, 2/3) | `action.RightOf` (le droit de chaque genre ; `observe` pour l'observation et `agent.ping`), `machine.HasCapability`, le refus de l'agent `right_missing:<droit>` (`internal/agent/orders.go`, sans prendre le rang) et `not_implemented`, l'ordre déclaré `agent.update`, `action.Service.Send` et son refus `409 action.right_missing` quand l'agent a rapporté ses droits sans celui-là, l'audit `action.refused` sous l'agent, `CreateReenrollToken` qui reçoit les droits (corps `{capabilities}` de `POST /api/machines/{id}/actions/reenroll`), la page « Changer les droits » (`/machines/{id}/droits`, `RightsFields` partagé avec l'ajout d'une machine) |

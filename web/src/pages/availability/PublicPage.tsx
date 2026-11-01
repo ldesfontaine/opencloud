@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router";
+import { Link, Outlet, useParams } from "react-router";
 
 import { useProject } from "../../api/directory";
 import { useStatusComponents, type StatusComponent } from "../../api/status";
@@ -60,14 +60,16 @@ export function PublicPage() {
             <Link to={publicPagesPath}>{t("availability.back_to_pages")}</Link>
           </p>
           {components.error && <Failure error={components.error} />}
-          <Loaded resource={components}>{(response) => <Components components={response.components} global={response.global} published={found.publication !== null} />}</Loaded>
+          <Loaded resource={components}>{(response) => <Components projectID={found.id} components={response.components} global={response.global} published={found.publication !== null} />}</Loaded>
+          {/* La fenêtre de l'adresse : ajouter ou modifier un composant. */}
+          <Outlet />
         </>
       )}
     </Loaded>
   );
 }
 
-function Components({ components, global, published }: { components: StatusComponent[]; global: StatusComponent["effective"]; published: boolean }) {
+function Components({ projectID, components, global, published }: { projectID: string; components: StatusComponent[]; global: StatusComponent["effective"]; published: boolean }) {
   const t = useT();
   if (!published) {
     return <EmptyCard icon="eye" title={t("availability.unpublished_title")} text={t("availability.unpublished_text")} />;
@@ -95,7 +97,7 @@ function Components({ components, global, published }: { components: StatusCompo
           </thead>
           <tbody>
             {components.map((component) => (
-              <ComponentRow key={component.id} component={component} />
+              <ComponentRow key={component.id} projectID={projectID} component={component} />
             ))}
           </tbody>
         </Table>
@@ -104,7 +106,7 @@ function Components({ components, global, published }: { components: StatusCompo
   );
 }
 
-function ComponentRow({ component }: { component: StatusComponent }) {
+function ComponentRow({ projectID, component }: { projectID: string; component: StatusComponent }) {
   const t = useT();
   const names = component.members.map((member) => member.name || t("component.missing")).join(", ");
   const imposed = component.effective !== component.derived;
@@ -117,7 +119,7 @@ function ComponentRow({ component }: { component: StatusComponent }) {
             <span className="secondary">{t("availability.implicit")}</span>
           </span>
         ) : (
-          <Link className="svc" to={componentPath(component.id)}>
+          <Link className="svc" to={componentPath(projectID, component.id)}>
             <Subject icon="eye">{component.name}</Subject>
           </Link>
         )}

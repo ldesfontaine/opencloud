@@ -255,15 +255,26 @@ export function publicPagePath(projectID: string): string {
   return `${publicPagesPath}/${encodeURIComponent(projectID)}`;
 }
 
+// Un composant s'ouvre en fenêtre sur la page de son projet.
 export function newComponentPath(projectID: string): string {
-  return `${availabilityPath}/composants/nouveau?project=${encodeURIComponent(projectID)}`;
+  return `${publicPagePath(projectID)}/composants/nouveau`;
 }
 
-export function componentPath(componentID: string): string {
+export function componentPath(projectID: string, componentID: string): string {
+  return `${publicPagePath(projectID)}/composants/${encodeURIComponent(componentID)}`;
+}
+
+// Le lien d'un objet qui ne connaît que l'identifiant du composant (la fiche
+// d'un service) : la route retrouve son projet et ouvre la fenêtre.
+export function componentLookupPath(componentID: string): string {
   return `${availabilityPath}/composants/${encodeURIComponent(componentID)}`;
 }
 
 export const newIncidentPath = `${incidentsPath}/nouveau`;
+
+export function editIncidentPath(incidentID: string): string {
+  return `${incidentPath(incidentID)}/modifier`;
+}
 
 export function incidentPath(incidentID: string): string {
   return `${incidentsPath}/${encodeURIComponent(incidentID)}`;

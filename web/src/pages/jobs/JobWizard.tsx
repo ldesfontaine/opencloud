@@ -55,7 +55,6 @@ export function JobWizard() {
           submitIcon={isEditing ? "check" : "plus"}
           busy={action.busy}
           error={action.error}
-          inModal
         />
       )}
     </Modal>

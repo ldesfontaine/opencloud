@@ -1,4 +1,7 @@
+import { Outlet } from "react-router";
+
 import { useFirewalls, type Firewall } from "../api/firewalls";
+import { ActionButton } from "../components/ActionButton";
 import { Button } from "../components/Button";
 import { Card, EmptyCard } from "../components/Card";
 import { CardGrid, EntityCard } from "../components/EntityCard";
@@ -29,15 +32,17 @@ export function Firewalls() {
         actions={
           <>
             {list.length > 1 && <ViewToggle mode={mode} onChange={setMode} />}
-            <Button variant="primary" icon="plus" to="/pare-feu/nouveau">
+            <ActionButton route="POST /api/firewalls" icon="plus" to="/pare-feu/nouveau">
               {t("firewall.declare")}
-            </Button>
+            </ActionButton>
           </>
         }
       />
       {firewalls.error && <Failure error={firewalls.error} />}
       {isEmpty && <NoFirewall />}
       {list.length > 0 && (mode === "cards" || list.length === 1 ? <FirewallCards list={list} /> : <FirewallTable list={list} />)}
+      {/* La fenêtre de l'adresse : déclarer un pare-feu. */}
+      <Outlet />
     </>
   );
 }

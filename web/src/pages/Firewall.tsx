@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Outlet, useNavigate, useParams } from "react-router";
 
 import {
   removeFirewall,
@@ -93,6 +93,8 @@ function FirewallView({ firewall }: { firewall: FirewallDetail }) {
         <RulesCard firewall={firewall} />
         <LeasesCard firewall={firewall} />
       </div>
+      {/* La fenêtre de l'adresse : modifier le pare-feu. */}
+      <Outlet />
     </>
   );
 }
