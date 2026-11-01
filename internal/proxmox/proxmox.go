@@ -65,7 +65,10 @@ type Host struct {
 	// LastError est la clé du refus du dernier relevé qui a échoué, vide s'il
 	// a réussi.
 	LastError string
-	CreatedAt time.Time
+	// Les stockages dont le dernier relevé n'a pas pu lister les archives faute
+	// de droit : tant qu'il y en a, « aucune sauvegarde » n'est pas une réponse.
+	BlindStorages []string
+	CreatedAt     time.Time
 }
 
 // Credentials est l'hôte avec son secret : il ne sort de la base que pour
@@ -102,6 +105,9 @@ type Guest struct {
 	LastBackupStorage string
 	BackupCount       int
 	BackupTotalBytes  int64
+	// Vrai quand aucune archive n'est connue ET que l'hôte a des stockages
+	// illisibles : « aucune » serait un mensonge, c'est « inconnue ».
+	BackupUnknown bool
 }
 
 type Storage struct {
@@ -135,6 +141,9 @@ type Reading struct {
 	Cluster  string
 	Guests   []Guest
 	Storages []Storage
+	// Les stockages de sauvegardes dont le jeton n'a pas pu lister les archives
+	// faute de droit, par identifiant. Leurs archives sont inconnues.
+	BlindStorages []string
 }
 
 // View est ce que la fiche de l'hôte montre.
@@ -150,6 +159,8 @@ type Summary struct {
 	Declared  bool
 	Guests    int
 	LastError string
+	// Vrai quand des archives n'ont pas pu être listées faute de droit.
+	BackupBlind bool
 	// Le nom du nœud de l'hôte, sa grappe (nil pour un nœud seul), et ses
 	// invités : l'arbre des machines se construit avec.
 	Node    string

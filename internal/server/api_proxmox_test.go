@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +39,8 @@ type fakeProxmox struct {
 	*httptest.Server
 	mu     sync.Mutex
 	broken bool
+	// auditor : le jeton n'a que PVEAuditor, comme celui de Lucas.
+	auditor bool
 	// Le nom de la VM 5012, que le rapprochement lie à une machine du même nom d'hôte.
 	runningName string
 }
@@ -51,7 +54,7 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 			return
 		}
 		api.mu.Lock()
-		broken := api.broken
+		broken, auditor := api.broken, api.auditor
 		runningName := api.runningName
 		api.mu.Unlock()
 		if runningName == "" {
@@ -74,6 +77,12 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 			body = `{"data":[{"type":"cluster","name":"homelab","nodes":1},{"type":"node","name":"pve","local":1}]}`
 		case r.URL.Path == "/api2/json/nodes/pve/qemu/5012/config":
 			body = `{"data":{"name":"` + runningName + `","net0":"virtio=` + pveGuestMAC + `,bridge=vmbr0,firewall=1"}}`
+		case r.URL.Path == "/api2/json/access/permissions":
+			privileges := `"Datastore.Audit":1,"Datastore.Allocate":1`
+			if auditor {
+				privileges = `"Datastore.Audit":1,"VM.Audit":1`
+			}
+			body = `{"data":{"` + r.URL.Query().Get("path") + `":{` + privileges + `}}}`
 		case r.URL.Path == "/api2/json/nodes/pve/storage/local/content":
 			body = `{"data":[{"vmid":5012,"ctime":1790086400,"size":244318208}]}`
 		default:
@@ -433,5 +442,41 @@ func TestProxmox_GuestActionRefusesBeforeSending(t *testing.T) {
 	runs, err := server.db.ListActionRuns(context.Background(), action.Query{MachineID: pveID, Limit: 10})
 	if err != nil || len(runs) != 0 {
 		t.Fatalf("a refusal wrote runs: %v %v", runs, err)
+	}
+}
+
+// La cause du « Aucune » : avec PVEAuditor, l'hôte liste zéro archive sans
+// erreur. La fiche le dit en clair, avec les commandes exactes, et ne montre
+// jamais le secret.
+func TestProxmox_AnAuditorTokenIsToldItCannotSeeTheArchives(t *testing.T) {
+	server, api, journal := proxmoxBench(t)
+	api.auditor = true
+
+	put := putProxmox(server, pveID, api.request(pveTokenSecret))
+	if put.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", put.Code, put.Body.String())
+	}
+	var host proxmoxHostJSON
+	decodeAPI(t, put, &host)
+	if host.LastError != "" || !slices.Equal(host.BlindStorages, []string{"local"}) || host.BackupGrant == nil {
+		t.Fatalf("host: %+v", host)
+	}
+	want := "pveum acl modify /storage/local --roles OpenCloudSauvegardes --tokens '" + pveTokenID + "'"
+	if !slices.Contains(host.BackupGrant.Commands, want) {
+		t.Errorf("commands: %v", host.BackupGrant.Commands)
+	}
+	for _, guest := range host.Guests {
+		if guest.LastBackupAt != nil || !guest.BackupUnknown {
+			t.Errorf("no archive was read: it is unknown, not none: %+v", guest)
+		}
+	}
+	listed := callAPI(server.Server, http.MethodGet, "/api/machines", nil)
+	if !strings.Contains(listed.Body.String(), `"backup_blind":true`) {
+		t.Errorf("the machine list must say it: %s", listed.Body.String())
+	}
+	for name, text := range map[string]string{"card": put.Body.String(), "list": listed.Body.String(), "journal": journal.String()} {
+		if strings.Contains(text, pveTokenSecret) {
+			t.Errorf("the token secret leaked in the %s", name)
+		}
 	}
 }

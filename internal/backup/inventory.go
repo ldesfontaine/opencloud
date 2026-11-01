@@ -46,6 +46,9 @@ type ObservedGuest struct {
 	Name            string
 	Node            string
 	Archives        ObservedArchives
+	// Vrai quand aucune archive n'est connue et que l'hôte n'a pas pu lister
+	// certains stockages faute de droit : « rien vu » ne dit pas « rien ».
+	ArchivesUnknown bool
 }
 
 // ObservedArchives sont les fichiers vzdump vus sur les stockages de l'hôte,
@@ -116,6 +119,8 @@ type Source struct {
 	// Ce que les stockages de Proxmox gardent d'elle, hors des plans
 	// d'openCloud ; nil pour une source qui n'est pas un invité, ou rien vu.
 	Observed *ObservedArchives
+	// Vrai quand Observed est nil faute de droit de lecture, non faute d'archive.
+	ObservedUnknown bool
 	// La dernière exécution d'un plan d'openCloud sur cette source, et la
 	// dernière réussie ; nil tant qu'aucune n'a eu lieu.
 	LastRun *RunRecord
@@ -241,6 +246,7 @@ func guestSource(guest ObservedGuest) Source {
 		archives := guest.Archives
 		source.Observed = &archives
 	}
+	source.ObservedUnknown = guest.ArchivesUnknown
 	return source
 }
 

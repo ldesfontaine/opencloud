@@ -22,14 +22,45 @@ var (
 // nom de contenu de Proxmox n'en contient.
 const contentSeparator = ","
 
+// La colonne last_error porte deux faits sans migration : la clé du refus du
+// dernier relevé qui a échoué, puis, après « | », les stockages dont le dernier
+// relevé réussi n'a pas pu lister les archives faute de droit (séparés par une
+// virgule). « proxmox.unreachable|pi-sauvegardes,nas » : l'hôte ne répond plus,
+// et deux stockages étaient illisibles quand il répondait. Un échec ne perd pas
+// l'illisibilité ; un relevé réussi la réécrit.
+const (
+	blindMark      = "|"
+	blindSeparator = ","
+	// blindAnyInError se lit sur une ligne de machine_proxmox aliasée « h ».
+	blindAnyInError = "instr(h.last_error, '" + blindMark + "') > 0"
+)
+
+// splitErrorNotes sépare la clé du refus des stockages illisibles.
+func splitErrorNotes(raw string) (failure string, blind []string) {
+	failure, rest, found := strings.Cut(raw, blindMark)
+	if !found || rest == "" {
+		return failure, nil
+	}
+	return failure, strings.Split(rest, blindSeparator)
+}
+
+func joinErrorNotes(failure string, blind []string) string {
+	if len(blind) == 0 {
+		return failure
+	}
+	return failure + blindMark + strings.Join(blind, blindSeparator)
+}
+
 const proxmoxHostColumns = `machine_id, api_url, token_id, token_secret, pin, node, version, verified_at, last_read_at, last_error, created_at`
 
 // scanProxmoxHost lit l'hôte et son secret tel que la base le garde, scellé.
 func scanProxmoxHost(row scanner) (host proxmox.Host, sealedSecret string, err error) {
 	var verifiedAt, createdAt int64
 	var lastReadAt sql.NullInt64
+	var notes string
 	err = row.Scan(&host.MachineID, &host.APIURL, &host.TokenID, &sealedSecret, &host.Pin, &host.Node, &host.Version,
-		&verifiedAt, &lastReadAt, &host.LastError, &createdAt)
+		&verifiedAt, &lastReadAt, &notes, &createdAt)
+	host.LastError, host.BlindStorages = splitErrorNotes(notes)
 	host.VerifiedAt = time.Unix(verifiedAt, 0)
 	host.LastReadAt = timeOf(lastReadAt)
 	host.CreatedAt = time.Unix(createdAt, 0)
@@ -142,7 +173,10 @@ func (db *DB) ListProxmoxHostIDs(ctx context.Context) ([]string, error) {
 // NoteProxmoxFailure ne touche qu'à la clé du refus : le dernier relevé
 // réussi reste ce que la fiche montre.
 func (db *DB) NoteProxmoxFailure(ctx context.Context, machineID, errorKey string) error {
-	result, err := db.sql.ExecContext(ctx, `UPDATE machine_proxmox SET last_error = ? WHERE machine_id = ?`, errorKey, machineID)
+	// Les stockages illisibles du dernier relevé réussi restent ce qu'ils étaient.
+	result, err := db.sql.ExecContext(ctx, `
+		UPDATE machine_proxmox SET last_error = ? || CASE WHEN instr(last_error, ?) > 0 THEN substr(last_error, instr(last_error, ?)) ELSE '' END
+		WHERE machine_id = ?`, errorKey, blindMark, blindMark, machineID)
 	if err != nil {
 		return fmt.Errorf("note proxmox failure: %w", err)
 	}
@@ -158,8 +192,8 @@ func (db *DB) ReplaceProxmoxReading(ctx context.Context, machineID string, readi
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `
-			UPDATE machine_proxmox SET node = ?, version = ?, cluster_id = ?, last_read_at = ?, last_error = '' WHERE machine_id = ?`,
-			reading.Node, reading.Version, clusterID, at.Unix(), machineID)
+			UPDATE machine_proxmox SET node = ?, version = ?, cluster_id = ?, last_read_at = ?, last_error = ? WHERE machine_id = ?`,
+			reading.Node, reading.Version, clusterID, at.Unix(), joinErrorNotes("", reading.BlindStorages), machineID)
 		if err != nil {
 			return fmt.Errorf("update proxmox host: %w", err)
 		}
@@ -213,7 +247,8 @@ func insertProxmoxStorage(ctx context.Context, tx *sql.Tx, machineID string, sto
 }
 
 const proxmoxGuestColumns = `g.vmid, g.kind, g.name, g.status, g.template, g.cpus, g.maxmem, g.maxdisk, g.node,
-	g.linked_machine_id, g.last_backup_at, g.last_backup_bytes, g.last_backup_storage, g.backup_count, g.backup_total_bytes`
+	g.linked_machine_id, g.last_backup_at, g.last_backup_bytes, g.last_backup_storage, g.backup_count, g.backup_total_bytes,
+	(g.backup_count = 0 AND EXISTS (SELECT 1 FROM machine_proxmox h WHERE h.machine_id = g.machine_id AND ` + blindAnyInError + `))`
 
 // guestRow lit les colonnes de proxmoxGuestColumns ; une requête qui en ajoute
 // d'autres les scanne après destinations().
@@ -227,7 +262,7 @@ func (row *guestRow) destinations() []any {
 	guest := &row.guest
 	return []any{&guest.VMID, &guest.Kind, &guest.Name, &guest.Status, &guest.Template, &guest.CPUs, &guest.MaxMem,
 		&guest.MaxDisk, &guest.Node, &row.linked, &row.lastBackupAt, &guest.LastBackupBytes, &guest.LastBackupStorage,
-		&guest.BackupCount, &guest.BackupTotalBytes}
+		&guest.BackupCount, &guest.BackupTotalBytes, &guest.BackupUnknown}
 }
 
 func (row *guestRow) result() proxmox.Guest {
@@ -337,7 +372,10 @@ func (db *DB) readDeclaredHosts(ctx context.Context, into map[string]proxmox.Sum
 	hosts, err := collect(rows, func(row scanner) (declared, error) {
 		host := declared{summary: proxmox.Summary{Declared: true, Members: []proxmox.Guest{}}}
 		var clusterID, clusterName sql.NullString
-		err := row.Scan(&host.machineID, &host.summary.LastError, &host.summary.Node, &clusterID, &clusterName, &host.summary.Guests)
+		var notes string
+		err := row.Scan(&host.machineID, &notes, &host.summary.Node, &clusterID, &clusterName, &host.summary.Guests)
+		failure, blind := splitErrorNotes(notes)
+		host.summary.LastError, host.summary.BackupBlind = failure, len(blind) > 0
 		if clusterID.Valid {
 			host.summary.Cluster = &proxmox.Cluster{ID: clusterID.String, Name: clusterName.String}
 		}
