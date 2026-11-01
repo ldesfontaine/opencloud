@@ -1,5 +1,8 @@
 import { Note } from "../../components/Card";
+import { Checklist } from "../../components/Checklist";
 import { CopyButton, TokenBox } from "../../components/Copy";
+import { Field } from "../../components/Field";
+import { useChecklist } from "../../hooks/useChecklist";
 import { useT } from "../../i18n/context";
 import { unitDropIn, unitWritePaths, type TokenPageState } from "../../lib/machines";
 import { formatRemaining } from "../../lib/time";
@@ -21,11 +24,9 @@ export function EnrollmentToken({ token }: { token: TokenPageState }) {
         <span className="field-label">{t("machine.token_label")}</span>
         <TokenBox value={token.token} />
       </div>
-      <div className="field">
-        <span className="field-label">{t("machine.prepare_label")}</span>
+      <Field label={t("machine.prepare_label")} help={t("machine.prepare_help")} tip={t("machine.prepare_tip")}>
         <TokenBox value={token.preparation} lines />
-        <span className="field-help">{t("machine.prepare_help")}</span>
-      </div>
+      </Field>
       <Note tone="warn">{t("machine.prepare_docker_note")}</Note>
       {rights.some((right) => right.name === "backup.produce") && <Note tone="warn">{t("machine.capability_produce_warning")}</Note>}
       <div className="field">
@@ -51,11 +52,27 @@ export function EnrollmentToken({ token }: { token: TokenPageState }) {
 // lui-même sur l'hôte : le secret ne quitte jamais l'hôte.
 function ProxmoxToken({ commands }: { commands: string }) {
   const t = useT();
+  const gestures = useChecklist();
   return (
     <div className="field">
       <span className="field-label">{t("machine.proxmox_token_title")}</span>
-      <span className="field-help">{t("machine.proxmox_token_help")}</span>
-      <TokenBox value={commands} lines />
+      <Checklist
+        done={gestures.done}
+        onToggle={gestures.toggle}
+        items={[
+          {
+            id: "run",
+            title: t("machine.proxmox_token_run_title"),
+            content: (
+              <>
+                <p>{t("machine.proxmox_token_run_text")}</p>
+                <TokenBox value={commands} lines />
+              </>
+            ),
+          },
+          { id: "secret", title: t("machine.proxmox_token_secret_title"), content: <p>{t("machine.proxmox_token_secret_text")}</p> },
+        ]}
+      />
       <Note tone="warn">{t("machine.capability_proxmox_warning")}</Note>
     </div>
   );

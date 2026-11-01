@@ -82,7 +82,7 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<ProxmoxFormValues
       id: "certificate",
       title: t("machine.proxmox_step_certificate"),
       render: () => (
-        <Field label={t("machine.proxmox_pin_label")} htmlFor="proxmox-pin" help={t("machine.proxmox_pin_help")}>
+        <Field label={t("machine.proxmox_pin_label")} htmlFor="proxmox-pin" help={t("machine.proxmox_pin_help")} tip={t("machine.proxmox_pin_tip")}>
           <Input id="proxmox-pin" mono value={values.pin} onChange={(event) => form.change("pin", event.target.value)} autoComplete="off" autoFocus />
         </Field>
       ),

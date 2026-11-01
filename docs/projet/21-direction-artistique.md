@@ -230,13 +230,25 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
     plus. Le détail, s'il sert vraiment, va dans le « ? » à côté de
     l'étiquette (`tip` de `Field`) : une info-bulle qui passe à la ligne, au
     clavier comme à la souris ; Échap la referme.
+    Une clé `…_help` du catalogue ne dépasse pas 160 caractères (un test le
+    tient) ; le reste va dans la clé `…_tip`.
+  - **Gestes à faire ailleurs** (`Checklist`) : un texte d'aide qui énumère des
+    gestes devient une liste à cocher, un geste par ligne : son titre (la
+    case), une phrase, puis ce qui aide à le faire : un lien direct
+    (`ExternalLink`, dans un autre onglet) et des valeurs à coller une à une
+    (`CopyList`). Les cases sont un repère, rien ne les exige. Les libellés d'un
+    autre produit s'écrivent tels qu'il les affiche. Un avertissement se dit en
+    une phrase (`Note`).
 - **Assistant** (`Wizard`) : la création d'un objet à plus de cinq champs
   environ ou à plusieurs notions (service, sonde, pare-feu, plan de
   sauvegarde). Toujours dans une `Modal` large ; pas pour une page de
   réglages (Paramètres) ni pour un formulaire de trois champs (`ModalForm`) :
   il ajoute des clics là où tout tient à l'écran.
-  - **Barre d'étapes** : une pastille numérotée et le nom ; la courante en
-    encre pleine, une étape faite cochée, à venir en discret. Sous 860 px,
+  - **Barre d'étapes** : une pastille numérotée par étape ; la courante en
+    encre pleine, avec son nom **en entier**, une étape faite cochée, à venir
+    en discret. Les autres n'ont que leur pastille, leur titre complet en
+    infobulle (`title`) et lu par les lecteurs d'écran : un libellé ne se
+    coupe jamais, et le parcours e2e le vérifie sur chaque assistant. Sous 860 px,
     une ligne, « Étape 2 sur 4 » : le nom suit, en tête de la fenêtre.
   - **Une étape à l'écran**, son titre en tête de fenêtre (le focus y passe,
     il s'annonce). Précédent en secondaire, Suivant en principal, Annuler

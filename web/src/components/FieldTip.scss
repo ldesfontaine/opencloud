@@ -56,6 +56,11 @@
   visibility: hidden;
 }
 
+.field-tip-below .field-tip-text {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
 .field-tip:hover .field-tip-text,
 .field-tip-button:focus + .field-tip-text {
   visibility: visible;

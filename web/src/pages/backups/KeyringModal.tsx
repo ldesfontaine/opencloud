@@ -60,7 +60,7 @@ function KeyringDialog({ replacing }: { replacing: boolean }) {
         busy={action.busy}
         error={refusal ?? action.error}
       >
-        <Field label={t("backup.passphrase_label")} htmlFor="backup-passphrase" help={t("backup.passphrase_help")}>
+        <Field label={t("backup.passphrase_label")} htmlFor="backup-passphrase" help={t("backup.passphrase_help")} tip={t("backup.passphrase_tip")}>
           <Input id="backup-passphrase" type="password" autoComplete="new-password" maxLength={1024} value={values.first} onChange={(event) => change("first", event.target.value)} autoFocus required />
         </Field>
         <Field label={t("backup.passphrase_confirm_label")} htmlFor="backup-passphrase-confirm">
