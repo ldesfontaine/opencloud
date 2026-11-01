@@ -373,6 +373,14 @@ export const emptyMuteForm: MuteFormValues = {
 
 // Seul un objet du répertoire peut s'annoncer : une page de statut n'en
 // montre pas d'autres.
+// Ce que les réglages repliés d'un silence acceptent, en clair : « tous les
+// types, dès maintenant ».
+export function muteSettingsHint(t: Translate, values: Pick<MuteFormValues, "kind" | "startsAt">): string {
+  const kind = values.kind === "" ? t("silence.hint_kind_any") : t(`alert.kind_${values.kind}`);
+  const start = values.startsAt === "" ? t("silence.hint_start_now") : t("silence.hint_start_at", values.startsAt.replace("T", " "));
+  return `${kind}, ${start}`;
+}
+
 export function canAnnounce(values: Pick<MuteFormValues, "targetKind" | "targetID">): boolean {
   return values.targetID !== "" && announceableKinds.includes(values.targetKind);
 }
@@ -457,6 +465,17 @@ export const emptyChannelForm: ChannelFormValues = {
   receivesAudit: false,
   enabled: true,
 };
+
+// Ce que les réglages repliés d'un canal acceptent, en clair : « dès Attention,
+// avec les résolutions ».
+export function channelSettingsHint(t: Translate, values: Pick<ChannelFormValues, "minSeverity" | "notifyResolve" | "receivesAudit" | "enabled">): string {
+  return [
+    t("channel.hint_from", t(`alert.severity_${values.minSeverity}`)),
+    t(values.notifyResolve ? "channel.hint_resolve_on" : "channel.hint_resolve_off"),
+    ...(values.receivesAudit ? [t("channel.hint_audit")] : []),
+    ...(values.enabled ? [] : [t("channel.hint_disabled")]),
+  ].join(", ");
+}
 
 // Un webhook n'a pas de destination : le champ part vide.
 export function channelFormOf(channel: Channel): ChannelFormValues {

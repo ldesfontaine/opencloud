@@ -352,14 +352,14 @@ puce `MCP`.
 | `MachineRights` | Assistant « Ré-enrôler » (mêmes étapes 2-3, droits pré-cochés) | 3 |
 | `MachineProxmox` | Assistant « Déclarer l'hôte Proxmox » | 2 (accès ; certificat) + récapitulatif |
 | `DeclaredServiceForm` | Assistant « Déclarer un service » ; champs techniques sous « Avancé » | 3 (identité ; unités ; projets) |
-| `ProbeForm` | Assistant « Ajouter une sonde » ; HTTP sous « Avancé » | 2 |
+| `ProbeForm` | Assistant « Ajouter une sonde » ; HTTP sous « Avancé » | 2 (un écran depuis v0.5.2 U3 : nom, adresse, Créer ; le reste sous « Réglages ») |
 | `JobForm` | Modale une étape + récapitulatif | 1 |
 | `ProjectForm` | Fusionné avec `StatusPageForm` (§3.4) | 2 (projet ; publication) |
 | `StatusComponentForm` | Modale une étape | 1 |
 | `StatusIncidentNew`, `EditForm` | Modale une étape ; `UpdateForm` reste en ligne dans la fiche (fil de l'incident) | 1 |
 | `FirewallForm` | Son `Wizard` passe dans `Modal` | 3, inchangées |
-| `AlertChannelForm`, `AlertMuteNew` | Modales, ouvertes depuis Paramètres › Notifications (§3.6) | 1-2 |
-| `KeyringCard`, `DestinationsCard`, `PlanForm` | Modales depuis la page Sauvegardes | 1-2 |
+| `AlertChannelForm`, `AlertMuteNew` | Modales, ouvertes depuis Paramètres › Notifications (§3.6) | 1-2 (un écran depuis v0.5.2 U3) |
+| `KeyringCard`, `DestinationsCard`, `PlanForm` | Modales depuis la page Sauvegardes | 1-2 (le plan : un écran depuis v0.5.2 U3) |
 | `DeployDialog`, `DeletePlanDialog` | Construits sur `Modal` | — |
 | Paramètres (mot de passe, disque, e-mails, jetons) | **Restent en ligne** (`SettingRow`) : on règle une valeur en place, rien ne s'ajoute | — |
 | `FirstSetup` | Reste plein écran : il n'y a pas de vue derrière | — |

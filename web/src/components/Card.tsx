@@ -162,6 +162,7 @@ export function EmptyCard({
 }
 
 // Une phrase du catalogue passe par Rich : ses renvois de menu sont des liens.
-export function Note({ tone, children }: { tone: StateTone; children: ReactNode }) {
+// neutral : une information qui n'attend aucun geste, ni bonne ni mauvaise.
+export function Note({ tone, children }: { tone: StateTone | "neutral"; children: ReactNode }) {
   return <div className={`note note-${tone}`}>{typeof children === "string" ? <Rich text={children} /> : children}</div>;
 }

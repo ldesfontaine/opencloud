@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 // La première configuration, simulée côté navigateur : le serveur des données
 // fictives a déjà un compte. Le jeton et les commandes sont inventés (aucun
 // ne vaut quoi que ce soit) ; l'écran, lui, est le vrai.
-export async function mockFirstSetup(page: Page): Promise<void> {
+export async function mockFirstSetup(page: Page, address: { local: boolean; suggestion: string } = { local: false, suggestion: "" }): Promise<void> {
   await page.route("**/api/auth", (route) =>
     route.fulfill({ json: { mode: "none", username: "", enabled_at: null, password_min_length: 12, allowed_users: null } }),
   );
@@ -21,7 +21,8 @@ export async function mockFirstSetup(page: Page): Promise<void> {
         ],
         proxmox_commands: "",
         expires_at: new Date(Date.now() + 3_600_000).toISOString(),
-        url_local: false,
+        url_local: address.local,
+        url_suggestion: address.suggestion,
       },
     }),
   );

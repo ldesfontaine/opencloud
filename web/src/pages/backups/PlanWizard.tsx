@@ -4,6 +4,7 @@ import { Navigate, useNavigate, useParams } from "react-router";
 import { saveBackupPlan, useBackups, type BackupPlan, type Backups } from "../../api/backups";
 import { useMachines } from "../../api/machines";
 import { useMachineProxmox } from "../../api/proxmox";
+import { SettingsFold } from "../../components/Disclosure";
 import { Failure } from "../../components/Failure";
 import { Field, Input } from "../../components/Field";
 import { MachineSelect } from "../../components/MachineSelect";
@@ -38,8 +39,8 @@ export function PlanWizard() {
 }
 
 // Le sujet et la sorte de source sont l'identité du plan, ils ne se changent
-// pas ; le reste se règle. Deux étapes : d'où part la sauvegarde, puis où elle
-// va et combien en garder.
+// pas ; le reste se règle. Un seul écran : d'où part la sauvegarde et où elle
+// va ; le nom et le nombre à garder sont repliés sous « Réglages ».
 function PlanDialog({ overview, editing }: { overview: Backups; editing: BackupPlan | null }) {
   const t = useT();
   const navigate = useNavigate();
@@ -84,8 +85,8 @@ function stepsOf(t: Translate, form: PlanForm, overview: Backups, isEditing: boo
   const isAgent = values.kind === "agent";
   return [
     {
-      id: "source",
-      title: t("backup.plan_step_source"),
+      id: "plan",
+      title: t("backup.plan_step_plan"),
       validate: () => {
         if (isAgent && values.machine === "") {
           return "backup.plan_machine_missing";
@@ -93,7 +94,11 @@ function stepsOf(t: Translate, form: PlanForm, overview: Backups, isEditing: boo
         if (isAgent && values.selector.trim() === "") {
           return "backup.plan_selector_missing";
         }
-        return subjectProblem(values, isEditing ? [] : overview.plans.map((plan) => plan.subject));
+        const subject = subjectProblem(values, isEditing ? [] : overview.plans.map((plan) => plan.subject));
+        if (subject !== null) {
+          return subject;
+        }
+        return values.destination !== "" ? null : overview.destinations.length === 0 ? "backup.plan_destination_missing" : "backup.plan_destination_unfit";
       },
       render: () => (
         <>
@@ -105,30 +110,7 @@ function stepsOf(t: Translate, form: PlanForm, overview: Backups, isEditing: boo
               <Input id="backup-plan-subject" mono type="text" autoComplete="off" maxLength={40} readOnly={isEditing} value={values.subject} onChange={(event) => change("subject", event.target.value)} required />
             </Field>
           )}
-          <Field label={t("backup.plan_name")} htmlFor="backup-plan-name" help={t("backup.plan_name_help")}>
-            <Input id="backup-plan-name" type="text" autoComplete="off" maxLength={80} value={values.name} onChange={(event) => change("name", event.target.value)} />
-          </Field>
           {isAgent && <AgentSource form={form} />}
-        </>
-      ),
-      summary: () => [
-        { label: t("backup.plan_source"), value: t(`backup.source_kind_${values.kind}`) },
-        ...(isAgent
-          ? [
-              { label: t("backup.plan_subject"), value: values.subject, mono: true },
-              { label: t("backup.plan_producer"), value: t(`backup.producer_${values.producer}`) },
-              { label: t("backup.plan_selector"), value: values.selector, mono: true },
-            ]
-          : []),
-        { label: t("backup.plan_name"), value: values.name === "" ? "—" : values.name },
-      ],
-    },
-    {
-      id: "destination",
-      title: t("backup.plan_step_destination"),
-      validate: () => (values.destination !== "" ? null : overview.destinations.length === 0 ? "backup.plan_destination_missing" : "backup.plan_destination_unfit"),
-      render: () => (
-        <>
           <Field label={t("backup.plan_destination_label")} htmlFor="backup-plan-destination">
             <Select
               id="backup-plan-destination"
@@ -140,16 +122,17 @@ function stepsOf(t: Translate, form: PlanForm, overview: Backups, isEditing: boo
               onChange={(chosen) => change("destination", chosen)}
             />
           </Field>
-          <Field label={t("backup.plan_keep_label")} htmlFor="backup-plan-keep" help={t("backup.plan_keep_help")}>
-            <Input id="backup-plan-keep" type="number" inputMode="numeric" min={1} max={365} value={values.keep} onChange={(event) => change("keep", event.target.value)} required />
-          </Field>
-          <p className="secondary">{t("backup.schedule_daily")}</p>
+          <SettingsFold hint={t("backup.plan_settings_hint", values.keep)}>
+            <Field label={t("backup.plan_name")} htmlFor="backup-plan-name" help={t("backup.plan_name_help")}>
+              <Input id="backup-plan-name" type="text" autoComplete="off" maxLength={80} value={values.name} onChange={(event) => change("name", event.target.value)} />
+            </Field>
+            <Field label={t("backup.plan_keep_label")} htmlFor="backup-plan-keep" help={t("backup.plan_keep_help")}>
+              <Input id="backup-plan-keep" type="number" inputMode="numeric" min={1} max={365} value={values.keep} onChange={(event) => change("keep", event.target.value)} required />
+            </Field>
+            <p className="secondary">{t("backup.schedule_daily")}</p>
+          </SettingsFold>
         </>
       ),
-      summary: () => [
-        { label: t("backup.plan_destination_label"), value: overview.destinations.find((candidate) => candidate.id === values.destination)?.name ?? "—" },
-        { label: t("backup.plan_keep_label"), value: values.keep, mono: true },
-      ],
     },
   ];
 }

@@ -51,6 +51,15 @@ details[open] > summary .fold-chevron {
   }
 }
 
+.fold-hint {
+  color: var(--muted);
+
+  &::before {
+    content: "·";
+    margin-right: 6px;
+  }
+}
+
 .fold-body {
   display: flex;
   flex-direction: column;

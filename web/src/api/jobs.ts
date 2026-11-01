@@ -56,6 +56,8 @@ export interface JobResponse {
   job: Job;
   ping_url: string;
   url_local: boolean;
+  // L'adresse de la page quand elle est publique et que public_url ne l'est pas.
+  url_suggestion: string;
   snippets: Snippet[];
   runs: Run[];
   pings: Ping[];

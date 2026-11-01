@@ -486,7 +486,7 @@ direction artistique. Les mêmes règles qu'en Go, transposées :
   dans le navigateur.
 - Le parcours navigateur (`make e2e`, `web/e2e`) ouvre chaque route du
   routeur dans Chromium sans tête, clique chaque bouton, ouvre chaque menu
-  déroulant et y choisit une option, mène chaque assistant au récapitulatif,
+  déroulant et y choisit une option, mène chaque assistant au récapitulatif (un assistant d'un seul écran, jusqu'à son action finale, prête à écrire),
   contre le vrai serveur sur des données fictives (le test Go
   `TestE2EFixtureServer`). Zéro erreur de console, aucune lecture refusée.
   Un écran ou une fenêtre nouveau y entre sans rien écrire : le parcours

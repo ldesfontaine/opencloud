@@ -6,6 +6,7 @@ import { useDeclaredServices } from "../../api/directory";
 import { useJobs } from "../../api/jobs";
 import { useMachines } from "../../api/machines";
 import { useProbes } from "../../api/probes";
+import { SettingsFold } from "../../components/Disclosure";
 import { Checkbox, Checks, Field, Input } from "../../components/Field";
 import { Modal } from "../../components/Modal";
 import { Select } from "../../components/Select";
@@ -13,7 +14,7 @@ import { Wizard, type WizardStep } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
-import { canAnnounce, emptyMuteForm, muteRequestOf, silenceDurations } from "../../lib/alerts";
+import { canAnnounce, emptyMuteForm, muteRequestOf, muteSettingsHint, silenceDurations } from "../../lib/alerts";
 import { isFormModified } from "../../lib/modal";
 import { nameWithMachine } from "../../lib/objects";
 
@@ -24,10 +25,10 @@ const targetKinds: readonly MuteTargetKind[] = ["", "machine", "service", "heart
 const settingsPath = "/parametres";
 
 // Faire taire : la fenêtre de Paramètres › Notifications, à
-// /parametres/silences/nouveau. Deux étapes : quoi (un type d'alerte, un objet,
-// les deux, ou tout), puis quand (début, durée, motif, annonce publique), et le
-// récapitulatif. Venue d'une alerte ou d'un service, la fenêtre arrive
-// pré-remplie sur ce qui la porte.
+// /parametres/silences/nouveau. Un seul écran : l'objet visé (ou tout), la
+// durée, et l'annonce publique quand l'objet le permet. Le type d'alerte, le
+// début et le motif sont repliés sous « Réglages ». Venue d'une alerte ou d'un
+// service, la fenêtre arrive pré-remplie sur ce qui la porte.
 export function MuteWizard() {
   const t = useT();
   const navigate = useNavigate();
@@ -76,24 +77,20 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<typeof emptyMuteF
     change("targetName", container?.name ?? "");
     change("announce", false);
   };
-  const objectName = values.targetKind === "container" ? values.targetName : (options.find((option) => option.id === values.targetID)?.name ?? "—");
   return [
     {
-      id: "target",
-      title: t("silence.step_target"),
-      // Choisir un genre sans en choisir l'objet ne vise rien : on le dit ici.
-      validate: () => (values.targetKind !== "" && values.targetID === "" ? "silence.object_missing" : null),
+      id: "mute",
+      title: t("silence.step_mute"),
+      // Choisir un genre sans en choisir l'objet ne vise rien ; une annonce sans titre ne dit rien : on le dit ici.
+      validate: () => {
+        if (values.targetKind !== "" && values.targetID === "") {
+          return "silence.object_missing";
+        }
+        return announced && values.publicTitle.trim() === "" ? "silence.public_title_missing" : null;
+      },
       render: () => (
         <>
           {/* Des Select et non des EnumSelect : l'option vide a sa propre clé, et la durée est un nombre. */}
-          <Field label={t("silence.kind_label")} htmlFor="silence-kind">
-            <Select
-              id="silence-kind"
-              value={values.kind}
-              options={[{ value: "", label: t("silence.kind_any") }, ...alertKinds.map((candidate) => ({ value: candidate, label: t(`alert.kind_${candidate}`) }))]}
-              onChange={(chosen) => change("kind", asKind(chosen))}
-            />
-          </Field>
           <div className="grid-2">
             <Field label={t("silence.target_kind_label")} htmlFor="silence-target-kind">
               <Select
@@ -122,35 +119,13 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<typeof emptyMuteF
               </Field>
             )}
           </div>
-        </>
-      ),
-      summary: () => [
-        { label: t("silence.kind_label"), value: values.kind === "" ? t("silence.kind_any") : t(`alert.kind_${values.kind}`) },
-        { label: t("silence.target_kind_label"), value: values.targetKind === "" ? t("silence.target_kind_none") : t(`silence.target_kind_${values.targetKind}`) },
-        ...(values.targetKind === "" ? [] : [{ label: t("silence.object_label"), value: objectName }]),
-      ],
-    },
-    {
-      id: "when",
-      title: t("silence.step_when"),
-      validate: () => (announced && values.publicTitle.trim() === "" ? "silence.public_title_missing" : null),
-      render: () => (
-        <>
-          <div className="grid-2">
-            <Field label={t("silence.start_label")} htmlFor="silence-start" help={t("silence.start_help")}>
-              <Input id="silence-start" mono type="datetime-local" value={values.startsAt} onChange={(event) => change("startsAt", event.target.value)} />
-            </Field>
-            <Field label={t("silence.duration_label")} htmlFor="silence-duration">
-              <Select
-                id="silence-duration"
-                value={String(values.minutes)}
-                options={silenceDurations.map((duration) => ({ value: String(duration.minutes), label: t(`silence.duration_${duration.key}`) }))}
-                onChange={(chosen) => change("minutes", Number(chosen))}
-              />
-            </Field>
-          </div>
-          <Field label={t("silence.reason_label")} htmlFor="silence-reason" help={t("silence.reason_help")}>
-            <Input id="silence-reason" type="text" value={values.reason} onChange={(event) => change("reason", event.target.value)} maxLength={200} autoComplete="off" />
+          <Field label={t("silence.duration_label")} htmlFor="silence-duration">
+            <Select
+              id="silence-duration"
+              value={String(values.minutes)}
+              options={silenceDurations.map((duration) => ({ value: String(duration.minutes), label: t(`silence.duration_${duration.key}`) }))}
+              onChange={(chosen) => change("minutes", Number(chosen))}
+            />
           </Field>
           {canAnnounce(values) && (
             <>
@@ -165,14 +140,24 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<typeof emptyMuteF
               )}
             </>
           )}
+          <SettingsFold hint={muteSettingsHint(t, values)} initiallyOpen={values.kind !== ""}>
+            <Field label={t("silence.kind_label")} htmlFor="silence-kind">
+              <Select
+                id="silence-kind"
+                value={values.kind}
+                options={[{ value: "", label: t("silence.kind_any") }, ...alertKinds.map((candidate) => ({ value: candidate, label: t(`alert.kind_${candidate}`) }))]}
+                onChange={(chosen) => change("kind", asKind(chosen))}
+              />
+            </Field>
+            <Field label={t("silence.start_label")} htmlFor="silence-start" help={t("silence.start_help")}>
+              <Input id="silence-start" mono type="datetime-local" value={values.startsAt} onChange={(event) => change("startsAt", event.target.value)} />
+            </Field>
+            <Field label={t("silence.reason_label")} htmlFor="silence-reason" help={t("silence.reason_help")}>
+              <Input id="silence-reason" type="text" value={values.reason} onChange={(event) => change("reason", event.target.value)} maxLength={200} autoComplete="off" />
+            </Field>
+          </SettingsFold>
         </>
       ),
-      summary: () => [
-        { label: t("silence.start_label"), value: values.startsAt === "" ? t("silence.start_now") : values.startsAt.replace("T", " "), mono: true },
-        { label: t("silence.duration_label"), value: t(`silence.duration_${silenceDurations.find((duration) => duration.minutes === values.minutes)?.key ?? "1h"}`) },
-        { label: t("silence.reason_label"), value: values.reason === "" ? "—" : values.reason },
-        ...(announced ? [{ label: t("silence.public_title_label"), value: values.publicTitle }] : []),
-      ],
     },
   ];
 }

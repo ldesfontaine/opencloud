@@ -366,7 +366,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   chemins triés, sans doublon (`machine.NormalizeCapabilities`).
 - **À l'émission** : `POST /api/machines/tokens` reçoit `{name,
   capabilities: [{name, paths}]}` et répond `{name, token, steps: [{id,
-  command}], proxmox_commands, expires_at, url_local}` (`command` et
+  command}], proxmox_commands, expires_at, url_local, url_suggestion}` (`command` et
   `preparation` d'avant #447 sont remplacés par `steps` ; route réservée à
   l'opérateur, `grantsAuthority`, comme `local-enrollment` et `reenroll`) ; un droit inconnu, un chemin faux ou une
   portée fausse se refusent en 422 (`machine.capability_unknown`,
@@ -4579,25 +4579,65 @@ brouillon n'est gardé) ; le flou du voile demande un navigateur récent
 (`backdrop-filter`), sans lui le voile reste uni.
 
 **Les fenêtres d'une saisie.** Déclarer un
-service, ajouter une sonde et surveiller une tâche sont des `Wizard` dans une
-`Modal` (`pages/services/ServiceWizard.tsx`, `pages/probes/ProbeWizard.tsx`,
-`pages/jobs/JobWizard.tsx`). En création, l'assistant part de la première
-étape ; en édition, du récapitulatif, d'où « Modifier » mène à l'étape. Les
-réglages techniques sont sous « Avancé » (`Fold`). Ce qu'ils écrivent n'a pas
+service est un `Wizard` dans une `Modal` (`pages/services/ServiceWizard.tsx`) ;
+ajouter une sonde et surveiller une tâche tiennent en **un écran**
+(`pages/probes/ProbeWizard.tsx`, `pages/jobs/JobWizard.tsx`, v0.5.2 U3 : un
+`Wizard` d'une seule étape se rend sans barre ni récapitulatif, voir « Les
+assistants d'un seul écran » plus bas). En création, l'assistant à étapes part de la
+première étape ; en édition, du récapitulatif, d'où « Modifier » mène à
+l'étape. Les réglages techniques sont sous « Avancé » (`Fold`). Ce qu'ils écrivent n'a pas
 changé : le même corps, la même route (`POST` ou `PUT`), les mêmes refus.
 
 | Adresse | Fond | Fenêtre |
 | --- | --- | --- |
 | `/services/annuaire/nouveau` | la liste des services | Déclarer un service : d'abord le choix d'un conteneur détecté (ou « saisir à la main »), puis trois étapes (l'identité, dont le type ; les unités, leurs réglages techniques sous « Avancé » ; les projets, facultatifs, avec « Créer un projet ici »). Avec `?container=`, partie de la proposition du serveur pour ce conteneur |
 | `/services/annuaire/{id}/modifier` | la fiche du service | Le même assistant, ouvert sur le récapitulatif |
-| `/disponibilite/nouvelle` | la liste des sondes | Ajouter une sonde : deux étapes (la cible ; le rythme, ce qui est propre à HTTP ou à TCP sous « Avancé »). Avec `?service=` et `?container=`, pré-remplie |
-| `/disponibilite/{id}/modifier` | la fiche de la sonde | Le même assistant, ouvert sur le récapitulatif ; une note dit ce qui remet la sonde à « Nouveau » |
-| `/taches/nouvelle` | la liste des tâches | Surveiller une tâche : une étape (nom, machine, intervalle, grâce) puis le récapitulatif |
-| `/taches/{id}/modifier` | la fiche de la tâche | Le même assistant, ouvert sur le récapitulatif |
+| `/disponibilite/nouvelle` | la liste des sondes | Ajouter une sonde : un écran (nom, adresse, Créer) ; type, machine qui sonde, service, rythme, seuils sous « Réglages » (par défaut : HTTP, la première machine qui peut sonder, chaque minute, 3 échecs avant l'alerte), ce qui est propre à HTTP ou à TCP sous « Avancé ». Avec `?service=` et `?container=`, pré-remplie |
+| `/disponibilite/{id}/modifier` | la fiche de la sonde | Le même écran, sur la sonde ; une note dit ce qui remet la sonde à « Nouveau » |
+| `/taches/nouvelle` | la liste des tâches | Surveiller une tâche : un écran (nom, intervalle, Créer) ; machine et grâce sous « Réglages » |
+| `/taches/{id}/modifier` | la fiche de la tâche | Le même écran, sur la tâche |
+
+**Les assistants d'un seul écran** (v0.5.2 U3, #450). Un `Wizard` qui n'a
+qu'une étape se rend en un formulaire (`OneScreen`, `components/Wizard.tsx`) :
+les champs, l'action finale, « Annuler ». Pas de barre, pas de récapitulatif ;
+la validation de l'étape passe avant l'écriture. Les réglages dont les valeurs
+par défaut suffisent sont repliés sous « Réglages » (`SettingsFold`) : le pli
+dit ces valeurs en clair, fermé, et un champ faux dedans l'ouvre. Aucune
+route, aucun corps, aucun refus ne change : seul l'écran perd ses étapes.
+
+| Fenêtre | À l'écran | Sous « Réglages » (valeur par défaut dite) |
+| --- | --- | --- |
+| Ajouter une sonde (`ProbeWizard`) | nom, adresse | type, machine, service, rythme, seuils, requête HTTP (« HTTP depuis vps-lyon, chaque minute, 3 échecs avant l'alerte ») |
+| Surveiller une tâche (`JobWizard`) | nom, intervalle | machine, grâce (« 10 min de grâce, aucune machine ») |
+| Canal de notification (`ChannelWizard`) | nom, format, adresse ou destinataires, secret | gravité minimale, résolutions, journal, activation (« dès Attention, avec les résolutions ») |
+| Faire taire (`MuteWizard`) | objet, durée, annonce publique si l'objet le permet | type d'alerte, début, motif (« tous les types, dès maintenant ») |
+| Projet (`ProjectWizard`) | nom, titre, page publique et ses champs | — |
+| Plan de sauvegarde (`PlanWizard`) | source, destination | nom, nombre gardé (« 14 sauvegardes gardées, chaque nuit ») |
+
+Gardent leurs étapes : le service (identité, unités, projets), le pare-feu (des
+gestes à faire dans OPNsense entre l'identité et la clé, une empreinte à
+confirmer), l'hôte Proxmox (l'empreinte du certificat se voit avant d'être
+approuvée), l'ajout d'une machine (une commande à coller, puis l'attente de
+l'agent). Une période s'écrit partout pareil (`describeEvery` : « chaque
+minute », « toutes les 5 min »), que le champ soit en secondes (sonde) ou en
+minutes (tâche).
+
+**L'adresse d'openCloud jugée locale** (v0.5.2 U3). L'URL de ping d'une tâche et
+la commande d'une machine s'écrivent depuis `public_url`, ou à défaut depuis
+l'adresse de la requête. Si elle paraît locale, `url_local` est vrai ; la
+réponse porte aussi `url_suggestion`, l'adresse de la page **quand celle-ci est
+publique**, vide sinon. L'écran (`PublicUrlNote`) en tire deux notes : un essai
+local (page locale) est une **note neutre** : l'adresse publique réelle
+n'est pas connue, donc la forme attendue n'est qu'un **exemple non copiable**
+(`public_url = "https://opencloud.exemple.fr"`), puis la relance du service
+(`sudo systemctl restart opencloud.service`, qui se copie) ; une page publique
+avec un `public_url` local est **rouge**, et la ligne, à copier, porte
+l'adresse de la page.
 
 **Les derniers formulaires** (refonte UX, C11) : plus aucune page de
-formulaire. Le pare-feu et le plan de sauvegarde sont des `Wizard` dans une
-`Modal` (`pages/firewalls/FirewallWizard.tsx`, `pages/backups/PlanWizard.tsx`) ;
+formulaire. Le pare-feu est un `Wizard` dans une `Modal`
+(`pages/firewalls/FirewallWizard.tsx`), le plan de sauvegarde un écran
+(`pages/backups/PlanWizard.tsx`) ;
 la clé, la destination, le composant et l'incident sont des `ModalForm`, une
 fenêtre à une seule étape dont l'action est dans le pied
 (`pages/backups/KeyringModal.tsx`, `DestinationModal.tsx`,
@@ -4611,8 +4651,8 @@ mêmes corps, mêmes refus.
 | `/pare-feu/{id}/modifier` | la fiche du pare-feu (onglet Résumé) | Le même assistant, ouvert sur le récapitulatif ; le secret se ressaisit |
 | `/sauvegardes/cle` | la page Sauvegardes | Créer ou remplacer la clé : la phrase de passe, deux fois ; remplacer demande confirmation |
 | `/sauvegardes/destinations/nouvelle` | la page Sauvegardes | Ajouter une destination : nom, machine, dossier |
-| `/sauvegardes/plans/nouveau` | la page Sauvegardes | Ajouter un plan : deux étapes (la source ; la destination et le nombre de sauvegardes gardées) |
-| `/sauvegardes/plans/{sujet}/modifier` | la page Sauvegardes | Le même assistant, ouvert sur le récapitulatif ; le sujet et la sorte de source ne changent pas |
+| `/sauvegardes/plans/nouveau` | la page Sauvegardes | Ajouter un plan : un écran (la source, la destination, Ajouter) ; le nom et le nombre de sauvegardes gardées sous « Réglages » |
+| `/sauvegardes/plans/{sujet}/modifier` | la page Sauvegardes | Le même écran ; le sujet et la sorte de source ne changent pas |
 | `/disponibilite/pages/{projet}/composants/nouveau` | la page publique du projet | Ajouter un composant : le projet est celui de l'adresse |
 | `/disponibilite/pages/{projet}/composants/{id}` | la page publique du projet | Modifier ou supprimer un composant (le plan de suppression s'ouvre dans une seconde fenêtre) |
 | `/disponibilite/composants/{id}` | — | Redirige vers la ligne précédente : un lien qui ne connaît que l'identifiant du composant (la fiche d'un service) retrouve son projet |

@@ -10,18 +10,17 @@ import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useI18n, useT, type Translate } from "../../i18n/context";
 import { isFormModified } from "../../lib/modal";
-import { emptyProjectForm, projectFormOf, projectRequestOf, publicAddressOf, slugSuggestionOf, type ProjectFormValues } from "../../lib/projects";
+import { emptyProjectForm, projectFormOf, projectRequestOf, slugSuggestionOf, type ProjectFormValues } from "../../lib/projects";
 
 const projectsPath = "/services/projets";
 
 // « Nouveau projet » : la fenêtre de la liste des projets, à l'adresse
 // /services/projets/nouveau, ou « Modifier le projet », à
-// /services/projets/:id. Deux étapes : le projet (un nom, un titre), puis sa
+// /services/projets/:id. Un seul écran : le projet (un nom, un titre) et sa
 // page publique, facultative : un projet publié a sa page à /statut/<adresse>,
 // qui montre un composant par service du projet et porte son titre. Dépublier
-// retire la page, pas le projet. En édition, l'assistant s'ouvre sur le
-// récapitulatif et remplace le projet entier ; le serveur valide et répond par
-// la clé du refus.
+// retire la page, pas le projet. En édition, il remplace le projet entier ; le
+// serveur valide et répond par la clé du refus.
 export function ProjectWizard() {
   const { id } = useParams();
   const isEditing = id !== undefined;
@@ -67,6 +66,7 @@ function stepsOf(t: Translate, form: ProjectForm, services: { id: string; name: 
     {
       id: "project",
       title: t("project.step_project"),
+      validate: () => (values.published && values.slug.trim() === "" ? "project.publish_slug_invalid" : null),
       render: () => (
         <>
           <Field label={t("project.name_label")} htmlFor="project-name" help={t("project.name_help")}>
@@ -97,18 +97,6 @@ function stepsOf(t: Translate, form: ProjectForm, services: { id: string; name: 
               ))}
             </p>
           )}
-        </>
-      ),
-      summary: () => [
-        { label: t("project.name_label"), value: values.name, mono: true },
-        { label: t("project.title_label"), value: values.title === "" ? "—" : values.title },
-      ],
-    },
-    {
-      id: "publication",
-      title: t("project.step_publication"),
-      render: () => (
-        <>
           <Field label={t("project.publish_label")} help={t("project.publish_help")} tip={t("project.publish_tip")}>
             <Checkbox
               label={t("project.publish_check")}
@@ -144,15 +132,6 @@ function stepsOf(t: Translate, form: ProjectForm, services: { id: string; name: 
           )}
         </>
       ),
-      validate: () => (values.published && values.slug.trim() === "" ? "project.publish_slug_invalid" : null),
-      summary: () =>
-        values.published
-          ? [
-              { label: t("project.publish_label"), value: publicAddressOf(values.slug), mono: true },
-              { label: t("project.language_label"), value: t(`language.${values.language}`) },
-              { label: t("project.announcement_label"), value: values.announcement === "" ? "—" : values.announcement },
-            ]
-          : [{ label: t("project.publish_label"), value: t("project.not_published") }],
     },
   ];
 }

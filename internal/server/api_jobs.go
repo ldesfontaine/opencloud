@@ -68,12 +68,14 @@ type snippetJSON struct {
 }
 
 type jobResponse struct {
-	Job      jobJSON       `json:"job"`
-	PingURL  string        `json:"ping_url"`
-	URLLocal bool          `json:"url_local"`
-	Snippets []snippetJSON `json:"snippets"`
-	Runs     []runJSON     `json:"runs"`
-	Pings    []pingJSON    `json:"pings"`
+	Job      jobJSON `json:"job"`
+	PingURL  string  `json:"ping_url"`
+	URLLocal bool    `json:"url_local"`
+	// L'adresse de la page quand elle est publique et que public_url ne l'est pas.
+	URLSuggestion string        `json:"url_suggestion"`
+	Snippets      []snippetJSON `json:"snippets"`
+	Runs          []runJSON     `json:"runs"`
+	Pings         []pingJSON    `json:"pings"`
 }
 
 func jobToJSON(found heartbeat.Heartbeat) jobJSON {
@@ -186,15 +188,16 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	publicURL, isLocal := s.resolvePublicURL(r)
-	pingURL := publicURL + "/ping/" + found.Token
+	address := s.resolvePublicURL(r)
+	pingURL := address.URL + "/ping/" + found.Token
 	response := jobResponse{
-		Job:      jobToJSON(found),
-		PingURL:  pingURL,
-		URLLocal: isLocal,
-		Snippets: snippets(pingURL),
-		Runs:     httpx.ConvertAll(runs, runToJSON),
-		Pings:    httpx.ConvertAll(pings, pingToJSON),
+		Job:           jobToJSON(found),
+		PingURL:       pingURL,
+		URLLocal:      address.Local,
+		URLSuggestion: address.Suggestion,
+		Snippets:      snippets(pingURL),
+		Runs:          httpx.ConvertAll(runs, runToJSON),
+		Pings:         httpx.ConvertAll(pings, pingToJSON),
 	}
 	// L'adresse de ping suffit à faire passer la tâche pour faite : un jeton
 	// d'API ne la voit pas, ni les extraits qui la contiennent.
