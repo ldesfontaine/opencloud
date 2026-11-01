@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 
 import { saveChannel, useChannel, type Channel } from "../../api/alerts";
 import { useMailSettings } from "../../api/settings";
@@ -90,9 +90,7 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<ReturnType<typeof
                 <Input id="channel-recipients" mono type="text" value={values.destination} onChange={(event) => change("destination", event.target.value)} maxLength={2600} autoComplete="off" required />
               </Field>
               {mailMissing && (
-                <Note tone="warn">
-                  {t("channel.mail_relay_missing")} <Link to="/parametres#e-mails">{t("channel.mail_relay_link")}</Link>
-                </Note>
+                <Note tone="warn">{t("channel.mail_relay_missing")}</Note>
               )}
             </>
           ) : (

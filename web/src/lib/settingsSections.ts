@@ -10,6 +10,12 @@ export const settingsSections = [
   { id: "a-propos", titleKey: "settings.section_about" },
 ] as const;
 
+// Les blocs d'une section qu'un renvoi vise directement : un bloc n'est pas
+// une section, mais le lien « Paramètres → Notifications → Canaux » arrive sur
+// lui. internal/lang/links.go écrit ces mêmes ancres ; le test des renvois
+// (menuLinks.test.ts) échoue si l'une manque ici.
+export const settingsBlockAnchors = { channels: "canaux", apiTokens: "jetons-api" } as const;
+
 export type SettingsSectionId = (typeof settingsSections)[number]["id"];
 
 // Les ancres d'avant : #alertes portait les seuils du disque, qui sont

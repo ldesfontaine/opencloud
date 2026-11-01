@@ -1,6 +1,7 @@
 import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
 
 import { FieldTip } from "./FieldTip";
+import { Rich } from "./Rich";
 import "./Field.scss";
 
 // Un champ : étiquette, contrôle, aide. L'aide tient sur une ligne ; le
@@ -31,7 +32,7 @@ export function Field({
         </span>
       )}
       {children}
-      {help !== undefined && <span className="field-help">{help}</span>}
+      {help !== undefined && <span className="field-help"><Rich text={help} /></span>}
     </div>
   );
 }

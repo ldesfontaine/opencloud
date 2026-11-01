@@ -11,6 +11,7 @@ import { Subject, Table } from "../../components/Table";
 import { useAction } from "../../hooks/useAction";
 import { useT } from "../../i18n/context";
 import { channelPathOf, channelTestResult, newChannelPath } from "../../lib/alerts";
+import { settingsBlockAnchors } from "../../lib/settingsSections";
 import "./ChannelsBlock.scss";
 
 // Les canaux : où partent les alertes. Une ligne par canal, un essai qui
@@ -21,7 +22,7 @@ export function ChannelsBlock() {
   const channels = useChannels();
   return (
     <>
-      <div className="setting-subhead">
+      <div className="setting-subhead" id={settingsBlockAnchors.channels}>
         <span className="card-t">{t("channel.title")}</span>
         <span className="secondary">{t("channel.intro")}</span>
       </div>

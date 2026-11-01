@@ -88,7 +88,7 @@ func Load() (Catalogs, error) {
 			return nil, fmt.Errorf("parse language %s: %w", code, err)
 		}
 		for key, value := range strings {
-			expanded, err := expand(value)
+			expanded, err := expand(value, strings)
 			if err != nil {
 				return nil, fmt.Errorf("language %s, key %s: %w", code, key, err)
 			}
@@ -123,9 +123,13 @@ var placeholders = strings.NewReplacer(
 
 // expand remplace les marqueurs d'une valeur. Une accolade qui reste est un
 // marqueur inconnu, le plus souvent une faute de frappe : mieux vaut
-// refuser de démarrer que d'afficher « {produt} » à l'opérateur.
-func expand(value string) (string, error) {
-	expanded := placeholders.Replace(value)
+// refuser de démarrer que d'afficher « {produt} » à l'opérateur. Les renvois
+// de menu {link:id} y deviennent des liens (links.go).
+func expand(value string, catalog map[string]string) (string, error) {
+	expanded, err := expandLinks(placeholders.Replace(value), catalog)
+	if err != nil {
+		return "", err
+	}
 	if strings.ContainsAny(expanded, "{}") {
 		return "", fmt.Errorf("unknown placeholder in %q", value)
 	}

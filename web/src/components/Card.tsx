@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import type { StateTone } from "../lib/tone";
 import { Icon, type IconName } from "./Icon";
+import { Rich } from "./Rich";
 import "./Card.scss";
 
 // Les cartes se distinguent par un trait, jamais par une ombre.
@@ -104,7 +105,9 @@ export function Empty({
         </span>
       )}
       {title !== undefined && <h2>{title}</h2>}
-      <p>{text}</p>
+      <p>
+        <Rich text={text} />
+      </p>
       {action}
     </div>
   );
@@ -116,7 +119,9 @@ export function Empty({
 export function EmptyLine({ text, action }: { text: string; action?: ReactNode }) {
   return (
     <div className="empty-line">
-      <p>{text}</p>
+      <p>
+        <Rich text={text} />
+      </p>
       {action}
     </div>
   );
@@ -145,6 +150,7 @@ export function EmptyCard({
   );
 }
 
+// Une phrase du catalogue passe par Rich : ses renvois de menu sont des liens.
 export function Note({ tone, children }: { tone: StateTone; children: ReactNode }) {
-  return <div className={`note note-${tone}`}>{children}</div>;
+  return <div className={`note note-${tone}`}>{typeof children === "string" ? <Rich text={children} /> : children}</div>;
 }
