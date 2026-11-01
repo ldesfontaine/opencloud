@@ -7,7 +7,7 @@ import type { IconName } from "../components/Icon";
 // dit quels modules existent et lesquels une machine ou l'installation porte
 // (internal/module) ; ici, ce que l'écran en fait.
 
-export type ModuleID = "containers" | "hypervisor" | "guest" | "ssh_keys" | "probes" | "firewall" | "backups" | "jobs";
+export type ModuleID = "containers" | "hypervisor" | "guest" | "ssh_keys" | "systemd_units" | "probes" | "firewall" | "backups" | "jobs";
 
 // Un chiffre du menu, et s'il demande attention (rouge).
 interface Counter {
@@ -68,6 +68,7 @@ const modules: ModuleDef[] = [
   { id: "hypervisor", tab: { slug: "hyperviseur", rank: 50 } },
   { id: "guest" },
   { id: "ssh_keys", tab: { slug: "ssh", rank: 40 }, listTab: { href: "/machines/acces-ssh", label: "module.ssh_keys", rank: 10 } },
+  { id: "systemd_units", tab: { slug: "systemd", rank: 45 } },
   {
     id: "probes",
     tab: { slug: "disponibilite", rank: 20 },

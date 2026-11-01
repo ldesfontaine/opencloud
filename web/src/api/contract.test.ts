@@ -20,6 +20,7 @@ import type { NetworkResponse, OverviewNetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
 import type { ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
+import type { SystemdReport } from "./systemd";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
 import type { Session } from "./session";
 import type { VerbRequest, VerbRequestsResponse } from "./verbRequests";
@@ -306,6 +307,22 @@ const sshReport = shape<SSHReport>("SSHReport", {
   }),
 });
 
+const systemdReport = shape<SystemdReport>("SystemdReport", {
+  machine_id: value,
+  machine_name: value,
+  reported_at: value,
+  available: value,
+  reason: value,
+  truncated: value,
+  units: shape("SystemdUnit", {
+    name: value,
+    load: value,
+    active: value,
+    sub: value,
+    declared: shape("DeclaredUnitRef", { service_id: value, service_name: value, unit_id: value }),
+  }),
+});
+
 const proxmoxHost = shape<ProxmoxHost>("ProxmoxHost", {
   api_url: value,
   token_id_hint: value,
@@ -550,6 +567,7 @@ const serviceUnit = shape<DeclaredServiceJSON["units"][number]>("ServiceUnit", {
   ports: value,
   data_path: value,
   update_policy: value,
+  observed: shape("ObservedUnit", { presence: value, load: value, active: value, sub: value, reported_at: value }),
 });
 
 const declaredServiceFields = {
@@ -1116,6 +1134,8 @@ const contract: Record<string, Shape<unknown>> = {
   "session.golden.json": session,
   "ssh_keys.golden.json": shape<SSHMatrixResponse>("SSHMatrixResponse", { machines: sshReport }),
   "ssh_keys_machine.golden.json": sshReport,
+  "systemd_units_machine.golden.json": systemdReport,
+  "proposal_systemd_unit.golden.json": proposal,
   "settings_ai_agent.golden.json": mcpCheck,
   "verb_requests.golden.json": shape<VerbRequestsResponse>("VerbRequestsResponse", {
     requests: shape<VerbRequest>("VerbRequest", {

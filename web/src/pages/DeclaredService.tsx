@@ -10,6 +10,7 @@ import {
   useProjects,
   type DeclaredServiceDetail,
   type LinkedObject,
+  type ObservedUnit,
   type Project,
   type ServiceGap,
   type ServiceLinks,
@@ -27,6 +28,7 @@ import { Pill } from "../components/Pill";
 import { List, Table } from "../components/Table";
 import { useT } from "../i18n/context";
 import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
+import { needsPort, observedPill } from "../lib/systemd";
 import { newMutePath } from "../lib/alerts";
 import { componentLookupPath } from "../lib/status";
 import { probePath } from "../lib/probes";
@@ -156,6 +158,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
                 <th>{t("directory.col_version")}</th>
                 {service.origin !== "compose" && <th className="wide-only">{t(service.origin === "binary" ? "directory.col_systemd" : "directory.col_container")}</th>}
                 <th className="th-end wide-only">{t("directory.col_ports")}</th>
+                {service.origin === "binary" && <th>{t("directory.col_unit_state")}</th>}
                 <th>{t("directory.update_policy_label")}</th>
                 <th>{t("gap.column")}</th>
               </tr>
@@ -167,7 +170,8 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
                   <td className="mono wide-only">{unit.image !== "" ? <ImageName image={unit.image} /> : "—"}</td>
                   <td className="mono">{unit.version !== "" ? unit.version : "—"}</td>
                   {service.origin !== "compose" && <td className="mono wide-only">{unitKeyOf(unit, service.origin)}</td>}
-                  <td className="mono td-end wide-only">{unit.ports.length > 0 ? formatUnitPorts(unit.ports) : "—"}</td>
+                  <td className="mono td-end wide-only">{unit.ports.length > 0 ? formatUnitPorts(unit.ports) : needsPort(unit.kind, unit.ports) ? <PortToDeclare serviceID={service.id} /> : "—"}</td>
+                  {service.origin === "binary" && <td>{unit.observed !== null ? <ObservedState observed={unit.observed} /> : <span className="muted">—</span>}</td>}
                   <td>{unit.kind === "container" ? t(`update.policy_${unit.update_policy}`) : <span className="muted">—</span>}</td>
                   <td>{unitGap(gap, unit.id)}</td>
                 </tr>
@@ -183,6 +187,32 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
       {/* La fenêtre de l'adresse : modifier le service. */}
       <Outlet />
     </>
+  );
+}
+
+// Un binaire sans port : le relevé systemd ne dit pas où il écoute. Le lien
+// ouvre la modification directement sur l'étape des unités.
+function PortToDeclare({ serviceID }: { serviceID: string }) {
+  const t = useT();
+  return (
+    <Link to={`/services/annuaire/${serviceID}/modifier?etape=units`} title={t("directory.port_to_declare_help")}>
+      {t("directory.port_to_declare")}
+    </Link>
+  );
+}
+
+// L'état d'une unité binaire d'après le relevé de sa machine : en marche, en
+// échec, absente de la machine, ou pas encore relevée. Une absence dit quoi
+// vérifier.
+function ObservedState({ observed }: { observed: ObservedUnit }) {
+  const t = useT();
+  const pill = observedPill(observed);
+  const help = observed.presence === "missing" ? t("systemd.presence_missing_help") : observed.presence === "unknown" ? t("systemd.presence_unknown_help") : undefined;
+  return (
+    <span className="cluster" title={help}>
+      <Pill tone={pill.tone}>{t(pill.key)}</Pill>
+      {observed.presence === "found" && <span className="secondary">{t(`systemd.sub_${observed.sub}`)}</span>}
+    </span>
   );
 }
 

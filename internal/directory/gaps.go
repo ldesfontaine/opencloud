@@ -26,6 +26,11 @@ func (d *Directory) Gaps(ctx context.Context, filter Filter) (GapReport, error) 
 		return GapReport{}, err
 	}
 	report := Gaps(declared, containers, checks, ignored)
+	observed, err := d.ObservedUnits(ctx, declared)
+	if err != nil {
+		return GapReport{}, err
+	}
+	report = ApplyUnitObservations(report, observed)
 	if filter.ProjectID != "" {
 		report.Undeclared = []Undeclared{}
 	}

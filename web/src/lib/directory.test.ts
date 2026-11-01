@@ -35,8 +35,8 @@ function nextcloud(): DeclaredService {
     declared_by: "operator",
     provides: [],
     units: [
-      { id: "unit_1", name: "app", kind: "container", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", data_path: "/var/www/html", ports: ["8080:80", "443/tcp"], update_policy: "hold" },
-      { id: "unit_2", name: "db", kind: "container", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [], update_policy: "watch" },
+      { id: "unit_1", name: "app", kind: "container", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", data_path: "/var/www/html", ports: ["8080:80", "443/tcp"], update_policy: "hold", observed: null },
+      { id: "unit_2", name: "db", kind: "container", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [], update_policy: "watch", observed: null },
     ],
     project_ids: ["prj_1"],
     created_at: "2026-10-18T09:00:00Z",
@@ -263,14 +263,19 @@ describe("unitSummary", () => {
 
 describe("hasAdvancedUnitValues", () => {
   it("est faux pour une unité neuve ou à peine nommée", () => {
-    expect(hasAdvancedUnitValues(emptyUnitForm())).toBe(false);
-    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), name: "app", image: "x" })).toBe(false);
+    expect(hasAdvancedUnitValues(emptyUnitForm(), "compose")).toBe(false);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), name: "app", image: "x" }, "compose")).toBe(false);
   });
 
   it("est vrai dès qu'un réglage technique est rempli", () => {
-    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), ports: "80" })).toBe(true);
-    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), dataPath: "/data" })).toBe(true);
-    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), updatePolicy: "hold" })).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), ports: "80" }, "compose")).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), dataPath: "/data" }, "container")).toBe(true);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), updatePolicy: "hold" }, "container")).toBe(true);
+  });
+
+  it("ne compte pas le port d'un binaire : il est demandé hors du pli", () => {
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), ports: "3000" }, "binary")).toBe(false);
+    expect(hasAdvancedUnitValues({ ...emptyUnitForm(), version: "9.0" }, "binary")).toBe(true);
   });
 });
 

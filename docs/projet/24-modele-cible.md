@@ -725,7 +725,7 @@ Calculé par le serveur à chaque inventaire. Le niveau le plus fort gagne. Jama
 | Image ou version différente de l'épinglée | Écart « divergent » |
 | Conteneur rattaché, unité supprimée | `set null` : il redevient « présent non déclaré » |
 
-L'écart n'est pas stocké : il se calcule à la lecture, par service et par unité (conforme, absent, divergent, faible, non observé pour un binaire, version non vérifiable sur `latest` ou sans tag) et par conteneur (non déclaré).
+L'écart n'est pas stocké : il se calcule à la lecture, par service et par unité (conforme, absent, divergent, faible, non observé pour un binaire dont la machine n'a pas relevé systemd (trouvé : conforme ; absent d'un relevé lu : absent), version non vérifiable sur `latest` ou sans tag) et par conteneur (non déclaré).
 
 Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-fonctionnement.md`, « Comment un conteneur se rattache à l'annuaire ») :
 

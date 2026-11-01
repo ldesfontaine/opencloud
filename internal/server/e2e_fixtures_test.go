@@ -20,6 +20,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 )
 
 // e2eAddrEnv porte l'adresse d'écoute du serveur du parcours navigateur
@@ -74,6 +75,7 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2EApply(t, ts)
 	seedE2EVirtualized(t, ts)
 	seedE2EEdge(t, ts)
+	seedE2ESystemd(t, ts)
 }
 
 // seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
@@ -224,4 +226,47 @@ func seedE2EEdge(t *testing.T, ts *testServer) {
 		edge("7", "authelia", "authelia/authelia:4.38"),
 		edge("8", "crowdsec", "crowdsecurity/crowdsec:v1.6"),
 	)
+}
+
+// seedE2ESystemd montre les unités systemd : la machine distante porte Forgejo
+// (déclaré, sans port : l'invitation à le déclarer), une sauvegarde de nuit en
+// échec et des unités que personne ne déclare ; la machine openCloud n'a pas
+// l'unité de Caddy, que l'annuaire déclare (absente de la machine).
+func seedE2ESystemd(t *testing.T, ts *testServer) {
+	t.Helper()
+	ctx := context.Background()
+	unit := func(name string, active systemdunits.Active, sub systemdunits.Sub) systemdunits.Unit {
+		return systemdunits.Unit{Name: name, Load: systemdunits.LoadLoaded, Active: active, Sub: sub}
+	}
+	remote := systemdunits.Report{Available: true, Units: []systemdunits.Unit{
+		unit("cron.service", systemdunits.ActiveActive, systemdunits.SubRunning),
+		unit("forgejo.service", systemdunits.ActiveActive, systemdunits.SubRunning),
+		unit("nightly-backup.service", systemdunits.ActiveFailed, systemdunits.SubFailed),
+		unit("opencloud-agent.service", systemdunits.ActiveActive, systemdunits.SubRunning),
+		unit("ssh.service", systemdunits.ActiveActive, systemdunits.SubRunning),
+		unit("unattended-upgrades.service", systemdunits.ActiveInactive, systemdunits.SubDead),
+	}}
+	local := systemdunits.Report{Available: true, Units: []systemdunits.Unit{
+		unit("cron.service", systemdunits.ActiveActive, systemdunits.SubRunning),
+		unit("ssh.service", systemdunits.ActiveActive, systemdunits.SubRunning),
+	}}
+	for machineID, report := range map[string]systemdunits.Report{remoteID: remote, machine.LocalID: local} {
+		if err := ts.systemd.Record(ctx, machineID, report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := ts.directory.CreateService(ctx, directory.ServiceDefinition{
+		MachineID: remoteID, Name: "forgejo", Title: "Forgejo", Nature: directory.NatureApplication, Origin: directory.OriginBinary,
+		Units: []directory.UnitDefinition{{Name: "forgejo", SystemdUnit: "forgejo.service", Version: "9.0.1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ts.directory.CreateService(ctx, directory.ServiceDefinition{
+		MachineID: machine.LocalID, Name: "caddy", Nature: directory.NatureInfra, Origin: directory.OriginBinary,
+		Units: []directory.UnitDefinition{{Name: "caddy", SystemdUnit: "caddy.service", Version: "2.8.4", Ports: []string{"80/tcp", "443"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

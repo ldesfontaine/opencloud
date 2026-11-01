@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { saveDeclaredService, useDeclaredService, useGaps, useProjects, useProposal, type Origin } from "../../api/directory";
+import { saveDeclaredService, useDeclaredService, useGaps, useProjects, useProposal, type Origin, type ProposalSource } from "../../api/directory";
 import { useMachines, type Machine } from "../../api/machines";
 import { Button } from "../../components/Button";
 import { Fold } from "../../components/Disclosure";
@@ -47,6 +47,9 @@ import "./ServiceWizard.scss";
 // entier ; une unité gardée garde son identifiant, une unité retirée est
 // supprimée. Le serveur valide et répond par la clé du refus.
 //
+// Avec ?machine=&unit=, il part de l'unité systemd que la machine a relevée
+// (un binaire) : le nom et l'unité sont remplis, le port reste à dire.
+//
 // Avec ?container=, l'assistant part de ce que le serveur propose pour ce
 // conteneur : une déclaration nouvelle d'un service Compose (ou d'un conteneur
 // seul). C'est le choix du conteneur, ou « Modifier avant d'accepter » ;
@@ -55,24 +58,30 @@ import "./ServiceWizard.scss";
 export function ServiceWizard() {
   const { id } = useParams();
   const isEditing = id !== undefined;
-  const container = useSearchParams()[0].get("container") ?? "";
+  const params = useSearchParams()[0];
+  const container = params.get("container") ?? "";
+  const unit = params.get("unit") ?? "";
+  const machineParam = params.get("machine") ?? "";
+  // Un lien direct vers une étape de la modification : « Déclarer le port ».
+  const startAt = params.get("etape") ?? undefined;
+  const source: ProposalSource | null = container !== "" ? { container } : unit !== "" && machineParam !== "" ? { machine: machineParam, unit } : null;
   const t = useT();
   const navigate = useNavigate();
   const machines = useMachines();
   const projects = useProjects();
   const existing = useDeclaredService(id ?? null);
-  const proposal = useProposal(container === "" ? null : container);
+  const proposal = useProposal(source);
   const detected = useGaps(isEditing ? null : { machineID: "", projectID: "" });
   const [typedByHand, setTypedByHand] = useState(false);
 
   // Tant que la proposition n'est ni arrivée ni refusée, on ne remplit pas :
   // l'assistant ne partirait pas du bon côté. start ne change qu'avec ce
   // qu'il lit : l'effet de remplissage ne se relance pas à chaque rendu.
-  const awaitingProposal = container !== "" && proposal.data === null && proposal.error === null;
+  const awaitingProposal = source !== null && proposal.data === null && proposal.error === null;
   const empty = useMemo(emptyServiceForm, []);
   const start = useMemo(() => serviceFormStart(existing.data, proposal.data), [existing.data, proposal.data]);
   // start est déjà une valeur de formulaire (serviceFormStart), ou null pour attendre.
-  const form = useForm(empty, isEditing || container !== "" ? { source: start, fill: (values: ServiceFormValues) => values } : null);
+  const form = useForm(empty, isEditing || source !== null ? { source: start, fill: (values: ServiceFormValues) => values } : null);
   const { values, change } = form;
   const action = useAction();
 
@@ -92,8 +101,8 @@ export function ServiceWizard() {
   // choisir parmi ce que les machines montrent ; rien à choisir, l'assistant
   // s'ouvre vide.
   const candidates = proposalsOf(detected.data?.undeclared ?? []);
-  const isChoosing = !isEditing && container === "" && !typedByHand && (detected.data === null ? detected.error === null : candidates.some((group) => group.adoptable));
-  const accepting = container !== "" && proposal.error === null;
+  const isChoosing = !isEditing && source === null && !typedByHand && (detected.data === null ? detected.error === null : candidates.some((group) => group.adoptable));
+  const accepting = source !== null && proposal.error === null;
   // Une proposition refusée laisse un assistant vide, comme sans conteneur.
   const ready = !isChoosing && (form.isFilled || (!isEditing && !awaitingProposal));
   const base = start ?? { ...empty, machineID: first?.id ?? "" };
@@ -106,7 +115,7 @@ export function ServiceWizard() {
     });
   };
 
-  const header = heading(t, isEditing, accepting);
+  const header = heading(t, isEditing, accepting, unit !== "");
   return (
     <Modal title={header.title} onClose={close} dirty={ready && isFormModified(values, base)} wide>
       <p className="secondary">{header.subtitle}</p>
@@ -115,6 +124,7 @@ export function ServiceWizard() {
       {isChoosing && detected.data !== null && (
         <ContainerChoice
           groups={detected.data.undeclared}
+          machines={machines.data?.machines ?? []}
           onPick={(containerID) => void navigate(editBeforeAcceptPath(containerID), { replace: true })}
           onManual={() => setTypedByHand(true)}
         />
@@ -123,6 +133,7 @@ export function ServiceWizard() {
         <Wizard
           steps={stepsOf(t, form, machines.data?.machines ?? [], projects.data?.projects ?? [])}
           mode={isEditing ? "edit" : "create"}
+          startAt={startAt}
           onSubmit={save}
           submitLabel={isEditing ? t("directory.save") : t("directory.create")}
           submitIcon={isEditing ? "check" : "plus"}
@@ -136,7 +147,10 @@ export function ServiceWizard() {
 
 // Le titre dit si l'on déclare, modifie, ou accepte (en le relisant) un conteneur que la
 // machine montre.
-function heading(t: Translate, isEditing: boolean, accepting: boolean) {
+function heading(t: Translate, isEditing: boolean, accepting: boolean, fromUnit: boolean) {
+  if (accepting && fromUnit) {
+    return { title: t("directory.accept_unit_title"), subtitle: t("directory.accept_unit_subtitle") };
+  }
   if (accepting) {
     return { title: t("gap.accept_title"), subtitle: t("gap.accept_subtitle") };
   }
@@ -339,6 +353,22 @@ function UnitEditor({
 }) {
   const t = useT();
   const prefix = `unit-${String(index)}`;
+  // Le port d'un binaire est ce que le relevé systemd ne dit pas : il se
+  // demande à côté de l'unité, pas sous « Avancé ». Pour un conteneur, il
+  // vient de la détection et reste un réglage fin.
+  const portsField = (
+    <Field label={t("directory.unit_ports_label")} htmlFor={`${prefix}-ports`} help={t("directory.unit_ports_help")}>
+      <Input
+        id={`${prefix}-ports`}
+        mono
+        type="text"
+        value={unit.ports}
+        onChange={(event) => change("ports", event.target.value)}
+        placeholder={t("directory.unit_ports_placeholder")}
+        autoComplete="off"
+      />
+    </Field>
+  );
   return (
     <div className="unit-card">
       <div className="unit-head">
@@ -388,23 +418,14 @@ function UnitEditor({
             />
           </Field>
         )}
+        {origin === "binary" && portsField}
       </div>
-      <Fold label={t("wizard.advanced")} initiallyOpen={hasAdvancedUnitValues(unit)}>
+      <Fold label={t("wizard.advanced")} initiallyOpen={hasAdvancedUnitValues(unit, origin)}>
         <div className="grid-2">
           <Field label={t("directory.unit_version_label")} htmlFor={`${prefix}-version`} help={t("directory.unit_version_help")}>
             <Input id={`${prefix}-version`} mono type="text" value={unit.version} onChange={(event) => change("version", event.target.value)} maxLength={128} autoComplete="off" />
           </Field>
-          <Field label={t("directory.unit_ports_label")} htmlFor={`${prefix}-ports`} help={t("directory.unit_ports_help")}>
-            <Input
-              id={`${prefix}-ports`}
-              mono
-              type="text"
-              value={unit.ports}
-              onChange={(event) => change("ports", event.target.value)}
-              placeholder={t("directory.unit_ports_placeholder")}
-              autoComplete="off"
-            />
-          </Field>
+          {origin !== "binary" && portsField}
         </div>
         {origin !== "binary" && (
           <>

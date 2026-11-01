@@ -40,6 +40,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/verbrequest"
 )
@@ -229,6 +230,10 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	deployer := deploy.New(db, declared, machines, db, actions, logger)
 	sshKeys := sshkeys.New(db, logger)
 	sshKeys.SetClock(func() time.Time { return testNow })
+	systemd := systemdunits.New(db, logger)
+	systemd.SetClock(func() time.Time { return testNow })
+	systemd.SetWatcher(bus)
+	declared.SetUnits(systemd)
 	roles := role.New(db, logger)
 	roles.SetWatcher(bus)
 	hypervisors := proxmox.New(db, machines, logger)
@@ -269,6 +274,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		Auth:         operator,
 		Actions:      actions,
 		SSHKeys:      sshKeys,
+		Systemd:      systemd,
 		Roles:        roles,
 		Host:         machines,
 		Proxmox:      hypervisors,

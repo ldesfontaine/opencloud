@@ -26,6 +26,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -113,6 +114,11 @@ func closedKeyLists() []composedKeys {
 		{prefix: "incident.impact_", values: names(status.Impacts())},
 		{prefix: "component.kind_", values: names(status.MemberKinds())},
 		{prefix: "language.", values: names(lang.Codes())},
+		// Une unité systemd se dit par ses trois états ; l'impossibilité de la lire, par sa raison.
+		{prefix: "systemd.load_", values: names(systemdunits.Loads())},
+		{prefix: "systemd.active_", values: names(systemdunits.Actives())},
+		{prefix: "systemd.sub_", values: names(systemdunits.Subs())},
+		{prefix: "systemd.reason_", values: names(systemdunits.Reasons())},
 		// Le menu, Paramètres › Modules et la fiche disent un module et un rôle
 		// par leur libellé, puis par leur phrase.
 		{prefix: "module.", values: allModuleNames()},

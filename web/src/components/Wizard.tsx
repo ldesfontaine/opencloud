@@ -6,11 +6,11 @@ import {
   canJumpFromBar,
   forwardTarget,
   furthestReached,
-  initialPosition,
   isOneScreen,
   isSummary,
   moveTo,
   previousPosition,
+  startPosition,
   stepMark,
   summaryPosition,
   type WizardMode,
@@ -51,6 +51,8 @@ interface WizardProps {
   error: ApiError | string | null;
   // Où mène un refus de droit de l'écriture finale : voir Failure.
   errorGesture?: RightGesture | undefined;
+  // L'identifiant de l'étape où s'ouvre une modification (un lien direct).
+  startAt?: string | undefined;
 }
 
 // L'assistant. Ce qui tient en un écran n'est pas un assistant : une seule
@@ -111,10 +113,10 @@ function OneScreen({ steps, onSubmit, submitLabel, submitIcon, busy, error, erro
 // L'assistant est le contenu d'une fenêtre (Modal), qui fait le cadre :
 // « Annuler » est celui de la fenêtre, qui demande avant d'abandonner une
 // saisie.
-function SteppedWizard({ steps, mode, onSubmit, submitLabel, submitIcon, busy, error, errorGesture }: WizardProps) {
+function SteppedWizard({ steps, mode, onSubmit, submitLabel, submitIcon, busy, error, errorGesture, startAt }: WizardProps) {
   const t = useT();
   const stepCount = steps.length;
-  const [position, setPosition] = useState(() => initialPosition(mode, stepCount));
+  const [position, setPosition] = useState(() => startPosition(mode, steps.map((step) => step.id), startAt));
   const [reached, setReached] = useState(() => (mode === "edit" ? summaryPosition(stepCount) : position));
   const [stepError, setStepError] = useState<string | null>(null);
   const title = useRef<HTMLHeadingElement>(null);

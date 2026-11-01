@@ -36,6 +36,15 @@ export function initialPosition(mode: WizardMode, stepCount: number): number {
   return mode === "edit" ? summaryPosition(stepCount) : 0;
 }
 
+// Où s'ouvre l'assistant. En modification, un lien peut mener droit à une
+// étape (startAt, son identifiant) : « Déclarer le port » ouvre l'étape des
+// unités, sans passer par le récapitulatif. Une étape inconnue, ou la
+// création, gardent la règle d'initialPosition.
+export function startPosition(mode: WizardMode, stepIds: readonly string[], startAt: string | undefined): number {
+  const index = startAt === undefined ? -1 : stepIds.indexOf(startAt);
+  return mode === "edit" && index >= 0 ? index : initialPosition(mode, stepIds.length);
+}
+
 // Revenir en arrière ne demande rien : le brouillon vit chez l'appelant.
 // Avancer valide chaque étape franchie, dans l'ordre ; la première en
 // erreur arrête le déplacement sur elle, avec son erreur.

@@ -38,6 +38,20 @@ export interface ServiceUnit {
   data_path: string;
   // « watch » pour un binaire : la politique ne vaut que pour un conteneur.
   update_policy: UpdatePolicy;
+  // Ce que le relevé des unités systemd dit d'une unité binaire ; nul pour un conteneur.
+  observed: ObservedUnit | null;
+}
+
+// found : l'unité est sur la machine, avec ses états ; missing : systemd est lu
+// et ne la connaît pas ; unknown : la machine n'a rien relevé (états vides).
+type Presence = "found" | "missing" | "unknown";
+
+export interface ObservedUnit {
+  presence: Presence;
+  load: string;
+  active: string;
+  sub: string;
+  reported_at: string | null;
 }
 
 // Ce qui vise un service déclaré : tant que cette liste n'est pas vide, il
@@ -206,7 +220,7 @@ export interface ContainerDirectory {
 // Le corps de la création comme de l'édition d'un service ; lib/directory
 // le construit depuis le formulaire. Une unité y est celle que le serveur
 // rend, sans son genre, que le corps ne porte pas.
-type ServiceUnitRequest = Omit<ServiceUnit, "kind">;
+type ServiceUnitRequest = Omit<ServiceUnit, "kind" | "observed">;
 
 export interface ServiceRequest {
   machine_id: string;
@@ -301,19 +315,29 @@ export function useProject(id: string | null): Resource<Project> {
   return useResource<Project>(id === null ? null : () => projectPath(id));
 }
 
-function proposalPath(containerID: string): string {
-  return `${directoryPath}/proposal?container=${segment(containerID)}`;
+// D'où part une proposition : un conteneur que la machine montre, ou une unité
+// systemd qu'elle a relevée.
+export type ProposalSource = { container: string } | { machine: string; unit: string };
+
+function proposalPath(source: ProposalSource): string {
+  if ("container" in source) {
+    return `${directoryPath}/proposal?container=${segment(source.container)}`;
+  }
+  // Le nom d'une unité n'est pas un identifiant (il porte un point) : il
+  // s'échappe comme un texte, la machine, elle, reste un identifiant.
+  return `${directoryPath}/proposal?machine=${segment(source.machine)}&unit=${encodeURIComponent(source.unit)}`;
 }
 
-// Ce que le serveur propose pour ce conteneur ; containerID nul : rien à lire.
-export function useProposal(containerID: string | null): Resource<ProposalResponse> {
-  return useResource<ProposalResponse>(containerID === null ? null : () => proposalPath(containerID));
+// Ce que le serveur propose pour cette source ; source nulle : rien à lire.
+export function useProposal(source: ProposalSource | null): Resource<ProposalResponse> {
+  const path = source === null ? null : proposalPath(source);
+  return useResource<ProposalResponse>(path === null ? null : () => path);
 }
 
 // La proposition du moment, relue à l'instant d'accepter : si le conteneur est
 // ignoré ou déclaré depuis, le serveur la refuse (409) et rien n'est écrit.
 export async function fetchProposal(containerID: string): Promise<ProposalResponse> {
-  return api.get<ProposalResponse>(proposalPath(containerID));
+  return api.get<ProposalResponse>(proposalPath({ container: containerID }));
 }
 
 // L'écart pour une machine et un projet, vides pour tous ; filtre nul :

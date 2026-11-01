@@ -1,0 +1,1 @@
+{"definition":{"machine_id":"11111111-2222-4333-8444-555555555555","name":"forgejo","title":"","nature":"application","category":"","origin":"binary","compose_project":"","public_url":"","provides":[],"units":[{"id":"","name":"forgejo","image":"","version":"","digest":"","container_name":"","systemd_unit":"forgejo.service","ports":[],"data_path":""}],"project_ids":[]}}
