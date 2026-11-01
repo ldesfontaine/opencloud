@@ -55,9 +55,7 @@ function AlertsTile({ alerts }: { alerts: AlertsResponse | null }) {
     }
   }
   return (
-    <Link className="stat-link" to="/alertes">
-      <Stat compact icon="bell" label={t("alerts.title")} value={counts?.open ?? "–"} foot={foot} />
-    </Link>
+    <Stat compact icon="bell" label={t("alerts.title")} value={counts?.open ?? "–"} foot={foot} to="/alertes" />
   );
 }
 
@@ -139,10 +137,11 @@ export function Overview() {
       {machines.data && list.length > 0 && (
         <>
           <div className="overview-stats">
-            <Stat compact icon="server" label={t("nav.machines")} value={live.length} foot={<b>{t("overview.online", online)}</b>} />
+            <Stat compact icon="server" label={t("nav.machines")} value={live.length} foot={<b>{t("overview.online", online)}</b>} to="/machines" />
             <Stat
               compact
               icon="box"
+              to="/services"
               label={t("module.containers")}
               value={counts.data?.containers.total ?? "–"}
               foot={
@@ -166,6 +165,7 @@ export function Overview() {
             <Stat
               compact
               icon="globe"
+              to="/disponibilite"
               label={t("module.probes")}
               value={counts.data?.probes.total ?? "–"}
               foot={counts.data ? <AvailabilityFoot counts={counts.data} /> : "–"}
@@ -173,6 +173,7 @@ export function Overview() {
             <Stat
               compact
               icon="clock"
+              to="/taches"
               label={t("module.jobs")}
               value={counts.data?.jobs.total ?? "–"}
               foot={

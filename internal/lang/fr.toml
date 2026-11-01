@@ -10,6 +10,7 @@ services = "Services"
 alerts = "Alertes"
 settings = "Paramètres"
 audit = "Journal"
+to_configure = "À configurer"
 menu_open = "Ouvrir le menu"
 menu_close = "Fermer le menu"
 

@@ -10,6 +10,7 @@ services = "Services"
 alerts = "Alerts"
 settings = "Settings"
 audit = "Audit log"
+to_configure = "To set up"
 menu_open = "Open the menu"
 menu_close = "Close the menu"
 
