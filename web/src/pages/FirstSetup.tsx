@@ -8,6 +8,7 @@ import { Failure } from "../components/Failure";
 import { Field } from "../components/Field";
 import { InstallSteps } from "../components/InstallSteps";
 import { Brand } from "../components/Layout";
+import { PublicUrlNote } from "../components/PublicUrlNote";
 import { EnumSelect } from "../components/Select";
 import { useAction } from "../hooks/useAction";
 import { useChecklist } from "../hooks/useChecklist";
@@ -132,7 +133,7 @@ function AgentLine({ line, onContinue }: { line: TokenResponse; onContinue: () =
             <Note tone="warn">{t("machine.token_once", expiresIn)}</Note>
             <p className="secondary">{t("machine.install_root_note")}</p>
             <InstallSteps steps={line.steps} produces={false} done={installed.done} onToggle={installed.toggle} />
-            {line.url_local && <Note tone="danger">{t("machine.url_local")}</Note>}
+            <PublicUrlNote local={line.url_local} suggestion={line.url_suggestion} />
             <p className="secondary">{t("auth.setup_agent_later")}</p>
             <div className="cluster">
               <Button onClick={onContinue}>{t("auth.setup_continue")}</Button>

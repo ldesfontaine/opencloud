@@ -1,6 +1,7 @@
 import { Note } from "../../components/Card";
 import { Checklist } from "../../components/Checklist";
 import { InstallSteps } from "../../components/InstallSteps";
+import { PublicUrlNote } from "../../components/PublicUrlNote";
 import { TokenBox } from "../../components/Copy";
 import { useChecklist } from "../../hooks/useChecklist";
 import { useT } from "../../i18n/context";
@@ -21,7 +22,7 @@ export function EnrollmentToken({ token, checklist }: { token: TokenPageState; c
       <p className="secondary">{t("machine.install_root_note")}</p>
       <InstallSteps steps={token.steps} produces={token.rights.some((right) => right.name === "backup.produce")} done={checklist.done} onToggle={checklist.toggle} />
       {token.proxmox_commands !== "" && <ProxmoxToken commands={token.proxmox_commands} />}
-      {token.url_local && <Note tone="danger">{t("machine.url_local")}</Note>}
+      <PublicUrlNote local={token.url_local} suggestion={token.url_suggestion} />
     </>
   );
 }

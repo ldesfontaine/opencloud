@@ -86,6 +86,12 @@ alerts_top = "%s · %s"
 alerts_unacknowledged = "%d to acknowledge"
 alerts_acknowledged = "All acknowledged"
 
+[public_url]
+local_note = "Local trial: a remote machine will not reach this address. To add one, put this line in {config_path}, then restart the service."
+mismatch_note = "The {product} address is set to a local one while this page is public: a remote machine will not reach it. Put this line in {config_path}, then restart the service."
+restart_label = "Then restart the service"
+restart_command = "systemctl restart {server_unit}"
+
 [machine]
 kind_physical = "Hardware"
 kind_vm = "VM"
@@ -182,7 +188,6 @@ install_rights_text = "As root. Without it, the agent cannot write to those fold
 copy = "Copy"
 copied = "Copied"
 copy_failed = "Copy failed"
-url_local = "The {product} address looks local: a remote machine will not reach it. Set public_url in the configuration."
 step_name = "Name"
 step_install = "Install"
 step_rights = "Rights"
@@ -1045,7 +1050,6 @@ install_title = "Setup"
 install_text = "The ping URL and the snippets to paste into your job."
 ping_url_title = "Ping URL"
 ping_url_text = "Called with GET or POST, without authentication: the URL is the secret."
-url_local = "The {product} address looks local: a remote machine will not reach it. Set public_url in the configuration."
 form_finish = "The job finished"
 form_start = "The job starts"
 form_code = "Finished with this exit code"

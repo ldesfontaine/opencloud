@@ -86,6 +86,12 @@ alerts_top = "%s · %s"
 alerts_unacknowledged = "%d à acquitter"
 alerts_acknowledged = "Toutes acquittées"
 
+[public_url]
+local_note = "Essai local : une machine distante ne joindra pas cette adresse. Pour en ajouter une, posez cette ligne dans {config_path}, puis relancez le service."
+mismatch_note = "L'adresse d'{product} est réglée sur du local alors que cette page est publique : une machine distante ne la joindra pas. Posez cette ligne dans {config_path}, puis relancez le service."
+restart_label = "Puis relancer le service"
+restart_command = "systemctl restart {server_unit}"
+
 [machine]
 kind_physical = "Matériel"
 kind_vm = "VM"
@@ -182,7 +188,6 @@ install_rights_text = "En root. Sans elle, l'agent ne peut pas écrire dans ces 
 copy = "Copier"
 copied = "Copié"
 copy_failed = "Copie impossible"
-url_local = "L'adresse d'{product} paraît locale : une machine distante ne la joindra pas. Renseignez public_url dans la configuration."
 step_name = "Nommer"
 step_install = "Installer"
 step_rights = "Droits"
@@ -1045,7 +1050,6 @@ install_title = "Installation"
 install_text = "L'URL de ping et les extraits à coller dans votre tâche."
 ping_url_title = "URL de ping"
 ping_url_text = "Appelée en GET ou en POST, sans authentification : l'URL est le secret."
-url_local = "L'adresse d'{product} paraît locale : une machine distante ne la joindra pas. Renseignez public_url dans la configuration."
 form_finish = "La tâche a fini"
 form_start = "La tâche démarre"
 form_code = "Fini avec ce code de sortie"

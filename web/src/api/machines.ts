@@ -140,6 +140,8 @@ export interface TokenResponse {
   proxmox_commands: string;
   expires_at: string;
   url_local: boolean;
+  // L'adresse de la page quand elle est publique et que public_url ne l'est pas.
+  url_suggestion: string;
 }
 
 const machinesPath = "/api/machines";

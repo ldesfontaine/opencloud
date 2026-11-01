@@ -115,6 +115,8 @@ var placeholders = strings.NewReplacer(
 	"{signature_header}", brand.WebhookSignatureHeader,
 	"{proxy_secret_header}", brand.ProxySecretHeader,
 	"{label_prefix}", brand.LabelPrefix,
+	"{config_path}", brand.ConfigPath,
+	"{server_unit}", brand.ServerUnit,
 	"{agent_unit}", brand.AgentUnit,
 	"{agent_account}", brand.AgentAccount,
 	"{agent_binary}", brand.AgentCurrentPath,

@@ -309,9 +309,13 @@ Elle sert à deux choses.
 1. **Écrire les adresses** : la commande d'installation d'une machine, l'URL
    de ping d'une tâche. Vide, openCloud les déduit de la
    requête (et de `X-Forwarded-Host` / `-Proto` d'un mandataire de
-   confiance). Si l'adresse paraît locale, la page du jeton le dit :
-   « L'adresse d'openCloud paraît locale : une machine distante ne la
-   joindra pas. Renseignez public_url dans la configuration. »
+   confiance). Si l'adresse paraît locale, la page du jeton et celle de la
+   tâche posent une **note neutre** avec la ligne à écrire :
+   `public_url = "https://…"` dans `/etc/opencloud/config.toml`, puis
+   `systemctl restart opencloud.service`. Un essai local n'est pas une
+   erreur. La note ne devient **rouge** que si la page est lue par une adresse
+   publique alors que `public_url` est locale : la ligne porte alors
+   l'adresse de la page.
 2. **Reconnaître le nom de l'interface.** Toute requête sur `/api/…` doit
    arriver avec un `Host` connu : l'hôte de
    `public_url`, `localhost`, une adresse IP, ou l'hôte de `listen`.

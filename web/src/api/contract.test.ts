@@ -409,6 +409,7 @@ const jobResponse = shape<JobResponse>("JobResponse", {
   job,
   ping_url: value,
   url_local: value,
+  url_suggestion: value,
   snippets: shape("Snippet", { key: value, code: value }),
   runs: shape("Run", { id: value, started_at: value, completed_at: value, duration_ms: value, exit_code: value, outcome: value, payload: value }),
   pings: shape("Ping", { id: value, kind: value, exit_code: value, source: value, method: value, received_at: value }),

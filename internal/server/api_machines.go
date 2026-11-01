@@ -151,6 +151,8 @@ type tokenResponse struct {
 	ProxmoxCommands string    `json:"proxmox_commands"`
 	ExpiresAt       time.Time `json:"expires_at"`
 	URLLocal        bool      `json:"url_local"`
+	// L'adresse de la page quand elle est publique et que public_url ne l'est pas.
+	URLSuggestion string `json:"url_suggestion"`
 }
 
 // Une étape de l'installation : son identifiant (le front en dit le titre) et
@@ -422,7 +424,7 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string, target installTarget) {
-	url, isLocal := s.resolvePublicURL(r)
+	address := s.resolvePublicURL(r)
 	language, err := s.language(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
@@ -430,10 +432,11 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 	s.writeAPI(w, http.StatusCreated, tokenResponse{
 		Name:            token.Name,
 		Token:           cleartext,
-		Steps:           installSteps(url, cleartext, language, token.Capabilities, target),
+		Steps:           installSteps(address.URL, cleartext, language, token.Capabilities, target),
 		ProxmoxCommands: proxmoxCommands(token.Capabilities),
 		ExpiresAt:       token.ExpiresAt.UTC(),
-		URLLocal:        isLocal,
+		URLLocal:        address.Local,
+		URLSuggestion:   address.Suggestion,
 	})
 }
 

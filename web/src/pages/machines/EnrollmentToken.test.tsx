@@ -16,6 +16,7 @@ const token = {
   proxmox_commands: "pveum role add Role",
   expires_at: new Date(Date.now() + 600_000).toISOString(),
   url_local: false,
+  url_suggestion: "",
   rights: [],
 };
 

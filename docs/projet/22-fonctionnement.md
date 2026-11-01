@@ -366,7 +366,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   chemins triés, sans doublon (`machine.NormalizeCapabilities`).
 - **À l'émission** : `POST /api/machines/tokens` reçoit `{name,
   capabilities: [{name, paths}]}` et répond `{name, token, steps: [{id,
-  command}], proxmox_commands, expires_at, url_local}` (`command` et
+  command}], proxmox_commands, expires_at, url_local, url_suggestion}` (`command` et
   `preparation` d'avant #447 sont remplacés par `steps` ; route réservée à
   l'opérateur, `grantsAuthority`, comme `local-enrollment` et `reenroll`) ; un droit inconnu, un chemin faux ou une
   portée fausse se refusent en 422 (`machine.capability_unknown`,

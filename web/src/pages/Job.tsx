@@ -4,13 +4,14 @@ import { Link, Outlet, useNavigate, useParams } from "react-router";
 import { deleteJob, fetchJobDeletePlan, pauseJob, regenerateJobToken, resumeJob, useJob, type Job, type JobResponse, type Ping, type Run } from "../api/jobs";
 import { Button } from "../components/Button";
 import { ConfirmModal } from "../components/ConfirmModal";
-import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Disclosure, FoldSection } from "../components/Disclosure";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
+import { PublicUrlNote } from "../components/PublicUrlNote";
 import { Dot, JobPill, Pill } from "../components/Pill";
 import { RunStrip } from "../components/RunStrip";
 import { List, RowText, RowWhen, Table } from "../components/Table";
@@ -173,7 +174,7 @@ function Installation({ response, reload, initiallyOpen }: { response: JobRespon
       <CardBody gap={24}>
         <FoldSection title={t("job.ping_url_title")} text={t("job.ping_url_text")}>
           <TokenBox value={response.ping_url} />
-          {response.url_local && <Note tone="danger">{t("job.url_local")}</Note>}
+          <PublicUrlNote local={response.url_local} suggestion={response.url_suggestion} />
           <Failure error={action.error} />
           <div className="cluster">
             <ConfirmModal
