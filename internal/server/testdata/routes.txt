@@ -36,6 +36,7 @@ POST /api/machines/{id}/proxmox/guests/{vmid}/actions/start
 POST /api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown
 POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot
 POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete
+POST /api/certificate/inspect
 GET /api/firewalls
 POST /api/firewalls
 GET /api/firewalls/{id}

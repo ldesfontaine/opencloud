@@ -176,7 +176,7 @@ func TestProxmox_AnAPITokenReadsTheHostGuestsAndStoragesWithoutAnySecret(t *test
 
 	var host proxmoxHostJSON
 	decodeAPI(t, callBearer(server.Server, "/api/machines/"+pveID+"/proxmox", bearer), &host)
-	if len(host.Guests) != 2 || len(host.Storages) != 1 || host.TokenID != pveTokenID {
+	if len(host.Guests) != 2 || len(host.Storages) != 1 || host.TokenIDHint != "lect…" {
 		t.Fatalf("hôte lu par jeton d'API : %+v", host)
 	}
 	var carrier machineJSON
