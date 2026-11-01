@@ -54,11 +54,6 @@ services:
         version: "2.4.1"
         ports: ["8080:3000/tcp", "80"]
         updates: watch
-      # Unité proposée depuis un conteneur non déclaré.
-      - name: cache
-        image: redis
-        version: "7.4"
-        updates: watch
   - id: svc_00000000000000b4
     machine: opencloud
     name: legacy
@@ -71,7 +66,18 @@ services:
         updates: watch
   # Proposé depuis des conteneurs non déclarés : relisez avant apply.
   - machine: app-1
-    name: blog
+    name: cache
+    nature: application
+    origin: compose
+    compose_project: wiki
+    units:
+      - name: cache
+        image: redis
+        version: "7.4"
+        updates: watch
+  # Proposé depuis des conteneurs non déclarés : relisez avant apply.
+  - machine: app-1
+    name: db
     nature: application
     origin: compose
     compose_project: blog
@@ -79,10 +85,6 @@ services:
       - name: db
         image: postgres
         version: "16.4"
-        updates: watch
-      - name: web
-        image: nginx
-        version: "1.27"
         updates: watch
   # Proposé depuis des conteneurs non déclarés : relisez avant apply.
   - machine: app-1
@@ -94,6 +96,17 @@ services:
         image: ghcr.io/example/front
         version: "3.2"
         container_name: front
+        updates: watch
+  # Proposé depuis des conteneurs non déclarés : relisez avant apply.
+  - machine: app-1
+    name: web
+    nature: application
+    origin: compose
+    compose_project: blog
+    units:
+      - name: web
+        image: nginx
+        version: "1.27"
         updates: watch
   # Proposé depuis des conteneurs non déclarés : relisez avant apply.
   - machine: opencloud

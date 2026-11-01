@@ -11,28 +11,23 @@ import (
 )
 
 // Proposal est ce que « Accepter » écrit, et que « Modifier avant d'accepter »
-// pré-remplit dans l'assistant. Avec un ServiceID, c'est la modification d'un
-// service déjà déclaré, à qui une unité s'ajoute ; sans, c'est une
-// déclaration nouvelle. Rien n'est écrit tant que l'opérateur n'a pas accepté.
+// pré-remplit dans l'assistant : une déclaration nouvelle. Rien n'est écrit
+// tant que l'opérateur n'a pas accepté.
 type Proposal struct {
-	ServiceID  string
 	Definition ServiceDefinition
 }
 
-// Propose lit un conteneur non déclaré et ses voisins de la machine, et en
-// tire une définition que l'opérateur n'a plus qu'à relire.
-//
-// Un projet Compose déjà déclaré garde sa définition, ids d'unités compris ;
-// les unités ajoutées arrivent sans id, comme l'édition l'attend. Les
-// unités sont plafonnées à MaxUnits : un projet plus gros s'accepte en
-// plusieurs fois, l'unité du conteneur demandé toujours en tête de la
-// coupe. Un service déjà plein ne peut plus rien recevoir : ErrUnitsFull.
+// Propose lit un conteneur non déclaré et en tire une définition que
+// l'opérateur n'a plus qu'à relire : un service Compose est un service
+// (traefik, authelia, crowdsec d'un même projet sont trois propositions), un
+// conteneur seul est un service. Des répliques d'un service Compose ne font
+// qu'une unité. Le projet Compose reste le groupe d'exécution, jamais un
+// service de plus.
 //
 // Un conteneur qui porte des labels n'a pas de proposition : il n'est non
 // déclaré que parce que ses labels ne visent aucune unité de sa machine, et
 // l'unité qu'on lui créerait ne le rattacherait pas (ErrContainerLabelled).
-// Ses voisins étiquetés sont laissés de côté pour la même raison.
-func Propose(item container.Container, siblings []container.Container, declared []Service) (Proposal, error) {
+func Propose(item container.Container, declared []Service) (Proposal, error) {
 	if item.UnitID != "" {
 		return Proposal{}, ErrContainerDeclared
 	}
@@ -42,69 +37,19 @@ func Propose(item container.Container, siblings []container.Container, declared 
 	if item.Group == "" || item.ComposeService == "" {
 		return proposeContainer(item, declared), nil
 	}
-	missing := composeUnitsToAdopt(item, siblings)
-	for _, existing := range declared {
-		if existing.Origin == OriginCompose && existing.MachineID == item.MachineID && existing.ComposeProject == item.Group {
-			return proposeIntoService(existing, item, missing)
-		}
-	}
-	return proposeComposeProject(item, requestedFirst(missing, item, MaxUnits), declared), nil
+	return proposeComposeService(item, declared), nil
 }
 
-// requestedFirst met l'unité du conteneur demandé devant. La coupe à
-// MaxUnits tombe sur la fin de la liste triée : elle ne doit pas emporter ce
-// sur quoi l'opérateur a cliqué. Sans coupe, l'ordre par nom reste celui que
-// l'opérateur retrouvera dans la fiche.
-func requestedFirst(units []container.Container, item container.Container, room int) []container.Container {
-	if len(units) <= room {
-		return units
-	}
-	at := slices.IndexFunc(units, func(candidate container.Container) bool { return candidate.ComposeService == item.ComposeService })
-	if at <= 0 {
-		return units
-	}
-	reordered := slices.Clone(units)
-	requested := reordered[at]
-	reordered = slices.Delete(reordered, at, at+1)
-	return slices.Insert(reordered, 0, requested)
-}
-
-// composeUnitsToAdopt rend, par service Compose, le conteneur du projet qui
-// n'est rattaché à rien, par nom de service Compose ; le conteneur demandé y
-// est toujours. Des répliques ne font qu'une unité.
-func composeUnitsToAdopt(item container.Container, siblings []container.Container) []container.Container {
-	candidates := []container.Container{item}
-	for _, sibling := range siblings {
-		isSameProject := sibling.MachineID == item.MachineID && sibling.Group == item.Group
-		if isSameProject && sibling.ID != item.ID && sibling.UnitID == "" && !sibling.IsArchived() && sibling.ComposeService != "" && sibling.Labels.IsEmpty() {
-			candidates = append(candidates, sibling)
-		}
-	}
-	candidates = sortedByName(candidates)
-	byService := map[string]container.Container{}
-	for _, candidate := range candidates {
-		if _, seen := byService[candidate.ComposeService]; !seen {
-			byService[candidate.ComposeService] = candidate
-		}
-	}
-	units := make([]container.Container, 0, len(byService))
-	for _, found := range byService {
-		units = append(units, found)
-	}
-	slices.SortFunc(units, func(a, b container.Container) int { return strings.Compare(a.ComposeService, b.ComposeService) })
-	return units
-}
-
-// ProposeAll propose une définition par groupe de conteneurs non déclarés
-// que l'opérateur n'ignore pas, sans rien écrire : export -propose l'écrit
-// dans le fichier ; une découverte, si elle vient un jour, partira d'ici.
+// ProposeAll propose une définition par service Compose ou par conteneur seul
+// non déclaré que l'opérateur n'ignore pas, sans rien écrire : export
+// -propose l'écrit dans le fichier ; une découverte, si elle vient un jour,
+// partira d'ici.
 //
 // Le représentant d'un groupe est son premier conteneur sans label ; un
 // groupe où tous en portent est sauté. Chaque nouvelle définition entre dans
 // une copie des services déclarés, pour que deux groupes ne reçoivent jamais
-// le même nom sur une machine. Un service déjà plein saute son groupe. Le
-// résultat suit l'ordre des groupes de l'écart : le même état donne les mêmes
-// propositions.
+// le même nom sur une machine. Le résultat suit l'ordre des groupes de
+// l'écart : le même état donne les mêmes propositions.
 func ProposeAll(declared []Service, containers []container.Container, ignored []IgnoredKey) []Proposal {
 	living := make([]container.Container, 0, len(containers))
 	for _, item := range containers {
@@ -119,73 +64,19 @@ func ProposeAll(declared []Service, containers []container.Container, ignored []
 			continue
 		}
 		representative := group.Containers[slices.IndexFunc(group.Containers, func(item container.Container) bool { return item.Labels.IsEmpty() })]
-		proposal, err := Propose(representative, living, known)
+		proposal, err := Propose(representative, known)
 		if err != nil {
-			// Un service plein (ErrUnitsFull) ne reçoit plus rien ; les autres
-			// refus ne peuvent pas arriver ici, le représentant n'a ni unité
-			// ni label.
+			// Les refus ne peuvent pas arriver ici : le représentant n'a ni
+			// unité ni label.
 			continue
 		}
-		if proposal.ServiceID == "" {
-			known = append(known, Service{
-				MachineID: proposal.Definition.MachineID, Name: proposal.Definition.Name,
-				Origin: proposal.Definition.Origin, ComposeProject: proposal.Definition.ComposeProject,
-			})
-		}
+		known = append(known, Service{
+			MachineID: proposal.Definition.MachineID, Name: proposal.Definition.Name,
+			Origin: proposal.Definition.Origin, ComposeProject: proposal.Definition.ComposeProject,
+		})
 		proposals = append(proposals, proposal)
 	}
 	return proposals
-}
-
-func proposeIntoService(existing Service, requested container.Container, missing []container.Container) (Proposal, error) {
-	if len(existing.Units) >= MaxUnits {
-		return Proposal{}, ErrUnitsFull
-	}
-	definition := existing.Definition()
-	for _, item := range requestedFirst(missing, requested, MaxUnits-len(existing.Units)) {
-		if len(definition.Units) >= MaxUnits {
-			break
-		}
-		if slices.ContainsFunc(definition.Units, func(unit UnitDefinition) bool { return unit.Name == item.ComposeService }) {
-			continue
-		}
-		unit := unitProposal(item)
-		unit.Name = item.ComposeService
-		definition.Units = append(definition.Units, unit)
-	}
-	return Proposal{ServiceID: existing.ID, Definition: definition}, nil
-}
-
-func proposeComposeProject(item container.Container, missing []container.Container, declared []Service) Proposal {
-	definition := ServiceDefinition{
-		MachineID:      item.MachineID,
-		Name:           freeName(slug(item.Group), item.MachineID, declared),
-		Nature:         NatureApplication,
-		Origin:         OriginCompose,
-		ComposeProject: item.Group,
-	}
-	for _, found := range missing {
-		if len(definition.Units) >= MaxUnits {
-			break
-		}
-		unit := unitProposal(found)
-		unit.Name = found.ComposeService
-		definition.Units = append(definition.Units, unit)
-	}
-	return Proposal{Definition: definition}
-}
-
-func proposeContainer(item container.Container, declared []Service) Proposal {
-	unit := unitProposal(item)
-	unit.Name = unitNameOf(item.Name)
-	unit.ContainerName = item.Name
-	return Proposal{Definition: ServiceDefinition{
-		MachineID: item.MachineID,
-		Name:      freeName(slug(item.Name), item.MachineID, declared),
-		Nature:    NatureApplication,
-		Origin:    OriginContainer,
-		Units:     []UnitDefinition{unit},
-	}}
 }
 
 // Definition redonne un service déclaré sous la forme que l'édition remplace
@@ -205,6 +96,7 @@ func (service Service) Definition() ServiceDefinition {
 		Name:           service.Name,
 		Title:          service.Title,
 		Nature:         service.Nature,
+		Category:       service.Category,
 		Origin:         service.Origin,
 		ComposeProject: service.ComposeProject,
 		PublicURL:      service.PublicURL,
@@ -212,6 +104,49 @@ func (service Service) Definition() ServiceDefinition {
 		Units:          units,
 		ProjectIDs:     slices.Clone(service.ProjectIDs),
 	}
+}
+
+func proposeComposeService(item container.Container, declared []Service) Proposal {
+	unit := unitProposal(item)
+	unit.Name = item.ComposeService
+	return Proposal{Definition: ServiceDefinition{
+		MachineID:      item.MachineID,
+		Name:           composeServiceName(item, declared),
+		Nature:         NatureApplication,
+		Origin:         OriginCompose,
+		ComposeProject: item.Group,
+		Units:          []UnitDefinition{unit},
+	}}
+}
+
+// composeServiceName nomme le service comme son service Compose ; si la
+// machine a déjà un service de ce nom (un « db » d'un autre projet), le nom
+// du projet le précède.
+func composeServiceName(item container.Container, declared []Service) string {
+	plain := slug(item.ComposeService)
+	if !isNameTaken(plain, item.MachineID, declared) {
+		return plain
+	}
+	return freeName(slug(item.Group+"-"+item.ComposeService), item.MachineID, declared)
+}
+
+func isNameTaken(name, machineID string, declared []Service) bool {
+	return slices.ContainsFunc(declared, func(existing Service) bool {
+		return existing.MachineID == machineID && existing.Name == name
+	})
+}
+
+func proposeContainer(item container.Container, declared []Service) Proposal {
+	unit := unitProposal(item)
+	unit.Name = unitNameOf(item.Name)
+	unit.ContainerName = item.Name
+	return Proposal{Definition: ServiceDefinition{
+		MachineID: item.MachineID,
+		Name:      freeName(slug(item.Name), item.MachineID, declared),
+		Nature:    NatureApplication,
+		Origin:    OriginContainer,
+		Units:     []UnitDefinition{unit},
+	}}
 }
 
 // unitProposal tire d'un conteneur ce que la déclaration d'une unité saurait

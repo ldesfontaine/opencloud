@@ -10,7 +10,7 @@ import (
 )
 
 // checkServiceWrite lit tout ce qui peut refuser l'écriture, du plus
-// général au plus précis : la machine, le nom, le projet Compose, les clés
+// général au plus précis : la machine, le nom, les clés
 // par lesquelles le service sera retrouvé, les projets.
 func checkServiceWrite(ctx context.Context, tx *sql.Tx, service directory.Service) error {
 	var machines int
@@ -28,13 +28,6 @@ func checkServiceWrite(ctx context.Context, tx *sql.Tx, service directory.Servic
 	if taken {
 		return directory.ErrNameTaken
 	}
-	taken, err = isComposeProjectTaken(ctx, tx, service)
-	if err != nil {
-		return err
-	}
-	if taken {
-		return directory.ErrComposeProjectTaken
-	}
 	if err := checkMatchKeys(ctx, tx, service); err != nil {
 		return err
 	}
@@ -48,21 +41,6 @@ func isServiceNameTaken(ctx context.Context, tx *sql.Tx, service directory.Servi
 		service.MachineID, service.Name, service.ID).Scan(&others)
 	if err != nil {
 		return false, fmt.Errorf("check declared service name: %w", err)
-	}
-	return others > 0, nil
-}
-
-func isComposeProjectTaken(ctx context.Context, tx *sql.Tx, service directory.Service) (bool, error) {
-	if service.Origin != directory.OriginCompose {
-		return false, nil
-	}
-	var others int
-	err := tx.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM declared_services
-		WHERE machine_id = ? AND origin = ? AND compose_project = ? AND id != ?`,
-		service.MachineID, string(directory.OriginCompose), service.ComposeProject, service.ID).Scan(&others)
-	if err != nil {
-		return false, fmt.Errorf("check compose project: %w", err)
 	}
 	return others > 0, nil
 }
@@ -87,6 +65,9 @@ func matchKeysOf(unit directory.Unit) []matchKey {
 }
 
 func checkMatchKeys(ctx context.Context, tx *sql.Tx, service directory.Service) error {
+	if err := checkComposeServices(ctx, tx, service); err != nil {
+		return err
+	}
 	seen := map[matchKey]bool{}
 	for _, unit := range service.Units {
 		for _, key := range matchKeysOf(unit) {
@@ -101,6 +82,29 @@ func checkMatchKeys(ctx context.Context, tx *sql.Tx, service directory.Service) 
 			if taken {
 				return directory.ErrMatchKeyTaken
 			}
+		}
+	}
+	return nil
+}
+
+// Un service Compose (projet et nom d'unité) se déclare une fois par
+// machine : deux services peuvent partager un projet, pas un service Compose,
+// sans quoi le rattachement serait ambigu.
+func checkComposeServices(ctx context.Context, tx *sql.Tx, service directory.Service) error {
+	if service.Origin != directory.OriginCompose {
+		return nil
+	}
+	for _, unit := range service.Units {
+		var others int
+		err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM service_units u JOIN declared_services s ON s.id = u.service_id
+			WHERE s.machine_id = ? AND s.origin = ? AND s.compose_project = ? AND u.name = ? AND s.id != ?`,
+			service.MachineID, string(directory.OriginCompose), service.ComposeProject, unit.Name, service.ID).Scan(&others)
+		if err != nil {
+			return fmt.Errorf("check compose service: %w", err)
+		}
+		if others > 0 {
+			return directory.ErrComposeServiceTaken
 		}
 	}
 	return nil

@@ -117,6 +117,7 @@ func diffService(before, after directory.ServiceDefinition, names labels) servic
 	diff.text("name", before.Name, after.Name)
 	diff.text("title", before.Title, after.Title)
 	diff.text("nature", string(before.Nature), string(after.Nature))
+	diff.text("category", string(before.Category), string(after.Category))
 	diff.text("origin", string(before.Origin), string(after.Origin))
 	diff.text("compose_project", before.ComposeProject, after.ComposeProject)
 	diff.text("public_url", before.PublicURL, after.PublicURL)

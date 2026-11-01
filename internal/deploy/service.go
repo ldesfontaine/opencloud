@@ -21,6 +21,9 @@ import (
 // pour un service qui n'existe pas.
 type Services interface {
 	GetDeclaredService(ctx context.Context, id string) (directory.Service, error)
+	// ListDeclaredServices : les services d'une machine, pour savoir si un
+	// autre partage le projet Compose du dossier.
+	ListDeclaredServices(ctx context.Context, filter directory.Filter) ([]directory.Service, error)
 	// GetUnit rend une unité, directory.ErrUnitNotFound si elle n'existe plus.
 	GetUnit(ctx context.Context, id string) (directory.Unit, error)
 }
@@ -87,6 +90,9 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	if err := s.refuseSharedProject(ctx, service); err != nil {
+		return Plan{}, err
+	}
 	target, err := s.machines.Get(ctx, service.MachineID)
 	if err != nil {
 		return Plan{}, fmt.Errorf("get machine: %w", err)
@@ -116,6 +122,23 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 		plan.LastRun = &last
 	}
 	return plan, nil
+}
+
+// refuseSharedProject refuse de déployer un service dont le projet Compose
+// est aussi celui d'un autre service déclaré de la machine : le fichier écrit
+// ne décrit que ses unités, il retirerait celles de l'autre.
+func (s *Service) refuseSharedProject(ctx context.Context, service directory.Service) error {
+	onMachine, err := s.services.ListDeclaredServices(ctx, directory.Filter{MachineID: service.MachineID})
+	if err != nil {
+		return fmt.Errorf("list machine services: %w", err)
+	}
+	shared := slices.ContainsFunc(onMachine, func(other directory.Service) bool {
+		return other.ID != service.ID && other.Origin == directory.OriginCompose && other.ComposeProject == service.ComposeProject
+	})
+	if shared {
+		return ErrProjectShared
+	}
+	return nil
 }
 
 // rightOf : « ok » ou « missing » une fois les droits de l'agent rapportés,

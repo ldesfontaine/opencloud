@@ -18,11 +18,9 @@ import (
 type Annotations struct {
 	// En tête du fichier ; une ligne par ligne du texte, sans le « # ».
 	Header string
-	// Au-dessus d'un service que l'export propose, et d'une unité qu'il
-	// ajoute à un service déclaré : ils viennent de conteneurs non déclarés,
-	// l'opérateur les relit avant d'appliquer.
-	Proposed     string
-	ProposedUnit string
+	// Au-dessus d'un service que l'export propose : il vient de conteneurs
+	// non déclarés, l'opérateur le relit avant d'appliquer.
+	Proposed string
 }
 
 // Encode écrit le fichier, dans l'ordre des listes de file. Les mêmes
@@ -194,6 +192,7 @@ func serviceNodes(services []Service, annotations Annotations) []*yaml.Node {
 		entry.add("name", text(item.Name))
 		entry.addText("title", item.Title)
 		entry.add("nature", text(string(item.Nature)))
+		entry.addText("category", string(item.Category))
 		entry.add("origin", text(string(item.Origin)))
 		entry.addText("compose_project", item.ComposeProject)
 		entry.addText("public_url", item.PublicURL)
@@ -219,9 +218,6 @@ func unitNodes(units []Unit, annotations Annotations) []*yaml.Node {
 	nodes := make([]*yaml.Node, 0, len(units))
 	for _, item := range units {
 		entry := block()
-		if item.Proposed {
-			entry.HeadComment = annotations.ProposedUnit
-		}
 		entry.add("name", text(item.Name))
 		entry.addText("image", item.Image)
 		if item.Version != "" {

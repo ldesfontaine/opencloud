@@ -46,14 +46,17 @@ type containerVerdictJSON struct {
 // au moins un conteneur du groupe n'a pas de label ; un groupe d'orphelins se
 // corrige par le label, pas en l'acceptant.
 type undeclaredJSON struct {
-	MachineID   string                `json:"machine_id"`
-	MachineName string                `json:"machine_name"`
-	KeyKind     string                `json:"key_kind"`
-	KeyValue    string                `json:"key_value"`
-	Ignored     bool                  `json:"ignored"`
-	ServiceID   string                `json:"service_id"`
-	Adoptable   bool                  `json:"adoptable"`
-	Containers  []undeclaredContainer `json:"containers"`
+	MachineID   string `json:"machine_id"`
+	MachineName string `json:"machine_name"`
+	KeyKind     string `json:"key_kind"`
+	KeyValue    string `json:"key_value"`
+	Ignored     bool   `json:"ignored"`
+	// Le groupe d'exécution (projet Compose) et le service Compose ; vides
+	// pour un conteneur seul.
+	Project        string                `json:"project"`
+	ComposeService string                `json:"compose_service"`
+	Adoptable      bool                  `json:"adoptable"`
+	Containers     []undeclaredContainer `json:"containers"`
 }
 
 // label_problem dit pourquoi les labels du conteneur ne le rattachent à rien ;
@@ -75,10 +78,8 @@ type gapsResponse struct {
 }
 
 // La proposition a la forme du corps de la création : le
-// formulaire la reprend telle quelle. Avec service_id, c'est l'édition de ce
-// service, qui garde ses unités et en gagne.
+// formulaire la reprend telle quelle.
 type proposalResponse struct {
-	ServiceID  string                 `json:"service_id"`
 	Definition declaredServiceRequest `json:"definition"`
 }
 
@@ -136,7 +137,7 @@ func undeclaredToJSON(group directory.Undeclared, machines map[string]machineVie
 	}
 	return undeclaredJSON{
 		MachineID: group.MachineID, MachineName: machines[group.MachineID].name, KeyKind: string(group.Key.Kind), KeyValue: group.Key.Value,
-		Ignored: group.Ignored, ServiceID: group.ServiceID, Adoptable: group.Adoptable, Containers: containers,
+		Ignored: group.Ignored, Project: group.Project, ComposeService: group.ComposeService, Adoptable: group.Adoptable, Containers: containers,
 	}
 }
 
@@ -187,7 +188,7 @@ func (s *Server) getDirectoryProposal(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, proposalResponse{ServiceID: proposal.ServiceID, Definition: declaredServiceRequestOf(proposal.Definition)})
+	s.writeAPI(w, http.StatusOK, proposalResponse{Definition: declaredServiceRequestOf(proposal.Definition)})
 }
 
 // declaredServiceRequestOf est l'inverse de declaredServiceDefinition : la
@@ -203,7 +204,7 @@ func declaredServiceRequestOf(definition directory.ServiceDefinition) declaredSe
 		})
 	}
 	return declaredServiceRequest{
-		MachineID: definition.MachineID, Name: definition.Name, Title: definition.Title, Nature: string(definition.Nature),
+		MachineID: definition.MachineID, Name: definition.Name, Title: definition.Title, Nature: string(definition.Nature), Category: string(definition.Category),
 		Origin: string(definition.Origin), ComposeProject: definition.ComposeProject, PublicURL: definition.PublicURL,
 		Provides: provides, Units: units, ProjectIDs: orEmpty(definition.ProjectIDs),
 	}

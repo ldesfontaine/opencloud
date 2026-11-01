@@ -67,21 +67,21 @@ func (b *builder) planServices() {
 func serviceKeyError(key string) error {
 	switch {
 	case strings.HasPrefix(key, "compose:"):
-		return directory.ErrComposeProjectTaken
+		return directory.ErrComposeServiceTaken
 	case strings.HasPrefix(key, "unit:"):
 		return directory.ErrMatchKeyTaken
 	}
 	return directory.ErrNameTaken
 }
 
-// serviceKeys dit les clés d'unicité d'un service : son nom, son projet
+// serviceKeys dit les clés d'unicité d'un service : son nom, son service
 // Compose et les clés d'observation de ses unités, chacune par machine.
 func serviceKeys(machineID string, definition directory.ServiceDefinition) []string {
 	keys := []string{"name:" + machineID + "/" + definition.Name}
-	if definition.Origin == directory.OriginCompose && definition.ComposeProject != "" {
-		keys = append(keys, "compose:"+machineID+"/"+definition.ComposeProject)
-	}
 	for _, unit := range definition.Units {
+		if definition.Origin == directory.OriginCompose && definition.ComposeProject != "" {
+			keys = append(keys, "compose:"+machineID+"/"+definition.ComposeProject+"/"+unit.Name)
+		}
 		if unit.ContainerName != "" {
 			keys = append(keys, "unit:"+machineID+"/container:"+unit.ContainerName)
 		}
@@ -124,7 +124,7 @@ func (b *builder) wantedService(entry Service) (definition directory.ServiceDefi
 		})
 	}
 	definition = directory.ServiceDefinition{
-		MachineID: machineID, Name: entry.Name, Title: entry.Title, Nature: entry.Nature, Origin: entry.Origin,
+		MachineID: machineID, Name: entry.Name, Title: entry.Title, Nature: entry.Nature, Category: entry.Category, Origin: entry.Origin,
 		ComposeProject: entry.ComposeProject, PublicURL: entry.PublicURL,
 		Provides: slices.Clone(entry.Provides), Units: units, ProjectIDs: projectIDs,
 	}

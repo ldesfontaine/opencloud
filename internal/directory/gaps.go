@@ -67,15 +67,11 @@ func (d *Directory) Propose(ctx context.Context, containerID string) (Proposal, 
 	if item.IsArchived() {
 		return Proposal{}, ErrContainerNotFound
 	}
-	siblings, err := d.containers.List(ctx, item.MachineID)
-	if err != nil {
-		return Proposal{}, err
-	}
 	declared, err := d.store.ListDeclaredServices(ctx, Filter{MachineID: item.MachineID})
 	if err != nil {
 		return Proposal{}, err
 	}
-	proposal, err := Propose(item, siblings, declared)
+	proposal, err := Propose(item, declared)
 	if err != nil {
 		return Proposal{}, err
 	}
@@ -83,7 +79,7 @@ func (d *Directory) Propose(ctx context.Context, containerID string) (Proposal, 
 	if err != nil {
 		return Proposal{}, err
 	}
-	if isIgnored(ignored, keyOf(item)) {
+	if _, ignoredNow := ignoredAs(ignored, keyOf(item), item.Group); ignoredNow {
 		return Proposal{}, ErrContainerIgnored
 	}
 	return proposal, nil
@@ -151,12 +147,17 @@ func (d *Directory) DeleteServiceAndIgnore(ctx context.Context, id string) error
 }
 
 // keysLeftBy sont les clés sous lesquelles les conteneurs d'un service
-// supprimé se retrouvent non déclarés : son projet Compose, ou le nom de
-// chacun de ses conteneurs. Un binaire n'a pas de conteneur.
+// supprimé se retrouvent non déclarés : chacun de ses services Compose, ou le
+// nom de chacun de ses conteneurs. Un binaire n'a pas de conteneur. Les autres
+// services du même projet ne sont pas touchés.
 func keysLeftBy(service Service) []IgnoredKey {
 	switch service.Origin {
 	case OriginCompose:
-		return []IgnoredKey{{MachineID: service.MachineID, Kind: IgnoreComposeProject, Value: service.ComposeProject}}
+		keys := make([]IgnoredKey, 0, len(service.Units))
+		for _, unit := range service.Units {
+			keys = append(keys, IgnoredKey{MachineID: service.MachineID, Kind: IgnoreComposeService, Value: ComposeServiceValue(service.ComposeProject, unit.Name)})
+		}
+		return keys
 	case OriginContainer:
 		keys := make([]IgnoredKey, 0, len(service.Units))
 		for _, unit := range service.Units {

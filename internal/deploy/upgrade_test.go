@@ -33,6 +33,10 @@ func (w *world) GetDeclaredService(context.Context, string) (directory.Service, 
 	return w.service, nil
 }
 
+func (w *world) ListDeclaredServices(context.Context, directory.Filter) ([]directory.Service, error) {
+	return []directory.Service{w.service}, nil
+}
+
 func (w *world) GetUnit(_ context.Context, id string) (directory.Unit, error) {
 	return fakeServices{service: w.service}.GetUnit(context.Background(), id)
 }

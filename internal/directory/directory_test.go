@@ -343,11 +343,11 @@ func TestUpdateService_MovingToAMachineWhereItsKeysAreTaken_Refused(t *testing.T
 		want    error
 	}{
 		{"nom", sameName, containerDefinition(machine.LocalID, "whoami", "whoami-remote"), directory.ErrNameTaken},
-		{"projet Compose", sameProject, func() directory.ServiceDefinition {
+		{"service Compose", sameProject, func() directory.ServiceDefinition {
 			d := composeDefinition(machine.LocalID)
 			d.Name = "cloud-distant"
 			return d
-		}(), directory.ErrComposeProjectTaken},
+		}(), directory.ErrComposeServiceTaken},
 		{"nom de conteneur", sameContainer, containerDefinition(machine.LocalID, "autre", "whoami"), directory.ErrMatchKeyTaken},
 	}
 	for _, testCase := range cases {
@@ -418,14 +418,25 @@ func TestCreateService_SameNameSameMachine_Refused_OtherMachine_Accepted(t *test
 	}
 }
 
-func TestCreateService_ComposeProjectTaken_Refused(t *testing.T) {
+// Deux services partagent un projet Compose (edge = traefik + crowdsec) ;
+// un même service Compose ne se déclare qu'une fois par machine.
+func TestCreateService_ComposeServiceTaken_Refused(t *testing.T) {
 	b := newBench(t)
-	mustCreate(t, b, composeDefinition(remoteID))
+	first := mustCreate(t, b, composeDefinition(remoteID))
 
 	second := composeDefinition(remoteID)
 	second.Name = "nextcloud-preprod"
-	if _, err := b.directory.CreateService(context.Background(), second); !errors.Is(err, directory.ErrComposeProjectTaken) {
-		t.Fatalf("même projet Compose, même machine: %v", err)
+	if _, err := b.directory.CreateService(context.Background(), second); !errors.Is(err, directory.ErrComposeServiceTaken) {
+		t.Fatalf("même service Compose, même machine: %v", err)
+	}
+	other := composeDefinition(remoteID)
+	other.Name = "nextcloud-worker"
+	other.Units = []directory.UnitDefinition{{Name: "worker", Image: "nextcloud", Version: "29"}}
+	if _, err := b.directory.CreateService(context.Background(), other); err != nil {
+		t.Fatalf("un autre service Compose du même projet: %v", err)
+	}
+	if first.ComposeProject != other.ComposeProject {
+		t.Fatalf("le test veut un projet partagé: %q, %q", first.ComposeProject, other.ComposeProject)
 	}
 	if _, err := b.directory.CreateService(context.Background(), composeDefinition(machine.LocalID)); err != nil {
 		t.Fatalf("même projet Compose, autre machine: %v", err)
@@ -789,7 +800,7 @@ func TestGaps_ProjectFilterHidesUndeclared(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(onMachine.Services) != 1 || len(onMachine.Undeclared) != 1 || onMachine.Undeclared[0].Key.Value != "blog" {
+	if len(onMachine.Services) != 1 || len(onMachine.Undeclared) != 1 || onMachine.Undeclared[0].Key.Value != "blog/web" {
 		t.Fatalf("machine: %+v", onMachine)
 	}
 	if got := onMachine.Services[0]; got.ServiceID != created.ID || got.State != directory.GapAbsent || got.Units[0].State != directory.GapConform {

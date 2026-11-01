@@ -55,10 +55,8 @@ func (m *Manifest) Export(ctx context.Context, annotations Annotations, options 
 	return data, nil
 }
 
-// addProposals ajoute au fichier ce que l'annuaire propose d'adopter. Une
-// proposition vers un service déjà déclaré ajoute ses unités manquantes à la
-// fin de son entrée. Une proposition nouvelle devient une entrée sans
-// identifiant, à la fin de la liste, triée par machine puis par nom : le
+// addProposals ajoute au fichier ce que l'annuaire propose d'adopter. Chaque
+// proposition devient une entrée sans identifiant, à la fin de la liste, triée par machine puis par nom : le
 // fichier appliqué la crée par (machine, nom), comme tout service nouveau.
 // Les commentaires disent que cela vient des conteneurs, pas de l'opérateur.
 func (m *Manifest) addProposals(ctx context.Context, file File) (File, error) {
@@ -72,10 +70,6 @@ func (m *Manifest) addProposals(ctx context.Context, file File) (File, error) {
 	}
 	var added []Service
 	for _, proposal := range proposals {
-		if proposal.ServiceID != "" {
-			addProposedUnits(&file, proposal)
-			continue
-		}
 		// Une machine retirée entre les deux lectures n'a plus de nom à écrire.
 		if machine, found := names[proposal.Definition.MachineID]; found {
 			added = append(added, proposedService(proposal.Definition, machine))
@@ -86,24 +80,6 @@ func (m *Manifest) addProposals(ctx context.Context, file File) (File, error) {
 	})
 	file.Services = append(file.Services, added...)
 	return file, nil
-}
-
-// addProposedUnits ajoute à un service déclaré les unités que la proposition
-// lui gagne : celles qui n'ont pas encore d'identifiant. Chacune porte son
-// commentaire ; dans une entrée nouvelle, celui de l'entrée suffit.
-func addProposedUnits(file *File, proposal directory.Proposal) {
-	at := slices.IndexFunc(file.Services, func(item Service) bool { return item.ID == proposal.ServiceID })
-	if at < 0 {
-		// Supprimé entre les deux lectures : rien à compléter.
-		return
-	}
-	for _, unit := range proposal.Definition.Units {
-		if unit.ID == "" {
-			added := proposedUnit(unit)
-			added.Proposed = true
-			file.Services[at].Units = append(file.Services[at].Units, added)
-		}
-	}
 }
 
 func proposedService(definition directory.ServiceDefinition, machine string) Service {
@@ -221,6 +197,7 @@ func serviceOf(item directory.Service, projectNames map[string]string) Service {
 		Name:           item.Name,
 		Title:          item.Title,
 		Nature:         item.Nature,
+		Category:       item.Category,
 		Origin:         item.Origin,
 		ComposeProject: item.ComposeProject,
 		PublicURL:      item.PublicURL,

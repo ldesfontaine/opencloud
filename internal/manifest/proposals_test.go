@@ -88,29 +88,29 @@ func TestPrune_AcceptedServiceNotInTheFileIsNamedDeletedAndComesBackAsAProposal(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.DeclaredBy != directory.ByOperator || accepted.Name != "blog" {
+	if accepted.DeclaredBy != directory.ByOperator || accepted.Name != "web" {
 		t.Fatalf("accepted: %+v", accepted)
 	}
-	if _, found := b.undeclaredGroup(t, directory.IgnoreComposeProject, "blog"); found {
+	if _, found := b.undeclaredGroup(t, directory.IgnoreComposeService, "blog/web"); found {
 		t.Fatal("an accepted service is no longer a proposal")
 	}
 
 	// Le fichier a été écrit avant l'acceptation : il ne liste pas « blog ».
 	plan := b.plan(t, data, false)
-	if len(plan.Changes) > 0 || !slices.ContainsFunc(plan.Unmanaged, func(ref manifest.Ref) bool { return ref.Kind == manifest.KindService && ref.Name == "app-1/blog" }) {
+	if len(plan.Changes) > 0 || !slices.ContainsFunc(plan.Unmanaged, func(ref manifest.Ref) bool { return ref.Kind == manifest.KindService && ref.Name == "app-1/web" }) {
 		t.Fatalf("without prune the accepted service is kept and named: %v / %+v", changeLabels(plan), plan.Unmanaged)
 	}
-	if _, found := b.undeclaredGroup(t, directory.IgnoreComposeProject, "blog"); found {
+	if _, found := b.undeclaredGroup(t, directory.IgnoreComposeService, "blog/web"); found {
 		t.Fatal("planning without prune moved the proposal")
 	}
 
 	plan = b.plan(t, data, true)
-	if !slices.Contains(changeLabels(plan), "delete service/app-1/blog") {
+	if !slices.Contains(changeLabels(plan), "delete service/app-1/web") {
 		t.Fatalf("the plan must name the accepted service: %v", changeLabels(plan))
 	}
 	b.apply(t, data, true)
 
-	group, found := b.undeclaredGroup(t, directory.IgnoreComposeProject, "blog")
+	group, found := b.undeclaredGroup(t, directory.IgnoreComposeService, "blog/web")
 	if !found || group.Ignored || !group.Adoptable {
 		t.Fatalf("the containers still run: the proposal is back: %+v", group)
 	}
@@ -119,7 +119,7 @@ func TestPrune_AcceptedServiceNotInTheFileIsNamedDeletedAndComesBackAsAProposal(
 		t.Fatal(err)
 	}
 	for _, service := range services {
-		if service.Name == "blog" {
+		if service.Name == "web" {
 			t.Fatal("the pruned service came back as a service")
 		}
 	}

@@ -14,21 +14,25 @@ import (
 // Un service déclaré tel que le front le lit : des faits, les listes
 // fermées en mots ; les libellés se traduisent dans le navigateur.
 type declaredServiceJSON struct {
-	ID             string     `json:"id"`
-	MachineID      string     `json:"machine_id"`
-	MachineName    string     `json:"machine_name"`
-	Name           string     `json:"name"`
-	Title          string     `json:"title"`
-	Nature         string     `json:"nature"`
-	Origin         string     `json:"origin"`
-	ComposeProject string     `json:"compose_project"`
-	PublicURL      string     `json:"public_url"`
-	DeclaredBy     string     `json:"declared_by"`
-	Provides       []string   `json:"provides"`
-	Units          []unitJSON `json:"units"`
-	ProjectIDs     []string   `json:"project_ids"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID          string `json:"id"`
+	MachineID   string `json:"machine_id"`
+	MachineName string `json:"machine_name"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Nature      string `json:"nature"`
+	// category : la correction de l'opérateur, vide si elle se déduit ;
+	// category_deduced : ce que l'image en dit, toujours posée.
+	Category        string     `json:"category"`
+	CategoryDeduced string     `json:"category_deduced"`
+	Origin          string     `json:"origin"`
+	ComposeProject  string     `json:"compose_project"`
+	PublicURL       string     `json:"public_url"`
+	DeclaredBy      string     `json:"declared_by"`
+	Provides        []string   `json:"provides"`
+	Units           []unitJSON `json:"units"`
+	ProjectIDs      []string   `json:"project_ids"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 type unitJSON struct {
@@ -100,10 +104,12 @@ type projectsResponse struct {
 // ce que le serveur pose (identifiant, provenance, dates). Une unité qui
 // garde son identifiant reste la même.
 type declaredServiceRequest struct {
-	MachineID      string        `json:"machine_id"`
-	Name           string        `json:"name"`
-	Title          string        `json:"title"`
-	Nature         string        `json:"nature"`
+	MachineID string `json:"machine_id"`
+	Name      string `json:"name"`
+	Title     string `json:"title"`
+	Nature    string `json:"nature"`
+	// Vide : la catégorie se déduit de l'image.
+	Category       string        `json:"category"`
 	Origin         string        `json:"origin"`
 	ComposeProject string        `json:"compose_project"`
 	PublicURL      string        `json:"public_url"`
@@ -148,21 +154,23 @@ func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
 	provides := httpx.ConvertAll(found.Provides, func(capability directory.Capability) string { return string(capability) })
 	units := httpx.ConvertAll(found.Units, unitToJSON)
 	return declaredServiceJSON{
-		ID:             found.ID,
-		MachineID:      found.MachineID,
-		MachineName:    found.MachineName,
-		Name:           found.Name,
-		Title:          found.Title,
-		Nature:         string(found.Nature),
-		Origin:         string(found.Origin),
-		ComposeProject: found.ComposeProject,
-		PublicURL:      found.PublicURL,
-		DeclaredBy:     string(found.DeclaredBy),
-		Provides:       provides,
-		Units:          units,
-		ProjectIDs:     orEmpty(found.ProjectIDs),
-		CreatedAt:      found.CreatedAt.UTC(),
-		UpdatedAt:      found.UpdatedAt.UTC(),
+		ID:              found.ID,
+		MachineID:       found.MachineID,
+		MachineName:     found.MachineName,
+		Name:            found.Name,
+		Title:           found.Title,
+		Nature:          string(found.Nature),
+		Category:        string(found.Category),
+		CategoryDeduced: string(found.DeducedCategory()),
+		Origin:          string(found.Origin),
+		ComposeProject:  found.ComposeProject,
+		PublicURL:       found.PublicURL,
+		DeclaredBy:      string(found.DeclaredBy),
+		Provides:        provides,
+		Units:           units,
+		ProjectIDs:      orEmpty(found.ProjectIDs),
+		CreatedAt:       found.CreatedAt.UTC(),
+		UpdatedAt:       found.UpdatedAt.UTC(),
 	}
 }
 
@@ -262,6 +270,7 @@ func declaredServiceDefinition(request declaredServiceRequest) directory.Service
 		Name:           request.Name,
 		Title:          request.Title,
 		Nature:         directory.Nature(request.Nature),
+		Category:       directory.Category(request.Category),
 		Origin:         directory.Origin(request.Origin),
 		ComposeProject: request.ComposeProject,
 		PublicURL:      request.PublicURL,

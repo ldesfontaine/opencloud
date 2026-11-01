@@ -13,6 +13,7 @@ var (
 	ErrProjectMissing   = refusal.Invalid("deploy.project_missing", "the service has no compose project: it names its folder")
 	ErrNoUnits          = refusal.Invalid("deploy.no_units", "the service has no unit to deploy")
 	ErrUnitNotContainer = refusal.Invalid("deploy.unit_not_container", "a binary unit is not deployed through Docker")
+	ErrProjectShared    = refusal.Invalid("deploy.project_shared", "another declared service uses this compose project: its folder cannot be written for this service alone")
 	ErrVersionUnpinned  = refusal.Invalid("deploy.version_unpinned", "every unit must carry a pinned version")
 	ErrComposeTooLarge  = refusal.Invalid("deploy.compose_too_large", "the generated compose file is larger than an order carries")
 	ErrEnvTooLarge      = refusal.Invalid("deploy.env_too_large", "the .env exceeds 64 KiB")

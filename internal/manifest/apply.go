@@ -363,7 +363,7 @@ func (m *Manifest) failureKey(err error) string {
 		return KeyTimeout
 	// Une clé prise au moment d'écrire, que le plan avait trouvée libre :
 	// quelqu'un l'a prise entre-temps.
-	case errors.Is(err, errObjectMoved), errors.Is(err, directory.ErrNameTaken), errors.Is(err, directory.ErrComposeProjectTaken),
+	case errors.Is(err, errObjectMoved), errors.Is(err, directory.ErrNameTaken), errors.Is(err, directory.ErrComposeServiceTaken),
 		errors.Is(err, directory.ErrMatchKeyTaken), errors.Is(err, directory.ErrProjectNameTaken),
 		errors.Is(err, directory.ErrNotFound), errors.Is(err, directory.ErrProjectNotFound),
 		errors.Is(err, probe.ErrNotFound), errors.Is(err, heartbeat.ErrNotFound), errors.Is(err, directory.ErrIgnoredNotFound):

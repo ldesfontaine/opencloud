@@ -199,7 +199,15 @@ func TestRender_RefusesAHostileValueWithTheKeyOfItsField(t *testing.T) {
 	}
 }
 
-type fakeServices struct{ service directory.Service }
+type fakeServices struct {
+	service directory.Service
+	// Les autres services de la machine.
+	neighbours []directory.Service
+}
+
+func (f fakeServices) ListDeclaredServices(context.Context, directory.Filter) ([]directory.Service, error) {
+	return append([]directory.Service{f.service}, f.neighbours...), nil
+}
 
 func (f fakeServices) GetDeclaredService(_ context.Context, id string) (directory.Service, error) {
 	if id != f.service.ID {
@@ -377,6 +385,16 @@ func TestPlan_RefusesWhatCannotBeDeployed(t *testing.T) {
 
 // Le .env part dans le secret de l'ordre et nulle part ailleurs : les
 // paramètres, que le run garde, disent seulement qu'il est parti.
+// Un autre service déclaré sur le même projet Compose : le dossier écrit ne
+// décrirait que celui-ci, il retirerait les unités de l'autre.
+func TestPlan_RefusesAProjectAnotherServiceShares(t *testing.T) {
+	neighbour := directory.Service{ID: "svc_other", MachineID: nextcloud().MachineID, Origin: directory.OriginCompose, ComposeProject: nextcloud().ComposeProject}
+	b := deploy.New(fakeServices{service: nextcloud(), neighbours: []directory.Service{neighbour}}, nil, fakeMachines{status: activeMachine("observe,docker.deploy")}, fakeRuns{}, &fakeSender{}, slog.New(slog.DiscardHandler))
+	if _, err := b.Plan(context.Background(), serviceID); !errors.Is(err, deploy.ErrProjectShared) {
+		t.Fatalf("got %v, want %v", err, deploy.ErrProjectShared)
+	}
+}
+
 func TestDeploy_SendsTheEnvAsASecretOnly(t *testing.T) {
 	b := newBench("observe,docker.deploy,docker.update", fakeRuns{})
 	const env = "DB_PASSWORD=une valeur de test qui ne sort pas\nAUTRE=1\n" // gitleaks:allow

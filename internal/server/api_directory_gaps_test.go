@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -159,68 +158,27 @@ func TestAPI_Proposal_DeclaredContainerAnswers409(t *testing.T) {
 	}
 }
 
-// Un service déjà plein ne reçoit plus d'unité : la réponse le dit, plutôt
-// que de rendre une définition inchangée.
-func TestAPI_Proposal_FullServiceAnswers409(t *testing.T) {
+// Le service Compose d'un projet déjà déclaré est une déclaration neuve : la
+// proposition s'accepte par POST, jamais en modifiant le service voisin.
+func TestAPI_Proposal_OfAServiceOfADeclaredProjectIsANewService(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	server.seedContainers(t)
-	serviceID := server.seedGaps(t)
-
-	ctx := context.Background()
-	current, err := server.db.GetDeclaredService(ctx, serviceID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := directory.ServiceDefinition{
-		MachineID: current.MachineID, Name: current.Name, Title: current.Title, Nature: current.Nature,
-		Origin: current.Origin, ComposeProject: current.ComposeProject,
-	}
-	for _, unit := range current.Units {
-		definition.Units = append(definition.Units, directory.UnitDefinition{ID: unit.ID, Name: unit.Name, Image: unit.Image, Version: unit.Version, Ports: unit.Ports})
-	}
-	for index := len(definition.Units); index < directory.MaxUnits; index++ {
-		definition.Units = append(definition.Units, directory.UnitDefinition{Name: "extra-" + strconv.Itoa(index), Image: "busybox", Version: "1"})
-	}
-	if _, err := server.directory.UpdateService(ctx, serviceID, definition); err != nil {
-		t.Fatal(err)
-	}
-
-	got := callAPI(server.Server, http.MethodGet, "/api/directory/proposal?container="+nextcloudDBContainerID(), nil)
-	if got.Code != http.StatusConflict || errorCode(t, got) != "directory.units_full" {
-		t.Fatalf("service plein: %d %s", got.Code, got.Body.String())
-	}
-}
-
-// Une proposition d'adoption d'un projet déjà déclaré est une édition : elle
-// doit passer telle quelle par PUT, ids d'unités existantes compris.
-func TestAPI_Proposal_CanBeSentBackAsTheEdit(t *testing.T) {
-	server := newTestServer(t)
-	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedContainers(t)
-	serviceID := server.seedGaps(t)
+	server.seedGaps(t)
 
 	var proposal proposalResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/directory/proposal?container="+nextcloudDBContainerID(), nil), &proposal)
-	if proposal.ServiceID != serviceID || len(proposal.Definition.Units) != 3 {
-		t.Fatalf("proposition: %+v", proposal)
+	if len(proposal.Definition.Units) != 1 || proposal.Definition.Units[0].ID != "" || proposal.Definition.ComposeProject != "nextcloud" {
+		t.Fatalf("une unité, celle du service Compose : %+v", proposal)
 	}
-	for index, unit := range proposal.Definition.Units {
-		if (index < 2) != (unit.ID != "") {
-			t.Fatalf("seules les unités déjà déclarées portent un id: %+v", proposal.Definition.Units)
-		}
-	}
-	got := callAPI(server.Server, http.MethodPut, "/api/directory/services/"+serviceID, proposal.Definition)
-	if got.Code != http.StatusOK {
-		t.Fatalf("édition: %d %s", got.Code, got.Body.String())
+	got := callAPI(server.Server, http.MethodPost, "/api/directory/services", proposal.Definition)
+	if got.Code != http.StatusCreated {
+		t.Fatalf("accepter : %d %s", got.Code, got.Body.String())
 	}
 	var gaps gapsResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/directory/gaps?machine="+remoteID, nil), &gaps)
-	if len(gaps.Undeclared) != 0 {
-		t.Fatalf("le conteneur adopté n'est plus non déclaré: %+v", gaps.Undeclared)
-	}
-	if unit := gaps.Services[0].Units[2]; unit.Name != "nextcloud-db" || unit.Containers[0].MatchLevel != "compose" {
-		t.Fatalf("unités: %+v", gaps.Services[0].Units)
+	if len(gaps.Undeclared) != 0 || len(gaps.Services) != 2 {
+		t.Fatalf("le conteneur accepté n'est plus non déclaré : %+v", gaps)
 	}
 }
 
@@ -240,7 +198,7 @@ func TestAPI_ServiceSheet_SaysWhatTheDirectoryKnows(t *testing.T) {
 	var undeclared containerResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/containers/"+nextcloudDBContainerID(), nil), &undeclared)
 	link = undeclared.Directory
-	if link == nil || link.Declared || link.KeyKind != "compose_project" || link.KeyValue != "nextcloud" || link.Ignored || link.ServiceID != "" {
+	if link == nil || link.Declared || link.KeyKind != "compose_service" || link.KeyValue != "nextcloud/nextcloud-db" || link.Ignored || link.ServiceID != "" {
 		t.Fatalf("non rattaché: %+v", link)
 	}
 	if got := callAPI(server.Server, http.MethodPost, "/api/directory/ignored", ignoredRequest{MachineID: remoteID, Kind: "compose_project", Value: "nextcloud"}); got.Code != http.StatusNoContent {
@@ -295,9 +253,6 @@ func TestAPI_Proposal_AcceptedTwiceAnswers409AndMakesOneService(t *testing.T) {
 
 	var proposal proposalResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, path, nil), &proposal)
-	if proposal.ServiceID != "" {
-		t.Fatalf("une déclaration neuve: %+v", proposal)
-	}
 	first := callAPI(server.Server, http.MethodPost, "/api/directory/services", proposal.Definition)
 	if first.Code != http.StatusCreated {
 		t.Fatalf("accepter: %d %s", first.Code, first.Body.String())
@@ -337,11 +292,21 @@ func TestAPI_DeleteService_BackToAProposalOrIgnoredWithIt(t *testing.T) {
 		decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/directory/services", proposal.Definition), &created)
 		return created.ID
 	}
+	// Le groupe du service Compose accepté ; le service voisin du projet reste
+	// proposé quoi qu'il arrive.
 	undeclared := func() []undeclaredJSON {
 		t.Helper()
 		var gaps gapsResponse
 		decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/directory/gaps?machine="+remoteID, nil), &gaps)
-		return gaps.Undeclared
+		var group []undeclaredJSON
+		for _, found := range gaps.Undeclared {
+			if found.ComposeService == "nextcloud" {
+				group = append(group, found)
+			} else if found.Ignored {
+				t.Fatalf("seul le service supprimé est ignoré : %+v", found)
+			}
+		}
+		return group
 	}
 
 	if got := callAPI(server.Server, http.MethodDelete, "/api/directory/services/"+accept(), nil); got.Code != http.StatusNoContent {
