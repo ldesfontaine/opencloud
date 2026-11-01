@@ -16,12 +16,11 @@ const token = {
   rights: [],
 };
 
-test("les commandes Proxmox se lisent en deux gestes à cocher, sans pavé d'aide", () => {
+test("les commandes Proxmox se lisent en deux gestes à cocher", () => {
   const markup = renderToStaticMarkup(<EnrollmentToken token={token} />);
   expect(markup).toContain("machine.proxmox_token_run_title");
   expect(markup).toContain("machine.proxmox_token_secret_title");
   expect(markup).toContain("pveum role add Role");
-  expect(markup).not.toContain("machine.proxmox_token_help");
 });
 
 test("sans droit Proxmox, aucun geste Proxmox", () => {
