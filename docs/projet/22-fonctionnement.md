@@ -138,6 +138,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_service` — valeur `projet/service` —, `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les unités systemd que chaque agent relève (migration `029_systemd_units.sql`) : `systemd_reports` (une ligne par machine : systemd lu ou non, raison, relevé tronqué ou non, instant) et `systemd_units` (machine, **nom** de l'unité de service, état de chargement, état d'activité, sous-état : trois mots de listes fermées). **Jamais** la description, le fichier de l'unité, ses `Environment=`, son processus ni son groupe de contrôle | Remplacé en entier à chaque relevé retenu, dans une transaction : une unité que la machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « unités systemd relevées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille ; depuis la migration `020`, le stockage de la plus récente, le nombre d'archives vzdump vues et leur taille totale) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les rôles que l'agent reconnaît sur sa machine (migration `014_machine_roles.sql`) : `machine_roles` (machine, rôle de la liste fermée `proxmox_ve`, version trouvée ; aujourd'hui le seul rôle). **Aucun secret, aucun droit** : un rôle se montre, il n'ouvre rien | Un reflet du dernier rapport, remplacé en entier à chaque rapport retenu : un rôle que l'agent ne voit plus disparaît. Pas d'historique, pas de purge d'âge. La machine retirée l'emporte (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le retour arrière des agents (migration `018_agent_rollback.sql`) : `agents.rollback_version` (la version du retour arrière que l'agent a dite à l'ouverture de son flux, 0 tant qu'il ne la dit pas) et `machines.update_last` (« à mettre à jour en dernier », 0 par défaut) | Aucun secret. `rollback_version` se réécrit à chaque ouverture de flux ; `update_last` ne change que par l'opérateur |
@@ -592,10 +593,10 @@ lisent un registre de modules.
 
 | Pièce | Rôle | Où |
 | --- | --- | --- |
-| Liste fermée | `module.ID` (`containers`, `hypervisor`, `guest`, `ssh_keys`, `probes`, `firewall`, `backups`, `jobs`) et sa portée (`machine`, `installation` ; les sondes vivent dans les deux) ; `probes` est le module **Disponibilité** : les sondes et les pages publiques des projets. Libellé et phrase : clés `module.<id>` et `module.<id>_text` des catalogues | `internal/module` |
+| Liste fermée | `module.ID` (`containers`, `hypervisor`, `guest`, `ssh_keys`, `systemd_units`, `probes`, `firewall`, `backups`, `jobs`) et sa portée (`machine`, `installation` ; les sondes vivent dans les deux) ; `probes` est le module **Disponibilité** : les sondes et les pages publiques des projets. Libellé et phrase : clés `module.<id>` et `module.<id>_text` des catalogues | `internal/module` |
 | Rôle d'une machine | `machines.role`, liste fermée `machine.Roles()` : `generic`, `docker`, `proxmox`. **Choisi à l'ajout** : le jeton d'enrôlement le porte (`enrollment_tokens.role`), l'enrôlement l'inscrit sur la machine, un ré-enrôlement garde celui de la machine. Il se change sur la fiche (`PUT /api/machines/{id}/role`, carte « Rôle de la machine ») ; l'opérateur seul, aucun jeton d'API ; journal `machine.role` (rôle, rôle d'avant) | `internal/machine/role.go`, migration `024_machine_role.sql` |
 | Préréglage des droits | `machine.RolePreset(rôle)` : `generic` coche `probe.lan` ; `docker` y ajoute `docker.deploy` et `docker.update` ; `proxmox` y ajoute `proxmox.power` et `proxmox.snapshot`. Écrit **une fois**, en Go, et servi par `GET /api/session` (`roles: [{id, capabilities}]`) : l'ajout d'une machine coche ces droits d'avance, l'opérateur les ajuste sous « Avancé ». Le serveur n'ajoute rien de lui-même à ce que la demande porte | `internal/machine/role.go`, `api_session.go` |
-| Présence d'un module de machine | Une règle SQL par module, lue pour toutes les machines à la fois : `containers` = rôle `docker` **ou** un conteneur observé ; `hypervisor` = rôle `proxmox` **ou** un hôte Proxmox déclaré (un hôte déclaré ne perd jamais son onglet) ; `guest` = un invité d'hôte lui est lié ; `ssh_keys` = l'agent a rapporté ses clés ; `probes` = une sonde la vise. Rendue par `GET /api/machines` et `/{id}` (`role`, `modules`) | `internal/store/modules.go` (`MachineModules`) |
+| Présence d'un module de machine | Une règle SQL par module, lue pour toutes les machines à la fois : `containers` = rôle `docker` **ou** un conteneur observé ; `hypervisor` = rôle `proxmox` **ou** un hôte Proxmox déclaré (un hôte déclaré ne perd jamais son onglet) ; `guest` = un invité d'hôte lui est lié ; `ssh_keys` = l'agent a rapporté ses clés ; `systemd_units` = l'agent a **lu** systemd (un relevé « illisible » ne porte pas le module) ; `probes` = une sonde la vise. Rendue par `GET /api/machines` et `/{id}` (`role`, `modules`) | `internal/store/modules.go` (`MachineModules`) |
 | Configuré (module de l'installation) | Au moins un objet du module existe : un pare-feu, un trousseau ou un plan de sauvegarde, une tâche, une sonde ou un projet publié (Disponibilité). Rendu par `GET /api/counts` (`modules: [{id, configured}]`), **pas** par la session : la session se lit une fois, et le menu doit suivre le premier objet créé (le compteur est relu sur les sujets `machines`, `jobs`, `probes`, `status`, `alerts`, `directory`, `firewalls`, `backups`) | `internal/store/modules.go` (`InstallationModules`) |
 
 Ce que l'écran en fait (`web/src/lib/modules.ts`, le seul lieu qui sait qu'un
@@ -2443,8 +2444,10 @@ résultat se garde sur la fiche du conteneur (`containers.unit_id`,
 Les deux derniers niveaux sont choisis par l'origine du service déclaré, donc
 disjoints. Un conteneur qui répond à deux niveaux est rattaché par le plus fort ;
 l'unité « conteneur seul » qui portait son nom paraît alors absente.
-Une unité binaire ne rapproche jamais rien. Plusieurs conteneurs d'une même
-unité sont admis (répliques) et se montrent tous.
+Une unité binaire ne rapproche aucun conteneur : elle se rapproche du **relevé
+systemd** de sa machine, par le nom de l'unité (« Comment les unités systemd se
+relèvent »). Plusieurs conteneurs d'une même unité sont admis (répliques) et se
+montrent tous.
 
 **La priorité du label est sans repli.** Un conteneur qui porte au moins un
 label du produit ne cherche que par label : si l'identifiant ne désigne aucune
@@ -2544,8 +2547,9 @@ sur `latest` avec l'empreinte épinglée lue localement, elle reste « sur
 `latest` ». Un conteneur arrêté **compte comme présent** : l'état de Docker
 reste l'affaire de la pastille et des alertes, pas de l'écart.
 
-Puis **l'unité** : un binaire est « non observé » (aucun agent ne le regarde
-encore) ; une unité sans conteneur vivant est « déclaré, absent » ; sinon
+Puis **l'unité** : un binaire est jugé par le relevé systemd de sa machine
+(trouvée : conforme ; absente d'un relevé lu : « déclaré, absent » ; machine qui
+n'a rien relevé : « non observé ») ; une unité sans conteneur vivant est « déclaré, absent » ; sinon
 le pire verdict de ses conteneurs. **Le service** prend le pire de ses unités,
 du plus grave au moins grave : absent, divergent, non vérifiable, non observé,
 conforme. Le rattachement faible est le « ou » des conteneurs et des unités :
@@ -4922,6 +4926,105 @@ root » ; sur cette machine, l'absence d'une clé ne prouve rien. La fiche de la
 machine suit la même règle (compte illisible : pastille neutre, phrase grise). Filtres : faibles, accès root, sur une seule machine. La lecture
 « Par machine » liste les comptes qui ont une clé ou qu'on n'a pas pu lire.
 
+## Comment les unités systemd se relèvent
+
+L'agent relève les **unités de service systemd** de sa machine, en lecture
+seule, et **sans droit de plus** : `observe`, toujours acquis. Ce n'est pas une
+hypothèse : `systemctl list-units` répond à tout compte (mesuré pour l'étude
+`services-modele.md`, §2.2 ; la doc D-Bus de systemd le dit : « Read access is
+generally granted to all clients »). **Rien n'est écrit** sur une machine : ni
+unité, ni fichier, ni ordre.
+
+**Ce qui est lu.** Une commande, toutes les minutes :
+`systemctl list-units --type=service --all --plain --no-legend --no-pager --full`.
+Aucune autre : ni `show` (les propriétés `Environment=` d'une unité peuvent
+porter un secret), ni `cat`, ni fichier d'unité. La commande part avec un
+**environnement vide** (`LC_ALL`, `SYSTEMD_COLORS`, `PATH` seulement) : rien de
+ce que l'agent porte en variables ne lui arrive.
+
+**Ce qui remonte (liste blanche).** Par unité, quatre champs et pas un de plus :
+
+| Champ | Valeurs |
+| --- | --- |
+| `name` | `^[A-Za-z0-9:_.@-]{1,250}\.service$` : le même motif que l'annuaire accepte de déclarer ; un nom qui porte un échappement (`\x2d`) n'est pas relevé |
+| `load` | `loaded`, `masked`, `error`, `other` ; `not-found` n'est pas relevé (systemd en liste pour toute dépendance citée) |
+| `active` | `active`, `inactive`, `failed`, `activating`, `deactivating`, `reloading`, `other` |
+| `sub` | `running`, `exited`, `dead`, `failed`, `auto-restart`, `start`, `stop`, `reload`, `other` |
+
+Tout mot que systemd écrit hors de ces listes devient `other` : il ne voyage
+pas. **La description** (le cinquième champ, du texte libre) est jetée sans être
+regardée. Du relevé de l'étude, ne sont **pas** repris `MainPID`,
+`ControlGroup` ni `FragmentPath` : le port d'un binaire ne s'en déduit pas sans
+`ptrace`, il se **déclare**. Au plus 512 unités, par nom ; au-delà, le relevé dit
+qu'il est tronqué. Si systemd ne se lit pas (commande absente, machine sans
+systemd comme amorçage, échec), le relevé le dit par une **raison** de liste
+fermée (`no_systemctl`, `not_booted`, `unreadable`) et ne porte aucune unité.
+
+**Un secret n'y entre pas.** Un test (`TestRead_SeededSecret_NeverInTheReport`)
+sème une valeur secrète dans tout ce que `systemctl` peut écrire en texte libre
+(description, champs en trop, nom hors modèle, état inconnu) et vérifie
+qu'elle n'est dans aucune sortie ; un second (`TestSystemd_SeededSecret_…`) la
+suit de bout en bout : le signal que l'agent construit, les réponses de l'API
+(machine, services, écart, machines, proposition) et la base. Le journal de
+l'agent ne dit que des comptes. Limite assumée : **le nom** d'une unité est un
+champ rapporté ; un nom de fichier n'est pas un secret, mais un opérateur qui
+mettrait un secret dans le nom d'une unité le verrait remonter.
+
+**Le chemin.** Le relevé part dans le signal, section `systemd_units`,
+**seulement s'il a changé**, et une fois à chaque ouverture du flux (comme les
+clés SSH). Un agent plus ancien n'envoie rien : l'onglet dit « pas encore
+relevé », et un binaire déclaré reste « non observé » (jamais « absent » : ne
+rien savoir n'est pas savoir l'absence). Le serveur ne fait pas confiance au
+relevé : il refuse le tout (`bad_systemd_units`) s'il sort de ce qu'un agent
+peut avoir lu ; le reste du signal passe, l'ancien relevé reste. Un relevé
+retenu remplace l'ancien dans une transaction et prévient le direct (sujets
+`machines` et `directory`). **Aucun audit** : c'est une lecture de l'agent,
+comme ses mesures.
+
+**Le rapprochement** vit dans `internal/directory` (`units.go`), règle pure :
+l'unité binaire déclarée (`systemd_unit`) est cherchée par son **nom** dans le
+relevé de **sa** machine (jamais d'une autre).
+
+| Le relevé de la machine… | Présence | L'écart |
+| --- | --- | --- |
+| a l'unité | `found`, avec ses trois états | conforme |
+| est lu et n'a pas l'unité | `missing` (« Absente de la machine », avec « vérifiez son nom ») | déclaré, absent |
+| manque ou est illisible | `unknown` (« Non relevée ») | non observé |
+
+L'**état de l'unité** (en marche, en échec…) n'est pas un écart : il se lit à
+côté, dans une colonne « État de l'unité ». Une unité en échec reste « conforme »
+au sens de l'écart (elle existe) et rouge dans sa colonne.
+
+**Le port se déclare.** Le relevé ne dit pas où un binaire écoute. Un binaire
+déclaré sans port montre « Port à déclarer » sur sa fiche : le lien ouvre la
+modification **directement sur l'étape des unités** (`?etape=units`), où le port
+est demandé **à côté de l'unité**, pas sous « Avancé » (il l'était : c'était le
+défaut qui cachait la seule chose à dire).
+
+**Déclarer une unité relevée.** Sur l'onglet « Unités systemd » d'une machine,
+une unité que personne ne déclare a un bouton « Déclarer » : il ouvre
+l'assistant de déclaration rempli par le serveur
+(`GET /api/directory/proposal?machine=…&unit=…` : nom sans `.service`, origine
+binaire, l'unité, **aucun port**). Rien n'est écrit tant que l'opérateur n'a pas
+validé. Un nom déjà pris sur la machine reçoit un suffixe (`forgejo-2`). Une
+unité déjà déclarée est refusée (409, `directory.systemd_unit_declared`) ; une
+unité absente du relevé est introuvable (404,
+`directory.systemd_unit_not_observed`). « Déclarer un service » renvoie vers ces
+unités (un lien par machine qui en a relevé) pour un binaire.
+
+**L'API** : `GET /api/machines/{id}/systemd-units` (404 si la machine n'existe
+pas ; un relevé vide, sans date et `available: false` tant que l'agent n'a rien
+dit) : chaque unité dit le service déclaré qui la porte. Chaque unité d'un
+service (`GET /api/directory/services[/{id}]`) porte `observed` (nul pour un
+conteneur). Lecture seule, pour l'opérateur seul : **aucun jeton d'API** ne
+lit la route des unités (la liste fermée de « Comment un agent IA lit
+openCloud » ne change pas).
+
+**Ce que L2 ne fait pas** (chantiers suivants de `services-modele.md`) : aucun
+lien entre instances (L3, L4), pas de connexions de l'hôte (L6), pas de port
+déduit d'un processus. Un service systemd d'**un autre utilisateur** (unités
+`--user`) n'est pas vu : `systemctl` interroge le gestionnaire du système.
+
 ## Comment un renvoi de menu devient un lien
 
 Un texte qui renvoie à un écran (« réglez-le dans Paramètres → E-mails ») n'écrit
@@ -4960,7 +5063,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 
 | Supprimer | Retenue tant que (restrict) — clé du 409 | Emporte (cascade, compté) | Détache (compté) | Ensuite |
 | --- | --- | --- | --- | --- |
-| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; destinations de sauvegarde qu'elle porte `machine.has_backup_destinations` ; plans de sauvegarde dont elle est la source `machine.has_backup_plans` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux et volumes Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés SSH relevées, hôte Proxmox déclaré (compté ; ses VM et ses stockages partent avec lui, non comptés), clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul), VM Proxmox rapprochées d'elle (le lien seul : la VM reste dans l'hôte) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
+| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; destinations de sauvegarde qu'elle porte `machine.has_backup_destinations` ; plans de sauvegarde dont elle est la source `machine.has_backup_plans` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux et volumes Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés SSH relevées, unités systemd relevées, hôte Proxmox déclaré (compté ; ses VM et ses stockages partent avec lui, non comptés), clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul), VM Proxmox rapprochées d'elle (le lien seul : la VM reste dans l'hôte) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
 | Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur), incidents (le lien seul) | rapprochement refait ; rien ne touche la machine |
 | Projet | — | — | sa page publique, ses composants et leurs membres ; les liens de projet (les services restent) | — |
 | Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes, incidents (le lien seul) | jeu de sondes renvoyé à sa machine |
@@ -5496,7 +5599,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se télécharge ou se compile, et se copie à la main. Une version signée se vérifie (`release verify`), la clé de version est posée depuis le 23/10/2026 : la `v0.0.1` est non signée et n'embarque pas la clé, donc la première version signée s'installe à la main, serveur et agents (`agent.update` refuse sans clé). Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |
 | Spool côté agent | Une coupure de plus d'une heure, ou un redémarrage de l'agent, perd des mesures : un trou dans l'historique | Avec les premiers événements à rejouer |
 | Pas d'historique par volume | Les graphes et la vue d'ensemble montrent la somme des volumes ; le détail par volume n'existe que pour la valeur courante | À décider |
-| L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par label, par le projet Compose ou par le nom du conteneur ; un label ne crée jamais rien, et la découverte qui proposerait des services toute seule n'est pas construite (`ProposeAll` n'en est que le socle). Un binaire reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | La découverte, plus tard |
+| L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par label, par le projet Compose ou par le nom du conteneur ; un label ne crée jamais rien, et la découverte qui proposerait des services toute seule n'est pas construite (`ProposeAll` n'en est que le socle). Un binaire dont la machine n'a pas relevé systemd (agent ancien, systemd illisible) reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | La découverte, plus tard |
 | Alertes et historique pas encore sur l'annuaire | Une alerte reste sur le **conteneur** (une par conteneur et par type ; `service_id` la rattache au service déclaré, pour la fiche et pour le silence) : recréer un conteneur ferme l'alerte de l'ancien et en ouvre une pour le nouveau. Les transitions et les mesures restent sur le conteneur aussi, et l'historique d'un service déclaré est celui de la fiche courante. Les sondes, les membres de composants, un silence posé sur le service et la politique de mise à jour suivent le service déclaré | Annuaire 5/6 et suivantes |
 | Les tâches ne se rattachent pas encore à un service | Une tâche surveillée (`heartbeats`) n'a pas de `service_id` : un composant l'affiche seule, et la fiche d'un service déclaré ne la liste pas | Annuaire 5/6 et suivantes |
 | Le fichier de l'annuaire ne s'applique que par la commande | `opencloud apply` écrit l'annuaire à partir d'un fichier, l'interface n'en applique pas : elle montre le journal et le plan de chaque passage. Hors du fichier : les canaux, les pages de statut, les réglages, les sauvegardes, les composants de statut. L'export n'est pas une sauvegarde : il ne contient ni historique, ni secret, ni jeton | Annuaire 4c (appliquer depuis l'interface) si l'usage le demande ; le reste à décider |
@@ -5598,3 +5701,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Registre de modules et rôle de machine (#407) | Le paquet `internal/module`, `machine.Roles()` et `RolePreset`, la migration `024_machine_role.sql`, `store/modules.go`, `PUT /api/machines/{id}/role`, `role` et `modules` dans les machines, `modules` dans les compteurs, `roles` dans la session, `web/src/lib/modules.ts` (menu, onglets, carte « à configurer »), Paramètres › Modules, la carte « Rôle de la machine » (« Comment les modules et le rôle d'une machine décident de l'écran ») |
 | Type de machine, puce MCP, assistant OPNsense (v0.5.2 U4, #456) | `machine.IsPublicAddress` et `Placement.Address` (une VM sans hôte n'est un VPS que sur une adresse publique), la puce MCP retirée (`useAgentHint` : une infobulle, `action.agent_hint`), `internal/tlsinspect` et `POST /api/certificate/inspect`, `credential.Mask` (`api_key_hint`, `token_id_hint`), les libellés OPNsense dans les catalogues (`firewall.menu_*`, `firewall.label_*`), les privilèges DHCP réduits à Dnsmasq ou Kea. Aucune migration |
 | Fiche pare-feu visuelle (v0.5.2 U5, #458) | `internal/policy` (zones, objets, règles « de → vers : quoi, pourquoi », `Model.Grid`), `opnsense.Policy`, `firewall.Translator` et `Service.Policy`, `firewall.MatchMachine`, `GET /api/firewalls/{id}/flows` (ouverte aux jetons en lecture), `machine` dans chaque bail, `source_not` et `destination_not` lus par le connecteur (marque `!` dans `Rule.Source` et `Destination`, sans colonne de plus), l'onglet « Qui parle à qui », la maquette `docs/projet/maquettes/pare-feu-fiche.html`, les composants `Choice` (segment partagé) et `useScrollToHash`. Aucune migration, aucune dépendance, aucun champ d'agent |
+| Instances systemd (v0.5.2 L2, #451) | Le paquet `internal/systemdunits` (relevé par liste blanche, `Exec` à environnement vide, bornes), la section `systemd_units` du signal, la migration `029_systemd_units.sql` (`systemd_reports`, `systemd_units`), `directory.ObserveUnits` / `ApplyUnitObservations` / `ProposeUnit`, la route `GET /api/machines/{id}/systemd-units`, `?machine=&unit=` sur la proposition, le module `systemd_units` (onglet de la machine), la colonne « État de l'unité » et « Port à déclarer » de la fiche du service, le port d'un binaire hors du pli « Avancé » |

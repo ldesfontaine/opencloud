@@ -195,10 +195,9 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
 function PortToDeclare({ serviceID }: { serviceID: string }) {
   const t = useT();
   return (
-    <span className="stack" title={t("directory.port_to_declare_help")}>
-      <span className="muted">{t("directory.port_to_declare")}</span>
-      <Link to={`/services/annuaire/${serviceID}/modifier?etape=units`}>{t("directory.port_declare_link")}</Link>
-    </span>
+    <Link to={`/services/annuaire/${serviceID}/modifier?etape=units`} title={t("directory.port_to_declare_help")}>
+      {t("directory.port_to_declare")}
+    </Link>
   );
 }
 

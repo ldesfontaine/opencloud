@@ -1370,7 +1370,6 @@ container_ignored = "This container is ignored: stop ignoring it before acceptin
 systemd_unit_declared = "This systemd unit already belongs to a declared service."
 systemd_unit_not_observed = "This unit is not in the machine's latest report."
 port_to_declare = "Port to declare"
-port_declare_link = "Declare the port"
 port_to_declare_help = "The systemd report does not say which port a binary listens on: enter it so the service is complete."
 col_unit_state = "Unit state"
 pick_units = "A binary under systemd? Open the units of:"

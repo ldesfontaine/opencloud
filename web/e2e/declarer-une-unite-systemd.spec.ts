@@ -103,7 +103,7 @@ test("un binaire sans port : la fiche le dit et mène à l'étape qui le demande
   await expect(page.locator("main")).toContainText(label("systemd.active_active"));
   await expect(page.locator("main")).toContainText(label("directory.port_to_declare"));
 
-  await page.getByRole("link", { name: label("directory.port_declare_link"), exact: true }).click();
+  await page.getByRole("link", { name: label("directory.port_to_declare"), exact: true }).click();
   const dialog = page.locator("dialog[open]");
   // L'édition s'ouvre droit sur l'étape des unités, port visible.
   await expect(dialog.locator("#unit-0-ports")).toBeVisible();

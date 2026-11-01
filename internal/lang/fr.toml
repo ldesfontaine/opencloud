@@ -1370,7 +1370,6 @@ container_ignored = "Ce conteneur est ignoré : ne plus l'ignorer avant de l'acc
 systemd_unit_declared = "Cette unité systemd appartient déjà à un service déclaré."
 systemd_unit_not_observed = "Cette unité n'est pas dans le dernier relevé de la machine."
 port_to_declare = "Port à déclarer"
-port_declare_link = "Déclarer le port"
 port_to_declare_help = "Le relevé systemd ne dit pas sur quel port écoute un binaire : indiquez-le pour que le service soit complet."
 col_unit_state = "État de l'unité"
 pick_units = "Un binaire sous systemd ? Ouvrez les unités de :"
