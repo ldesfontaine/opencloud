@@ -81,7 +81,8 @@ func seedE2EBackups(t *testing.T, ts *testServer) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ts.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", "v0.0.1", "backup.receive=/srv/backups", "", ""); err != nil {
+	session, err := ts.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", "v0.0.1", "backup.receive=/srv/backups", "", "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := callAPI(ts.Server, http.MethodPost, "/api/backups/keyring", map[string]any{"passphrase": backupPassphrase}); got.Code != http.StatusCreated {
@@ -96,6 +97,9 @@ func seedE2EBackups(t *testing.T, ts *testServer) {
 	if got := callAPI(ts.Server, http.MethodPut, "/api/backups/plans/database", map[string]any{"source_kind": "database", "destination_id": destination.ID, "keep": 14}); got.Code != http.StatusOK {
 		t.Fatalf("plan: %d %s", got.Code, got.Body.String())
 	}
+	// L'agent a rapporté ses droits puis s'est tu : sans flux ouvert, la machine
+	// est hors ligne, comme sur une installation dont l'agent est arrêté.
+	ts.machines.Disconnect(session)
 }
 
 // seedE2EFirewall déclare un pare-feu OPNsense sur le faux serveur des bancs.

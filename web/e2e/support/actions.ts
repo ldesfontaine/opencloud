@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 
+import { label } from "./catalog";
 import { exploreDialog, exerciseTips } from "./dialogs";
 import type { Findings } from "./findings";
 import { exerciseSelects } from "./selects";
@@ -90,6 +91,27 @@ async function openPage(page: Page, path: string): Promise<void> {
   await page.waitForTimeout(150);
 }
 
+// Un geste qui exige l'agent est, machine hors ligne, désactivé avec sa
+// raison à côté (AgentGate) : chaque porte qui montre la raison grise tous ses
+// boutons.
+async function checkGates(page: Page, findings: Findings): Promise<void> {
+  const reason = label("agent.offline_reason");
+  const gates = page.locator("main .agent-gate");
+  for (let index = 0; index < (await gates.count()); index++) {
+    const gate = gates.nth(index);
+    if ((await gate.locator(".agent-gate-reason", { hasText: reason }).count()) === 0) {
+      continue;
+    }
+    findings.done.gates++;
+    const buttons = gate.locator("button");
+    for (let button = 0; button < (await buttons.count()); button++) {
+      if (!(await buttons.nth(button).isDisabled())) {
+        findings.add(`un geste dit « ${reason} » mais son bouton « ${await nameOf(buttons.nth(button))} » reste actif`);
+      }
+    }
+  }
+}
+
 // Parcourt un écran : ses menus déroulants, ses infobulles, puis chaque
 // bouton et chaque choix de menu « … », un par un, sur une page rechargée.
 // Ce qui ouvre une fenêtre l'explore et la referme. Une adresse de fenêtre
@@ -104,6 +126,7 @@ export async function exerciseScreen(page: Page, path: string, findings: Finding
     await exploreDialog(page, findings);
     return;
   }
+  await checkGates(page, findings);
   await exerciseSelects(page, page.locator("main"), findings);
   await exerciseTips(page.locator("main"), findings);
   await openPage(page, path);

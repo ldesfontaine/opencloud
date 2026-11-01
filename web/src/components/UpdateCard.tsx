@@ -12,6 +12,7 @@ import { useI18n } from "../i18n/context";
 import { editBeforeAcceptPath, isOrphan } from "../lib/gaps";
 import { ago } from "../lib/time";
 import { checkText, imageLineChange, shortDigest, updateAvailable, upgradeOffer, upgradeServiceID } from "../lib/updates";
+import { AgentGate } from "./AgentGate";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
 import { CopyButton, TokenBox } from "./Copy";
@@ -109,9 +110,13 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
             <Failure error={upgrading.error} />
             <p>{t("update.upgrade_confirm", upgrade.unitName, upgrade.version, upgrade.serviceName, upgrade.machineName)}</p>
             <div className="update-confirm-actions">
-              <Button small variant="primary" icon="box" onClick={() => sendUpgrade(upgrade.version)} disabled={upgrading.busy}>
-                {t("update.upgrade_to", upgrade.version)}
-              </Button>
+              <AgentGate machineIDs={[container.machine_id]}>
+                {(offline) => (
+                  <Button small variant="primary" icon="box" onClick={() => sendUpgrade(upgrade.version)} disabled={upgrading.busy || offline}>
+                    {t("update.upgrade_to", upgrade.version)}
+                  </Button>
+                )}
+              </AgentGate>
               <Button small onClick={() => setConfirming(false)} disabled={upgrading.busy}>
                 {t("update.upgrade_cancel")}
               </Button>
@@ -144,9 +149,13 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
               {t("update.upgrade_to", upgrade.version)}
             </Button>
           )}
-          <Button small icon="refresh" onClick={checkNow} disabled={action.busy}>
-            {t("update.check_now")}
-          </Button>
+          <AgentGate machineIDs={[container.machine_id]}>
+            {(offline) => (
+              <Button small icon="refresh" onClick={checkNow} disabled={action.busy || offline}>
+                {t("update.check_now")}
+              </Button>
+            )}
+          </AgentGate>
           {asked && <span className="secondary">{t("update.check_asked")}</span>}
         </div>
         <Fold label={t("update.details")} initiallyOpen={container.update_policy !== "watch"}>

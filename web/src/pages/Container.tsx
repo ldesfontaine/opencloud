@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
 import { useContainer, type Container, type ContainerResponse, type Transition } from "../api/containers";
+import { useOfflineMachines } from "../components/AgentGate";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { DirectoryCard } from "../components/DirectoryCard";
@@ -105,7 +106,7 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
         <ContainerDetails container={container} now={now} />
         <ContainerHistory transitions={response.transitions} now={now} />
       </div>
-      <LogsCard containerID={container.id} />
+      <LogsCard containerID={container.id} machineID={container.machine_id} />
     </>
   );
 }
@@ -204,8 +205,9 @@ function ContainerHistory({ transitions, now }: { transitions: Transition[]; now
 
 // La carte des journaux, ancre `#journaux` : un lien qui l'annonce amène
 // la carte à l'écran dès que la fiche est affichée.
-function LogsCard({ containerID }: { containerID: string }) {
+function LogsCard({ containerID, machineID }: { containerID: string; machineID: string }) {
   const { t } = useI18n();
+  const offline = useOfflineMachines([machineID]);
   const { hash } = useLocation();
   const card = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -217,7 +219,14 @@ function LogsCard({ containerID }: { containerID: string }) {
     <div id="journaux" ref={card}>
       <Card>
         <CardHeader title={t("container.logs_title")} />
-        <LogViewer containerID={containerID} />
+        {offline !== null && offline.length > 0 && (
+          <CardBody>
+            <p className="secondary" role="note">
+              {t("agent.offline_reason")}
+            </p>
+          </CardBody>
+        )}
+        {offline !== null && offline.length === 0 && <LogViewer containerID={containerID} />}
       </Card>
     </div>
   );

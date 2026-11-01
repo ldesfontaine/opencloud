@@ -38,14 +38,15 @@ export function Button({ variant = "secondary", small = false, icon, to, href, d
       {children}
     </>
   );
-  if (to !== undefined) {
+  // Un lien désactivé n'est plus un lien : un bouton grisé, qui ne mène nulle part.
+  if (to !== undefined && !rest.disabled) {
     return (
       <Link className={className} to={to}>
         {content}
       </Link>
     );
   }
-  if (href !== undefined) {
+  if (href !== undefined && !rest.disabled) {
     return (
       <a className={className} href={href} download={download} title={rest.title} aria-label={rest["aria-label"]}>
         {content}

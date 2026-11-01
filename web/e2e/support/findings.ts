@@ -18,7 +18,7 @@ export class Findings {
   // Ce que le parcours a réellement fait : sans ce décompte, un parcours qui ne
   // clique rien serait vert.
   readonly screens: string[] = [];
-  readonly done = { screens: 0, buttons: 0, menuChoices: 0, selects: 0, dialogs: 0, wizards: 0 };
+  readonly done = { screens: 0, buttons: 0, menuChoices: 0, gates: 0, selects: 0, dialogs: 0, wizards: 0 };
 
   add(what: string, where = this.where): void {
     const finding = { where, what: what.split("\n")[0]?.slice(0, 220) ?? what };

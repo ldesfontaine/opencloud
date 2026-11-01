@@ -241,7 +241,7 @@ export function gestureBlockText(t: Translate, block: GestureBlock, agent: Pick<
     case "no_agent":
       return t("machine.proxmox_blocked_no_agent");
     case "offline":
-      return t("machine.proxmox_blocked_offline");
+      return t("agent.offline_reason");
     case "self":
       return t("machine.proxmox_blocked_self");
     case "right_missing":

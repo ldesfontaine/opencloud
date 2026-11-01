@@ -6,5 +6,6 @@ deadcode ./... (Go) avant : 79 ; après : 79, rapport identique. Le seul fichier
 knip, `npx knip@5.88.1 --reporter compact` dans web/ avant : 7 fichiers, 1 export, 2 types non utilisés ; après : les mêmes (seul le nom haché du bundle de dist/ change). Les fichiers de web/e2e sont des entrées de Playwright : knip n'y trouve rien d'inutilisé.
 
 Supprimé dans ce chantier
+- Geste hors ligne (décision de Lucas) : le cas « attendu » 503 de `web/e2e/support/known.ts` ; la clé `machine.proxmox_blocked_offline` des catalogues fr et en (remplacée par `agent.offline_reason`, commune à tous les gestes) ; les props `online` de `ActionsCard`, `AgentUpdate` et `AgentCard`, que le test d'`AgentGate` remplace ; le masquage du bouton Ping et du retour arrière quand la machine est hors ligne (ils sont grisés avec leur raison).
 - Rien de tout ce qui existait n'est remplacé : le défaut se corrige à l'endroit où il naît (`overlayHost` dans `components/Select.tsx`), sans second chemin.
 - Pendant le chantier, deux briques du parcours ont été écrites puis retirées avant le commit : une vérification « écran sans note d'erreur » (une note rouge est parfois un avertissement voulu, comme `job.url_local`) et l'export de quatre helpers inutilisés ailleurs.

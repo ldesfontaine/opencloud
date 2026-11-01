@@ -342,7 +342,6 @@ proxmox_confirm_shutdown = "Arrêter proprement %s ? Proxmox lui envoie le signa
 proxmox_confirm_snapshot = "Créer un instantané de %s ? Les disques seulement, sans la mémoire."
 proxmox_confirm_snapshot_delete = "Supprimer l'instantané %s de %s ? La suppression est définitive."
 proxmox_blocked_no_agent = "L'hôte n'a pas d'agent actif."
-proxmox_blocked_offline = "L'agent de l'hôte est hors ligne."
 proxmox_blocked_self = "Cette VM héberge {product} : arrêtez-la depuis Proxmox."
 proxmox_blocked_right = "L'agent de l'hôte n'a pas le droit %s."
 proxmox_progress_sent = "Envoyé"
@@ -926,6 +925,7 @@ every_minute = "chaque minute"
 every_hour = "chaque heure"
 
 [agent]
+offline_reason = "Machine hors ligne"
 not_enrolled = "Cette machine n'est pas enrôlée. Lancez la commande d'installation donnée par {product}."
 token_missing = "Jeton d'enrôlement absent : envoyez-le sur l'entrée standard, par exemple « printf '%s\\n' 'oc_…' | sudo -u {agent_account} {agent_binary} agent -server https://… », ou collez la commande d'installation donnée par {product}."
 token_prompt = "Jeton d'enrôlement : "
