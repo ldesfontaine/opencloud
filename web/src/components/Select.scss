@@ -165,6 +165,28 @@
   }
 }
 
+// Une option qui ne convient pas : grisée, avec sa raison et le lien qui y
+// remédie juste dessous, hors de l'option pour que le lien reste actif.
+.select-option-disabled {
+  cursor: default;
+
+  .select-option-label {
+    color: var(--muted);
+  }
+}
+
+.select-option-reason {
+  display: block;
+  padding: 0 8px 6px;
+  color: var(--muted);
+  font-size: 12px;
+
+  a {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+}
+
 .select-hint {
   color: var(--muted);
   font-size: 12px;

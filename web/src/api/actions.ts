@@ -126,7 +126,9 @@ export async function setUpdateLast(machineID: string, updateLast: boolean): Pro
 // arrière automatique : les mêmes pour toutes, avec la version de ce serveur.
 export interface AgentMigration {
   version: string;
+  // Le bloc d'un compte non root qui a sudo, et celui de root, sans sudo.
   commands: string;
+  root_commands: string;
 }
 
 export function useAgentMigration(): Resource<AgentMigration> {

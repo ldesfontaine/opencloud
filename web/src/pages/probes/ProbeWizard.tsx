@@ -17,6 +17,7 @@ import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
 import { isFormModified } from "../../lib/modal";
+import { unfitFor } from "../../lib/rights";
 import { emptyProbeForm, probeFormOf, probeKinds, probeListPath, probePath, probeRequestOf, probeSuggestionOf, type ProbeFormValues } from "../../lib/probes";
 
 // « Ajouter une sonde » : la fenêtre de la liste des sondes, à l'adresse
@@ -49,9 +50,10 @@ export function ProbeWizard() {
   const action = useAction();
   const [prefilled, setPrefilled] = useState(false);
 
-  // À défaut de choix, la première machine de la liste : le sélecteur n'a
-  // pas d'option vide, il montrerait une machine sans l'avoir choisie.
-  const first = machines.data?.machines[0];
+  // À défaut de choix, la première machine qui peut sonder : le sélecteur n'a
+  // pas d'option vide, il montrerait une machine sans l'avoir choisie, et une
+  // machine grisée ne se choisit pas.
+  const first = machines.data?.machines.find((machine) => unfitFor(t, machine, null) === null);
   useEffect(() => {
     if (!isEditing && values.machineID === "" && first !== undefined) {
       change("machineID", first.id);
@@ -109,7 +111,7 @@ type ProbeForm = ReturnType<typeof useForm<ProbeFormValues, ProbeResponse>>;
 function stepsOf(
   t: Translate,
   form: ProbeForm,
-  machines: Pick<Machine, "id" | "name" | "kind">[],
+  machines: Pick<Machine, "id" | "name" | "kind" | "agent">[],
   services: { id: string; name: string; title: string; machine_name: string }[],
 ): WizardStep[] {
   const { values, change } = form;
@@ -139,7 +141,7 @@ function stepsOf(
               <EnumSelect id="probe-kind" value={values.kind} values={probeKinds} labelKey="probe.kind_" onChange={(kind) => change("kind", kind)} />
             </Field>
             <Field label={t("probe.machine_label")} htmlFor="probe-machine" help={t("probe.machine_help")}>
-              <MachineSelect id="probe-machine" icon="server" machines={machines} value={values.machineID} onChange={(machineID) => change("machineID", machineID)} />
+              <MachineSelect id="probe-machine" icon="server" machines={machines} fit={(machine) => unfitFor(t, machine, null)} value={values.machineID} onChange={(machineID) => change("machineID", machineID)} />
             </Field>
           </div>
           <Field label={t("probe.service_label")} htmlFor="probe-service" help={t("probe.service_help")}>

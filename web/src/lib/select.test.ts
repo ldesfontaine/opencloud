@@ -49,6 +49,14 @@ test("Entrée et Espace choisissent l'option active, ferment et rendent le focus
   }
 });
 
+test("Entrée sur une option grisée ne choisit rien et laisse la liste ouverte", () => {
+  const grayed: SelectOption[] = [...machines.slice(0, 2), { value: "m3", label: "nas-maison", disabled: true, reason: "Pas le droit", link: { to: "/machines/m3", label: "Voir" } }];
+  const open = { ...openMenu(grayed, "m1"), active: 2 };
+  for (const key of ["Enter", " "]) {
+    expect(pressKey(open, key, onTrigger("m1", grayed))).toEqual({ state: open });
+  }
+});
+
 test("Échap ferme sans choisir et rend le focus ; Tab ferme et laisse passer au champ suivant", () => {
   const open = { ...openMenu(machines, "m1"), active: 2 };
   expect(pressKey(open, "Escape", onTrigger("m1"))).toEqual({ state: closedMenu, returnsFocus: true });

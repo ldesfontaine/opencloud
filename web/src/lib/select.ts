@@ -8,6 +8,11 @@ export interface SelectOption {
   label: string;
   // Un mot discret après le libellé (le type d'une machine) ; hors de la recherche.
   hint?: string | undefined;
+  // Une option qui ne convient pas reste dans la liste, grisée : elle dit
+  // pourquoi (reason) et mène à ce qui y remédie (link). Elle ne se choisit pas.
+  disabled?: boolean | undefined;
+  reason?: string | undefined;
+  link?: { to: string; label: string } | undefined;
 }
 
 // Au-delà, la liste ouverte porte un champ de recherche en tête.
@@ -174,6 +179,10 @@ function chooseActive(state: MenuState, visible: readonly SelectOption[]): MenuO
   const option = visible[state.active];
   if (option === undefined) {
     return { state: closedMenu, returnsFocus: true };
+  }
+  // Entrée sur une option grisée ne choisit rien : la liste reste ouverte.
+  if (option.disabled === true) {
+    return { state };
   }
   return { state: closedMenu, chosen: option.value, returnsFocus: true };
 }

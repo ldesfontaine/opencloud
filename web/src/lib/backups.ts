@@ -1,6 +1,7 @@
-import type { BackupObserved, BackupPlan, BackupRun, BackupSource, BackupSourceKind, Backups, PlanRequest } from "../api/backups";
+import type { BackupDestination, BackupObserved, BackupPlan, BackupRun, BackupSource, BackupSourceKind, Backups, PlanRequest } from "../api/backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 import type { Translate } from "../i18n/context";
+import { reenrollPath, rightOfRefusal, type Unfit } from "./rights";
 
 // Les adresses de la page et de ses fenêtres.
 export const backupsPath = "/sauvegardes";
@@ -92,6 +93,20 @@ export function passSummary(t: Translate, plan: Pick<BackupPlan, "last_targets_o
     return null;
   }
   return `${t("backup.targets_ok", plan.last_targets_ok)} · ${t("backup.targets_failed", plan.last_targets_failed)}`;
+}
+
+// Le droit qui manque derrière la dernière erreur d'un plan, et la machine dont
+// l'agent doit l'avoir : la source pour produire, la destination pour recevoir.
+// null quand l'erreur n'est pas un droit manquant.
+export function lastErrorRight(plan: Pick<BackupPlan, "last_error" | "source_machine_id">, destination: Pick<BackupDestination, "machine_id" | "path"> | undefined): { machineID: string; right: string; path?: string } | null {
+  const named = plan.last_error.split(":right_missing:")[1] ?? rightOfRefusal(plan.last_error);
+  if (named === null || named === undefined) {
+    return null;
+  }
+  if (named === "backup.receive") {
+    return destination === undefined ? null : { machineID: destination.machine_id, right: named, path: destination.path };
+  }
+  return plan.source_machine_id === "" ? null : { machineID: plan.source_machine_id, right: named };
 }
 
 // Les invités qu'un plan peut prendre : ni modèle (vzdump n'en sauvegarde
@@ -255,4 +270,17 @@ export function runReasonText(t: Translate, reason: string, describeReason: (rea
     return "";
   }
   return reason.startsWith("backup.") ? t(reason) : describeReason(reason);
+}
+
+// Une destination dont l'agent n'a plus le droit de recevoir ici ne convient
+// pas à un plan : elle reste dans la liste, grisée, avec la raison et le lien
+// qui y remédie. « unknown » (droits pas encore rapportés) laisse choisir.
+export function unfitDestination(t: Translate, destination: Pick<BackupDestination, "machine_id" | "path" | "right">): Unfit | null {
+  if (destination.right === "missing") {
+    return { reason: t("backup.right_missing"), link: { to: reenrollPath(destination.machine_id, { name: "backup.receive", path: destination.path }), label: t("machine.reenroll_with_right") } };
+  }
+  if (destination.right === "unavailable") {
+    return { reason: t("backup.right_unavailable"), link: { to: `/machines/${destination.machine_id}`, label: t("machine.fit_open") } };
+  }
+  return null;
 }

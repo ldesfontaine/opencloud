@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { rollbackAgent, setUpdateLast, updateAgent, useAgentMigration, useAgentUpdateOffer, useMachineActions } from "../api/actions";
 import type { Agent } from "../api/machines";
 import { useAction } from "../hooks/useAction";
@@ -8,14 +10,16 @@ import { Button } from "./Button";
 import { KeyValue, Note } from "./Card";
 import { ConfirmInline } from "./ConfirmInline";
 import { ConfirmModal } from "./ConfirmModal";
+import { TokenBox } from "./Copy";
 import { Failure } from "./Failure";
+import { MissingRight } from "./MissingRight";
 
 // La mise à jour de l'agent : où en est la dernière (en attente de
 // confirmation, confirmée, revenue en arrière toute seule), le bouton quand la
 // version du serveur est importée et que l'agent peut la recevoir, sinon la
 // raison en une ligne, le retour arrière manuel et le drapeau « en dernier ».
 // Une machine à jour n'a rien à dire de plus.
-export function AgentUpdate({ machineID, agent, updateLast }: { machineID: string; agent: Agent; updateLast: boolean }) {
+export function AgentUpdate({ machineID, agent, updateLast, withoutSudo = false }: { machineID: string; agent: Agent; updateLast: boolean; withoutSudo?: boolean }) {
   const t = useT();
   const offer = useAgentUpdateOffer(machineID);
   const actions = useMachineActions(machineID);
@@ -36,7 +40,7 @@ export function AgentUpdate({ machineID, agent, updateLast }: { machineID: strin
   };
   return (
     <>
-      <Failure error={action.error} />
+      <Failure error={action.error} gesture={{ machineID, right: "agent.update" }} />
       <AgentUpdateState state={state} />
       <KeyValue
         label={t("machine.agent_rollback_capable")}
@@ -64,8 +68,13 @@ export function AgentUpdate({ machineID, agent, updateLast }: { machineID: strin
           {current.reason === "right_unavailable" && <p className="secondary">{t("machine.agent_update_reason_right_unavailable")}</p>}
         </>
       )}
-      {!current.available && current.reason === "rollback_unavailable" && <AgentMigration />}
-      {!current.available && current.reason !== "" && current.reason !== "same_version" && current.reason !== "rollback_unavailable" && (
+      {!current.available && current.reason === "rollback_unavailable" && <AgentMigration withoutSudo={withoutSudo} />}
+      {!current.available && current.reason === "right_missing" && (
+        <MissingRight machineID={machineID} right="agent.update">
+          {t("machine.agent_update_reason_right_missing")}
+        </MissingRight>
+      )}
+      {!current.available && current.reason !== "" && current.reason !== "same_version" && current.reason !== "rollback_unavailable" && current.reason !== "right_missing" && (
         <p className="secondary">{t(`machine.agent_update_reason_${current.reason}`, current.target, current.arch)}</p>
       )}
       {agent.rollback_capable && (
@@ -108,11 +117,14 @@ function AgentUpdateState({ state }: { state: AgentUpdateState | null }) {
   }
 }
 
-// Les lignes à coller sur une machine dont l'agent n'a pas le retour arrière
-// automatique : l'interface les produit, avec la version de ce serveur.
-function AgentMigration() {
+// Le bloc à coller sur une machine dont l'agent n'a pas le retour arrière
+// automatique : l'interface le produit, avec la version de ce serveur et le
+// téléchargement vérifié du binaire. Il se propose en root, sans sudo, quand la
+// machine n'en a pas (un hôte Proxmox) ; l'opérateur peut choisir l'autre.
+function AgentMigration({ withoutSudo }: { withoutSudo: boolean }) {
   const t = useT();
   const migration = useAgentMigration();
+  const [asRoot, setAsRoot] = useState(withoutSudo);
   return (
     <Note tone="warn">
       <p>{t("machine.agent_update_reason_rollback_unavailable")}</p>
@@ -120,7 +132,16 @@ function AgentMigration() {
       {migration.data !== null && (
         <>
           <p className="secondary">{t("machine.agent_migration_text", migration.data.version)}</p>
-          <pre className="mono scroll-x">{migration.data.commands}</pre>
+          <div className="cluster">
+            <Button small variant={asRoot ? "secondary" : "primary"} aria-pressed={!asRoot} onClick={() => setAsRoot(false)}>
+              {t("machine.agent_migration_sudo")}
+            </Button>
+            <Button small variant={asRoot ? "primary" : "secondary"} aria-pressed={asRoot} onClick={() => setAsRoot(true)}>
+              {t("machine.agent_migration_root")}
+            </Button>
+          </div>
+          {withoutSudo && asRoot && <p className="secondary">{t("machine.agent_migration_root_hint")}</p>}
+          <TokenBox value={asRoot ? migration.data.root_commands : migration.data.commands} lines />
         </>
       )}
     </Note>

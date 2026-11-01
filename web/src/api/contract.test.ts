@@ -1013,7 +1013,7 @@ const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
 const contract: Record<string, Shape<unknown>> = {
   "actions.golden.json": actions,
   "agent_update_offer.golden.json": agentUpdateOffer,
-  "agent_migration.golden.json": shape<AgentMigration>("AgentMigration", { version: value, commands: value }),
+  "agent_migration.golden.json": shape<AgentMigration>("AgentMigration", { version: value, commands: value, root_commands: value }),
   "alert.golden.json": alertResponse,
   "alert_channels.golden.json": channels,
   "alert_mutes.golden.json": mutes,

@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { Machine } from "../api/machines";
 import type { Translate } from "../i18n/context";
-import { backupProducer, canConfirmDeletion, capabilitiesOf, isArchived, liveMachines, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, isRightsModified, kindsByID, machineOption, machineSeen, machinesSubtitle, rightsFormOf, rolePatch, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
+import { backupProducer, canConfirmDeletion, capabilitiesOf, isArchived, liveMachines, offeredCapabilities, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, isMachineFormModified, isRightsModified, kindsByID, machineOption, machineSeen, machinesSubtitle, rightsFormOf, rolePatch, toggleRight, unavailableRights } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -40,8 +40,6 @@ test("backup.produce : une case, sa portée est le producteur unique, sans champ
   const form = rightsFormOf([{ name: "observe", paths: [] }, { name: "backup.produce", paths: [backupProducer] }]);
   expect(form.rights).toEqual(["backup.produce"]);
   expect(capabilitiesOf(form)).toEqual([{ name: "backup.produce", paths: [backupProducer] }]);
-  // Il n'écrit rien hors de l'état de l'agent : l'unité n'a pas de ReadWritePaths à lui donner.
-  expect(unitWritePaths([{ name: "backup.produce", paths: [backupProducer] }])).toEqual([]);
   expect(describeUnavailable(t, "sudo_denied", null)).toBe("machine.capability_unavailable_sudo_denied");
 });
 
@@ -72,19 +70,6 @@ test("probe.lan : coché dans le formulaire neuf, jamais coché pour un agent qu
   expect(both.rights).toEqual(["probe.lan", "agent.update"]);
   // Décoché, il part de la requête : le serveur ne l'ajoute pas de lui-même.
   expect(capabilitiesOf({ ...emptyMachineForm, rights: [] })).toEqual([]);
-});
-
-test("unitWritePaths : les droits de sauvegarde et de déploiement écrivent hors de l'état", () => {
-  expect(unitWritePaths([{ name: "docker.deploy", paths: [] }])).toEqual(["/srv/workspace"]);
-  expect(unitWritePaths([{ name: "docker.update", paths: [] }, { name: "backup.receive", paths: ["/srv/backups"] }])).toEqual(["/srv/backups", "/srv/workspace"]);
-  expect(unitWritePaths([{ name: "docker.deploy", paths: [] }, { name: "backup.receive", paths: ["/srv/workspace"] }])).toEqual(["/srv/workspace"]);
-  expect(unitWritePaths([{ name: "agent.update", paths: [] }, { name: "backup.receive", paths: ["/srv/backups"] }])).toEqual(["/srv/backups"]);
-  expect(unitWritePaths([{ name: "files.write", paths: ["/srv/a"] }])).toEqual([]);
-  expect(unitWritePaths([])).toEqual([]);
-});
-
-test("unitDropIn : le fichier à poser dans le dossier drop-in de l'unité de l'agent", () => {
-  expect(unitDropIn(["/srv/backups"])).toBe("[Service]\nReadWritePaths=/srv/backups");
 });
 
 test("describeAccount : le nom et l'uid, l'uid seul sans nom, rien tant que l'agent n'a rien dit", () => {

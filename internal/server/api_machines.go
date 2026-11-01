@@ -138,20 +138,26 @@ type reenrollRequest struct {
 	Capabilities *[]capabilityJSON `json:"capabilities"`
 }
 
-// Le jeton en clair, une seule fois, avec la commande à coller.
+// Le jeton en clair, une seule fois, avec les étapes à jouer sur la machine.
 type tokenResponse struct {
-	Name    string `json:"name"`
-	Token   string `json:"token"`
-	Command string `json:"command"`
-	// Les commandes à jouer une fois en root avant Command : le compte de
-	// l'agent, son dossier, son binaire, les dossiers où ses droits écrivent.
-	Preparation string `json:"preparation"`
+	Name  string `json:"name"`
+	Token string `json:"token"`
+	// Les étapes de l'installation, dans l'ordre où on les colle ; le jeton
+	// n'est que dans celle de l'enrôlement.
+	Steps []installStepJSON `json:"steps"`
 	// Les commandes à jouer en root sur l'hôte Proxmox pour créer le jeton local
 	// des droits proxmox.* ; vide sans l'un de ces droits. Aucune ne porte de
 	// secret : il se saisit sur l'hôte, sans écho.
 	ProxmoxCommands string    `json:"proxmox_commands"`
 	ExpiresAt       time.Time `json:"expires_at"`
 	URLLocal        bool      `json:"url_local"`
+}
+
+// Une étape de l'installation : son identifiant (le front en dit le titre) et
+// le bloc de commandes à coller tel quel.
+type installStepJSON struct {
+	ID      string `json:"id"`
+	Command string `json:"command"`
 }
 
 func machineToJSON(machineStatus machine.Status) machineJSON {
@@ -319,17 +325,24 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 }
 
 // La migration d'un agent installé avant le retour arrière automatique : les
-// lignes à coller, avec sudo, sur la machine. Les mêmes pour toutes ; la
-// version est celle de ce serveur, dont l'opérateur copie le binaire.
+// lignes à coller sur la machine, avec le téléchargement vérifié du binaire.
+// commands : pour un compte non root qui a sudo ; root_commands : pour root
+// (su -), sans sudo, comme sur un hôte Proxmox. Les mêmes pour toutes les
+// machines ; la version est celle de ce serveur. L'écran propose root_commands
+// d'office quand la machine est un hôte Proxmox ou que son agent dit que sudo
+// manque.
 type agentMigrationJSON struct {
-	Version  string `json:"version"`
-	Commands string `json:"commands"`
+	Version      string `json:"version"`
+	Commands     string `json:"commands"`
+	RootCommands string `json:"root_commands"`
 }
 
 func (s *Server) getAgentMigration(w http.ResponseWriter, _ *http.Request) {
 	number := version.Number()
 	s.writeAPI(w, http.StatusOK, agentMigrationJSON{
-		Version: number, Commands: machine.GuardMigrationText("/tmp/"+brand.Command, number),
+		Version:      number,
+		Commands:     machine.GuardMigrationText(number, false),
+		RootCommands: machine.GuardMigrationText(number, true),
 	})
 }
 
@@ -405,12 +418,10 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext, false)
+	s.writeToken(w, r, token, cleartext, installTarget{})
 }
 
-// local : le jeton est celui de la machine openCloud, dont le binaire est celui
-// que le serveur a installé, pas celui qu'on a copié dans /tmp.
-func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string, local bool) {
+func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string, target installTarget) {
 	url, isLocal := s.resolvePublicURL(r)
 	language, err := s.language(r.Context())
 	if s.failed(w, r, err, nil) {
@@ -419,8 +430,7 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 	s.writeAPI(w, http.StatusCreated, tokenResponse{
 		Name:            token.Name,
 		Token:           cleartext,
-		Command:         installCommand(url, cleartext, language, token.Capabilities),
-		Preparation:     installPreparation(token.Capabilities, version.Number(), local),
+		Steps:           installSteps(url, cleartext, language, token.Capabilities, target),
 		ProxmoxCommands: proxmoxCommands(token.Capabilities),
 		ExpiresAt:       token.ExpiresAt.UTC(),
 		URLLocal:        isLocal,
@@ -430,17 +440,19 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 // La commande à coller ; la langue n'y figure que si elle n'est pas celle
 // par défaut, les droits que s'ils dépassent observe, pour rester courte. Le
 // jeton passe par printf, un builtin du shell : aucun processus ne le porte
-// dans ses arguments, alors que /proc/<pid>/cmdline de l'agent et de sudo se
-// lit depuis tous les comptes de la machine. Un jeton n'a que des
+// dans ses arguments, alors que /proc/<pid>/cmdline de l'agent et de runuser
+// se lit depuis tous les comptes de la machine. Un jeton n'a que des
 // minuscules, des chiffres et « _ » : les guillemets simples suffisent. Pas
-// de « sudo VAR=… » : la variable finirait dans les arguments de sudo. Les
+// de « VAR=… runuser » : la variable finirait dans les arguments. La ligne se
+// joue en root, comme toutes les étapes : runuser, de util-linux, ne demande
+// pas sudo, qu'un hôte Proxmox n'a pas. Les
 // droits, eux, ne sont pas un secret : ils restent lisibles dans la ligne,
 // et leur forme (lettres, chiffres, « . _ - / = : , ») passe sans guillemets.
 // Le binaire est celui de l'état de l'agent, pas /usr/local/bin/opencloud : un
 // lien root vers un fichier que le compte de l'agent peut remplacer serait une
 // escalade sur une machine sans Docker.
 func installCommand(publicURL, token string, code lang.Code, capabilities []machine.Capability) string {
-	command := "printf '%s\\n' '" + token + "' | sudo -u " + brand.AgentAccount + " " + brand.AgentCurrentPath +
+	command := "printf '%s\\n' '" + token + "' | runuser -u " + brand.AgentAccount + " -- " + brand.AgentCurrentPath +
 		" agent -server " + publicURL
 	if code != lang.Default {
 		command += " -lang " + string(code)
@@ -654,7 +666,7 @@ func (s *Server) reenrollMachine(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext, token.MachineID == machine.LocalID)
+	s.writeToken(w, r, token, cleartext, installTarget{local: token.MachineID == machine.LocalID, reenroll: true})
 }
 
 // La ligne d'installation de l'agent de la machine openCloud, tant qu'elle
@@ -665,7 +677,7 @@ func (s *Server) offerLocalEnrollment(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext, true)
+	s.writeToken(w, r, token, cleartext, installTarget{local: true})
 }
 
 // hostingOf dit quel hôte porte la machine : celui que l'opérateur a désigné

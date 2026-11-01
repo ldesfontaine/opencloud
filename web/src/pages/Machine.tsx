@@ -35,6 +35,7 @@ import { useT } from "../i18n/context";
 import { renamedMachineTabs, resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
 import { lifecycleHasDetails } from "../lib/lifecycle";
+import { lacksSudo } from "../lib/rights";
 import { describeAccount, describeCapability, isArchived, unavailableRights } from "../lib/machines";
 import { formatWhen } from "../lib/time";
 import { NotFound } from "./NotFound";
@@ -105,7 +106,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
             </>
           ) : tab === "agent" ? (
             <>
-              <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} now={now} />
+              <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} withoutSudo={lacksSudo(current)} now={now} />
               <ActionsCard machineID={current.id} agent={current.agent} />
             </>
           ) : tab === "services" ? (
@@ -153,7 +154,7 @@ function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
 // droits, tels qu'il les rapporte et tels que sa commande d'installation les
 // demandait. Il applique ceux de son fichier ; les changer, c'est le
 // ré-enrôler, dans la fenêtre du même nom.
-function AgentCard({ machineID, agent, updateLast, now }: { machineID: string; agent: Agent | null; updateLast: boolean; now: number }) {
+function AgentCard({ machineID, agent, updateLast, withoutSudo, now }: { machineID: string; agent: Agent | null; updateLast: boolean; withoutSudo: boolean; now: number }) {
   const t = useT();
   if (agent === null) {
     return (
@@ -173,7 +174,7 @@ function AgentCard({ machineID, agent, updateLast, now }: { machineID: string; a
       <CardBody gap={10}>
         {agent.revoked_at !== null && <Note tone="danger">{t("machine.agent_revoked", formatWhen(agent.revoked_at, now))}</Note>}
         <KeyValue label={t("machine.field_agent")} value={agent.version} mono />
-        {agent.revoked_at === null && <AgentUpdate machineID={machineID} agent={agent} updateLast={updateLast} />}
+        {agent.revoked_at === null && <AgentUpdate machineID={machineID} agent={agent} updateLast={updateLast} withoutSudo={withoutSudo} />}
         <KeyValue label={t("machine.field_agent_enrolled")} value={formatWhen(agent.enrolled_at, now)} />
         <KeyValue label={t("machine.agent_account")} value={account ?? t("machine.agent_account_unreported")} mono={account !== null} />
         {agent.run_as?.uid === 0 && <p className="secondary">{t("machine.agent_account_root_note")}</p>}

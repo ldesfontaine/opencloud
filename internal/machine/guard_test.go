@@ -26,7 +26,7 @@ func TestGuardInstallLines_PutRootsCopyOutsideTheStateOfTheAccount(t *testing.T)
 }
 
 func TestGuardMigrationLines_AreTheExactLinesToPasteWithSudo(t *testing.T) {
-	got := strings.Join(GuardMigrationLines("/tmp/opencloud", "v0.0.2"), "\n")
+	got := strings.Join(GuardMigrationLines("/tmp/opencloud", "v0.0.2", false), "\n")
 	want := strings.Join([]string{
 		"sudo systemctl stop opencloud-agent.service",
 		"sudo install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent",
@@ -41,13 +41,62 @@ func TestGuardMigrationLines_AreTheExactLinesToPasteWithSudo(t *testing.T) {
 	if got != want {
 		t.Fatalf("got:\n%s", got)
 	}
-	if GuardMigrationText("/tmp/opencloud", "v0.0.2") != got {
-		t.Fatal("the text is not the lines")
+	if !strings.HasSuffix(GuardMigrationText("v0.0.2", false), got) {
+		t.Fatal("the text does not end with the lines")
 	}
 	// Rien ne vient de l'opérateur ni du réseau, et rien ne lance l'agent en root.
 	for _, line := range strings.Split(got, "\n") {
-		if strings.Contains(line, "sudo -u root") || strings.Contains(line, "su -") || strings.Contains(line, "eval") || strings.Contains(line, "sh -c") {
+		if strings.Contains(line, "sudo -u root") || strings.Contains(line, "su -c") || strings.Contains(line, "eval") || strings.Contains(line, "sh -c") {
 			t.Errorf("a line hands a shell an input: %q", line)
+		}
+	}
+}
+
+// Sans sudo (un hôte Proxmox n'en a pas) : les mêmes lignes en root, le compte
+// de l'agent pris par runuser. Aucune ne nomme sudo.
+func TestGuardMigrationLines_RootVariantNeverNamesSudo(t *testing.T) {
+	lines := GuardMigrationLines("/tmp/opencloud", "v0.0.2", true)
+	for _, line := range lines {
+		if strings.Contains(line, "sudo") {
+			t.Errorf("the root variant names sudo: %q", line)
+		}
+	}
+	want := []string{
+		"systemctl stop opencloud-agent.service",
+		"runuser -u opencloud-agent -- install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.2",
+		"runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.2 /var/lib/opencloud-agent/bin/current",
+		"systemctl daemon-reload",
+		"systemctl start opencloud-agent.service",
+	}
+	text := strings.Join(lines, "\n")
+	for _, line := range want {
+		if !strings.Contains(text+"\n", line+"\n") {
+			t.Errorf("the root variant lacks %q", line)
+		}
+	}
+}
+
+// Le bloc de migration commence par le téléchargement vérifié : il ne suppose
+// plus /tmp/opencloud déjà copié.
+func TestGuardMigrationText_DownloadsAndChecksTheBinaryFirst(t *testing.T) {
+	text := GuardMigrationText("v0.0.2", true)
+	download := strings.Join(ReleaseDownloadLines("v0.0.2"), "\n")
+	if !strings.HasPrefix(text, download+"\n") {
+		t.Fatalf("the block must start with the download:\n%s", text)
+	}
+	if shell, err := exec.LookPath("sh"); err == nil {
+		if output, err := exec.Command(shell, "-n", "-c", text).CombinedOutput(); err != nil { // #nosec G204 -- le texte que le test juge : « -n » ne l'exécute pas, il le lit seulement.
+			t.Fatalf("the block is not valid shell: %v %s", err, output)
+		}
+	}
+	for _, want := range []string{
+		"base=https://github.com/ldesfontaine/opencloud/releases/download/v0.0.2 &&",
+		`curl -fLO "$base/opencloud-linux-$arch" -fLO "$base/SHA256SUMS" &&`,
+		"sha256sum -c --ignore-missing SHA256SUMS &&",
+		`install -m 0755 "opencloud-linux-$arch" /tmp/opencloud)`,
+	} {
+		if !strings.Contains(download, want) {
+			t.Errorf("the download lacks %q:\n%s", want, download)
 		}
 	}
 }
@@ -60,7 +109,7 @@ func TestGuardMigration_RewritesTheOldUnitLineIntoTheShippedOne(t *testing.T) {
 		t.Skip("no sed")
 	}
 	var script string
-	for _, line := range GuardMigrationLines("/tmp/opencloud", "v0.0.2") {
+	for _, line := range GuardMigrationLines("/tmp/opencloud", "v0.0.2", false) {
 		if strings.HasPrefix(line, "sudo sed -i ") {
 			parts := strings.Split(line, "'")
 			if len(parts) != 3 {
@@ -110,5 +159,24 @@ func TestGuardMigration_RewritesTheOldUnitLineIntoTheShippedOne(t *testing.T) {
 		if !strings.Contains(string(shipped), "\n"+line+"\n") {
 			t.Errorf("the shipped unit lost %q", line)
 		}
+	}
+}
+
+// L'unité que la page d'installation donne à poser est celle du fichier livré,
+// commentaires mis à part : un seul texte de référence, deux présentations.
+func TestAgentUnitLines_MatchTheShippedUnit(t *testing.T) {
+	shipped, err := os.ReadFile("../../docs/installation/opencloud-agent.service") // #nosec G304 -- le fichier livré, lu par un test.
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for line := range strings.SplitSeq(string(shipped), "\n") {
+		if !strings.HasPrefix(line, "#") {
+			want = append(want, line)
+		}
+	}
+	got := strings.Join(AgentUnitLines(), "\n")
+	if strings.TrimRight(strings.Join(want, "\n"), "\n") != got {
+		t.Fatalf("la page d'installation et le fichier livré diffèrent.\npage :\n%s\nfichier :\n%s", got, strings.Join(want, "\n"))
 	}
 }

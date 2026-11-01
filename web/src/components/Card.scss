@@ -248,6 +248,11 @@
   font-size: 13px;
 }
 
+// Le geste d'une note (« Ré-enrôler avec ce droit ») se pose sous son texte.
+.note > p + .btn {
+  margin-top: 8px;
+}
+
 .note-ok {
   background: var(--ok-wash);
   color: var(--ok);

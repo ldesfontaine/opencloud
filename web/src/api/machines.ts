@@ -123,12 +123,18 @@ export interface MachinesResponse {
   pending: PendingToken[];
 }
 
+// Une étape de l'installation de l'agent : son identifiant (le titre vient du
+// catalogue) et le bloc à coller tel quel sur la machine.
+export interface InstallStep {
+  id: "stop" | "binary" | "prepare" | "enroll" | "unit" | "rights";
+  command: string;
+}
+
 export interface TokenResponse {
   name: string;
+  // Le jeton n'est montré qu'une fois, dans la commande de l'étape « enroll ».
   token: string;
-  command: string;
-  // Les commandes à jouer une fois, en root, avant `command`.
-  preparation: string;
+  steps: InstallStep[];
   // Les commandes à jouer en root sur l'hôte Proxmox, une par ligne, pour créer
   // le jeton local des droits proxmox.* ; vide sans l'un de ces droits.
   proxmox_commands: string;

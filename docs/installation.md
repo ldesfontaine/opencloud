@@ -929,9 +929,16 @@ détail, les refus et le journal d'audit :
 
 Dans l'interface : Machines → **Ajouter une machine**, un nom en lettres
 minuscules, chiffres et tirets, et les **droits** de l'agent à cocher.
-openCloud affiche une seule fois la ligne à coller, et au-dessus d'elle la
-**préparation** de la machine (étape 2). Avec les droits par défaut
-(`probe.lan` coché, voir ci-dessous), la ligne porte `-rights` :
+openCloud affiche une seule fois **cinq blocs à coller**, dans l'ordre, chacun
+avec son bouton Copier : le binaire (téléchargé et vérifié par sa somme SHA-256), la **préparation** (étape 2),
+l'enrôlement (étape 3), l'unité (étape 4) et, si un droit écrit ailleurs que dans
+l'état de l'agent, les dossiers qu'il autorise (le drop-in `droits.conf`, étape 4).
+Tous se jouent **en root** (`su -` ou `sudo -i`) et aucun n'a besoin de `sudo`,
+qu'un hôte Proxmox n'a pas : l'enrôlement prend le compte de l'agent par `runuser`.
+Ce qui suit explique ces blocs ; la page, elle, suffit seule. Un ré-enrôlement en
+ajoute un premier : arrêter l'agent et supprimer `identity.json`. Avec les droits
+par défaut (`probe.lan` coché, voir ci-dessous), la ligne d'enrôlement porte
+`-rights` :
 
 ```sh
 printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://opencloud.example.org -rights observe,probe.lan
@@ -1201,7 +1208,7 @@ dédié, il ne lit pas celles des autres comptes, et ne doit pas recevoir
 **Un droit qui écrit ailleurs que dans l'état** (« Recevoir des sauvegardes »,
 « Déployer » et « Mettre à jour un service Docker ») demande un fichier de
 plus : l'unité n'écrit que dans son état (`ProtectSystem=strict`), le dossier
-du droit doit être autorisé. La page du jeton donne le fichier ; par exemple
+du droit doit être autorisé. La dernière étape de la page du jeton donne le fichier ; par exemple
 pour `/srv/backups` (le dossier est déjà créé, au compte de l'agent, par la
 préparation de l'étape 2) :
 
@@ -1604,12 +1611,21 @@ root qui a `sudo`. Prérequis : l'unité est celle de ce dépôt, avec son
 `ExecStart=/var/lib/opencloud-agent/bin/current agent …` (voir [Déplacer
 l'état](#déplacer-létat-de-lagent-installé-avant-le-22-octobre-2026) sinon).
 
-Le binaire à poser est celui de ce serveur : vérifiez-le (`opencloud release
-verify`, [Télécharger](#télécharger)), copiez-le sur la machine, puis :
+La fiche de la machine (onglet Agent) donne ce bloc à coller, **téléchargement
+et vérification de la somme SHA-256 du binaire compris** : rien n'est à copier
+d'avance. Elle le propose **en root, sans `sudo`** quand la machine est un hôte
+Proxmox VE (Debian sans `sudo`) ou que son agent dit que `sudo` manque ; l'autre
+variante, avec `sudo`, reste au choix. Les lignes, avec `sudo` (en root, retirez
+`sudo` et remplacez `sudo -u opencloud-agent` par `runuser -u opencloud-agent --`) :
 
 ```sh
-scp opencloud-linux-amd64 vous@machine:/tmp/opencloud          # arm64 pour une machine arm64
-# Sur la machine :
+# Sur la machine : le binaire de cette version, vérifié, dans /tmp/opencloud
+(cd "$(mktemp -d)" &&
+base=https://github.com/ldesfontaine/opencloud/releases/download/v0.5.1 &&
+arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') &&
+curl -fLO "$base/opencloud-linux-$arch" -fLO "$base/SHA256SUMS" &&
+sha256sum -c --ignore-missing SHA256SUMS &&
+install -m 0755 "opencloud-linux-$arch" /tmp/opencloud)
 sudo systemctl stop opencloud-agent.service
 sudo install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
 sudo install -m 0755 -o root -g root /tmp/opencloud /usr/local/lib/opencloud-agent/opencloud-guard

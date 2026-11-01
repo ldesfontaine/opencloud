@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	identityFile = "identity.json"
+	identityFile = brand.AgentIdentityFile
 	identityMode = 0o600
 )
 

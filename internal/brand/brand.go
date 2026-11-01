@@ -70,6 +70,9 @@ const (
 	// Là où l'agent range ce qu'il produit (backup.produce), dans son état : à
 	// lui, 0700.
 	AgentProduceDir = "produce"
+	// L'identité de l'agent, dans son état : ce que le premier lancement écrit,
+	// et que l'opérateur supprime pour ré-enrôler.
+	AgentIdentityFile = "identity.json"
 	// Le jeton Proxmox local de l'agent (proxmox.power, proxmox.snapshot), dans
 	// son état : posé par l'opérateur sur l'hôte, à l'agent seul, 0600. Il ne
 	// voyage jamais, le serveur ne le garde pas.
@@ -98,6 +101,7 @@ const (
 
 // Les fichiers d'une version publiée, et le commentaire de sa signature.
 const (
+	ReleaseBaseURL          = "https://github.com/ldesfontaine/opencloud/releases/download"
 	ReleaseBinaryPrefix     = ID + "-linux-"
 	ReleaseSumsFile         = "SHA256SUMS"
 	ReleaseSignatureFile    = ReleaseSumsFile + ".minisig"
@@ -114,6 +118,9 @@ const SecretKeyIDDomain = ID + "-key-id\x00"
 // chemins : le changer, c'est que les conteneurs déjà étiquetés ne sont plus
 // lus et retombent aux niveaux Compose et nom.
 const LabelPrefix = ID + "."
+
+// InstallDocURL est la page d'installation, que l'unité de l'agent cite.
+const InstallDocURL = "https://github.com/ldesfontaine/opencloud/blob/dev/docs/installation.md"
 
 // AgentUnit est l'unité de l'agent : la page d'un droit qui écrit hors de
 // l'état dit à l'opérateur laquelle compléter (ReadWritePaths).

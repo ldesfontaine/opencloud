@@ -81,7 +81,7 @@ func seedE2EBackups(t *testing.T, ts *testServer) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := ts.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", "v0.0.1", "backup.receive=/srv/backups", "", "")
+	session, err := ts.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", "v0.0.1", "backup.receive=/srv/backups,backup.produce=proxmox-vzdump", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
