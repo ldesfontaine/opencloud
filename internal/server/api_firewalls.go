@@ -4,13 +4,16 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/credential"
+
 	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Un pare-feu déclaré, tel que la liste et la fiche le lisent : ce que son API
 // a dit au dernier relevé réussi. Le secret n'est jamais rendu, ni ici ni dans
-// une erreur ; last_error est la clé du refus du dernier relevé qui a échoué,
+// une erreur ; la clé n'est rendue que par ses quatre premiers caractères
+// (api_key_hint) ; last_error est la clé du refus du dernier relevé qui a échoué,
 // vide s'il a réussi. Un jeton d'API ne voit ni la clé ni l'empreinte
 // (redactedFirewall).
 type firewallJSON struct {
@@ -18,7 +21,7 @@ type firewallJSON struct {
 	Name       string             `json:"name"`
 	Kind       string             `json:"kind"`
 	APIURL     string             `json:"api_url"`
-	APIKey     string             `json:"api_key"`
+	APIKeyHint string             `json:"api_key_hint"`
 	Pin        string             `json:"pin"`
 	IsPinned   bool               `json:"is_pinned"`
 	Version    string             `json:"version"`
@@ -131,7 +134,7 @@ func (request firewallRequest) definition() firewall.Definition {
 
 func firewallToJSON(declared firewall.Firewall, counts firewallCountsJSON) firewallJSON {
 	return firewallJSON{
-		ID: declared.ID, Name: declared.Name, Kind: declared.Kind, APIURL: declared.APIURL, APIKey: declared.APIKey,
+		ID: declared.ID, Name: declared.Name, Kind: declared.Kind, APIURL: declared.APIURL, APIKeyHint: credential.Mask(declared.APIKey),
 		Pin: declared.Pin, IsPinned: declared.Pin != "", Version: declared.Version, VerifiedAt: declared.VerifiedAt.UTC(),
 		LastReadAt: httpx.TimeOrNil(declared.LastReadAt), LastError: declared.LastError, Counts: counts,
 	}
@@ -169,7 +172,7 @@ func firewallReadingOf(view firewall.View) firewallReadingJSON {
 // redactedFirewall est la seule règle « un jeton masque la paire de clés » :
 // la clé d'API et l'empreinte du certificat ne sortent que vers l'opérateur.
 func redactedFirewall(converted firewallJSON) firewallJSON {
-	converted.APIKey, converted.Pin = "", ""
+	converted.APIKeyHint, converted.Pin = "", ""
 	return converted
 }
 

@@ -193,7 +193,7 @@ test("l'avancement d'un geste : envoyé, accepté par l'agent, fait, ou échoué
 
 test("formulaire de l'hôte : neuf avec l'adresse proposée, ou rempli sans le secret", () => {
   expect(emptyProxmoxForm("https://10.0.0.2:8006")).toEqual({ apiURL: "https://10.0.0.2:8006", tokenID: "", tokenSecret: "", pin: "" });
-  expect(proxmoxFormOf({ api_url: "https://pve:8006", token_id: "lecteur@pve!lecture", pin: "AB:CD" })).toEqual({ apiURL: "https://pve:8006", tokenID: "lecteur@pve!lecture", tokenSecret: "", pin: "AB:CD" });
+  expect(proxmoxFormOf({ api_url: "https://pve:8006", pin: "AB:CD" })).toEqual({ apiURL: "https://pve:8006", tokenID: "", tokenSecret: "", pin: "AB:CD" });
 });
 
 test("isProxmoxFormModified : l'adresse proposée seule n'est pas une saisie", () => {

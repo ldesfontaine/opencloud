@@ -215,13 +215,15 @@ func TestFirewalls_ATokenReadsWithoutAnySecretAndWritesNothing(t *testing.T) {
 			}
 		}
 	}
-	// L'opérateur, lui, lit la clé et l'empreinte de sa déclaration.
+	// L'opérateur lit l'empreinte et le début de la clé, jamais la clé entière ni le secret.
 	operator := callAPI(server.Server, http.MethodGet, "/api/firewalls/"+id, nil).Body.String()
-	if !strings.Contains(operator, opnsensetest.Key) || !strings.Contains(operator, fake.Pin()) {
-		t.Fatalf("the operator should read the key and the pin: %s", operator)
+	if !strings.Contains(operator, opnsensetest.Key[:4]+"…") || !strings.Contains(operator, fake.Pin()) {
+		t.Fatalf("the operator should read the key hint and the pin: %s", operator)
 	}
-	if strings.Contains(operator, opnsensetest.Secret) {
-		t.Fatalf("not even the operator reads the secret: %s", operator)
+	for _, secret := range []string{opnsensetest.Secret, opnsensetest.Key} {
+		if strings.Contains(operator, secret) {
+			t.Fatalf("not even the operator reads %q back: %s", secret[:4], operator)
+		}
 	}
 
 	for _, attempt := range []struct{ method, path string }{

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/credential"
+
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -20,17 +22,18 @@ const ownSnapshotRunsLimit = 500
 
 // L'hôte Proxmox d'une machine, tel que la fiche le lit : ce que l'API de
 // l'hyperviseur a dit au dernier relevé réussi. Le secret du jeton ne sort
-// jamais, ni ici ni dans une erreur ; last_error est la clé du refus du
+// jamais, ni ici ni dans une erreur ; l'identifiant du jeton n'est rendu que par
+// ses quatre premiers caractères (token_id_hint) ; last_error est la clé du refus du
 // dernier relevé qui a échoué, vide s'il a réussi.
 type proxmoxHostJSON struct {
-	APIURL     string     `json:"api_url"`
-	TokenID    string     `json:"token_id"`
-	Pin        string     `json:"pin"`
-	Node       string     `json:"node"`
-	Version    string     `json:"version"`
-	VerifiedAt time.Time  `json:"verified_at"`
-	LastReadAt *time.Time `json:"last_read_at"`
-	LastError  string     `json:"last_error"`
+	APIURL      string     `json:"api_url"`
+	TokenIDHint string     `json:"token_id_hint"`
+	Pin         string     `json:"pin"`
+	Node        string     `json:"node"`
+	Version     string     `json:"version"`
+	VerifiedAt  time.Time  `json:"verified_at"`
+	LastReadAt  *time.Time `json:"last_read_at"`
+	LastError   string     `json:"last_error"`
 	// Les VM et conteneurs par numéro, les stockages par nom.
 	Guests   []proxmoxGuestJSON   `json:"guests"`
 	Storages []proxmoxStorageJSON `json:"storages"`
@@ -128,7 +131,7 @@ type proxmoxRequest struct {
 func proxmoxViewToJSON(view proxmox.View, runs []action.Run) proxmoxHostJSON {
 	host := view.Host
 	return proxmoxHostJSON{
-		APIURL: host.APIURL, TokenID: host.TokenID, Pin: host.Pin, Node: host.Node, Version: host.Version,
+		APIURL: host.APIURL, TokenIDHint: credential.Mask(host.TokenID), Pin: host.Pin, Node: host.Node, Version: host.Version,
 		VerifiedAt: host.VerifiedAt.UTC(), LastReadAt: httpx.TimeOrNil(host.LastReadAt), LastError: host.LastError,
 		Guests: httpx.ConvertAll(view.Guests, func(guest proxmox.Guest) proxmoxGuestJSON {
 			return proxmoxGuestToJSON(guest, proxmox.OwnSnapshots(runs, guest.VMID))

@@ -46,7 +46,8 @@ export interface ProxmoxStorage {
 
 export interface ProxmoxHost {
   api_url: string;
-  token_id: string;
+  // Les quatre premiers caractères de l'identifiant : le serveur ne le rend jamais en entier.
+  token_id_hint: string;
   // L'empreinte SHA-256 épinglée ; vide : le magasin du système juge.
   pin: string;
   node: string;

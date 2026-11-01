@@ -73,6 +73,7 @@ func (s *Server) routes() []route {
 		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown", s.actOnProxmoxGuest(proxmox.VerbShutdown)},
 		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot", s.actOnProxmoxGuest(proxmox.VerbSnapshot)},
 		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete", s.actOnProxmoxGuest(proxmox.VerbSnapshotDelete)},
+		{"POST", "/api/certificate/inspect", s.inspectCertificate},
 		{"GET", "/api/firewalls", s.listFirewalls},
 		{"POST", "/api/firewalls", s.createFirewall},
 		{"GET", "/api/firewalls/{id}", s.getFirewall},

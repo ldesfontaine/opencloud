@@ -46,7 +46,7 @@ export interface Machine {
 }
 
 // Les types de machine (liste fermée du serveur). « vps » se déduit : virtualisée
-// sans hôte connu.
+// sans hôte connu, avec une adresse publique ; sinon c'est une VM.
 export type KindID = "physical" | "vm" | "lxc" | "vps" | "unknown";
 
 // L'hôte d'une machine : celui que l'opérateur a désigné (override), sinon

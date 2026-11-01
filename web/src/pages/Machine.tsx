@@ -15,7 +15,6 @@ import { CertificateList } from "../components/Certificate";
 import { DeleteMachineDialog } from "../components/DeleteMachineDialog";
 import { Failure } from "../components/Failure";
 import { MachineHead, Tabs } from "../components/MachineHead";
-import { McpChip } from "../components/McpChip";
 import { MachineHypervisor } from "../components/MachineHypervisor";
 import { MachineIdentity } from "../components/MachineIdentity";
 import { MachineStorage } from "../components/MachineStorage";
@@ -30,6 +29,7 @@ import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
 import { SupportDetails } from "../components/SupportBlock";
 import { ContainerPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
+import { useAgentHint } from "../hooks/useAgentHint";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
 import { renamedMachineTabs, resolveMachineTab } from "../lib/machineTabs";
@@ -323,6 +323,7 @@ function MachineLogs({ machineID }: { machineID: string }) {
 // elle). C'est aussi un verbe : un agent peut le demander, l'opérateur confirme.
 function Actions({ machine }: { machine: Machine }) {
   const t = useT();
+  const agentHint = useAgentHint();
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState(false);
   const archived = isArchived(machine);
@@ -332,9 +333,8 @@ function Actions({ machine }: { machine: Machine }) {
       <Button icon="refresh" to={`/machines/${machine.id}/reenroller`}>
         {t("machine.reenroll")}
       </Button>
-      <Button variant="danger" icon="x" onClick={() => setDeleting(true)}>
+      <Button variant="danger" icon="x" title={agentHint("DELETE /api/machines/{id}")} onClick={() => setDeleting(true)}>
         {t("machine.delete")}
-        <McpChip route="DELETE /api/machines/{id}" />
       </Button>
       {deleting && (
         <DeleteMachineDialog

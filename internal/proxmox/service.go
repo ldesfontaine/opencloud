@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/credential"
+
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
@@ -264,7 +266,7 @@ func (s *Service) logRefresh(machineID string, err error) {
 }
 
 func setEvent(declared machine.Machine, definition Definition) audit.Event {
-	details := audit.Details{"token_id": definition.TokenID, "pinned": "no"}
+	details := audit.Details{"token_id": credential.Mask(definition.TokenID), "pinned": "no"}
 	if parsed, err := url.Parse(definition.APIURL); err == nil {
 		details["host"] = parsed.Host
 	}

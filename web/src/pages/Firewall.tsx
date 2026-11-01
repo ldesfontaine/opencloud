@@ -121,7 +121,7 @@ function ConnectionCard({ firewall }: { firewall: FirewallDetail }) {
         <KeyValue label={t("firewall.field_connector")} value={t(`firewall.kind_${firewall.kind}`)} />
         <KeyValue label={t("firewall.field_api")} value={firewall.api_url} mono />
         <KeyValue label={t("firewall.field_version")} value={firewall.version === "" ? "—" : firewall.version} mono />
-        <KeyValue label={t("firewall.field_key")} value={firewall.api_key} mono />
+        <KeyValue label={t("firewall.field_key")} value={firewall.api_key_hint} mono />
         <KeyValue label={t("firewall.field_read")} value={firewall.last_read_at === null ? t("firewall.never_read") : formatWhen(firewall.last_read_at, now)} />
         <KeyValue label={t("firewall.field_certificate")} value={firewall.is_pinned ? t("firewall.pinned") : t("firewall.system_trust")} />
       </CardBody>

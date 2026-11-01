@@ -109,9 +109,9 @@ export function emptyProxmoxForm(suggestedURL: string): ProxmoxFormValues {
 }
 
 // Ce que le serveur garde d'un hôte déjà déclaré, pour le modifier : jamais le
-// secret, qui se ressaisit.
-export function proxmoxFormOf(host: Pick<ProxmoxHost, "api_url" | "token_id" | "pin">): ProxmoxFormValues {
-  return { apiURL: host.api_url, tokenID: host.token_id, tokenSecret: "", pin: host.pin };
+// secret, ni l'identifiant du jeton en entier ; ils se ressaisissent ensemble.
+export function proxmoxFormOf(host: Pick<ProxmoxHost, "api_url" | "pin">): ProxmoxFormValues {
+  return { apiURL: host.api_url, tokenID: "", tokenSecret: "", pin: host.pin };
 }
 
 // La saisie a changé depuis le formulaire d'origine : fermer la fenêtre demande

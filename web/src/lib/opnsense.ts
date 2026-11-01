@@ -3,8 +3,6 @@ import { isHTTPSAddress } from "./firewallForm";
 // L'adresse d'une page de l'interface web d'OPNsense, construite depuis
 // l'adresse saisie : son origine (https, hôte, port), jamais son chemin ni
 // ses identifiants. Null tant que l'adresse n'est pas celle d'un hôte https.
-// Chemins relevés dans les sources d'OPNsense 26.1 (Menu.xml), voir
-// docs/projet/22-fonctionnement.md.
 export function opnsenseLink(address: string, path: string): string | null {
   if (!isHTTPSAddress(address)) {
     return null;
@@ -16,16 +14,23 @@ export function opnsenseLink(address: string, path: string): string | null {
   }
 }
 
-// Les gestes à faire dans OPNsense, dans l'ordre. Le chemin est celui de la
-// page ; le menu et les privilèges, les libellés qu'OPNsense affiche (en
-// anglais, tels quels).
+// La page des utilisateurs : celle que les trois gestes demandent. Chemin
+// relevé dans opnsense/core, étiquette 26.7, Core/Menu/Menu.xml
+// (System > Access > Users). Les libellés de menu et de champ, eux, sont dans
+// les catalogues (firewall.menu_*, firewall.label_*) : ils suivent la langue
+// de l'interface, d'après les traductions officielles (opnsense/lang, fr_FR.po).
 export const opnsenseUsersPath = "/ui/auth/user";
 
-export const opnsenseMenuUsers = "System ‣ Access ‣ Users";
+// Les privilèges se donnent par le nom du champ « Privileges » : OPNsense ne
+// les traduit pas (PrivField les rend tels que les ACL.xml les nomment ; aucun
+// n'est dans fr_FR.po). Chaque nom est celui de opnsense/core, étiquettes 26.1
+// et 26.7, models/OPNsense/*/ACL/ACL.xml ; docs/projet/22-fonctionnement.md
+// dit de quel fichier vient chacun.
 
 // Ce que le relevé lit : version (tableau de bord), interfaces, passerelles,
-// règles. Les baux DHCP dépendent du serveur DHCP du pare-feu.
+// règles.
 export const opnsenseReadPrivileges = ["Lobby: Dashboard", "Status: Interfaces", "System: Gateways", "Firewall: Rules [new]"];
 
-// Un seul, selon le serveur DHCP que le pare-feu utilise.
-export const opnsenseLeasePrivileges = ["Services: Dnsmasq DNS/DHCP: Settings", "Services: DHCP: Kea(v4)", "Services: ISC DHCPv4: Leases"];
+// Les baux DHCP : un seul, selon le serveur DHCP du pare-feu. ISC DHCP n'est
+// plus dans le cœur depuis 26.1 (greffon os-isc-dhcp) : il n'est pas proposé.
+export const opnsenseDhcpPrivileges = ["Services: Dnsmasq DNS/DHCP: Settings", "Services: DHCP: Kea(v4)"];

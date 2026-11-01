@@ -36,6 +36,7 @@ export const writes = [
   "POST /api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown",
   "POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot",
   "POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete",
+  "POST /api/certificate/inspect",
   "POST /api/firewalls",
   "PUT /api/firewalls/{id}",
   "DELETE /api/firewalls/{id}",
