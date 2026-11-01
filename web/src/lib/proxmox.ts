@@ -106,7 +106,7 @@ export function backupTone(facts: BackupFacts, now: number): Tone {
 // Les invités rangés comme on les cherche : ceux qui tournent (ou en pause),
 // ceux qui sont arrêtés, puis les modèles à part. Chaque rangée garde l'ordre
 // des numéros.
-export interface GuestGroups {
+interface GuestGroups {
   live: ProxmoxGuest[];
   stopped: ProxmoxGuest[];
   templates: ProxmoxGuest[];
@@ -124,7 +124,7 @@ export function groupGuests(guests: ProxmoxGuest[]): GuestGroups {
 // Ce qu'une VM alloue, en part de la plus grosse de l'hôte : l'hôte ne dit pas
 // ce que la VM consomme, ni la capacité de son nœud, seulement ce qu'il lui a
 // alloué. La jauge compare les VM entre elles, elle ne mesure pas une charge.
-export interface AllocationShares {
+interface AllocationShares {
   cpus: number;
   memory: number;
   disk: number;
@@ -141,7 +141,7 @@ export function allocationShares(guest: ProxmoxGuest, among: readonly ProxmoxGue
 }
 
 // Un stockage reçoit-il les sauvegardes, et le jeton les voit-il ?
-export type StorageBackupState = "none" | "readable" | "blind";
+type StorageBackupState = "none" | "readable" | "blind";
 
 export function storageBackupState(storage: ProxmoxStorage, blind: readonly string[]): StorageBackupState {
   if (!storage.content.includes("backup")) {
