@@ -44,7 +44,7 @@ export interface ServiceUnit {
 
 // found : l'unité est sur la machine, avec ses états ; missing : systemd est lu
 // et ne la connaît pas ; unknown : la machine n'a rien relevé (états vides).
-export type Presence = "found" | "missing" | "unknown";
+type Presence = "found" | "missing" | "unknown";
 
 export interface ObservedUnit {
   presence: Presence;

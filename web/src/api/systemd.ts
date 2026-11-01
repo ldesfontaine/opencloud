@@ -5,10 +5,10 @@ import { segment } from "./client";
 // direct : « machines », que topicsOf devine du chemin.
 
 export type SystemdActive = "active" | "inactive" | "failed" | "activating" | "deactivating" | "reloading" | "other";
-export type SystemdReason = "no_systemctl" | "not_booted" | "unreadable";
+type SystemdReason = "no_systemctl" | "not_booted" | "unreadable";
 
 // Le service déclaré qui porte l'unité ; nul : personne ne la déclare.
-export interface DeclaredUnitRef {
+interface DeclaredUnitRef {
   service_id: string;
   service_name: string;
   unit_id: string;

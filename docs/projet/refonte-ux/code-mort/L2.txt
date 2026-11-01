@@ -3,7 +3,13 @@
 Avant = origin/dev (1af9100, L1 et U5 comprises), après = fin de la branche orca/v052-l2.
 
 deadcode ./... (Go) : 79 avant, 79 après ; seule la ligne de `deletion.Kinds` change de numéro (plan.go:52 → 53, un genre ajouté au-dessus). Aucune ligne n'est née dans ce chantier.
-knip@5.88.1, `npx knip@5.88.1 --reporter compact` dans web/ : avant 7 fichiers (hors sources : dist/ et public/theme.js, src/statut/*), 1 export (`isMaintenance`), 3 types non utilisés (`TextPart`, `AvailabilityTab`, `MachinesTab`) ; après : les mêmes (seul le nom haché du fichier de dist/ change).
+knip (version courante, relevé après la correction de #451), commande exacte : `cd web && npx knip --no-progress`.
+  Avant (origin/dev, ec0f4e8) : 10 types exportés non utilisés ; après (branche) : les mêmes 10 (seul le numéro de ligne de `DeployRight` change : 368 → 392).
+  Liste, identique des deux côtés :
+    AlertObjectKind (src/api/alerts.ts), InventoryKind, RunResult, InventoryTargetKind (src/api/backups.ts), DeployRight (src/api/directory.ts),
+    ProxmoxKind (src/api/proxmox.ts), ChartPoint (src/components/Chart.tsx), SummaryLine (src/components/Wizard.tsx),
+    CertificateState (src/lib/certificates.ts), PlacedGroup (src/lib/network.ts).
+  Corrigé dans ce chantier : trois types exportés sans servir hors de leur fichier (`Presence`, `SystemdReason`, `DeclaredUnitRef`) ne sont plus exportés.
 
 Supprimé dans ce chantier
 - Rien de ce qui existait avant n'est devenu inutile : L2 ajoute une lecture (unités systemd) à côté des autres, elle n'en remplace aucune.
