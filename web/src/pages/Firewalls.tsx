@@ -61,10 +61,8 @@ function NoFirewall() {
         </Button>
       }
     >
-      <div className="card-b gap-8">
+      <div className="card-b">
         <p className="secondary">{t("firewall.none_howto")}</p>
-        <p className="secondary">{t("firewall.rights_text")}</p>
-        <p className="secondary">{t("firewall.rights_cost")}</p>
       </div>
     </EmptyCard>
   );

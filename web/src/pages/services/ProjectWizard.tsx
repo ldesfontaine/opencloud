@@ -109,7 +109,7 @@ function stepsOf(t: Translate, form: ProjectForm, services: { id: string; name: 
       title: t("project.step_publication"),
       render: () => (
         <>
-          <Field label={t("project.publish_label")} help={t("project.publish_help")}>
+          <Field label={t("project.publish_label")} help={t("project.publish_help")} tip={t("project.publish_tip")}>
             <Checkbox
               label={t("project.publish_check")}
               checked={values.published}

@@ -191,24 +191,31 @@ export function WizardBar({
 }
 
 // Le récapitulatif : chaque étape sous son titre, ce qui a été saisi, et
-// « Modifier » qui y ramène.
+// « Modifier » qui y ramène. Une étape qui ne saisit rien (un guide) n'y
+// figure pas.
 function WizardSummary({ steps, onEdit }: { steps: WizardStep[]; onEdit: (target: number) => void }) {
   const t = useT();
   return (
     <div className="wizard-summary">
-      {steps.map((step, index) => (
-        <section key={step.id} className="wizard-summary-step">
-          <div className="wizard-summary-head">
-            <h3 className="side-label inline-label">{step.title}</h3>
-            <Button small variant="ghost" onClick={() => onEdit(index)} aria-label={t("wizard.edit_step", step.title)}>
-              {t("wizard.edit")}
-            </Button>
-          </div>
-          {step.summary().map((line) => (
-            <KeyValue key={line.label} label={line.label} value={line.value} mono={line.mono ?? false} />
-          ))}
-        </section>
-      ))}
+      {steps.map((step, index) => {
+        const lines = step.summary();
+        if (lines.length === 0) {
+          return null;
+        }
+        return (
+          <section key={step.id} className="wizard-summary-step">
+            <div className="wizard-summary-head">
+              <h3 className="side-label inline-label">{step.title}</h3>
+              <Button small variant="ghost" onClick={() => onEdit(index)} aria-label={t("wizard.edit_step", step.title)}>
+                {t("wizard.edit")}
+              </Button>
+            </div>
+            {lines.map((line) => (
+              <KeyValue key={line.label} label={line.label} value={line.value} mono={line.mono ?? false} />
+            ))}
+          </section>
+        );
+      })}
     </div>
   );
 }

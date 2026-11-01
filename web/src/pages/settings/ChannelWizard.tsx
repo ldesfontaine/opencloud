@@ -81,7 +81,7 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<ReturnType<typeof
           <Field label={t("channel.name_label")} htmlFor="channel-name" help={t("channel.name_help")}>
             <Input id="channel-name" type="text" value={values.name} onChange={(event) => change("name", event.target.value)} maxLength={80} autoComplete="off" autoFocus required />
           </Field>
-          <Field label={t("channel.format_label")} htmlFor="channel-format" help={t("channel.format_help")}>
+          <Field label={t("channel.format_label")} htmlFor="channel-format" help={t("channel.format_help")} tip={t("channel.format_tip")}>
             <EnumSelect id="channel-format" value={values.format} values={channelFormats} labelKey="channel.format_" onChange={(format) => change("format", format)} />
           </Field>
           {isEmail ? (

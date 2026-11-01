@@ -19,7 +19,7 @@ export function RightsFields({
   const t = useT();
   return (
     <>
-      <Field label={t("machine.rights_label")} help={t("machine.rights_help")}>
+      <Field label={t("machine.rights_label")} help={t("machine.rights_help")} tip={t("machine.rights_tip")}>
         <Checks>
           {offeredCapabilities(proxmoxDetected, values.rights).map((name) => (
             <Checkbox

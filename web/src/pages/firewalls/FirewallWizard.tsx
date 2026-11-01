@@ -1,16 +1,22 @@
 import { useNavigate, useParams } from "react-router";
 
 import { declareFirewall, firewallKinds, redeclareFirewall, useFirewall, type FirewallDetail, type FirewallKind } from "../../api/firewalls";
+import { Checklist, type ChecklistItem } from "../../components/Checklist";
+import { Note } from "../../components/Card";
+import { CopyList } from "../../components/Copy";
+import { ExternalLink } from "../../components/ExternalLink";
 import { Field, Input } from "../../components/Field";
 import { Failure } from "../../components/Failure";
 import { Modal } from "../../components/Modal";
 import { Select } from "../../components/Select";
 import { Wizard, type WizardStep } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
+import { useChecklist } from "../../hooks/useChecklist";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
 import { isCredential, isHTTPSAddress } from "../../lib/firewallForm";
 import { isFormModified } from "../../lib/modal";
+import { opnsenseLeasePrivileges, opnsenseLink, opnsenseMenuUsers, opnsenseReadPrivileges, opnsenseUsersPath } from "../../lib/opnsense";
 
 interface FirewallFormValues {
   name: string;
@@ -30,8 +36,8 @@ function formOf(firewall: FirewallDetail): FirewallFormValues {
 }
 
 // « Déclarer un pare-feu » : la fenêtre de la liste, à /pare-feu/nouveau, ou de
-// la fiche, à /pare-feu/:id/modifier. Trois étapes (identité, accès,
-// certificat) et le récapitulatif. Le serveur interroge l'API avec la paire de
+// la fiche, à /pare-feu/:id/modifier. Quatre étapes (identité et adresse,
+// préparation d'OPNsense, clé et secret, certificat) et le récapitulatif. Le serveur interroge l'API avec la paire de
 // clés avant de rien garder ; un refus se dit sur le récapitulatif.
 export function FirewallWizard() {
   const t = useT();
@@ -42,6 +48,8 @@ export function FirewallWizard() {
   const form = useForm(emptyForm, isEditing ? { source: existing.data, fill: formOf } : null);
   const { values } = form;
   const action = useAction();
+  // Les gestes déjà faits dans OPNsense : un repère, rien ne l'exige.
+  const gestures = useChecklist();
 
   const close = () => void navigate(isEditing ? `/pare-feu/${id}` : "/pare-feu", { replace: true });
   const save = () => {
@@ -71,7 +79,7 @@ export function FirewallWizard() {
       <Failure error={existing.error} />
       {form.isFilled && (
         <Wizard
-          steps={stepsOf(t, form)}
+          steps={stepsOf(t, form, gestures)}
           mode={isEditing ? "edit" : "create"}
           onSubmit={save}
           submitLabel={isEditing ? t("firewall.submit_edit") : t("firewall.submit_new")}
@@ -84,7 +92,49 @@ export function FirewallWizard() {
   );
 }
 
-function stepsOf(t: Translate, form: ReturnType<typeof useForm<FirewallFormValues, FirewallDetail>>): WizardStep[] {
+// Les trois gestes à faire dans OPNsense, chacun avec le lien direct vers sa
+// page, construit depuis l'adresse saisie à l'étape d'avant.
+function gesturesOf(t: Translate, apiURL: string): ChecklistItem[] {
+  const usersLink = opnsenseLink(apiURL, opnsenseUsersPath);
+  const openUsers = usersLink !== null && <ExternalLink href={usersLink}>{t("firewall.gesture_open", opnsenseMenuUsers)}</ExternalLink>;
+  return [
+    {
+      id: "user",
+      title: t("firewall.gesture_user_title"),
+      content: (
+        <>
+          <p>{t("firewall.gesture_user_text")}</p>
+          {openUsers}
+        </>
+      ),
+    },
+    {
+      id: "privileges",
+      title: t("firewall.gesture_privileges_title"),
+      content: (
+        <>
+          <p>{t("firewall.gesture_privileges_text")}</p>
+          <CopyList values={opnsenseReadPrivileges} />
+          <p>{t("firewall.gesture_leases_text")}</p>
+          <CopyList values={opnsenseLeasePrivileges} />
+          {openUsers}
+        </>
+      ),
+    },
+    {
+      id: "key",
+      title: t("firewall.gesture_key_title"),
+      content: (
+        <>
+          <p>{t("firewall.gesture_key_text")}</p>
+          {openUsers}
+        </>
+      ),
+    },
+  ];
+}
+
+function stepsOf(t: Translate, form: ReturnType<typeof useForm<FirewallFormValues, FirewallDetail>>, gestures: ReturnType<typeof useChecklist>): WizardStep[] {
   const { values } = form;
   return [
     {
@@ -108,25 +158,40 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<FirewallFormValue
               }}
             />
           </Field>
+          <Field label={t("firewall.url_label")} htmlFor="firewall-url" help={t("firewall.url_help")}>
+            <Input id="firewall-url" mono value={values.apiURL} placeholder="https://192.0.2.1" onChange={(event) => form.change("apiURL", event.target.value)} autoComplete="off" />
+          </Field>
         </>
       ),
-      validate: () => (values.name.trim() === "" ? "firewall.name_invalid" : null),
+      validate: () => {
+        if (values.name.trim() === "") {
+          return "firewall.name_invalid";
+        }
+        return isHTTPSAddress(values.apiURL) ? null : "firewall.url_invalid";
+      },
       summary: () => [
         { label: t("firewall.name_label"), value: values.name },
         { label: t("firewall.connector_label"), value: t(`firewall.kind_${values.kind}`) },
+        { label: t("firewall.url_label"), value: values.apiURL.trim(), mono: true },
       ],
+    },
+    {
+      id: "prepare",
+      title: t("firewall.step_prepare"),
+      render: () => (
+        <>
+          <p className="secondary">{t("firewall.prepare_intro")}</p>
+          <Note tone="warn">{t("firewall.prepare_warning")}</Note>
+          <Checklist items={gesturesOf(t, values.apiURL)} done={gestures.done} onToggle={gestures.toggle} />
+        </>
+      ),
+      summary: () => [],
     },
     {
       id: "access",
       title: t("firewall.step_access"),
       render: () => (
         <>
-          <p className="secondary">{t("firewall.none_howto")}</p>
-          <p className="secondary">{t("firewall.rights_text")}</p>
-          <p className="secondary">{t("firewall.rights_cost")}</p>
-          <Field label={t("firewall.url_label")} htmlFor="firewall-url" help={t("firewall.url_help")}>
-            <Input id="firewall-url" mono value={values.apiURL} placeholder="https://192.0.2.1" onChange={(event) => form.change("apiURL", event.target.value)} autoComplete="off" />
-          </Field>
           <Field label={t("firewall.key_label")} htmlFor="firewall-key" help={t("firewall.key_help")}>
             <Input id="firewall-key" mono value={values.apiKey} onChange={(event) => form.change("apiKey", event.target.value)} autoComplete="off" />
           </Field>
@@ -136,16 +201,12 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<FirewallFormValue
         </>
       ),
       validate: () => {
-        if (!isHTTPSAddress(values.apiURL)) {
-          return "firewall.url_invalid";
-        }
         if (!isCredential(values.apiKey.trim())) {
           return "firewall.key_invalid";
         }
         return isCredential(values.apiSecret) ? null : "firewall.secret_invalid";
       },
       summary: () => [
-        { label: t("firewall.url_label"), value: values.apiURL, mono: true },
         { label: t("firewall.key_label"), value: values.apiKey, mono: true },
         { label: t("firewall.secret_label"), value: t("firewall.secret_hidden") },
       ],
@@ -154,7 +215,7 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<FirewallFormValue
       id: "certificate",
       title: t("firewall.step_certificate"),
       render: () => (
-        <Field label={t("firewall.pin_label")} htmlFor="firewall-pin" help={t("firewall.pin_help")}>
+        <Field label={t("firewall.pin_label")} htmlFor="firewall-pin" help={t("firewall.pin_help")} tip={t("firewall.pin_tip")}>
           <Input id="firewall-pin" mono value={values.pin} onChange={(event) => form.change("pin", event.target.value)} autoComplete="off" />
         </Field>
       ),

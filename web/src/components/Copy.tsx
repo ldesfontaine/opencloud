@@ -28,3 +28,18 @@ export function TokenBox({ value, lines = false }: { value: string; lines?: bool
     </div>
   );
 }
+
+// Une liste de valeurs, chacune avec son bouton : on les colle une à une dans
+// un champ de recherche d'ailleurs.
+export function CopyList({ values }: { values: string[] }) {
+  return (
+    <ul className="copy-list">
+      {values.map((value) => (
+        <li key={value} className="token-box">
+          <code className="mono">{value}</code>
+          <CopyButton text={value} />
+        </li>
+      ))}
+    </ul>
+  );
+}

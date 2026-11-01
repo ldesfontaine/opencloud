@@ -3,7 +3,8 @@ import { defineConfig } from "@playwright/test";
 // Le serveur de données fictives est le test Go TestE2EFixtureServer, compilé
 // par `make e2e` en .fixture.test : le vrai serveur, sa vraie base, l'horloge
 // figée, rien de réel.
-const address = "127.0.0.1:5199";
+// OPENCLOUD_E2E_ADDR change le port quand un autre chantier occupe déjà celui-ci.
+const address = process.env.OPENCLOUD_E2E_ADDR ?? "127.0.0.1:5199";
 
 export default defineConfig({
   testDir: ".",

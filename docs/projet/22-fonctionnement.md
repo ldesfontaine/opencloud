@@ -961,7 +961,7 @@ alerte ne naît d'un relevé. Un pare-feu n'est lié à aucune machine.
 
 | Acteur | Ce qu'il fait |
 | --- | --- |
-| L'opérateur | Déclare, redéclare, retire (assistant en trois étapes ; retrait par confirmation en ligne). Seul à écrire : les routes d'écriture ne sont pas dans la liste fermée d'un jeton |
+| L'opérateur | Déclare, redéclare, retire (assistant en quatre étapes ; retrait par confirmation en ligne). Seul à écrire : les routes d'écriture ne sont pas dans la liste fermée d'un jeton |
 | `firewall.Service` | Vérifie la paire de clés auprès du pare-feu **avant** d'écrire, journalise, relit toutes les cinq minutes (boucle de `serve`) |
 | Le connecteur | Parle à l'API, en `GET` seulement, et rend un `firewall.Snapshot` indépendant du constructeur |
 | Un agent IA | Lit les cinq `GET` par son jeton, sans clé ni empreinte |
@@ -994,6 +994,23 @@ privilèges sont ceux d'OPNsense, **affichés en anglais même en interface
 française** (ils ne sont pas dans son catalogue de traduction). **Non vérifié sur
 un OPNsense réel** : les formes de réponse viennent de la documentation et des
 sources ; les tests jouent un faux serveur.
+
+**Les gestes dans OPNsense, et d'où viennent leurs chemins.** L'assistant
+construit chaque lien depuis l'origine de l'adresse saisie (hôte et port ; ni
+chemin ni identifiants) et ouvre la page dans un autre onglet. Tout est relevé
+dans les sources d'OPNsense (`opnsense/core`, étiquette `26.1`) :
+
+| Geste | Page | Source |
+| --- | --- | --- |
+| Créer l'utilisateur, lui donner ses privilèges (champs `Username`, `Password`, `Privileges`), générer la clé | `/ui/auth/user` (menu `System ‣ Access ‣ Users`) | `Core/Menu/Menu.xml` ; `Auth/forms/dialogUser.xml` |
+| Générer la clé | Sur la ligne de l'utilisateur, bouton « Create and download API key for this user », puis `Yes` ; le fichier téléchargé s'appelle `<hôte>_<utilisateur>_apikey.txt` et porte `key=` et `secret=` | `views/OPNsense/Auth/user.volt` |
+| Les privilèges | `Lobby: Dashboard`, `Status: Interfaces`, `System: Gateways` | `Core/ACL/ACL.xml` |
+| | `Firewall: Rules [new]` | `Firewall/ACL/ACL.xml` |
+| | `Services: Dnsmasq DNS/DHCP: Settings`, `Services: DHCP: Kea(v4)` | `Dnsmasq/ACL/ACL.xml`, `Kea/ACL/ACL.xml` |
+| | `Services: ISC DHCPv4: Leases` (greffon, menu « ISC DHCPv4 [legacy] ») | dépôt `opnsense/plugins`, `net/isc-dhcp`, branche `master` |
+
+La page des utilisateurs est la seule que les trois gestes demandent : il n'y a
+pas de lien plus précis, la source ne donne pas d'ancre vers l'onglet des clés.
 
 **Le transport.** HTTPS seulement. Sans empreinte, le magasin du système juge le
 certificat ; avec une empreinte SHA-256 (la ligne d'openssl se colle telle
@@ -4430,7 +4447,7 @@ mêmes corps, mêmes refus.
 
 | Adresse | Fond | Fenêtre |
 | --- | --- | --- |
-| `/pare-feu/nouveau` | la liste des pare-feu | Déclarer un pare-feu : trois étapes (l'identité ; l'accès, la paire de clés ; le certificat) puis le récapitulatif |
+| `/pare-feu/nouveau` | la liste des pare-feu | Déclarer un pare-feu : quatre étapes (l'identité et l'adresse ; les gestes à faire dans OPNsense, à cocher, avec leurs liens ; la clé et le secret ; le certificat) puis le récapitulatif |
 | `/pare-feu/{id}/modifier` | la fiche du pare-feu | Le même assistant, ouvert sur le récapitulatif ; le secret se ressaisit |
 | `/sauvegardes/cle` | la page Sauvegardes | Créer ou remplacer la clé : la phrase de passe, deux fois ; remplacer demande confirmation |
 | `/sauvegardes/destinations/nouvelle` | la page Sauvegardes | Ajouter une destination : nom, machine, dossier |
