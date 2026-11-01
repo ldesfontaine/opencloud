@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -76,6 +78,7 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2EVirtualized(t, ts)
 	seedE2EEdge(t, ts)
 	seedE2ESystemd(t, ts)
+	seedE2EProxmox(t, ts)
 }
 
 // seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
@@ -268,5 +271,22 @@ func seedE2ESystemd(t *testing.T, ts *testServer) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// seedE2EProxmox déclare un hôte Proxmox garni sur la machine distante, lu avec
+// un jeton PVEAuditor : les archives ne sont pas lisibles, la fiche dit le droit
+// qui manque, les VM disent « Inconnue ». Son jeton « !complet » (même secret
+// fictif) lit aussi les archives : le parcours s'en sert pour déclarer un second
+// hôte sur la machine openCloud. La VM 5012 porte le nom d'hôte de la machine
+// openCloud : le rapprochement la lie.
+func seedE2EProxmox(t *testing.T, ts *testServer) {
+	t.Helper()
+	wireProxmox(t, ts, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := newFakeProxmox(t)
+	api.rich, api.auditor = true, true
+	api.setGuestName("opencloud-host")
+	if got := putProxmox(ts, remoteID, api.request(pveTokenSecret)); got.Code != http.StatusOK {
+		t.Fatalf("proxmox: %d %s", got.Code, got.Body.String())
 	}
 }

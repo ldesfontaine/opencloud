@@ -1,4 +1,5 @@
-// L'onglet Hyperviseur d'une machine : des cartes empilées, hôte, VM, stockages.
+// L'onglet Hyperviseur d'une machine : l'hôte en bande de faits, puis les
+// stockages et les invités en cartes (EntityCard).
 
 .hypervisor {
   display: flex;
@@ -6,25 +7,67 @@
   gap: 16px;
 }
 
-// La jauge d'un stockage et, dessous, ce qu'elle mesure.
-.storage-usage {
+// Les faits de l'hôte côte à côte : autant par ligne que la largeur en tient.
+.host-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+  gap: 12px 24px;
+
+  div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  dt {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+// Le jeton ne voit pas les archives : le trait de la carte dit l'attention.
+.backup-access {
+  border-color: var(--warn);
+}
+
+.backup-step {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 160px;
 }
 
-// Un nom vient de l'hyperviseur, sans espace parfois : il se coupe où il faut
-// plutôt que de pousser les colonnes hors de la carte.
-.proxmox-name {
-  white-space: normal;
-  overflow-wrap: anywhere;
+// La pastille de sauvegarde et, à côté, ce qu'elle pèse et où elle est.
+.backup-fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
 }
 
-// La ligne sous un invité : la confirmation d'un geste, puis son avancement.
-.guest-gesture > td {
-  background: var(--surface-2);
-  white-space: normal;
+// Les modèles : une pastille chacun, sans geste possible dessus.
+.template-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+// La confirmation d'un geste, puis son avancement, sous les jauges de la carte.
+.guest-gesture {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 
 // La question dit une conséquence : elle prend la largeur qu'il lui faut.

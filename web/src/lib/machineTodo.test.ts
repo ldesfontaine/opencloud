@@ -20,7 +20,7 @@ function agent(over: Partial<Agent> = {}): Agent {
   };
 }
 
-const unrelatedProxmox: Machine["proxmox"] = { declared: false, guests: 0, last_error: "", node: "", cluster: null, guest_list: [], hosted: null };
+const unrelatedProxmox: Machine["proxmox"] = { declared: false, guests: 0, last_error: "", backup_blind: false, node: "", cluster: null, guest_list: [], hosted: null };
 
 function machine(over: Partial<Machine> = {}): Machine {
   return { id: "m", name: "m", agent: agent(), kind: "vm", kind_override: "", role: "generic", roles: [], proxmox: unrelatedProxmox, ...over } as Machine;
@@ -79,4 +79,13 @@ test("une VM d'un hôte déclaré n'est pas un hyperviseur, même si elle a l'ai
 test("un hôte déclaré dont le relevé échoue le dit, un hôte qui lit bien se tait", () => {
   expect(machineTodos(machine({ proxmox: { ...unrelatedProxmox, declared: true, last_error: "proxmox.unauthorized" } }), [], "v0.4.2")).toEqual([{ kind: "proxmox_read_failed", key: "proxmox.unauthorized" }]);
   expect(machineTodos(machine({ proxmox: { ...unrelatedProxmox, declared: true } }), [], "v0.4.2")).toEqual([]);
+});
+
+test("un hôte dont le jeton ne lit pas les sauvegardes le dit, avec ou sans relevé en échec", () => {
+  const blind = { ...unrelatedProxmox, declared: true, backup_blind: true };
+  expect(machineTodos(machine({ proxmox: blind }), [], "v0.4.2")).toEqual([{ kind: "proxmox_backup_blind" }]);
+  expect(machineTodos(machine({ proxmox: { ...blind, last_error: "proxmox.unreachable" } }), [], "v0.4.2")).toEqual([
+    { kind: "proxmox_read_failed", key: "proxmox.unreachable" },
+    { kind: "proxmox_backup_blind" },
+  ]);
 });

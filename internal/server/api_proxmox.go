@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
@@ -34,9 +35,21 @@ type proxmoxHostJSON struct {
 	VerifiedAt  time.Time  `json:"verified_at"`
 	LastReadAt  *time.Time `json:"last_read_at"`
 	LastError   string     `json:"last_error"`
+	// Les stockages dont le jeton n'a pas pu lister les archives faute de droit, et,
+	// dans ce cas, les commandes pveum qui lui donnent le plus petit droit qui y
+	// suffit (null sinon). L'identifiant du jeton y figure en entier : la
+	// commande est faite pour être collée telle quelle ; le secret, lui, ne sort jamais.
+	BlindStorages []string         `json:"backup_blind_storages"`
+	BackupGrant   *backupGrantJSON `json:"backup_grant"`
 	// Les VM et conteneurs par numéro, les stockages par nom.
 	Guests   []proxmoxGuestJSON   `json:"guests"`
 	Storages []proxmoxStorageJSON `json:"storages"`
+}
+
+type backupGrantJSON struct {
+	Privileges []string `json:"privileges"`
+	Role       string   `json:"role"`
+	Commands   []string `json:"commands"`
 }
 
 type proxmoxGuestJSON struct {
@@ -54,6 +67,11 @@ type proxmoxGuestJSON struct {
 	LinkedMachineID *string    `json:"linked_machine_id"`
 	LastBackupAt    *time.Time `json:"last_backup_at"`
 	LastBackupBytes int64      `json:"last_backup_bytes"`
+	// Le stockage où se trouve la plus récente ; vide sans archive.
+	LastBackupStorage string `json:"last_backup_storage"`
+	// Vrai quand last_backup_at est null faute de droit de lecture des archives,
+	// non faute d'archive.
+	BackupUnknown bool `json:"backup_unknown"`
 	// Les instantanés de ce produit que ses ordres ont créés et que nul n'a
 	// supprimés depuis : ce que le menu de l'invité propose de supprimer.
 	OwnSnapshots []string `json:"own_snapshots"`
@@ -76,6 +94,9 @@ type proxmoxSummaryJSON struct {
 	Declared  bool   `json:"declared"`
 	Guests    int    `json:"guests"`
 	LastError string `json:"last_error"`
+	// Vrai quand le jeton ne peut pas lister les archives d'un stockage : le
+	// détail est sur la fiche de l'hôte.
+	BackupBlind bool `json:"backup_blind"`
 	// Le nœud de l'hôte, sa grappe (null pour un nœud seul) et ses invités, dont
 	// ceux qu'aucune machine enrôlée ne porte : vides pour une machine sans hôte.
 	Node      string              `json:"node"`
@@ -116,6 +137,7 @@ type proxmoxHostedJSON struct {
 	MaxDisk         int64      `json:"max_disk"`
 	LastBackupAt    *time.Time `json:"last_backup_at"`
 	LastBackupBytes int64      `json:"last_backup_bytes"`
+	BackupUnknown   bool       `json:"backup_unknown"`
 }
 
 // Le secret arrive ici et nulle part ailleurs : le composant le voit le temps
@@ -136,15 +158,30 @@ func proxmoxViewToJSON(view proxmox.View, runs []action.Run) proxmoxHostJSON {
 		Guests: httpx.ConvertAll(view.Guests, func(guest proxmox.Guest) proxmoxGuestJSON {
 			return proxmoxGuestToJSON(guest, proxmox.OwnSnapshots(runs, guest.VMID))
 		}),
-		Storages: httpx.ConvertAll(view.Storages, proxmoxStorageToJSON),
+		Storages:      httpx.ConvertAll(view.Storages, proxmoxStorageToJSON),
+		BlindStorages: orEmpty(host.BlindStorages),
+		BackupGrant:   backupGrantToJSON(host),
 	}
+}
+
+// backupGrantToJSON écrit les commandes qui donnent au jeton la lecture des
+// archives des stockages qu'il n'a pas pu lister ; null s'il les a tous lus.
+func backupGrantToJSON(host proxmox.Host) *backupGrantJSON {
+	if len(host.BlindStorages) == 0 {
+		return nil
+	}
+	grant := proxmox.GrantFor(host.TokenID, host.BlindStorages)
+	if grant == nil {
+		return nil
+	}
+	return &backupGrantJSON{Privileges: grant.Privileges, Role: grant.Role, Commands: grant.Commands}
 }
 
 func proxmoxGuestToJSON(guest proxmox.Guest, ownSnapshots []string) proxmoxGuestJSON {
 	converted := proxmoxGuestJSON{
 		VMID: guest.VMID, Kind: guest.Kind, Name: guest.Name, Status: guest.Status, Template: guest.Template, Node: guest.Node,
 		CPUs: guest.CPUs, MaxMemory: guest.MaxMem, MaxDisk: guest.MaxDisk,
-		LastBackupAt: httpx.TimeOrNil(guest.LastBackupAt), LastBackupBytes: guest.LastBackupBytes,
+		LastBackupAt: httpx.TimeOrNil(guest.LastBackupAt), LastBackupBytes: guest.LastBackupBytes, LastBackupStorage: guest.LastBackupStorage, BackupUnknown: guest.BackupUnknown,
 		OwnSnapshots: orEmpty(ownSnapshots),
 	}
 	if guest.LinkedMachineID != "" {
@@ -173,7 +210,7 @@ func proxmoxMemberToJSON(guest proxmox.Guest) proxmoxMemberJSON {
 
 func proxmoxSummaryToJSON(summary proxmox.Summary) proxmoxSummaryJSON {
 	converted := proxmoxSummaryJSON{
-		Declared: summary.Declared, Guests: summary.Guests, LastError: summary.LastError, Node: summary.Node,
+		Declared: summary.Declared, Guests: summary.Guests, LastError: summary.LastError, BackupBlind: summary.BackupBlind, Node: summary.Node,
 		GuestList: httpx.ConvertAll(summary.Members, proxmoxMemberToJSON),
 	}
 	if summary.Cluster != nil {
@@ -184,7 +221,7 @@ func proxmoxSummaryToJSON(summary proxmox.Summary) proxmoxSummaryJSON {
 		converted.Hosted = &proxmoxHostedJSON{
 			HostMachineID: hosted.HostMachineID, HostMachineName: hosted.HostName, Node: hosted.Node, VMID: hosted.VMID, Kind: hosted.Kind,
 			Name: hosted.Name, Status: hosted.Status, CPUs: hosted.CPUs, MaxMemory: hosted.MaxMem, MaxDisk: hosted.MaxDisk,
-			LastBackupAt: httpx.TimeOrNil(hosted.LastBackupAt), LastBackupBytes: hosted.LastBackupBytes,
+			LastBackupAt: httpx.TimeOrNil(hosted.LastBackupAt), LastBackupBytes: hosted.LastBackupBytes, BackupUnknown: hosted.BackupUnknown,
 		}
 	}
 	return converted
@@ -265,6 +302,18 @@ func (s *Server) actOnProxmoxGuest(verb proxmox.Verb) http.HandlerFunc {
 		}
 		s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 	}
+}
+
+// refreshMachineProxmox relit l'hôte sans attendre le prochain relevé. Un refus
+// de l'hôte (injoignable, jeton refusé) n'est pas une erreur de cette demande :
+// il est gardé sur la fiche, que la réponse rend.
+func (s *Server) refreshMachineProxmox(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := s.proxmox.Refresh(r.Context(), id)
+	if _, isRefusal := refusal.KeyOf(err); err != nil && !isRefusal && s.proxmoxFailed(w, r, err) {
+		return
+	}
+	s.writeProxmoxView(w, r, http.StatusOK, id)
 }
 
 func (s *Server) removeMachineProxmox(w http.ResponseWriter, r *http.Request) {

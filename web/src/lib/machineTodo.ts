@@ -13,7 +13,8 @@ export type MachineTodo =
   | { kind: "support_ended" }
   | { kind: "kind_unknown"; fix: KindFix }
   | { kind: "proxmox_to_declare"; version: string }
-  | { kind: "proxmox_read_failed"; key: string };
+  | { kind: "proxmox_read_failed"; key: string }
+  | { kind: "proxmox_backup_blind" };
 
 // Ce que la fiche signale, dans l'ordre où l'opérateur doit s'en occuper : sans
 // agent d'abord (rien d'autre ne se lit), puis ce que l'agent ne peut pas faire.
@@ -52,7 +53,14 @@ export function machineTodos(machine: Machine, all: readonly Machine[], serverVe
 function proxmoxTodos(machine: Machine): MachineTodo[] {
   const summary = machine.proxmox;
   if (summary.declared) {
-    return summary.last_error === "" ? [] : [{ kind: "proxmox_read_failed", key: summary.last_error }];
+    const todos: MachineTodo[] = [];
+    if (summary.last_error !== "") {
+      todos.push({ kind: "proxmox_read_failed", key: summary.last_error });
+    }
+    if (summary.backup_blind) {
+      todos.push({ kind: "proxmox_backup_blind" });
+    }
+    return todos;
   }
   const detected = detectedProxmox(machine);
   if (summary.hosted !== null || (detected === null && machine.role !== "proxmox")) {

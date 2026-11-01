@@ -51,11 +51,6 @@ export function storagePercent(storage: Pick<ProxmoxStorage, "used" | "total">):
   return percentOf(storage.used, storage.total);
 }
 
-// Les VM par numéro, les modèles à la suite : l'ordre dans lequel on les cherche.
-export function sortedGuests(guests: ProxmoxGuest[]): ProxmoxGuest[] {
-  return [...guests].sort((a, b) => Number(a.template) - Number(b.template) || a.vmid - b.vmid);
-}
-
 // Les stockages par nœud puis par nom.
 export function sortedStorages(storages: ProxmoxStorage[]): ProxmoxStorage[] {
   return [...storages].sort((a, b) => a.node.localeCompare(b.node) || a.name.localeCompare(b.name));
@@ -66,12 +61,93 @@ export function resourcesLabel(t: Translate, language: string, cpus: number, mem
   return t("machine.proxmox_resources", formatDecimal(language, cpus, Number.isInteger(cpus) ? 0 : 1), formatBytes(t, language, memory));
 }
 
-// Une sauvegarde : « 2026-10-22 03:00 (233 Mio) », ou « Aucune ».
-export function backupLabel(t: Translate, language: string, at: string | null, bytes: number, now: number): string {
-  if (at === null) {
+// Ce que l'on sait de la dernière sauvegarde d'un invité. « unknown » n'est pas
+// « none » : l'hôte n'a pas pu lister les archives faute de droit, il ne dit pas
+// qu'il n'y en a pas.
+interface BackupFacts {
+  at: string | null;
+  bytes: number;
+  unknown: boolean;
+}
+
+// Au-delà de deux jours une sauvegarde de chaque nuit manque une fois ; au-delà
+// d'une semaine, elle est perdue de vue.
+const backupFreshHours = 48;
+const backupStaleHours = 7 * 24;
+
+// Une sauvegarde : « 2026-10-22 03:00 (233 Mio) », « Aucune », ou « Inconnue ».
+export function backupLabel(t: Translate, language: string, facts: BackupFacts, now: number): string {
+  if (facts.unknown) {
+    return t("machine.proxmox_backup_unknown");
+  }
+  if (facts.at === null) {
     return t("machine.proxmox_no_backup");
   }
-  return t("machine.proxmox_backup_value", formatWhen(at, now), formatBytes(t, language, bytes));
+  return t("machine.proxmox_backup_value", formatWhen(facts.at, now), formatBytes(t, language, facts.bytes));
+}
+
+// Le ton de la pastille d'une sauvegarde : récente va, ancienne demande
+// attention, perdue de vue est en danger ; aucune demande attention ; inconnue
+// reste neutre (DA : un état inconnu ne se dessine ni en vert ni en rouge).
+export function backupTone(facts: BackupFacts, now: number): Tone {
+  if (facts.unknown) {
+    return "neutral";
+  }
+  if (facts.at === null) {
+    return "warn";
+  }
+  const hours = (now - Date.parse(facts.at)) / 3_600_000;
+  if (hours <= backupFreshHours) {
+    return "ok";
+  }
+  return hours <= backupStaleHours ? "warn" : "danger";
+}
+
+// Les invités rangés comme on les cherche : ceux qui tournent (ou en pause),
+// ceux qui sont arrêtés, puis les modèles à part. Chaque rangée garde l'ordre
+// des numéros.
+interface GuestGroups {
+  live: ProxmoxGuest[];
+  stopped: ProxmoxGuest[];
+  templates: ProxmoxGuest[];
+}
+
+export function groupGuests(guests: ProxmoxGuest[]): GuestGroups {
+  const sorted = [...guests].sort((a, b) => a.vmid - b.vmid);
+  return {
+    templates: sorted.filter((guest) => guest.template),
+    stopped: sorted.filter((guest) => !guest.template && guest.status === "stopped"),
+    live: sorted.filter((guest) => !guest.template && guest.status !== "stopped"),
+  };
+}
+
+// Ce qu'une VM alloue, en part de la plus grosse de l'hôte : l'hôte ne dit pas
+// ce que la VM consomme, ni la capacité de son nœud, seulement ce qu'il lui a
+// alloué. La jauge compare les VM entre elles, elle ne mesure pas une charge.
+interface AllocationShares {
+  cpus: number;
+  memory: number;
+  disk: number;
+}
+
+export function allocationShares(guest: ProxmoxGuest, among: readonly ProxmoxGuest[]): AllocationShares {
+  const peers = among.filter((peer) => !peer.template);
+  const share = (value: number, pick: (peer: ProxmoxGuest) => number) => percentOf(value, Math.max(...peers.map(pick), 0));
+  return {
+    cpus: share(guest.cpus, (peer) => peer.cpus),
+    memory: share(guest.max_memory, (peer) => peer.max_memory),
+    disk: share(guest.max_disk, (peer) => peer.max_disk),
+  };
+}
+
+// Un stockage reçoit-il les sauvegardes, et le jeton les voit-il ?
+type StorageBackupState = "none" | "readable" | "blind";
+
+export function storageBackupState(storage: ProxmoxStorage, blind: readonly string[]): StorageBackupState {
+  if (!storage.content.includes("backup")) {
+    return "none";
+  }
+  return blind.includes(storage.name) ? "blind" : "readable";
 }
 
 // Le port de l'API d'un hôte Proxmox VE.

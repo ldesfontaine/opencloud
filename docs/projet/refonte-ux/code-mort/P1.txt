@@ -1,0 +1,11 @@
+# P1 : code mort avant / après (#459)
+
+Avant = ec0f4e8 (dev), après = fin de la branche orca/v052-p1.
+
+`deadcode -test ./...` avant : 0 ; après : 0.
+`npx knip@5.88.1 --reporter compact` (web/, node_modules installés) avant (dev) : 4 fichiers (public/theme.js, src/statut/*), 1 export (`isMaintenance`), 3 types (`TextPart`, `AvailabilityTab`, `MachinesTab`) ; après : les mêmes (les 3 fichiers de dist/ ne comptent qu'après `make front`). Une première version de ce rapport disait « 10 types » : c'était un `npx knip` sans version, et elle laissait passer 3 types exportés sans usage de `lib/proxmox.ts` (`AllocationShares`, `GuestGroups`, `StorageBackupState`), qui ne sont plus exportés.
+
+Supprimé dans ce chantier
+- Front : l'export des types `AllocationShares`, `GuestGroups` et `StorageBackupState` (ils servent dans `lib/proxmox.ts` seulement) ; `sortedGuests` (remplacé par `groupGuests`), le tableau des invités (`GuestRow`, `guestColumns`), le tableau des stockages (`StorageRow`, `.storage-usage`), l'ancienne signature de `backupLabel` (cinq arguments), les imports `Table`, `Subject`, `KeyValue`, `Meter` de `MachineHypervisor`, et le test de `sortedGuests`.
+- Catalogues (fr et en) : `machine.proxmox_col_name|kind|state|cpus|memory|storage|usage` et `machine.proxmox_template`.
+- Go : l'encodage des stockages illisibles dans `machine_proxmox.last_error` (essayé puis retiré avant fusion : `splitErrorNotes`, `joinErrorNotes`, `blindMark`, `blindSeparator`, `blindAnyInError`, le `CASE` de `NoteProxmoxFailure`, `Reading.BlindStorages`) ; remplacé par la colonne `proxmox_storages.backups_unreadable` (migration 035) et `proxmox.BlindStorages(storages)`.

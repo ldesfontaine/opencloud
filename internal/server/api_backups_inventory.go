@@ -34,6 +34,9 @@ type backupSourceJSON struct {
 	// Ce que les stockages de Proxmox gardent d'elle, hors des plans
 	// d'openCloud ; null sinon.
 	Observed *backupObservedJSON `json:"observed"`
+	// Vrai quand observed est null faute de droit de lecture sur les stockages
+	// de l'hôte, non faute d'archive : l'écran dit « inconnue », jamais « aucune ».
+	ObservedUnknown bool `json:"observed_unknown"`
 	// La dernière exécution d'un plan d'openCloud sur la source, et la dernière
 	// réussie ; null tant qu'aucune n'a eu lieu.
 	LastRun *backupRunJSON `json:"last_run"`
@@ -114,7 +117,7 @@ func optionalBackupRun(record *backup.RunRecord) *backupRunJSON {
 func backupSourceToJSON(source backup.Source) backupSourceJSON {
 	out := backupSourceJSON{
 		Key: source.Key, Kind: source.Kind, Name: source.Name, MachineID: source.MachineID, MachineName: source.MachineName,
-		ID: source.ID, Driver: source.Driver, UsedBy: orEmpty(source.UsedBy), LastRun: optionalBackupRun(source.LastRun),
+		ID: source.ID, Driver: source.Driver, ObservedUnknown: source.ObservedUnknown, UsedBy: orEmpty(source.UsedBy), LastRun: optionalBackupRun(source.LastRun),
 		LastOK: optionalBackupRun(source.LastOK),
 		CoveredBy: orEmpty(httpx.ConvertAll(source.CoveredBy, func(coverage backup.Coverage) backupCoverageJSON {
 			return backupCoverageJSON(coverage)

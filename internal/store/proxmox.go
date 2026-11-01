@@ -22,6 +22,11 @@ var (
 // nom de contenu de Proxmox n'en contient.
 const contentSeparator = ","
 
+// blindStorageExists dit, pour une ligne de proxmox_guests aliasée « g », que l'hôte
+// a un stockage dont le jeton ne lit pas les archives : sans archive connue, la
+// VM n'est pas « sans sauvegarde », on ne sait pas.
+const blindStorageExists = `EXISTS (SELECT 1 FROM proxmox_storages s WHERE s.machine_id = g.machine_id AND s.backups_unreadable = 1)`
+
 const proxmoxHostColumns = `machine_id, api_url, token_id, token_secret, pin, node, version, verified_at, last_read_at, last_error, created_at`
 
 // scanProxmoxHost lit l'hôte et son secret tel que la base le garde, scellé.
@@ -202,10 +207,10 @@ func insertProxmoxGuest(ctx context.Context, tx *sql.Tx, machineID string, guest
 
 func insertProxmoxStorage(ctx context.Context, tx *sql.Tx, machineID string, storage proxmox.Storage) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO proxmox_storages (machine_id, node, storage, type, total, used, avail, content, active)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO proxmox_storages (machine_id, node, storage, type, total, used, avail, content, active, backups_unreadable)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		machineID, storage.Node, storage.Name, storage.Type, storage.Total, storage.Used, storage.Avail,
-		strings.Join(storage.Content, contentSeparator), storage.Active)
+		strings.Join(storage.Content, contentSeparator), storage.Active, storage.BackupsUnreadable)
 	if err != nil {
 		return fmt.Errorf("insert proxmox storage %s: %w", storage.Name, err)
 	}
@@ -213,7 +218,8 @@ func insertProxmoxStorage(ctx context.Context, tx *sql.Tx, machineID string, sto
 }
 
 const proxmoxGuestColumns = `g.vmid, g.kind, g.name, g.status, g.template, g.cpus, g.maxmem, g.maxdisk, g.node,
-	g.linked_machine_id, g.last_backup_at, g.last_backup_bytes, g.last_backup_storage, g.backup_count, g.backup_total_bytes`
+	g.linked_machine_id, g.last_backup_at, g.last_backup_bytes, g.last_backup_storage, g.backup_count, g.backup_total_bytes,
+	(g.backup_count = 0 AND ` + blindStorageExists + `)`
 
 // guestRow lit les colonnes de proxmoxGuestColumns ; une requête qui en ajoute
 // d'autres les scanne après destinations().
@@ -227,7 +233,7 @@ func (row *guestRow) destinations() []any {
 	guest := &row.guest
 	return []any{&guest.VMID, &guest.Kind, &guest.Name, &guest.Status, &guest.Template, &guest.CPUs, &guest.MaxMem,
 		&guest.MaxDisk, &guest.Node, &row.linked, &row.lastBackupAt, &guest.LastBackupBytes, &guest.LastBackupStorage,
-		&guest.BackupCount, &guest.BackupTotalBytes}
+		&guest.BackupCount, &guest.BackupTotalBytes, &guest.BackupUnknown}
 }
 
 func (row *guestRow) result() proxmox.Guest {
@@ -266,7 +272,7 @@ func (db *DB) GetProxmoxView(ctx context.Context, machineID string) (proxmox.Vie
 		return proxmox.View{}, fmt.Errorf("scan proxmox guests: %w", err)
 	}
 	rows, err = db.sql.QueryContext(ctx, `
-		SELECT node, storage, type, total, used, avail, content, active
+		SELECT node, storage, type, total, used, avail, content, active, backups_unreadable
 		FROM proxmox_storages WHERE machine_id = ? ORDER BY storage, node`, machineID)
 	if err != nil {
 		return proxmox.View{}, fmt.Errorf("list proxmox storages: %w", err)
@@ -275,6 +281,7 @@ func (db *DB) GetProxmoxView(ctx context.Context, machineID string) (proxmox.Vie
 	if err != nil {
 		return proxmox.View{}, fmt.Errorf("scan proxmox storages: %w", err)
 	}
+	host.BlindStorages = proxmox.BlindStorages(storages)
 	return proxmox.View{Host: host, Guests: guests, Storages: storages}, nil
 }
 
@@ -297,7 +304,7 @@ func (db *DB) ListProxmoxGuestIDs(ctx context.Context, machineID string) ([]int,
 func scanProxmoxStorage(row scanner) (proxmox.Storage, error) {
 	var storage proxmox.Storage
 	var content string
-	err := row.Scan(&storage.Node, &storage.Name, &storage.Type, &storage.Total, &storage.Used, &storage.Avail, &content, &storage.Active)
+	err := row.Scan(&storage.Node, &storage.Name, &storage.Type, &storage.Total, &storage.Used, &storage.Avail, &content, &storage.Active, &storage.BackupsUnreadable)
 	storage.Content = []string{}
 	if content != "" {
 		storage.Content = strings.Split(content, contentSeparator)
@@ -322,7 +329,8 @@ func (db *DB) ProxmoxSummaries(ctx context.Context) (map[string]proxmox.Summary,
 
 func (db *DB) readDeclaredHosts(ctx context.Context, into map[string]proxmox.Summary) error {
 	rows, err := db.sql.QueryContext(ctx, `
-		SELECT h.machine_id, h.last_error, h.node, c.id, c.name, COUNT(g.vmid)
+		SELECT h.machine_id, h.last_error, h.node, c.id, c.name, COUNT(g.vmid),
+			EXISTS (SELECT 1 FROM proxmox_storages s WHERE s.machine_id = h.machine_id AND s.backups_unreadable = 1)
 		FROM machine_proxmox h
 		LEFT JOIN proxmox_guests g ON g.machine_id = h.machine_id
 		LEFT JOIN hypervisor_clusters c ON c.id = h.cluster_id
@@ -337,7 +345,7 @@ func (db *DB) readDeclaredHosts(ctx context.Context, into map[string]proxmox.Sum
 	hosts, err := collect(rows, func(row scanner) (declared, error) {
 		host := declared{summary: proxmox.Summary{Declared: true, Members: []proxmox.Guest{}}}
 		var clusterID, clusterName sql.NullString
-		err := row.Scan(&host.machineID, &host.summary.LastError, &host.summary.Node, &clusterID, &clusterName, &host.summary.Guests)
+		err := row.Scan(&host.machineID, &host.summary.LastError, &host.summary.Node, &clusterID, &clusterName, &host.summary.Guests, &host.summary.BackupBlind)
 		if clusterID.Valid {
 			host.summary.Cluster = &proxmox.Cluster{ID: clusterID.String, Name: clusterName.String}
 		}

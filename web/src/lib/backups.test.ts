@@ -214,6 +214,8 @@ describe("the choice of virtual machines", () => {
     linked_machine_id: null,
     last_backup_at: null,
     last_backup_bytes: 0,
+    last_backup_storage: "",
+    backup_unknown: false,
     own_snapshots: [],
   });
 
@@ -262,6 +264,7 @@ const source = (overrides: Partial<BackupSource>): BackupSource => ({
   used_by: [],
   covered_by: [],
   observed: null,
+  observed_unknown: false,
   last_run: null,
   last_ok: null,
   ...overrides,
@@ -274,6 +277,9 @@ describe("inventory protection", () => {
   it("tells apart a source nothing saves, one only Proxmox keeps, and one a plan covers", () => {
     expect(protectionOf(source({}))).toBe("none");
     expect(protectionOf(source({ observed }))).toBe("observed");
+    // Le jeton ne lit pas les archives : on ne sait pas, ce n'est pas « aucune ».
+    expect(protectionOf(source({ observed_unknown: true }))).toBe("unknown");
+    expect(protectionOf(source({ observed_unknown: true, covered_by: [coverage] }))).toBe("covered");
     expect(protectionOf(source({ observed, covered_by: [coverage] }))).toBe("covered");
   });
 

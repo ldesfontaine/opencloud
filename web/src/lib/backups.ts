@@ -216,13 +216,16 @@ export function planRequestOf(values: PlanFormValues, destination: string): { su
 // À quel point une source est protégée : rien ne la sauvegarde, Proxmox seul en
 // garde des archives, ou un plan du serveur la couvre. L'inventaire montre
 // d'abord celles dont rien ne répond.
-type Protection = "none" | "observed" | "covered";
+type Protection = "none" | "unknown" | "observed" | "covered";
 
 export function protectionOf(source: BackupSource): Protection {
   if (source.covered_by.length > 0) {
     return "covered";
   }
-  return source.observed === null ? "none" : "observed";
+  if (source.observed !== null) {
+    return "observed";
+  }
+  return source.observed_unknown ? "unknown" : "none";
 }
 
 // La dernière sauvegarde d'une source : la plus récente entre la dernière

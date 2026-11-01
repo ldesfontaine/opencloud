@@ -169,3 +169,33 @@ func TestInventory_TargetsAndLastRuns(t *testing.T) {
 		t.Fatalf("a source no plan ran has no last run: %+v", other.LastRun)
 	}
 }
+
+// Quand le jeton de l'hôte ne lit pas les archives d'un stockage, une VM sans
+// archive connue n'est pas « sans sauvegarde » : elle est « inconnue », et
+// celle dont une archive est connue reste ce qu'elle est.
+func TestInventory_AGuestWithoutKnownArchiveIsUnknownWhenTheTokenIsBlind(t *testing.T) {
+	b := newBench(t, rights)
+	b.readyAgent("100", 5)
+	b.seedHost()
+	reading := proxmox.Reading{
+		Version: "8.2.5", Node: "pve",
+		Storages: []proxmox.Storage{{Node: "pve", Name: "nfs", Type: "nfs", Content: []string{"backup"}, Active: true, BackupsUnreadable: true}},
+		Guests: []proxmox.Guest{
+			{VMID: 100, Kind: proxmox.KindQEMU, Name: "web", Node: "pve", LastBackupAt: benchNow, LastBackupStorage: "local", BackupCount: 1},
+			{VMID: 101, Kind: proxmox.KindLXC, Name: "dns", Node: "pve"},
+		},
+	}
+	if err := b.db.ReplaceProxmoxReading(context.Background(), sourceID, reading, benchNow); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := b.backups.Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if web := sourceByKey(t, inventory, backup.GuestSourceKey(sourceID, 100)); web.ObservedUnknown || web.Observed == nil {
+		t.Errorf("an archive that is known stays known: %+v", web)
+	}
+	if dns := sourceByKey(t, inventory, backup.GuestSourceKey(sourceID, 101)); !dns.ObservedUnknown || dns.Observed != nil {
+		t.Errorf("no archive could be read: unknown, not none: %+v", dns)
+	}
+}

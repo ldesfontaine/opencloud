@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -67,6 +69,10 @@ func (api *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			{"type":"storage","id":"storage/pve/local","storage":"local","node":"pve","plugintype":"dir","status":"available","content":"iso,backup,vztmpl","maxdisk":1000,"disk":400},
 			{"type":"storage","id":"storage/pve/nfs","storage":"nfs","node":"pve","plugintype":"nfs","status":"unknown","content":"backup","maxdisk":0,"disk":0},
 			{"type":"storage","id":"storage/pve/zfs","storage":"zfs","node":"pve","plugintype":"zfspool","status":"available","content":"images,rootdir","maxdisk":500,"disk":500}]}`
+	case r.URL.Path == "/api2/json/access/permissions":
+		// Par défaut, un jeton qui voit toutes les archives.
+		path := r.URL.Query().Get("path")
+		body = fmt.Sprintf(`{"data":{%q:{"Datastore.Audit":1,"Datastore.Allocate":1}}}`, path)
 	case r.URL.Path == "/api2/json/nodes/pve/storage/local/content" && r.URL.Query().Get("content") == "backup":
 		body = `{"data":[
 			{"vmid":5012,"ctime":1790000000,"size":100,"volid":"local:backup/old"},
@@ -356,5 +362,128 @@ func TestClient_NeverReachesTheLinkLocal(t *testing.T) {
 	refusalOf(t, err, ErrUnreachable)
 	if !errors.Is(err, egress.ErrForbiddenAddress) {
 		t.Fatalf("the egress guard did not refuse: %v", err)
+	}
+}
+
+// permissionsAs rend un handler qui répond aux droits du jeton comme un
+// PVEAuditor ou le rôle donné, par chemin.
+func permissionsAs(grants map[string][]string) func(w http.ResponseWriter, r *http.Request) bool {
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api2/json/access/permissions" {
+			return false
+		}
+		path := r.URL.Query().Get("path")
+		privileges := map[string]int{}
+		for _, privilege := range grants[path] {
+			privileges[privilege] = 1
+		}
+		if len(privileges) == 0 {
+			_, _ = w.Write([]byte(`{"data":{}}`))
+			return true
+		}
+		_, _ = fmt.Fprintf(w, `{"data":{%q:%s}}`, path, mustJSON(privileges))
+		return true
+	}
+}
+
+func mustJSON(value any) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
+}
+
+// La cause du « Aucune » : avec PVEAuditor, Proxmox répond 200 et une liste
+// vide. Le relevé ne la lit pas : il nomme le stockage illisible.
+func TestClient_AnAuditorTokenCannotListTheArchives(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handler = permissionsAs(map[string][]string{"/storage/local": {PrivilegeAudit}})
+	reading, err := NewClient(api.credentials(api.pin())).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(BlindStorages(reading.Storages), []string{"local"}) {
+		t.Fatalf("blind storages: %v", BlindStorages(reading.Storages))
+	}
+	for _, path := range api.requested() {
+		if strings.Contains(path, "/storage/local/content") {
+			t.Errorf("a list the token cannot read must not be asked for: %s", path)
+		}
+	}
+	if !reading.Guests[0].LastBackupAt.IsZero() {
+		t.Errorf("no backup can be claimed: %+v", reading.Guests[0])
+	}
+}
+
+func TestClient_AllocateSpaceNeedsVMBackupToo(t *testing.T) {
+	cases := map[string]struct {
+		grants map[string][]string
+		blind  bool
+	}{
+		"allocate on the storage":     {map[string][]string{"/storage/local": {PrivilegeAllocate}}, false},
+		"space and backup on the vms": {map[string][]string{"/storage/local": {privilegeAllocateSpace}, "/vms": {privilegeVMBackup}}, false},
+		"space alone":                 {map[string][]string{"/storage/local": {privilegeAllocateSpace}}, true},
+		"backup alone":                {map[string][]string{"/vms": {privilegeVMBackup}}, true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			api := newFakeAPI(t)
+			api.handler = permissionsAs(tc.grants)
+			reading, err := NewClient(api.credentials(api.pin())).Read(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if blind := len(BlindStorages(reading.Storages)) > 0; blind != tc.blind {
+				t.Errorf("blind %v, want %v (%v)", blind, tc.blind, BlindStorages(reading.Storages))
+			}
+		})
+	}
+}
+
+// Un jeton qui ne sait pas dire ses droits fait échouer le relevé : une
+// lecture qui échoue n'est jamais une absence.
+func TestClient_APermissionsFailureFailsTheReading(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handler = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path == "/api2/json/access/permissions" {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return true
+		}
+		return false
+	}
+	_, err := NewClient(api.credentials(api.pin())).Read(context.Background())
+	refusalOf(t, err, ErrBadResponse)
+}
+
+func TestGrantFor_WritesTheSmallestCommandsOnTheStorageOnly(t *testing.T) {
+	grant := GrantFor("opencloud@pve!lecture", []string{"pi-sauvegardes", "nas.2"})
+	want := []string{
+		`pveum role add LectureSauvegardes --privs "Datastore.Audit Datastore.Allocate"`,
+		`pveum acl modify /storage/pi-sauvegardes --roles LectureSauvegardes --tokens 'opencloud@pve!lecture'`,
+		`pveum acl modify /storage/nas.2 --roles LectureSauvegardes --tokens 'opencloud@pve!lecture'`,
+	}
+	if grant == nil || !slices.Equal(grant.Commands, want) {
+		t.Fatalf("commands: %+v", grant)
+	}
+	for _, command := range grant.Commands {
+		if strings.Contains(command, " / ") || strings.Contains(command, "acl modify / ") {
+			t.Errorf("a grant must never be on the root: %s", command)
+		}
+	}
+}
+
+// Ce qui ne ressemble pas à un identifiant Proxmox ne s'écrit jamais dans une
+// commande à coller.
+func TestGrantFor_DropsWhatCouldInjectIntoAShell(t *testing.T) {
+	if grant := GrantFor("opencloud@pve!lecture", []string{"a; rm -rf /", "$(id)", "x'y"}); grant != nil {
+		t.Errorf("hostile storages gave %+v", grant)
+	}
+	if grant := GrantFor("a@b!c'; id; '", []string{"local"}); grant != nil {
+		t.Errorf("hostile token gave %+v", grant)
+	}
+	grant := GrantFor("opencloud@pve!lecture", []string{"local", "bad name"})
+	if grant == nil || len(grant.Commands) != 2 {
+		t.Errorf("only the valid storage must remain: %+v", grant)
 	}
 }

@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import type { Agent, Machine } from "../api/machines";
 import { kindFix } from "./machineKind";
 
-const noProxmox: Machine["proxmox"] = { declared: false, guests: 0, last_error: "", node: "", cluster: null, guest_list: [], hosted: null };
+const noProxmox: Machine["proxmox"] = { declared: false, guests: 0, last_error: "", backup_blind: false, node: "", cluster: null, guest_list: [], hosted: null };
 
 function machine(over: Partial<Machine> = {}): Machine {
   const agent = { version: "v0.5.0", revoked_at: null } as Agent;
