@@ -19,8 +19,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense/opnsensetest"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 )
 
 // e2eAddrEnv porte l'adresse d'écoute du serveur du parcours navigateur
