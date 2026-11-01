@@ -1,0 +1,55 @@
+{"dropdown":{"where":"Première configuration","label":"Identifiant et mot de passe","options":2,"covered":0,"outside":0}}
+{"task":"T1 Premier lancement","seconds":"3.8","clicks":2,"backs":0,"guesses":[],"prose":[{"label":"compte","long":1,"longest":29,"dead":[]},{"label":"agent de la machine","long":2,"longest":47,"dead":["fiche de la machine › Ré-enrôler, ou Ajouter une machine, joué"]},{"label":"vue d'ensemble","long":0,"longest":0,"dead":[]}]}
+{"dropdown":{"where":"Nouvelle machine","label":"Machine générique","options":3,"covered":0,"outside":0}}
+{"task":"T2 Ajouter une machine","seconds":"4.4","clicks":8,"backs":0,"guesses":[],"prose":[{"label":"nommer","long":0,"longest":0,"dead":[]},{"label":"installer","long":2,"longest":53,"dead":[]}]}
+{"task":"T3 Voir les conteneurs d'une machine","seconds":"2.9","clicks":4,"backs":1,"guesses":["la tuile « Conteneurs » ne mène nulle part"],"prose":[{"label":"conteneurs","long":0,"longest":0,"dead":[]}]}
+{"task":"T4a Déclarer un service (proposition à accepter)","seconds":"2.6","clicks":2,"backs":0,"guesses":["pastille du menu : « Services 6 » — compte des conteneurs proposés, pas des services"],"prose":[{"label":"propositions","long":1,"longest":29,"dead":[]},{"label":"après acceptation","long":0,"longest":0,"dead":[]}]}
+{"dropdown":{"where":"Déclarer un service · identité","label":"orca VPS","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"Déclarer un service · identité","label":"Application","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"Déclarer un service · identité","label":"Conteneur seul","options":3,"covered":0,"outside":0}}
+{"task":"T4 Déclarer un service (formulaire)","seconds":"5.5","clicks":7,"backs":0,"guesses":["l'image et le nom du conteneur sont à retaper : openCloud les connaît déjà (conteneur grafana-solo observé)"],"prose":[{"label":"identité","long":0,"longest":0,"dead":[]},{"label":"unités","long":0,"longest":0,"dead":[]},{"label":"projets","long":0,"longest":0,"dead":[]},{"label":"récapitulatif","long":0,"longest":0,"dead":[]}]}
+{"dropdown":{"where":"Nouvelle sonde","label":"HTTP","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"Nouvelle sonde","label":"orca VPS","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"Nouvelle sonde","label":"Aucun","options":2,"covered":0,"outside":0}}
+{"task":"T5 Surveiller un site (Disponibilité)","seconds":"6.5","clicks":4,"backs":0,"guesses":["« Disponibilité » n'est pas dans le menu avant d'avoir créé une sonde : seule la carte « À configurer » y mène"],"prose":[{"label":"cible","long":0,"longest":0,"dead":[]},{"label":"rythme","long":0,"longest":0,"dead":[]},{"label":"résultat","long":1,"longest":27,"dead":[]}]}
+{"dropdown":{"where":"Nouvelle tâche","label":"Aucune","options":3,"covered":0,"outside":0}}
+{"task":"T6 Tâche planifiée","seconds":"3.9","clicks":3,"backs":0,"guesses":[],"prose":[{"label":"tâche","long":0,"longest":0,"dead":[]},{"label":"ping","long":0,"longest":0,"dead":[]}]}
+{"dropdown":{"where":"Nouveau canal","label":"JSON openCloud","options":6,"covered":0,"outside":0}}
+{"task":"T7 Canal de notification et alerte","seconds":"5.0","clicks":6,"backs":1,"guesses":["la doc dit « Alertes → Canaux » ; le canal se crée sous Paramètres → Notifications"],"prose":[{"label":"alertes vide","long":0,"longest":0,"dead":[]},{"label":"canal destination","long":2,"longest":40,"dead":[]},{"label":"canal envoi","long":2,"longest":34,"dead":[]},{"label":"canal créé","long":8,"longest":63,"dead":[]}]}
+{"dropdown":{"where":"Ajouter un plan","label":"La base de openCloud","options":2,"covered":0,"outside":0}}
+{"task":"T8 Plan de sauvegarde","seconds":"6.8","clicks":7,"backs":1,"guesses":["le plan demande une destination et une clé qui n'existent pas encore : retour à la page"],"prose":[{"label":"page","long":3,"longest":36,"dead":[]},{"label":"plan destination","long":0,"longest":0,"dead":[]},{"label":"destination","long":0,"longest":0,"dead":[]}]}
+{"dropdown":{"where":"Déclarer un pare-feu","label":"OPNsense","options":1,"covered":0,"outside":0}}
+{"task":"T9 Pare-feu OPNsense (jusqu'à l'étape clé)","seconds":"2.2","clicks":2,"backs":0,"guesses":["« Pare-feu » n'est pas dans le menu : seule la carte « À configurer » y mène"],"prose":[{"label":"page","long":0,"longest":0,"dead":[]},{"label":"accès","long":3,"longest":39,"dead":[]}]}
+{"task":"T10 Accès SSH","seconds":"1.7","clicks":2,"backs":0,"guesses":[],"prose":[{"label":"accès ssh","long":1,"longest":27,"dead":[]}]}
+{"dropdown":{"where":"Journal","label":"Genre d'acteur","options":7,"covered":0,"outside":0}}
+{"task":"T11 Journal","seconds":"2.1","clicks":2,"backs":0,"guesses":[],"prose":[{"label":"journal","long":2,"longest":34,"dead":["Alertes › Canaux"]},{"label":"détail journal","long":2,"longest":34,"dead":["Alertes › Canaux"]}]}
+{"dropdown":{"where":"Paramètres","label":"STARTTLS (recommandé)","options":3,"covered":0,"outside":0}}
+{"dropdown":{"where":"Paramètres","label":"Lecture","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"Paramètres","label":"90 jours","options":4,"covered":0,"outside":0}}
+{"task":"T12 Paramètres","seconds":"2.5","clicks":1,"backs":0,"guesses":[],"prose":[{"label":"paramètres","long":8,"longest":63,"dead":[]}]}
+{"task":"T13 Mettre à jour un agent","seconds":"2.6","clicks":3,"backs":0,"guesses":[],"prose":[{"label":"agent","long":4,"longest":45,"dead":[]}]}
+{"dropdown":{"where":"/machines/local","label":"Machine","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"/machines/local","label":"Rôle","options":3,"covered":0,"outside":0}}
+{"dropdown":{"where":"/services","label":"Machine","options":3,"covered":0,"outside":0}}
+{"dropdown":{"where":"/services","label":"Projets","options":1,"covered":0,"outside":0}}
+{"dropdown":{"where":"/journal","label":"Genre d'acteur","options":7,"covered":0,"outside":0}}
+{"dropdown":{"where":"/parametres","label":"STARTTLS (recommandé)","options":3,"covered":0,"outside":0}}
+{"dropdown":{"where":"/parametres","label":"Lecture","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"/parametres","label":"90 jours","options":4,"covered":0,"outside":0}}
+{"task":"SWEEP menus déroulants hors parcours","seconds":"20.2","clicks":0,"backs":0,"guesses":[],"prose":[]}
+{"task":"T7b Lire l'alerte ouverte","seconds":"2.0","clicks":2,"backs":0,"guesses":[],"prose":[{"label":"alertes ouvertes","long":0,"longest":0,"dead":[]},{"label":"détail alerte","long":0,"longest":0,"dead":[]}]}
+{"dropdown":{"where":"/machines/local · « Corriger »","label":"Déduit automatiquement","options":6,"covered":0,"outside":0}}
+{"dropdown":{"where":"/machines/local · « Corriger »","label":"Aucun hôte désigné","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"/alertes · « Faire taire »","label":"Sonde hors ligne","options":13,"covered":4,"outside":3}}
+{"dropdown":{"where":"/alertes · « Faire taire »","label":"Une sonde","options":5,"covered":0,"outside":0}}
+{"dropdown":{"where":"/alertes · « Faire taire »","label":"site demo-shop · orca","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"/parametres · « Ajouter un silence »","label":"Tous les types","options":13,"covered":4,"outside":4}}
+{"dropdown":{"where":"/parametres · « Ajouter un silence »","label":"Tout objet","options":5,"covered":0,"outside":0}}
+{"dropdown":{"where":"/parametres · « Créer un jeton »","label":"STARTTLS (recommandé)","options":3,"covered":0,"outside":0}}
+{"dropdown":{"where":"/parametres · « Créer un jeton »","label":"Lecture","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"/parametres · « Créer un jeton »","label":"90 jours","options":4,"covered":0,"outside":0}}
+{"dropdown":{"where":"/sauvegardes · « Ajouter la destination »","label":"Choisir une machine","options":3,"covered":0,"outside":0}}
+{"dropdown":{"where":"/services · « Modifier avant d'accepter »","label":"vps-lyon VPS","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"/services · « Modifier avant d'accepter »","label":"Application","options":2,"covered":0,"outside":0}}
+{"dropdown":{"where":"/services · « Modifier avant d'accepter »","label":"Conteneur seul","options":3,"covered":0,"outside":0}}
+{"dropdown":{"where":"/machines · « Ajouter une machine »","label":"Machine générique","options":3,"covered":0,"outside":0}}
