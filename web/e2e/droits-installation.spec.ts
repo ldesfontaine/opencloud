@@ -141,6 +141,7 @@ test("Sonde : une machine sans agent est grisée dans le sélecteur", async ({ p
   findings.where = "/disponibilite/nouvelle";
   await page.goto("/disponibilite/nouvelle");
   const dialog = page.locator("dialog[open]");
+  await dialog.locator("details.fold > summary").first().click();
   await dialog.locator("#probe-machine").click();
   const list = page.locator("[role=listbox]").last();
   await expect(list.locator("[role=option]").first()).toBeVisible();
