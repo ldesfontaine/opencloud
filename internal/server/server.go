@@ -310,6 +310,8 @@ type SystemdUnitsService interface {
 type ProxmoxService interface {
 	Declare(ctx context.Context, machineID string, definition proxmox.Definition) error
 	Remove(ctx context.Context, machineID string) error
+	// Refresh relit l'hôte tout de suite ; un refus de l'hôte se garde sur sa fiche.
+	Refresh(ctx context.Context, machineID string) error
 	// Act envoie à l'agent de l'hôte le geste sur un invité (démarrer, arrêter,
 	// instantané) et rend l'ordre écrit.
 	Act(ctx context.Context, machineID string, vmid int, verb proxmox.Verb, snapshot string) (action.Run, error)

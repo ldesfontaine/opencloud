@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
@@ -299,6 +300,18 @@ func (s *Server) actOnProxmoxGuest(verb proxmox.Verb) http.HandlerFunc {
 		}
 		s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 	}
+}
+
+// refreshMachineProxmox relit l'hôte sans attendre le prochain relevé. Un refus
+// de l'hôte (injoignable, jeton refusé) n'est pas une erreur de cette demande :
+// il est gardé sur la fiche, que la réponse rend.
+func (s *Server) refreshMachineProxmox(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := s.proxmox.Refresh(r.Context(), id)
+	if _, isRefusal := refusal.KeyOf(err); err != nil && !isRefusal && s.proxmoxFailed(w, r, err) {
+		return
+	}
+	s.writeProxmoxView(w, r, http.StatusOK, id)
 }
 
 func (s *Server) removeMachineProxmox(w http.ResponseWriter, r *http.Request) {

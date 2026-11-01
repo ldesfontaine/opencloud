@@ -480,3 +480,28 @@ func TestProxmox_AnAuditorTokenIsToldItCannotSeeTheArchives(t *testing.T) {
 		}
 	}
 }
+
+// « Relire maintenant » : la nouvelle lecture est rendue avec la fiche, un hôte
+// qui refuse n'est pas une erreur de la demande, et la route est fermée aux jetons.
+func TestProxmox_RefreshNowReadsAgainAndKeepsARefusalOnTheCard(t *testing.T) {
+	server, api, _ := proxmoxBench(t)
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+pveID+"/actions/refresh-proxmox", nil); got.Code != http.StatusNotFound {
+		t.Fatalf("an undeclared host: %d", got.Code)
+	}
+	if put := putProxmox(server, pveID, api.request(pveTokenSecret)); put.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", put.Code, put.Body.String())
+	}
+	api.auditor = true
+	got := callAPI(server.Server, http.MethodPost, "/api/machines/"+pveID+"/actions/refresh-proxmox", nil)
+	var host proxmoxHostJSON
+	decodeAPI(t, got, &host)
+	if got.Code != http.StatusOK || !slices.Equal(host.BlindStorages, []string{"local"}) {
+		t.Fatalf("refresh: %d %+v", got.Code, host)
+	}
+	api.setBroken(true)
+	got = callAPI(server.Server, http.MethodPost, "/api/machines/"+pveID+"/actions/refresh-proxmox", nil)
+	decodeAPI(t, got, &host)
+	if got.Code != http.StatusOK || host.LastError != "proxmox.bad_response" || !slices.Equal(host.BlindStorages, []string{"local"}) {
+		t.Fatalf("a refusal must stay on the card: %d %+v", got.Code, host)
+	}
+}

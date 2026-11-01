@@ -68,6 +68,9 @@ func (s *Server) routes() []route {
 		// motif recoupe DELETE /api/machines/tokens/{id} (tokens/proxmox), et le
 		// multiplexeur de Go refuse deux motifs dont aucun n'est plus précis.
 		{"POST", "/api/machines/{id}/actions/remove-proxmox", s.removeMachineProxmox},
+		// Relire l'hôte tout de suite : après avoir collé les commandes pveum de la
+		// fiche, l'opérateur n'attend pas les cinq minutes du relevé.
+		{"POST", "/api/machines/{id}/actions/refresh-proxmox", s.refreshMachineProxmox},
 		// Une route par geste et non un joker : le registre des verbes associe un
 		// verbe à une route, un joker rendrait la liste blanche d'un jeton floue.
 		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/start", s.actOnProxmoxGuest(proxmox.VerbStart)},
