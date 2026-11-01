@@ -1,0 +1,10 @@
+# F1 : code mort avant / après (#434)
+
+Avant = db62e78 (dev), après = fin de la branche orca/fix-f1.
+
+deadcode ./... (Go) avant : 79 ; après : 79, rapport identique. Le seul fichier Go ajouté est `internal/server/e2e_fixtures_test.go` (test, passe son tour sans `OPENCLOUD_E2E_ADDR`).
+knip, `npx knip@5.88.1 --reporter compact` dans web/ avant : 7 fichiers, 1 export, 2 types non utilisés ; après : les mêmes (seul le nom haché du bundle de dist/ change). Les fichiers de web/e2e sont des entrées de Playwright : knip n'y trouve rien d'inutilisé.
+
+Supprimé dans ce chantier
+- Rien de tout ce qui existait n'est remplacé : le défaut se corrige à l'endroit où il naît (`overlayHost` dans `components/Select.tsx`), sans second chemin.
+- Pendant le chantier, deux briques du parcours ont été écrites puis retirées avant le commit : une vérification « écran sans note d'erreur » (une note rouge est parfois un avertissement voulu, comme `job.url_local`) et l'export de quatre helpers inutilisés ailleurs.

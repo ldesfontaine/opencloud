@@ -1,6 +1,6 @@
 import { test as base, type Page } from "@playwright/test";
 
-import { isKnown } from "./known";
+import { knownAs } from "./known";
 
 // Une anomalie trouvée par le parcours : où, et ce qui s'est passé.
 export interface Finding {
@@ -15,6 +15,10 @@ export interface Finding {
 export class Findings {
   readonly all: Finding[] = [];
   where = "";
+  // Ce que le parcours a réellement fait : sans ce décompte, un parcours qui ne
+  // clique rien serait vert.
+  readonly screens: string[] = [];
+  readonly done = { screens: 0, buttons: 0, menuChoices: 0, selects: 0, dialogs: 0, wizards: 0 };
 
   add(what: string, where = this.where): void {
     const finding = { where, what: what.split("\n")[0]?.slice(0, 220) ?? what };
@@ -24,7 +28,7 @@ export class Findings {
   }
 
   unknown(): Finding[] {
-    return this.all.filter((finding) => !isKnown(finding));
+    return this.all.filter((finding) => knownAs(finding) === undefined);
   }
 }
 
@@ -68,7 +72,17 @@ export const test = base.extend<{ findings: Findings }>({
     const findings = new Findings();
     watch(page, findings);
     await use(findings);
+    console.log(`PARCOURS ${JSON.stringify(findings.done)} ${findings.screens.join(" ")}`);
+    for (const finding of findings.all) {
+      const known = knownAs(finding);
+      if (known?.kind === "defect") {
+        console.log(`DÉFAUT CONNU [${finding.where}] ${finding.what} (${known.reason})`);
+      }
+    }
     const unknown = findings.unknown();
+    for (const finding of unknown) {
+      console.log(`ANOMALIE [${finding.where}] ${finding.what}`);
+    }
     if (unknown.length > 0) {
       throw new Error(`anomalies inconnues :\n${unknown.map((finding) => `  [${finding.where}] ${finding.what}`).join("\n")}`);
     }

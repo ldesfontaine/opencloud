@@ -19,6 +19,9 @@ export default defineConfig({
     viewport: { width: 1280, height: 900 },
     locale: "fr-FR",
     colorScheme: "light",
+    // Sans limite, un élément absent bloquerait le parcours jusqu'à la fin du test.
+    actionTimeout: 4000,
+    navigationTimeout: 10_000,
   },
   webServer: {
     command: "./.fixture.test -test.run TestE2EFixtureServer -test.timeout 0",
