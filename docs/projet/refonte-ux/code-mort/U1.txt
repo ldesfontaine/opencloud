@@ -13,3 +13,4 @@ Supprimé dans ce chantier
 - Le renvoi « changez ses droits » / « ré-enrôlez-le avec … » des refus de droit (catalogue) : le geste est un bouton.
 - La mention « (voir ci-dessous) » de `machine.agent_rollback_capable_no` (F-4).
 - La constante `UnitFile` de `internal/machine/guard.go`, déplacée dans `unit.go` avec l'unité de l'agent.
+- (Constat de Lucas sur un hôte Proxmox) La copie `scp` du binaire (`installBinary(publicURL)`, `serverHostPattern`, le repère `ADRESSE_DU_SERVEUR`) : remplacée par le téléchargement vérifié ; tous les `sudo -u` de la ligne d'enrôlement et des textes de l'agent (`runuser -u … --`) ; le « copiez d'abord le binaire dans /tmp » de `machine.agent_migration_text`.
