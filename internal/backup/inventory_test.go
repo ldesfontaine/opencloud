@@ -178,7 +178,8 @@ func TestInventory_AGuestWithoutKnownArchiveIsUnknownWhenTheTokenIsBlind(t *test
 	b.readyAgent("100", 5)
 	b.seedHost()
 	reading := proxmox.Reading{
-		Version: "8.2.5", Node: "pve", BlindStorages: []string{"nfs"},
+		Version: "8.2.5", Node: "pve",
+		Storages: []proxmox.Storage{{Node: "pve", Name: "nfs", Type: "nfs", Content: []string{"backup"}, Active: true, BackupsUnreadable: true}},
 		Guests: []proxmox.Guest{
 			{VMID: 100, Kind: proxmox.KindQEMU, Name: "web", Node: "pve", LastBackupAt: benchNow, LastBackupStorage: "local", BackupCount: 1},
 			{VMID: 101, Kind: proxmox.KindLXC, Name: "dns", Node: "pve"},

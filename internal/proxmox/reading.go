@@ -12,7 +12,7 @@ import (
 // Read fait un relevé complet : la version, les VM, les stockages, puis, pour
 // chaque stockage actif qui reçoit des sauvegardes et que le jeton sait lister,
 // la dernière archive de chaque VM ; un stockage que le jeton ne sait pas lister
-// est nommé dans BlindStorages, jamais lu comme vide. Au premier échec rien n'est rendu : un relevé à moitié lu
+// est marqué BackupsUnreadable, jamais lu comme vide. Au premier échec rien n'est rendu : un relevé à moitié lu
 // remplacerait du vrai par du faux.
 func (c *Client) Read(ctx context.Context) (Reading, error) {
 	version, err := c.Version(ctx)
@@ -67,8 +67,10 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 			guests[index].BackupTotalBytes = found.totalBytes
 		}
 	}
-	slices.Sort(gate.blind)
-	return Reading{Version: version, Cluster: cluster, Guests: guests, Storages: storages, BlindStorages: gate.blind}, nil
+	for index := range storages {
+		storages[index].BackupsUnreadable = slices.Contains(gate.blind, storages[index].Name)
+	}
+	return Reading{Version: version, Cluster: cluster, Guests: guests, Storages: storages}, nil
 }
 
 // archives est ce que les stockages gardent d'une VM : la plus récente, le

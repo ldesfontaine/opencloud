@@ -302,7 +302,7 @@ func TestProxmox_TheSecretIsSealedAndBoundToItsMachine(t *testing.T) {
 	}
 }
 
-// Un stockage illisible faute de droit se garde sans migration, se rend sur
+// Un stockage illisible faute de droit se garde sur sa ligne (migration 035), se rend sur
 // l'hôte, et fait « inconnue » (jamais « aucune ») chaque invité sans archive
 // connue. Un relevé qui échoue ensuite ne l'efface pas ; un relevé réussi le réécrit.
 func TestProxmox_BlindStoragesSurviveAFailureAndMakeBackupsUnknown(t *testing.T) {
@@ -312,7 +312,9 @@ func TestProxmox_BlindStoragesSurviveAFailureAndMakeBackupsUnknown(t *testing.T)
 	declareProxmox(t, db, "https://pve.lan:8006")
 
 	reading := sampleReading()
-	reading.BlindStorages = []string{"nas", "pi-sauvegardes"}
+	reading.Storages = append(reading.Storages,
+		proxmox.Storage{Node: "pve", Name: "pi-sauvegardes", Type: "nfs", Content: []string{"backup"}, Active: true, BackupsUnreadable: true},
+		proxmox.Storage{Node: "pve", Name: "nas", Type: "nfs", Content: []string{"backup"}, Active: true, BackupsUnreadable: true})
 	if err := db.ReplaceProxmoxReading(ctx, "pve-host", reading, proxmoxAt); err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +364,7 @@ func TestProxmox_TheInventoryKnowsWhenArchivesCouldNotBeRead(t *testing.T) {
 	seedProxmoxMachines(t, db)
 	declareProxmox(t, db, "https://pve.lan:8006")
 	reading := sampleReading()
-	reading.BlindStorages = []string{"nas"}
+	reading.Storages = append(reading.Storages, proxmox.Storage{Node: "pve", Name: "nas", Type: "nfs", Content: []string{"backup"}, Active: true, BackupsUnreadable: true})
 	if err := db.ReplaceProxmoxReading(ctx, "pve-host", reading, proxmoxAt); err != nil {
 		t.Fatal(err)
 	}

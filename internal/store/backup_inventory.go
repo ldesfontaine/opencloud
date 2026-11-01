@@ -17,8 +17,8 @@ func (db *DB) ListObservedGuests(ctx context.Context) ([]backup.ObservedGuest, e
 	rows, err := db.sql.QueryContext(ctx, `
 		SELECT g.machine_id, m.name, g.vmid, g.kind, g.name, g.node, g.backup_count, g.backup_total_bytes,
 			g.last_backup_at, g.last_backup_bytes, g.last_backup_storage,
-			(g.backup_count = 0 AND `+blindAnyInError+`)
-		FROM proxmox_guests g JOIN machines m ON m.id = g.machine_id JOIN machine_proxmox h ON h.machine_id = g.machine_id
+			(g.backup_count = 0 AND `+blindStorageExists+`)
+		FROM proxmox_guests g JOIN machines m ON m.id = g.machine_id
 		WHERE g.template = 0
 		ORDER BY m.name, g.machine_id, g.vmid`)
 	if err != nil {

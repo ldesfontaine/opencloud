@@ -6,5 +6,6 @@ Avant = ec0f4e8 (dev), après = fin de la branche orca/v052-p1.
 `npx knip` (web/, node_modules installés) avant : 4 fichiers (public/theme.js, src/statut/*), 1 export (`isMaintenance`), 10 types ; après : les mêmes.
 
 Supprimé dans ce chantier
-- Front : `sortedGuests` (remplacé par `groupGuests`), le tableau des invités et ses lignes (`GuestRow`, `guestColumns`), le tableau des stockages (`StorageRow`, `.storage-usage`), l'ancienne signature de `backupLabel` (cinq arguments), les imports `Table`, `Subject`, `KeyValue`, `Meter` de `MachineHypervisor`, et le test de `sortedGuests`.
+- Front : `sortedGuests` (remplacé par `groupGuests`), le tableau des invités (`GuestRow`, `guestColumns`), le tableau des stockages (`StorageRow`, `.storage-usage`), l'ancienne signature de `backupLabel` (cinq arguments), les imports `Table`, `Subject`, `KeyValue`, `Meter` de `MachineHypervisor`, et le test de `sortedGuests`.
 - Catalogues (fr et en) : `machine.proxmox_col_name|kind|state|cpus|memory|storage|usage` et `machine.proxmox_template`.
+- Go : l'encodage des stockages illisibles dans `machine_proxmox.last_error` (essayé puis retiré avant fusion : `splitErrorNotes`, `joinErrorNotes`, `blindMark`, `blindSeparator`, `blindAnyInError`, le `CASE` de `NoteProxmoxFailure`, `Reading.BlindStorages`) ; remplacé par la colonne `proxmox_storages.backups_unreadable` (migration 035) et `proxmox.BlindStorages(storages)`.

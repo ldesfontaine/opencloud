@@ -403,8 +403,8 @@ func TestClient_AnAuditorTokenCannotListTheArchives(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(reading.BlindStorages, []string{"local"}) {
-		t.Fatalf("blind storages: %v", reading.BlindStorages)
+	if !slices.Equal(BlindStorages(reading.Storages), []string{"local"}) {
+		t.Fatalf("blind storages: %v", BlindStorages(reading.Storages))
 	}
 	for _, path := range api.requested() {
 		if strings.Contains(path, "/storage/local/content") {
@@ -434,8 +434,8 @@ func TestClient_AllocateSpaceNeedsVMBackupToo(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if blind := len(reading.BlindStorages) > 0; blind != tc.blind {
-				t.Errorf("blind %v, want %v (%v)", blind, tc.blind, reading.BlindStorages)
+			if blind := len(BlindStorages(reading.Storages)) > 0; blind != tc.blind {
+				t.Errorf("blind %v, want %v (%v)", blind, tc.blind, BlindStorages(reading.Storages))
 			}
 		})
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -66,7 +67,8 @@ type Host struct {
 	// a réussi.
 	LastError string
 	// Les stockages dont le dernier relevé n'a pas pu lister les archives faute
-	// de droit : tant qu'il y en a, « aucune sauvegarde » n'est pas une réponse.
+	// de droit (BlindStorages) : tant qu'il y en a, « aucune sauvegarde » n'est
+	// pas une réponse. Dérivé des stockages relevés, jamais saisi.
 	BlindStorages []string
 	CreatedAt     time.Time
 }
@@ -120,6 +122,11 @@ type Storage struct {
 	// Ce que le stockage accepte : backup, iso, vztmpl…
 	Content []string
 	Active  bool
+	// Vrai quand le jeton ne lit pas les archives de ce stockage (liste que
+	// Proxmox vide en silence faute de droit) : leur absence ne prouve rien.
+	// Faux est la valeur sûre, aussi pour un stockage qui ne reçoit pas de
+	// sauvegardes.
+	BackupsUnreadable bool
 }
 
 // AcceptsBackups dit si vzdump peut y écrire ses archives.
@@ -132,6 +139,19 @@ func (s Storage) AcceptsBackups() bool {
 	return false
 }
 
+// BlindStorages rend, triés et sans doublon, les identifiants des stockages de
+// sauvegardes dont le jeton ne lit pas les archives.
+func BlindStorages(storages []Storage) []string {
+	blind := []string{}
+	for _, storage := range storages {
+		if storage.AcceptsBackups() && storage.BackupsUnreadable && !slices.Contains(blind, storage.Name) {
+			blind = append(blind, storage.Name)
+		}
+	}
+	slices.Sort(blind)
+	return blind
+}
+
 // Reading est un relevé complet de l'API : il remplace le précédent ou rien.
 type Reading struct {
 	Version string
@@ -141,9 +161,6 @@ type Reading struct {
 	Cluster  string
 	Guests   []Guest
 	Storages []Storage
-	// Les stockages de sauvegardes dont le jeton n'a pas pu lister les archives
-	// faute de droit, par identifiant. Leurs archives sont inconnues.
-	BlindStorages []string
 }
 
 // View est ce que la fiche de l'hôte montre.
