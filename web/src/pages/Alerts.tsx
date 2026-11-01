@@ -2,6 +2,7 @@ import { useSearchParams } from "react-router";
 
 import { useAlerts } from "../api/alerts";
 import { useDeclaredServices } from "../api/directory";
+import { nameWithMachine } from "../lib/objects";
 import { Button } from "../components/Button";
 import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
@@ -20,7 +21,8 @@ export function Alerts() {
   const open = useAlerts("open");
   const resolved = useAlerts("resolved");
   const services = useDeclaredServices();
-  const serviceNames = new Map((services.data?.services ?? []).map((service) => [service.id, service.title !== "" ? service.title : service.name]));
+  // Le même service peut tourner sur deux machines : le filtre dit laquelle.
+  const serviceNames = new Map((services.data?.services ?? []).map((service) => [service.id, nameWithMachine({ name: service.title !== "" ? service.title : service.name, machine_name: service.machine_name })]));
   const counts = open.data?.counts;
 
   const choose = (field: keyof AlertFilter, value: string) => setParams((current) => withAlertFilter(current, field, value), { replace: true });

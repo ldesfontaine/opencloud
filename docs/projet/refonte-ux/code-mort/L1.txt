@@ -1,0 +1,15 @@
+# L1 : code mort avant / après (#449)
+
+Avant = e50cda5 (dev), après = fin de la branche orca/v052-l1.
+
+deadcode ./... (Go) avant : 79 ; après : 79, rapport identique (aux numéros de ligne près). Aucune des 79 lignes n'est née dans ce chantier.
+knip, `npx knip --reporter compact` dans web/ avant : 8 types non utilisés ; après : les mêmes 8 (seul le numéro de ligne de `DeployRight` bouge). Aucun fichier ni export neuf non utilisé.
+
+Supprimé dans ce chantier
+- Go, annuaire : `ErrComposeProjectTaken` (remplacée par `ErrComposeServiceTaken`), `ErrUnitsFull`, `Proposal.ServiceID`, `Undeclared.ServiceID`, `composeServiceOf`, `requestedFirst`, `composeUnitsToAdopt`, `proposeIntoService`, `proposeComposeProject` (une proposition ne complète plus un service du même projet), le paramètre des voisins de `Propose`.
+- Go, magasin : `isComposeProjectTaken` et l'index unique `declared_services_compose` (migration 028).
+- Go, fichier de l'annuaire : `addProposedUnits`, `Annotations.ProposedUnit`, `Unit.Proposed` : l'export n'ajoute plus d'unité à un service déclaré.
+- Go, serveur : `service_id` de la réponse de la proposition et du groupe non déclaré.
+- Catalogue (fr et en) : `directory.compose_project_taken`, `directory.units_full`, `manifest.export_proposed_unit`, `gap.accept_into`, `gap.accept_into_title`, `gap.accept_into_subtitle`, `directory.projects_none` (l'impasse « Créez-en un depuis l'onglet Projets » de G4), `directory.col_nature` (remplacée par `col_category`).
+- Front : `NaturePill` (remplacée par `CategoryPill`), le retour `{ id, body }` d'`acceptanceOf` et ses branches `service_id`, la redirection de l'assistant vers l'édition d'un service voisin, les cas de `serviceFormStart` qui lisaient une proposition d'édition.
+- Tests : les cas « projet Compose entier », « service plein », « ajoute au service déclaré » (propose, export, API), remplacés par leurs équivalents par service Compose.
