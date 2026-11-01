@@ -537,7 +537,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 ### Supprimer une machine
 
 `DELETE /api/machines/{id}`, bouton **Supprimer la machine** de la fiche (un seul
-geste, avec la puce `MCP` : c'est le verbe `machine.delete`, à confirmation).
+geste, c'est le verbe `machine.delete`, à confirmation ; une infobulle dit en une phrase qu'un agent IA peut aussi le faire, il n'y a plus de puce).
 Corps `{keep_history}` ; vide, `keep_history` vaut faux. La fenêtre
 (`DeleteMachineDialog`) propose **Garder l'historique**, coché d'avance, parce
 que c'est ce qui se défait.

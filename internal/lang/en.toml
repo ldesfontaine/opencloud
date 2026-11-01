@@ -398,8 +398,7 @@ to_renew = "To renew"
 proxy = "Proxy"
 
 [action]
-mcp_chip = "MCP"
-mcp_title = "An AI agent can do this with an API token."
+agent_hint = "An AI agent connected to {product} with an API token can also do this."
 more = "More actions"
 delete = "Delete"
 hover = "Hover"

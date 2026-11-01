@@ -398,8 +398,7 @@ to_renew = "À renouveler"
 proxy = "Proxy"
 
 [action]
-mcp_chip = "MCP"
-mcp_title = "Un agent IA peut faire ce geste par un jeton d'API."
+agent_hint = "Un agent IA, relié à {product} par un jeton d'API, peut aussi faire ce geste."
 more = "Plus d'actions"
 delete = "Supprimer"
 hover = "Survoler"
