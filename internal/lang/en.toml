@@ -342,7 +342,6 @@ proxmox_confirm_shutdown = "Shut down %s cleanly? Proxmox sends it the shutdown 
 proxmox_confirm_snapshot = "Take a snapshot of %s? Disks only, without the memory."
 proxmox_confirm_snapshot_delete = "Delete snapshot %s of %s? The deletion is final."
 proxmox_blocked_no_agent = "The host has no active agent."
-proxmox_blocked_offline = "The host's agent is offline."
 proxmox_blocked_self = "This VM hosts {product}: shut it down from Proxmox."
 proxmox_blocked_right = "The host's agent does not have the %s right."
 proxmox_progress_sent = "Sent"
@@ -926,6 +925,7 @@ every_minute = "every minute"
 every_hour = "every hour"
 
 [agent]
+offline_reason = "Machine offline"
 not_enrolled = "This machine is not enrolled. Run the install command given by {product}."
 token_missing = "Enrollment token missing: send it on standard input, for example \"printf '%s\\n' 'oc_…' | sudo -u {agent_account} {agent_binary} agent -server https://…\", or paste the install command given by {product}."
 token_prompt = "Enrollment token: "

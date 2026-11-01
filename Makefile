@@ -15,7 +15,7 @@ FRONT_DIR   := web
 
 export CGO_ENABLED = 0
 
-.PHONY: build release run test ci fmt vet staticcheck vulncheck gosec front front-check clean
+.PHONY: build release run test ci fmt vet staticcheck vulncheck gosec front front-check e2e clean
 
 # Le front compilé est embarqué par go:embed : il précède tout build ou test Go.
 build: front
@@ -44,6 +44,14 @@ front-check: $(FRONT_DIR)/node_modules/.stamp
 	cd $(FRONT_DIR) && npm audit --omit=dev --audit-level=high
 	cd $(FRONT_DIR) && npm run check
 
+# Le parcours navigateur : Chromium sans tête contre le vrai serveur sur des
+# données fictives (le test Go TestE2EFixtureServer, compilé à part pour que
+# Playwright l'arrête proprement). `playwright install` ne télécharge que si
+# le navigateur manque.
+e2e: front $(FRONT_DIR)/node_modules/.stamp
+	go test -c -o $(FRONT_DIR)/e2e/.fixture.test ./internal/server
+	cd $(FRONT_DIR) && npx playwright install chromium && npm run e2e
+
 # dev/ est ton /etc et ton /var/lib locaux : créé une fois, jamais effacé.
 run: build
 	@mkdir -p dev/state
@@ -53,7 +61,7 @@ run: build
 test: front
 	go test ./...
 
-ci: fmt vet staticcheck front-check test vulncheck gosec build
+ci: fmt vet staticcheck front-check e2e test vulncheck gosec build
 
 fmt:
 	@unformatted="$$(gofmt -l . ; go run $(GOIMPORTS) -l .)"; \

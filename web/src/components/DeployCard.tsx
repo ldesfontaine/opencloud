@@ -7,6 +7,7 @@ import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
 import { formatWhen } from "../lib/time";
+import { AgentGate } from "./AgentGate";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
 import { Fold } from "./Disclosure";
@@ -33,9 +34,13 @@ export function DeployCard({ serviceID }: { serviceID: string }) {
         title={t("deploy.title")}
         aside={
           data !== null && (
-            <Button small variant="primary" icon="box" onClick={() => setAsking(true)} disabled={blocked}>
-              {t(data.deployed ? "deploy.redeploy" : "deploy.deploy")}
-            </Button>
+            <AgentGate machineIDs={[data.machine_id]}>
+              {(offline) => (
+                <Button small variant="primary" icon="box" onClick={() => setAsking(true)} disabled={blocked || offline}>
+                  {t(data.deployed ? "deploy.redeploy" : "deploy.deploy")}
+                </Button>
+              )}
+            </AgentGate>
           )
         }
       />
@@ -120,9 +125,13 @@ function DeployDialog({ plan, onClose }: { plan: DeployPlan; onClose: () => void
       actions={
         <>
           <ModalCancel />
-          <Button variant="primary" icon="box" onClick={send} disabled={action.busy}>
-            {t(plan.deployed ? "deploy.redeploy" : "deploy.deploy")}
-          </Button>
+          <AgentGate machineIDs={[plan.machine_id]}>
+            {(offline) => (
+              <Button variant="primary" icon="box" onClick={send} disabled={action.busy || offline}>
+                {t(plan.deployed ? "deploy.redeploy" : "deploy.deploy")}
+              </Button>
+            )}
+          </AgentGate>
         </>
       }
     >

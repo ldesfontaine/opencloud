@@ -1,5 +1,6 @@
 import { deleteBackupPlan, runBackupNow, type BackupPlan, type Backups } from "../../api/backups";
 import { reasonText } from "../../components/ActionsCard";
+import { AgentGate } from "../../components/AgentGate";
 import { Button } from "../../components/Button";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "../../components/Card";
@@ -36,9 +37,13 @@ export function PlanCard({ plan, overview }: { plan: BackupPlan; overview: Backu
       <CardHeader
         title={title}
         aside={
-          <Button small icon="archive" disabled={action.busy} onClick={() => action.run(() => runBackupNow(plan.subject), { topic: "backups" })}>
-            {t("backup.run_now")}
-          </Button>
+          <AgentGate machineIDs={[plan.source_machine_id, destination?.machine_id ?? ""].filter((id) => id !== "")}>
+            {(offline) => (
+              <Button small icon="archive" disabled={action.busy || offline} onClick={() => action.run(() => runBackupNow(plan.subject), { topic: "backups" })}>
+                {t("backup.run_now")}
+              </Button>
+            )}
+          </AgentGate>
         }
       />
       <CardBody gap={10}>

@@ -17,6 +17,7 @@ vi.mock("../hooks/useAction", () => ({
 }));
 
 let offer: AgentUpdateOffer;
+let online = true;
 let runs: ActionRun[] = [];
 const migration: AgentMigration = { version: "v0.0.3", commands: "sudo systemctl stop x\nsudo install guard" };
 
@@ -25,6 +26,11 @@ vi.mock("../api/actions", async (importOriginal) => ({
   useAgentUpdateOffer: () => ({ data: offer, error: null, reload: () => {} }),
   useMachineActions: () => ({ data: { runs }, error: null, reload: () => {} }),
   useAgentMigration: () => ({ data: migration, error: null, reload: () => {} }),
+}));
+
+vi.mock("../api/machines", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/machines")>()),
+  useMachines: () => ({ data: { machines: [{ id: "m1", online }] }, error: null, reload: () => {} }),
 }));
 
 function agent(over: Partial<Agent> = {}): Agent {
@@ -66,9 +72,10 @@ function run(over: Partial<ActionRun>): ActionRun {
 }
 
 function render(over: { agent?: Agent; updateLast?: boolean; online?: boolean } = {}): string {
+  online = over.online ?? true;
   return renderToStaticMarkup(
     <MemoryRouter>
-      <AgentUpdate machineID="m1" agent={over.agent ?? agent()} updateLast={over.updateLast ?? false} online={over.online ?? true} />
+      <AgentUpdate machineID="m1" agent={over.agent ?? agent()} updateLast={over.updateLast ?? false} />
     </MemoryRouter>,
   );
 }
@@ -98,8 +105,11 @@ test("un agent pas migré ne se met pas à jour : la fiche dit pourquoi et donne
   expect(markup).not.toContain("machine.agent_rollback<");
 });
 
-test("une machine hors ligne n'offre pas le retour arrière", () => {
-  expect(render({ online: false })).not.toContain("machine.agent_rollback<");
+test("une machine hors ligne garde ses gestes, grisés, avec la raison à côté", () => {
+  const markup = render({ online: false });
+  expect(markup).toContain("agent.offline_reason");
+  expect(markup).toMatch(/<button[^>]*disabled[^>]*>[^<]*(<[^>]+>)*[^<]*machine\.agent_rollback/);
+  expect(render({ online: true })).not.toContain("agent.offline_reason");
 });
 
 test("la dernière mise à jour se lit en une phrase : en attente, revenue en arrière, en échec", () => {
