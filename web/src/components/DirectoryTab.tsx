@@ -62,7 +62,7 @@ export function DirectoryTab() {
       <ServicesTabs />
       {gaps.error && <Failure error={gaps.error} />}
       {/* Un projet ne regroupe que du déclaré : il n'a pas de propositions à dire. */}
-      {gaps.data && projectID === "" && <Proposals groups={gaps.data.undeclared} declared={all} />}
+      {gaps.data && projectID === "" && <Proposals groups={gaps.data.undeclared} />}
       {services.error && <Failure error={services.error} />}
       {containers.error && <Failure error={containers.error} />}
       {services.data && all.length === 0 && (

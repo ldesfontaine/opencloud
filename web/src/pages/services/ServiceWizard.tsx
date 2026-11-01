@@ -1,22 +1,22 @@
-import { useEffect, useMemo } from "react";
-import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { saveDeclaredService, useDeclaredService, useProjects, useProposal, type Origin } from "../../api/directory";
+import { saveDeclaredService, useDeclaredService, useGaps, useProjects, useProposal, type Origin } from "../../api/directory";
 import { useMachines, type Machine } from "../../api/machines";
 import { Button } from "../../components/Button";
 import { Fold } from "../../components/Disclosure";
 import { Failure } from "../../components/Failure";
-import { Rich } from "../../components/Rich";
 import { Checkbox, Checks, Field, Input } from "../../components/Field";
 import { MachineSelect } from "../../components/MachineSelect";
 import { Modal } from "../../components/Modal";
-import { EnumSelect } from "../../components/Select";
+import { EnumSelect, Select } from "../../components/Select";
 import { Wizard, type WizardStep } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
 import {
   capabilities,
+  categories,
   emptyServiceForm,
   emptyUnitForm,
   hasAdvancedUnitValues,
@@ -31,23 +31,27 @@ import {
   type UnitFormValues,
 } from "../../lib/directory";
 import { isFormModified } from "../../lib/modal";
+import { editBeforeAcceptPath, proposalsOf } from "../../lib/gaps";
+import { ContainerChoice } from "./ContainerChoice";
+import { NewProject } from "./NewProject";
 import "./ServiceWizard.scss";
 
 // « Déclarer un service » : la fenêtre de la liste des services, à l'adresse
 // /services/annuaire/nouveau, ou de la fiche du service, à
-// /services/annuaire/:id/modifier. Trois étapes : l'identité (sur quelle
-// machine il tourne, de quelle nature et d'où, ce qu'il fournit s'il sert les
-// autres), ses unités (les réglages techniques sous « Avancé »), ses projets.
-// En édition, l'assistant s'ouvre sur le récapitulatif et remplace le service
+// /services/annuaire/:id/modifier. Elle commence par le choix d'un conteneur
+// que la machine montre (ContainerChoice) ; « saisir à la main » ouvre
+// l'assistant vide. Trois étapes : l'identité (sur quelle machine il tourne,
+// ce qu'il est, d'où, ce qu'il fournit s'il sert les autres), ses unités (les
+// réglages techniques sous « Avancé »), ses projets, facultatifs. En
+// édition, l'assistant s'ouvre sur le récapitulatif et remplace le service
 // entier ; une unité gardée garde son identifiant, une unité retirée est
 // supprimée. Le serveur valide et répond par la clé du refus.
 //
 // Avec ?container=, l'assistant part de ce que le serveur propose pour ce
-// conteneur : une déclaration nouvelle, ou, si son projet Compose est déjà
-// déclaré, la modification de ce service, à laquelle les unités qui manquent
-// s'ajoutent. C'est « Modifier avant d'accepter » ; « Accepter » écrit la même
-// proposition sans passer par ici. Rien n'est écrit tant que l'opérateur n'a
-// pas validé.
+// conteneur : une déclaration nouvelle d'un service Compose (ou d'un conteneur
+// seul). C'est le choix du conteneur, ou « Modifier avant d'accepter » ;
+// « Accepter » écrit la même proposition sans passer par ici. Rien n'est
+// écrit tant que l'opérateur n'a pas validé.
 export function ServiceWizard() {
   const { id } = useParams();
   const isEditing = id !== undefined;
@@ -58,13 +62,15 @@ export function ServiceWizard() {
   const projects = useProjects();
   const existing = useDeclaredService(id ?? null);
   const proposal = useProposal(container === "" ? null : container);
+  const detected = useGaps(isEditing ? null : { machineID: "", projectID: "" });
+  const [typedByHand, setTypedByHand] = useState(false);
 
   // Tant que la proposition n'est ni arrivée ni refusée, on ne remplit pas :
   // l'assistant ne partirait pas du bon côté. start ne change qu'avec ce
   // qu'il lit : l'effet de remplissage ne se relance pas à chaque rendu.
   const awaitingProposal = container !== "" && proposal.data === null && proposal.error === null;
   const empty = useMemo(emptyServiceForm, []);
-  const start = useMemo(() => serviceFormStart(id, existing.data, proposal.data, awaitingProposal), [id, existing.data, proposal.data, awaitingProposal]);
+  const start = useMemo(() => serviceFormStart(existing.data, proposal.data), [existing.data, proposal.data]);
   // start est déjà une valeur de formulaire (serviceFormStart), ou null pour attendre.
   const form = useForm(empty, isEditing || container !== "" ? { source: start, fill: (values: ServiceFormValues) => values } : null);
   const { values, change } = form;
@@ -82,14 +88,14 @@ export function ServiceWizard() {
   const listPath = isEditing ? `/services/annuaire/${id}` : "/services";
   const close = () => void navigate(listPath, { replace: true });
 
-  // Le projet Compose de ce conteneur est déjà déclaré : on y ajoute les
-  // unités qui manquent plutôt que d'en déclarer un second.
-  if (!isEditing && proposal.data !== null && proposal.data.service_id !== "") {
-    return <Navigate replace to={`/services/annuaire/${proposal.data.service_id}/modifier?container=${encodeURIComponent(container)}`} />;
-  }
+  // Sans conteneur choisi ni saisie à la main, la première chose est de
+  // choisir parmi ce que les machines montrent ; rien à choisir, l'assistant
+  // s'ouvre vide.
+  const candidates = proposalsOf(detected.data?.undeclared ?? []);
+  const isChoosing = !isEditing && container === "" && !typedByHand && (detected.data === null ? detected.error === null : candidates.some((group) => group.adoptable));
   const accepting = container !== "" && proposal.error === null;
   // Une proposition refusée laisse un assistant vide, comme sans conteneur.
-  const ready = form.isFilled || (!isEditing && !awaitingProposal);
+  const ready = !isChoosing && (form.isFilled || (!isEditing && !awaitingProposal));
   const base = start ?? { ...empty, machineID: first?.id ?? "" };
 
   const save = () => {
@@ -106,6 +112,13 @@ export function ServiceWizard() {
       <p className="secondary">{header.subtitle}</p>
       {existing.error && <Failure error={existing.error} />}
       {proposal.error && <Failure error={proposal.error} />}
+      {isChoosing && detected.data !== null && (
+        <ContainerChoice
+          groups={detected.data.undeclared}
+          onPick={(containerID) => void navigate(editBeforeAcceptPath(containerID), { replace: true })}
+          onManual={() => setTypedByHand(true)}
+        />
+      )}
       {ready && (
         <Wizard
           steps={stepsOf(t, form, machines.data?.machines ?? [], projects.data?.projects ?? [])}
@@ -125,9 +138,7 @@ export function ServiceWizard() {
 // machine montre.
 function heading(t: Translate, isEditing: boolean, accepting: boolean) {
   if (accepting) {
-    return isEditing
-      ? { title: t("gap.accept_into_title"), subtitle: t("gap.accept_into_subtitle") }
-      : { title: t("gap.accept_title"), subtitle: t("gap.accept_subtitle") };
+    return { title: t("gap.accept_title"), subtitle: t("gap.accept_subtitle") };
   }
   return isEditing
     ? { title: t("directory.edit_title"), subtitle: t("directory.edit_subtitle") }
@@ -174,6 +185,14 @@ function stepsOf(t: Translate, form: ServiceForm, machines: Pick<Machine, "id" |
           </div>
           <Field label={t("directory.machine_label")} htmlFor="service-machine" help={t("directory.machine_help")}>
             <MachineSelect id="service-machine" icon="server" machines={machines} value={values.machineID} onChange={(machineID) => change("machineID", machineID)} />
+          </Field>
+          <Field label={t("directory.category_label")} htmlFor="service-category" help={t("directory.category_help")}>
+            <Select
+              id="service-category"
+              value={values.category}
+              options={[{ value: "", label: t("directory.category_auto") }, ...categories.map((category) => ({ value: category, label: t(`directory.category_${category}`) }))]}
+              onChange={(category) => change("category", categories.find((known) => known === category) ?? "")}
+            />
           </Field>
           <div className="grid-2">
             <Field label={t("directory.nature_label")} htmlFor="service-nature" help={t("directory.nature_help")}>
@@ -230,6 +249,7 @@ function stepsOf(t: Translate, form: ServiceForm, machines: Pick<Machine, "id" |
         { label: t("directory.name_label"), value: values.name, mono: true },
         { label: t("directory.title_label"), value: values.title === "" ? "—" : values.title },
         { label: t("directory.machine_label"), value: machines.find((machine) => machine.id === values.machineID)?.name ?? "—" },
+        { label: t("directory.category_label"), value: values.category === "" ? t("directory.category_auto") : t(`directory.category_${values.category}`) },
         { label: t("directory.nature_label"), value: t(`directory.nature_${values.nature}`) },
         { label: t("directory.origin_label"), value: values.origin === "compose" ? `${t("directory.origin_compose")} · ${values.composeProject}` : t(`directory.origin_${values.origin}`) },
         { label: t("directory.public_url_label"), value: values.publicURL === "" ? "—" : values.publicURL, mono: values.publicURL !== "" },
@@ -270,10 +290,9 @@ function stepsOf(t: Translate, form: ServiceForm, machines: Pick<Machine, "id" |
       render: () => (
         <>
           <p className="secondary">{t("directory.projects_help")}</p>
+          <p className="secondary">{t("directory.projects_optional")}</p>
           {projects.length === 0 ? (
-            <span className="secondary">
-              <Rich text={t("directory.projects_none")} />
-            </span>
+            <p className="secondary">{t("directory.projects_none_here")}</p>
           ) : (
             <Checks>
               {projects.map((project) => (
@@ -286,6 +305,7 @@ function stepsOf(t: Translate, form: ServiceForm, machines: Pick<Machine, "id" |
               ))}
             </Checks>
           )}
+          <NewProject onCreated={(projectID) => change("projectIDs", [...values.projectIDs, projectID])} />
         </>
       ),
       summary: () => [

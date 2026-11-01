@@ -11,6 +11,8 @@ import type { DeletionPlan } from "./deletion";
 
 // Les listes sont fermées côté serveur ; le front les traduit par leur mot.
 export type Nature = "application" | "infra";
+// Ce qu'est le service ; vide dans une requête : openCloud la déduit de l'image.
+export type Category = "web" | "sso" | "database" | "security" | "monitoring" | "application";
 export type Origin = "compose" | "container" | "binary";
 export type Capability = "sso" | "proxy" | "tls" | "backup-target";
 type DeclaredBy = "operator";
@@ -57,6 +59,10 @@ export interface DeclaredService {
   name: string;
   title: string;
   nature: Nature;
+  // La correction de l'opérateur, vide si le type se déduit ; category_deduced
+  // est ce que l'image en dit, toujours posée.
+  category: Category | "";
+  category_deduced: Category;
   origin: Origin;
   compose_project: string;
   public_url: string;
@@ -111,7 +117,7 @@ type MatchLevel = "label" | "compose" | "name";
 // Pourquoi les labels d'un conteneur ne le rattachent à rien ; le serveur
 // dit vide quand il n'y a pas de label orphelin.
 export type LabelProblem = "invalid" | "incomplete" | "service_unknown" | "unit_unknown" | "unit_binary";
-type IgnoreKind = "compose_project" | "container_name";
+type IgnoreKind = "compose_service" | "compose_project" | "container_name";
 
 interface ContainerVerdict {
   // L'identifiant de la fiche du conteneur, pas celui d'un service déclaré.
@@ -161,8 +167,10 @@ export interface UndeclaredGroup {
   key_kind: IgnoreKind;
   key_value: string;
   ignored: boolean;
-  // Le service déclaré du même projet Compose : là où « Adopter » ajoute une unité.
-  service_id: string;
+  // Le groupe d'exécution (projet Compose) et le service Compose du groupe ;
+  // vides pour un conteneur seul.
+  project: string;
+  compose_service: string;
   // Au moins un conteneur du groupe n'a pas de label : un groupe d'orphelins
   // se corrige par le label, pas par l'adoption.
   adoptable: boolean;
@@ -205,6 +213,7 @@ export interface ServiceRequest {
   name: string;
   title: string;
   nature: Nature;
+  category: Category | "";
   origin: Origin;
   compose_project: string;
   public_url: string;
@@ -216,10 +225,9 @@ export interface ServiceRequest {
 // Une unité que la proposition ajoute n'a pas encore de politique.
 type ProposedUnit = Omit<ServiceUnitRequest, "update_policy"> & { update_policy?: UpdatePolicy };
 
-// Ce que « Accepter » écrit et que « Modifier avant d'accepter » pré-remplit : le corps de la création, à ses unités
-// près. Avec service_id, c'est la modification de ce service.
+// Ce que « Accepter » écrit et que « Modifier avant d'accepter » pré-remplit :
+// le corps de la création, à ses unités près.
 export interface ProposalResponse {
-  service_id: string;
   definition: Omit<ServiceRequest, "units"> & { units: ProposedUnit[] };
 }
 
@@ -376,6 +384,9 @@ export interface DeployPlan {
   compose: string;
   // Les unités dont un dossier de données est monté.
   data_dirs: string[];
+  // Les autres services déclarés qui partagent le projet Compose : tant qu'il
+  // y en a, le serveur refuse de déployer (le fichier écrit les retirerait).
+  shared_with: string[];
   last_run: ActionRun | null;
 }
 

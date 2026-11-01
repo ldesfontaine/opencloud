@@ -1,6 +1,7 @@
 import type { ContainerDirectory, GapsResponse, GapState, IgnoreKey, LabelProblem, ServiceGap, UndeclaredGroup } from "../api/directory";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
+import type { SelectOption } from "./select";
 
 // La teinte de l'écart : conforme se tait, un conteneur qui diverge ou qui
 // manque se voit, ce qu'on ne peut pas vérifier reste discret.
@@ -40,8 +41,7 @@ export function containerCount(groups: readonly UndeclaredGroup[]): number {
 }
 
 // « Modifier avant d'accepter » ouvre l'assistant de déclaration, que le
-// serveur pré-remplit depuis ce conteneur ; si son projet Compose est déjà
-// déclaré, l'assistant bascule seul sur la modification de ce service.
+// serveur pré-remplit depuis ce conteneur.
 export function editBeforeAcceptPath(containerID: string): string {
   return `/services/annuaire/nouveau?container=${encodeURIComponent(containerID)}`;
 }
@@ -88,4 +88,21 @@ export function isOrphan(directory: Pick<ContainerDirectory, "label_problem"> | 
 // La clé d'observation d'un groupe, ce qu'on ignore ou cesse d'ignorer.
 export function ignoreKeyOf(group: UndeclaredGroup): IgnoreKey {
   return { machine_id: group.machine_id, kind: group.key_kind, value: group.key_value };
+}
+
+// Les conteneurs que l'assistant « Déclarer un service » propose de choisir :
+// un par groupe qu'on peut accepter (un service Compose, un conteneur seul),
+// avec son projet Compose et sa machine pour les distinguer. Un groupe ignoré
+// ou d'orphelins n'y est pas : l'assistant ne rouvrirait que ce que « Accepter »
+// refuse.
+export function pickableContainers(groups: readonly UndeclaredGroup[]): SelectOption[] {
+  return proposalsOf(groups)
+    .filter((group) => group.adoptable)
+    .map((group) => ({
+      value: acceptanceTarget(group),
+      label: group.compose_service === "" ? group.key_value : `${group.compose_service} (${group.project})`,
+      hint: group.machine_name,
+    }))
+    .filter((option) => option.value !== "")
+    .sort((a, b) => a.label.localeCompare(b.label));
 }

@@ -55,11 +55,16 @@ export function topicsOf(path: string): readonly Topic[] {
     return ["containers"];
   }
   // L'écart croise l'annuaire et les conteneurs : il se relit quand l'un ou
-  // l'autre change. La proposition d'adoption, elle, ne suit que l'annuaire :
-  // elle se lit pour remplir un formulaire, et un rapport de l'agent ne doit
-  // pas la relire pendant que l'opérateur le remplit.
+  // l'autre change. La proposition d'adoption, elle, ne se relit jamais
+  // seule : elle se lit une fois pour remplir un formulaire. Ni un rapport de
+  // l'agent, ni l'écriture du service qu'elle propose ne doivent la relire : le
+  // conteneur serait alors déclaré, et le serveur répondrait 409 à une page
+  // dont l'écriture vient de réussir.
   if (path.startsWith("/api/directory/gaps")) {
     return ["directory", "containers"];
+  }
+  if (path.startsWith("/api/directory/proposal")) {
+    return [];
   }
   // Le plan d'un déploiement croise l'annuaire, les ordres (le dernier, et
   // si le dossier est écrit) et la machine (ses droits, sa racine).

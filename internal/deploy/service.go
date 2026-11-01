@@ -90,7 +90,8 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := s.refuseSharedProject(ctx, service); err != nil {
+	sharedWith, err := s.servicesSharingProject(ctx, service)
+	if err != nil {
 		return Plan{}, err
 	}
 	target, err := s.machines.Get(ctx, service.MachineID)
@@ -117,6 +118,7 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 	plan := Plan{
 		Service: service, MachineName: target.Name, RootDir: root, Path: path.Join(root, service.ComposeProject),
 		Deployed: deployed, MachineOnline: target.Online, Right: right, RightReason: reason, Compose: string(compose), DataDirs: dataDirs,
+		SharedWith: sharedWith,
 	}
 	if hasLast {
 		plan.LastRun = &last
@@ -124,21 +126,22 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 	return plan, nil
 }
 
-// refuseSharedProject refuse de déployer un service dont le projet Compose
-// est aussi celui d'un autre service déclaré de la machine : le fichier écrit
-// ne décrit que ses unités, il retirerait celles de l'autre.
-func (s *Service) refuseSharedProject(ctx context.Context, service directory.Service) error {
+// servicesSharingProject rend les noms des autres services déclarés de la
+// machine qui ont le même projet Compose : le fichier écrit ne décrit que les
+// unités de ce service, il retirerait celles des autres. Le plan le dit ;
+// c'est l'écriture (send, Upgrade) qui refuse.
+func (s *Service) servicesSharingProject(ctx context.Context, service directory.Service) ([]string, error) {
 	onMachine, err := s.services.ListDeclaredServices(ctx, directory.Filter{MachineID: service.MachineID})
 	if err != nil {
-		return fmt.Errorf("list machine services: %w", err)
+		return nil, fmt.Errorf("list machine services: %w", err)
 	}
-	shared := slices.ContainsFunc(onMachine, func(other directory.Service) bool {
-		return other.ID != service.ID && other.Origin == directory.OriginCompose && other.ComposeProject == service.ComposeProject
-	})
-	if shared {
-		return ErrProjectShared
+	var names []string
+	for _, other := range onMachine {
+		if other.ID != service.ID && other.Origin == directory.OriginCompose && other.ComposeProject == service.ComposeProject {
+			names = append(names, other.Name)
+		}
 	}
-	return nil
+	return names, nil
 }
 
 // rightOf : « ok » ou « missing » une fois les droits de l'agent rapportés,
@@ -192,6 +195,9 @@ func (s *Service) Upgrade(ctx context.Context, unitID, version string) (action.R
 	if err != nil {
 		return action.Run{}, err
 	}
+	if len(plan.SharedWith) > 0 {
+		return action.Run{}, ErrProjectShared
+	}
 	if !plan.Deployed {
 		return action.Run{}, ErrNotDeployed
 	}
@@ -241,12 +247,15 @@ func withVersion(service directory.Service, unitID, version string) directory.Se
 	return service
 }
 
-// send juge, puis envoie. Ordre des contrôles : le plan, le droit, déjà
+// send juge, puis envoie. Ordre des contrôles : le plan, le projet partagé, le droit, déjà
 // déployé ou non, l'.env.
 func (s *Service) send(ctx context.Context, serviceID string, env *string, redeploy bool) (action.Run, error) {
 	plan, err := s.Plan(ctx, serviceID)
 	if err != nil {
 		return action.Run{}, err
+	}
+	if len(plan.SharedWith) > 0 {
+		return action.Run{}, ErrProjectShared
 	}
 	if plan.Right == RightMissing {
 		return action.Run{}, ErrRightMissing

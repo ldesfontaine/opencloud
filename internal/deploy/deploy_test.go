@@ -385,13 +385,21 @@ func TestPlan_RefusesWhatCannotBeDeployed(t *testing.T) {
 
 // Le .env part dans le secret de l'ordre et nulle part ailleurs : les
 // paramètres, que le run garde, disent seulement qu'il est parti.
-// Un autre service déclaré sur le même projet Compose : le dossier écrit ne
-// décrirait que celui-ci, il retirerait les unités de l'autre.
-func TestPlan_RefusesAProjectAnotherServiceShares(t *testing.T) {
-	neighbour := directory.Service{ID: "svc_other", MachineID: nextcloud().MachineID, Origin: directory.OriginCompose, ComposeProject: nextcloud().ComposeProject}
-	b := deploy.New(fakeServices{service: nextcloud(), neighbours: []directory.Service{neighbour}}, nil, fakeMachines{status: activeMachine("observe,docker.deploy")}, fakeRuns{}, &fakeSender{}, slog.New(slog.DiscardHandler))
-	if _, err := b.Plan(context.Background(), serviceID); !errors.Is(err, deploy.ErrProjectShared) {
-		t.Fatalf("got %v, want %v", err, deploy.ErrProjectShared)
+// Un autre service déclaré sur le même projet Compose : le plan le dit (il se
+// lit), mais le dossier écrit ne décrirait que ce service et retirerait les
+// unités de l'autre : ni déployer, ni redéployer, ni passer de version.
+func TestPlan_SaysAProjectAnotherServiceSharesAndTheGesturesRefuseIt(t *testing.T) {
+	neighbour := directory.Service{ID: "svc_other", Name: "authelia", MachineID: nextcloud().MachineID, Origin: directory.OriginCompose, ComposeProject: nextcloud().ComposeProject}
+	b := deploy.New(fakeServices{service: nextcloud(), neighbours: []directory.Service{neighbour}}, nil, fakeMachines{status: activeMachine("observe,docker.deploy,docker.update")}, fakeRuns{}, &fakeSender{}, slog.New(slog.DiscardHandler))
+	plan, err := b.Plan(context.Background(), serviceID)
+	if err != nil || len(plan.SharedWith) != 1 || plan.SharedWith[0] != "authelia" {
+		t.Fatalf("plan %+v %v", plan, err)
+	}
+	if _, err := b.Deploy(context.Background(), serviceID, nil); !errors.Is(err, deploy.ErrProjectShared) {
+		t.Fatalf("deploy: got %v, want %v", err, deploy.ErrProjectShared)
+	}
+	if _, err := b.Redeploy(context.Background(), serviceID, nil); !errors.Is(err, deploy.ErrProjectShared) {
+		t.Fatalf("redeploy: got %v, want %v", err, deploy.ErrProjectShared)
 	}
 }
 

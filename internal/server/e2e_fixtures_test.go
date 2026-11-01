@@ -10,8 +10,11 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense/opnsensetest"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -69,6 +72,7 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2EFirewall(t, ts)
 	seedE2EApply(t, ts)
 	seedE2EVirtualized(t, ts)
+	seedE2EEdge(t, ts)
 }
 
 // seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
@@ -137,4 +141,32 @@ func seedE2EApply(t *testing.T, ts *testServer) {
 	if got := callAPI(ts.Server, http.MethodPost, "/api/manifest/apply", manifestPayload(file, false, plan.PlanHash)); got.Code != http.StatusCreated {
 		t.Fatalf("apply: %d %s", got.Code, got.Body.String())
 	}
+}
+
+// seedE2EEdge montre le projet Compose « edge » : traefik est déclaré sur deux
+// machines (une ligne, deux instances), authelia et crowdsec tournent sur la
+// machine distante sans être déclarés (deux propositions). C'est la forme de la
+// base de Lucas : edge = traefik + authelia + crowdsec.
+func seedE2EEdge(t *testing.T, ts *testServer) {
+	t.Helper()
+	for _, machineID := range []string{remoteID, machine.LocalID} {
+		_, err := ts.directory.CreateService(context.Background(), directory.ServiceDefinition{
+			MachineID: machineID, Name: "traefik", Nature: directory.NatureInfra, Origin: directory.OriginCompose, ComposeProject: "edge",
+			Units: []directory.UnitDefinition{{Name: "traefik", Image: "traefik", Version: "v3.1"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	edge := func(id, service, image string) container.Observed {
+		return container.Observed{
+			ContainerID: strings.Repeat(id, 64), Name: "edge-" + service + "-1", Group: "edge", ComposeService: service, Image: image,
+			State: container.StateRunning, CreatedAt: testNow.Add(-time.Hour),
+		}
+	}
+	ts.recordOnRemote(t,
+		edge("6", "traefik", "traefik:v3.1"),
+		edge("7", "authelia", "authelia/authelia:4.38"),
+		edge("8", "crowdsec", "crowdsecurity/crowdsec:v1.6"),
+	)
 }

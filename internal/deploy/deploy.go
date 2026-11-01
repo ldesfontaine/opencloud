@@ -65,6 +65,9 @@ type Plan struct {
 	// monte un dossier de données.
 	Compose  string
 	DataDirs []string
+	// Les autres services déclarés de la machine qui ont le même projet
+	// Compose : tant qu'il y en a, aucun geste ne part (ErrProjectShared).
+	SharedWith []string
 	// Le dernier ordre de déploiement du service, quel que soit son état ;
 	// nil s'il n'y en a jamais eu (ou plus : la purge des runs l'a emporté).
 	LastRun *action.Run

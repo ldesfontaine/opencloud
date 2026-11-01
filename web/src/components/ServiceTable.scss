@@ -77,3 +77,25 @@
   justify-content: flex-end;
   white-space: nowrap;
 }
+
+// L'en-tête d'un projet Compose dans la liste des services : le groupe
+// d'exécution sous lequel les services sont rangés.
+.table tr.svc-project > th {
+  padding: 8px 20px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+
+  .icon {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+// Une instance d'un service présent sur plusieurs machines : en retrait sous
+// la ligne du service.
+.table tr.svc-instance > td:first-child {
+  padding-left: 40px;
+}

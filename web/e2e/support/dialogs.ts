@@ -138,6 +138,11 @@ export async function exploreDialog(page: Page, findings: Findings): Promise<voi
   } else {
     await fillEmptyFields(dialog);
     await exerciseSelects(page, dialog, findings);
+    // Un choix peut ouvrir l'assistant : « Déclarer un service » commence par
+    // le choix d'un conteneur, qui remplit l'assistant.
+    if ((await dialog.locator(".wizard").count()) > 0) {
+      await walkWizard(page, dialog, findings);
+    }
   }
   await exerciseTips(dialog, findings);
   if (await dialog.isVisible()) {
