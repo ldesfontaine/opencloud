@@ -116,6 +116,7 @@ function stepsOf(
 ): WizardStep[] {
   const { values, change } = form;
   const isHTTP = values.kind === "http";
+  const noMachineFits = !machines.some((machine) => unfitFor(t, machine, null) === null);
   const machineName = machines.find((machine) => machine.id === values.machineID)?.name ?? "—";
   return [
     {
@@ -150,7 +151,7 @@ function stepsOf(
             />
           </Field>
           {/* Sans machine qui puisse sonder, le choix manque : il s'ouvre sur lui. */}
-          <SettingsFold hint={probeSettingsHint(t, values, machineName)} initiallyOpen={values.machineID === ""}>
+          <SettingsFold hint={probeSettingsHint(t, values, machineName)} initiallyOpen={noMachineFits}>
             <div className="grid-2">
               <Field label={t("probe.kind_label")} htmlFor="probe-kind">
                 <EnumSelect id="probe-kind" value={values.kind} values={probeKinds} labelKey="probe.kind_" onChange={(kind) => change("kind", kind)} />
