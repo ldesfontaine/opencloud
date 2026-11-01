@@ -77,3 +77,15 @@ test("le filtre par genre et la recherche sont proposés", () => {
   expect(markup).toContain('type="search"');
   expect(markup).toContain('placeholder="audit.filter_actor_search"');
 });
+
+test("l'accès à l'interface se désigne par sa sorte, sans répéter son nom technique (F-3)", () => {
+  events = [event({ id: 3, action: "auth.enable", object_kind: "auth", object_id: "interface", object_name: "interface" })];
+  const markup = render();
+  expect(markup).toContain("audit.object_auth");
+  expect(markup).not.toContain(">interface<");
+});
+
+test("la révocation de tous les jetons à la création du compte se lit en entier (F-3)", () => {
+  events = [event({ id: 4, action: "api_token.revoke", object_kind: "api_token", object_id: "", object_name: "", details: { all: "true", api_tokens: "0" } })];
+  expect(render()).toContain("audit.verb_revoke_none");
+});
