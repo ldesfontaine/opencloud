@@ -8,6 +8,8 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -35,9 +37,21 @@ const (
 	waitBound      = 30 * time.Second
 )
 
+// Les variables qui font du binaire de test un faux rest-server (voir
+// TestFakeRestServerProcess) : les deux fifos de la poignée de main.
+const (
+	fakeReadyEnv = "OPENCLOUD_FAKE_REST_READY"
+	fakeHupEnv   = "OPENCLOUD_FAKE_REST_HUP"
+)
+
 // fakeRestServer écrit un faux rest-server : il dit sa version, et sinon
 // tourne jusqu'à son arrêt. Il écrit « ready » dans une fifo une fois son
-// piège posé, puis « hup » à chaque SIGHUP.
+// écoute de SIGHUP posée, puis « hup » à chaque SIGHUP.
+//
+// Le faux est un programme Go (le binaire de test relancé), pas un script
+// shell : un shell non interactif ne peut pas piéger un signal que son père
+// ignorait (POSIX), et make ci lancé sous nohup ou en tâche de fond ignore
+// SIGHUP. signal.Notify, comme celui du vrai rest-server, le réactive.
 func fakeRestServer(t *testing.T) (string, string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -47,18 +61,42 @@ func fakeRestServer(t *testing.T) (string, string, string) {
 			t.Fatal(err)
 		}
 	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	script := strings.Join([]string{
 		"#!/bin/sh",
-		`if [ "$1" = "--version" ]; then echo "rest-server 0.14.0 (fake)"; exit 0; fi`,
-		`trap 'echo hup > ` + hup + `' HUP`,
-		`echo ready > ` + ready,
-		`while :; do sleep 1 & wait $!; done`,
+		"exec env " + fakeReadyEnv + "=" + ready + " " + fakeHupEnv + "=" + hup + " " + self + " -test.run '^TestFakeRestServerProcess$' -test.timeout 0 -- \"$@\"",
 	}, "\n") + "\n"
 	binary := filepath.Join(dir, "rest-server")
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return binary, ready, hup
+}
+
+// TestFakeRestServerProcess n'est pas un test : c'est le faux rest-server
+// que fakeRestServer relance. Sans ses variables, il ne fait rien.
+func TestFakeRestServerProcess(t *testing.T) {
+	ready, hup := os.Getenv(fakeReadyEnv), os.Getenv(fakeHupEnv)
+	if ready == "" || hup == "" {
+		t.Skip("processus d'aide : lancé par fakeRestServer")
+	}
+	if slices.Contains(flag.Args(), "--version") {
+		fmt.Println("rest-server 0.14.0 (fake)")
+		os.Exit(0)
+	}
+	hups := make(chan os.Signal, 8)
+	ossignal.Notify(hups, syscall.SIGHUP)
+	if err := os.WriteFile(ready, []byte("ready\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range hups {
+		if err := os.WriteFile(hup, []byte("hup\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // readFifo lit une ligne d'une fifo à part, et la rend sur le canal.
