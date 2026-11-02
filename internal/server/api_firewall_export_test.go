@@ -46,7 +46,6 @@ func TestBackups_FirewallExportPlanNeverLeaksTheKeysOrTheConfiguration(t *testin
 	if run.Code != http.StatusCreated {
 		t.Fatalf("run: %d %s", run.Code, run.Body.String())
 	}
-	server.backups.WaitBackground()
 
 	outputs := []string{run.Body.String(), saved.Body.String(), refused.Body.String(), journal.String(), server.logs.String()}
 	for _, path := range []string{"/api/backups", "/api/backups/overview", "/api/firewalls/" + firewallID} {
