@@ -580,3 +580,12 @@ export function modeText(t: Translate, container: Pick<Container, "network_mode"
       return container.network_mode;
   }
 }
+
+// Les liens qui partent d'un conteneur. Une route (le proxy envoie vers
+// l'application) n'est pas une dépendance : l'application ne dépend pas du
+// proxy, et le proxy n'a pas besoin d'elle pour démarrer. Les deux se lisent
+// à part, sous deux titres.
+export function linksFrom(edges: Edge[], containerID: string): { dependencies: Edge[]; routes: Edge[] } {
+  const own = edges.filter((edge) => edge.kind === "depends" && edge.from === containerID);
+  return { dependencies: own.filter((edge) => edge.nature !== "route"), routes: own.filter((edge) => edge.nature === "route") };
+}

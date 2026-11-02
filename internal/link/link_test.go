@@ -56,6 +56,9 @@ func TestLink_FreshnessAndRemovability(t *testing.T) {
 	if operator.Stale(now) || !operator.Removable() {
 		t.Error("un lien écrit par l'opérateur ne vieillit pas, et se retire")
 	}
+	if (Link{Proof: ProofDeduced, Signal: SignalPublicURL}).Stale(now) {
+		t.Error("un lien déduit n'a pas de dernière vue : il n'est jamais ancien")
+	}
 	if (Link{Signal: SignalContainerLink, LastSeen: now.Add(-StaleAfter)}).Stale(now) {
 		t.Error("pile 7 jours n'est pas encore ancien")
 	}

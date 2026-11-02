@@ -61,7 +61,7 @@ func TestAPI_DeducedLinks_PublicURLAndProxyGiveARouteWrittenNowhere(t *testing.T
 		t.Fatalf("liens du blog : %+v", out.Links)
 	}
 	got := out.Links[0]
-	if got.Direction != "incoming" || got.Nature != "route" || got.Proof != "deduced" || got.Signal != "public_url" || got.Removable || got.Dismissed || got.Peer.ServiceID != proxy {
+	if got.Direction != "incoming" || got.Nature != "route" || got.Proof != "deduced" || got.Signal != "public_url" || got.Removable || got.Stale || got.Dismissed || got.Peer.ServiceID != proxy {
 		t.Errorf("route déduite = %+v", got)
 	}
 	if again := serviceLinksOf(t, server, blog); again.Links[0].ID != got.ID {
@@ -133,7 +133,7 @@ func TestAPI_DeducedLinks_ADismissedRouteNeverComesBackBySurprise(t *testing.T) 
 			if proposed := linkByState(links, false); len(proposed) != 0 {
 				t.Errorf("%s : la route revient côté %s : %+v", when, id, proposed)
 			}
-			if kept := linkByState(links, true); len(kept) != 1 || kept[0].Removable || kept[0].Nature != "route" {
+			if kept := linkByState(links, true); len(kept) != 1 || kept[0].Removable || kept[0].Nature != "route" || kept[0].Signal != "public_url" {
 				t.Errorf("%s : la route écartée reste notée côté %s : %+v", when, id, kept)
 			}
 		}

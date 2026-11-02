@@ -197,6 +197,9 @@ func (d *Directory) ServiceLinks(ctx context.Context, serviceID string) ([]Servi
 		place(found, false)
 	}
 	for _, found := range dismissed {
+		// La trace dit « opérateur » (c'est lui qui a écarté) ; ce qui l'a
+		// proposée, c'est l'adresse publique.
+		found.Signal = link.SignalPublicURL
 		place(found, true)
 	}
 	return links, nil

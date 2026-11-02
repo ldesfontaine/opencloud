@@ -269,7 +269,8 @@ func seedE2ESystemd(t *testing.T, ts *testServer) {
 	}
 	_, err = ts.directory.CreateService(ctx, directory.ServiceDefinition{
 		MachineID: machine.LocalID, Name: "caddy", Nature: directory.NatureInfra, Origin: directory.OriginBinary,
-		Units: []directory.UnitDefinition{{Name: "caddy", SystemdUnit: "caddy.service", Version: "2.8.4", Ports: []string{"80/tcp", "443"}}},
+		Provides: []directory.Capability{directory.CapabilityProxy},
+		Units:    []directory.UnitDefinition{{Name: "caddy", SystemdUnit: "caddy.service", Version: "2.8.4", Ports: []string{"80/tcp", "443"}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -310,6 +311,18 @@ func seedE2ELinks(t *testing.T, ts *testServer) {
 	proxy := e2eServiceNamed(t, ts, machine.LocalID, "caddy")
 	if _, err := ts.directory.DeclareLink(ctx, directory.LinkDefinition{FromServiceID: proxy.ID, ToServiceID: cloud.ID, ToUnitID: cloud.Units[0].ID, Port: 8080}); err != nil {
 		t.Fatal(err)
+	}
+	// Deux applications avec une adresse publique : caddy, qui fournit la
+	// capacité proxy, les joint par deux routes déduites (le parcours confirme
+	// l'une, écarte l'autre).
+	for _, name := range []string{"blog", "wiki"} {
+		if _, err := ts.directory.CreateService(ctx, directory.ServiceDefinition{
+			MachineID: remoteID, Name: name, Nature: directory.NatureApplication, Origin: directory.OriginContainer,
+			PublicURL: "https://" + name + ".example.test",
+			Units:     []directory.UnitDefinition{{Name: name, ContainerName: name, Image: "ghost"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	old := link.New(ts.db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	old.SetClock(func() time.Time { return testNow.Add(-10 * 24 * time.Hour) })

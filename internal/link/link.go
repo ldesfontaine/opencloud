@@ -124,9 +124,10 @@ type Link struct {
 }
 
 // Stale : un lien d'un outil qu'on ne revoit plus. Un lien écrit par
-// l'opérateur ne vieillit pas : personne ne le « revoit ».
+// l'opérateur ne vieillit pas : personne ne le « revoit ». Un lien déduit non
+// plus : il est refait à chaque lecture, il n'a pas de dernière vue.
 func (l Link) Stale(now time.Time) bool {
-	return l.Signal != SignalOperator && now.Sub(l.LastSeen) > StaleAfter
+	return l.Proof != ProofDeduced && l.Signal != SignalOperator && now.Sub(l.LastSeen) > StaleAfter
 }
 
 // Removable : seul l'opérateur retire ce qu'il a écrit. Un lien tiré de

@@ -1,13 +1,13 @@
 import { Link } from "react-router";
 
 import type { Container } from "../api/containers";
-import type { NetworkResponse } from "../api/network";
+import type { Edge, NetworkResponse } from "../api/network";
 import type { Probe } from "../api/probes";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { read, soonest } from "../lib/certificates";
 import { proofTone } from "../lib/links";
-import { internetID, modeText, peersOf, probesOf, publicPorts } from "../lib/network";
+import { internetID, linksFrom, modeText, peersOf, probesOf, publicPorts } from "../lib/network";
 import { findingText, formatBindings, needsCaution, containerIcon } from "../lib/containers";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
@@ -120,7 +120,7 @@ function ContainerInspector({
 }) {
   const t = useT();
   const peers = peersOf(container, response.containers);
-  const dependencies = response.edges.filter((edge) => edge.kind === "depends" && edge.from === container.id);
+  const { dependencies, routes } = linksFrom(response.edges, container.id);
   const unresolved = container.depends_on.filter((dependency) => !dependencies.some((edge) => response.containers.find((candidate) => candidate.id === edge.to)?.name === dependency.name));
   const caution = needsCaution(container);
   return (
@@ -159,31 +159,18 @@ function ContainerInspector({
 
         <span className="k">{t("network.field_depends")}</span>
         {dependencies.length === 0 && unresolved.length === 0 && <span className="muted">{t("network.none")}</span>}
-        {dependencies.map((edge) => {
-          const target = response.containers.find((candidate) => candidate.id === edge.to);
-          return (
-            <span className="cluster" key={`${edge.to}:${edge.link_id ?? ""}`}>
-              <button type="button" className="link-btn mono" onClick={() => onSelect(edge.to)}>
-                {target?.name ?? edge.to}
-              </button>
-              {edge.proof !== undefined && (
-                <Pill tone={proofTone(edge.proof)} small>
-                  {t(`link.proof_${edge.proof}`)}
-                </Pill>
-              )}
-              {edge.stale === true && (
-                <Pill tone="warn" dot={false} small>
-                  {t("link.stale")}
-                </Pill>
-              )}
-            </span>
-          );
-        })}
+        <EdgeTargets edges={dependencies} response={response} onSelect={onSelect} />
         {unresolved.map((dependency) => (
           <span className="mono muted" key={dependency.name}>
             {t("network.depends_unknown", dependency.name)}
           </span>
         ))}
+        {routes.length > 0 && (
+          <>
+            <span className="k">{t("network.field_sends_to")}</span>
+            <EdgeTargets edges={routes} response={response} onSelect={onSelect} />
+          </>
+        )}
 
         {peers.map((group) => (
           <div className="stack gap-8" key={group.network}>
@@ -226,5 +213,35 @@ function ContainerInspector({
         </Link>
       </div>
     </Card>
+  );
+}
+
+// Les conteneurs que des liens visent depuis celui-ci, chacun avec sa preuve
+// et « Ancien » quand l'outil ne le revoit plus.
+function EdgeTargets({ edges, response, onSelect }: { edges: Edge[]; response: NetworkResponse; onSelect: (id: string) => void }) {
+  const t = useT();
+  return (
+    <>
+      {edges.map((edge) => {
+        const target = response.containers.find((candidate) => candidate.id === edge.to);
+        return (
+          <span className="cluster" key={`${edge.to}:${edge.link_id ?? ""}`}>
+            <button type="button" className="link-btn mono" onClick={() => onSelect(edge.to)}>
+              {target?.name ?? edge.to}
+            </button>
+            {edge.proof !== undefined && (
+              <Pill tone={proofTone(edge.proof)} small>
+                {t(`link.proof_${edge.proof}`)}
+              </Pill>
+            )}
+            {edge.stale === true && (
+              <Pill tone="warn" dot={false} small>
+                {t("link.stale")}
+              </Pill>
+            )}
+          </span>
+        );
+      })}
+    </>
   );
 }
