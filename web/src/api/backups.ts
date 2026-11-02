@@ -159,6 +159,26 @@ export interface ResticRun {
   duration_seconds: number;
 }
 
+// Ce qu'une sauvegarde de service contient : son dossier, un volume nommé de
+// Docker, ou la base d'un conteneur (engine : postgres, mariadb, mysql, mongo).
+export type BackupPartKind = "folder" | "volume" | "database";
+
+export interface BackupSourcePart {
+  kind: BackupPartKind;
+  name: string;
+  engine: string;
+}
+
+// Ce qu'une partie a donné au dernier passage : ok, failed, ou skipped (le
+// conteneur ou le volume n'est plus sur la machine). reason : un mot fermé.
+export interface BackupPartResult {
+  kind: BackupPartKind;
+  name: string;
+  state: "ok" | "failed" | "skipped";
+  reason: string;
+  bytes_added: number;
+}
+
 export interface BackupProtection {
   origin: ProtectionOrigin;
   // La tâche vzdump, le sujet du plan, ou la sauvegarde restic.
@@ -174,6 +194,8 @@ export interface BackupProtection {
   // Un mot fermé, ou la clé d'un refus.
   reason: string;
   last_at: string | null;
+  // La dernière réussite, même quand le dernier essai a échoué.
+  last_success_at: string | null;
   next_at: string | null;
   schedule: string;
   size_bytes: number | null;
@@ -181,6 +203,8 @@ export interface BackupProtection {
   copies: number | null;
   retention: BackupRetention;
   path: BackupPath | null;
+  // restic, portée service : le résultat de chaque partie au dernier passage.
+  parts: BackupPartResult[];
   runs: ResticRun[];
 }
 
@@ -196,6 +220,8 @@ export interface BackupSource {
   used_by: string[];
   // L'hôte n'a pas pu lire ses archives ou ses tâches : « inconnu », jamais « aucune ».
   observed_unknown: boolean;
+  // Un service : ce que « le service entier » sauvegardera ; vide sinon.
+  parts: BackupSourcePart[];
   protections: BackupProtection[];
 }
 

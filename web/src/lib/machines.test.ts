@@ -105,7 +105,7 @@ test("unavailableRights : seuls les droits que le compte ne peut pas exercer, av
 });
 
 test("les droits Proxmox suivent files.write, sans chemin, et ne se proposent qu'à un hôte Proxmox reconnu", () => {
-  expect(capabilityNames.slice(-5, -2)).toEqual(["files.write", "proxmox.power", "proxmox.snapshot"]);
+  expect(capabilityNames.slice(-6, -3)).toEqual(["files.write", "proxmox.power", "proxmox.snapshot"]);
   expect(capabilitiesOf({ rights: ["proxmox.snapshot", "proxmox.power"], backupPath: "", writePaths: "", resticPath: "" })).toEqual([
     { name: "proxmox.power", paths: [] },
     { name: "proxmox.snapshot", paths: [] },
@@ -118,7 +118,7 @@ test("les droits Proxmox suivent files.write, sans chemin, et ne se proposent qu
 });
 
 test("les droits restic ferment la liste : la cible porte son seul dossier, la source aucun", () => {
-  expect(capabilityNames.slice(-2)).toEqual(["restic.target", "restic.produce"]);
+  expect(capabilityNames.slice(-3)).toEqual(["restic.target", "restic.produce", "restic.docker"]);
   expect(capabilitiesOf({ rights: ["restic.produce", "restic.target"], backupPath: "", writePaths: "", resticPath: " /srv/restic " })).toEqual([
     { name: "restic.target", paths: ["/srv/restic"] },
     { name: "restic.produce", paths: [] },

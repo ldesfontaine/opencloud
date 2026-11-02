@@ -822,3 +822,95 @@
     justify-content: flex-start;
   }
 }
+
+// Ce qu'une sauvegarde de service contient : dossier, volumes, bases.
+.backup-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+}
+
+.backup-parts-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.backup-part {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+
+  > .icon {
+    flex: none;
+    color: var(--ink-2);
+  }
+}
+
+.backup-part-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+
+  b {
+    font-weight: 500;
+  }
+}
+
+.backup-part-mark {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--muted);
+
+  .icon {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+.backup-part-ok {
+  background: var(--ok-wash);
+  color: var(--ok);
+}
+
+.backup-part-failed {
+  background: var(--danger-wash);
+  color: var(--danger);
+}
+
+// Une sauvegarde faite par Proxmox : « à remplacer », avec le geste.
+.backup-replace {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--warn-wash);
+
+  > span {
+    flex: 1 1 200px;
+  }
+}

@@ -20,6 +20,7 @@ import { rightOfRefusal } from "../../lib/rights";
 import { ago, formatRemaining, formatWhen } from "../../lib/time";
 import { formatBytes } from "../../lib/units";
 import { InstallBlock } from "./InstallBlock";
+import { PartsBlock } from "./Parts";
 
 // L'icône d'une source, d'après ce qu'elle est.
 export const sourceIcons: Record<BackupSource["kind"], IconName> = {
@@ -113,6 +114,7 @@ function Unprotected({ source, overview }: { source: BackupSource; overview: Bac
   return (
     <div className="backup-protection">
       <Flow from={source.name} fromIcon={sourceIcons[source.kind]} fromSub={source.machine_name} label={t("backup.flow_nothing")} to="—" toSub={t("backup.flow_no_target")} tone="none" />
+      <PartsBlock parts={source.parts} results={[]} />
       <dl className="backup-facts">
         <Fact label={t("backup.fact_last")} value={unknown ? t("backup.last_unknown") : t("backup.last_never")} sub={unknown ? t("backup.last_unknown_sub") : t("backup.last_never_sub")} />
         <Fact label={t("backup.fact_missing")} value={missing.text} sub={missing.sub} wide />
@@ -190,6 +192,8 @@ function ProtectionBlock({ source, protection, machines }: { source: BackupSourc
         <span className="secondary">{originDetail(t, protection)}</span>
         {menu.length > 0 && <MoreMenu actions={menu} label={t("entity.more", source.name)} />}
       </div>
+      <ReplaceNote source={source} protection={protection} />
+      <PartsBlock parts={source.parts} results={protection.parts} />
       <ProtectionFacts source={source} protection={protection} />
       <ProtectionState source={source} protection={protection} machines={machines} />
       <Failure error={action.error} gesture={{ machineID: source.machine_id }} />
@@ -265,7 +269,7 @@ function originDetail(t: Translate, protection: BackupProtection): string {
   if (protection.origin === "archive") {
     return protection.name === "" ? t("backup.source_kind_database") : protection.name;
   }
-  return t(protection.scope === "vm" ? "backup.scope_vm" : "backup.scope_service");
+  return t(protection.scope === "vm" ? "backup.origin_restic_vm" : "backup.scope_service");
 }
 
 function ProtectionFacts({ source, protection }: { source: BackupSource; protection: BackupProtection }) {
@@ -275,7 +279,8 @@ function ProtectionFacts({ source, protection }: { source: BackupSource; protect
   const place = protection.origin === "observed" ? protection.archive_storage || protection.storage : protection.target_machine_name;
   return (
     <dl className="backup-facts">
-      <Fact label={t("backup.fact_last")} {...lastFact(t, protection, now)} />
+      <Fact label={isBroken(protection) ? t("backup.fact_last_attempt") : t("backup.fact_last")} {...lastFact(t, protection, now)} />
+      {isBroken(protection) && <Fact label={t("backup.fact_last_success")} {...lastSuccessFact(t, protection, now)} />}
       {protection.next_at !== null && <Fact label={t("backup.fact_next")} value={upcoming(t, protection.next_at, now)} sub={formatWhen(protection.next_at, now)} />}
       {protection.size_bytes !== null && (
         <Fact label={t("backup.fact_size")} value={formatBytes(t, language, protection.size_bytes)} sub={t("backup.fact_size_sub")} mono />
@@ -286,6 +291,39 @@ function ProtectionFacts({ source, protection }: { source: BackupSource; protect
       {protection.copies !== null && <Fact label={t("backup.fact_copies")} value={protection.copies} sub={t("backup.fact_copies_sub", place)} mono />}
       <Fact label={t("backup.fact_retention")} value={retention.value} sub={retention.note} more={protection.origin === "restic" && <LastForget protection={protection} now={now} />} wide />
     </dl>
+  );
+}
+
+// Un échec, un refus ou un retard : la dernière réussite se lit à côté du dernier essai.
+function isBroken(protection: BackupProtection): boolean {
+  return protection.state === "failed" || protection.state === "refused" || protection.state === "late";
+}
+
+function lastSuccessFact(t: Translate, protection: BackupProtection, now: number): { value: string; sub: string | null } {
+  if (protection.last_success_at === null) {
+    return { value: t("backup.fact_last_success_never"), sub: null };
+  }
+  return { value: ago(t, protection.last_success_at, now), sub: formatWhen(protection.last_success_at, now) };
+}
+
+// Une sauvegarde que Proxmox fait de lui-même, sans plan openCloud : la page la
+// montre « observée » et dit qu'elle est à remplacer, avec le geste.
+function ReplaceNote({ source, protection }: { source: BackupSource; protection: BackupProtection }) {
+  const t = useT();
+  const replaced = source.protections.some((other) => other.origin === "restic");
+  if (protection.origin !== "observed" || replaced || scopeOf(source) !== "vm") {
+    return null;
+  }
+  return (
+    <div className="backup-replace">
+      <Icon name="refresh" />
+      <span>
+        <b>{t("backup.replace_title")}</b> {protection.name === "" ? t("backup.replace_text_nojob") : t("backup.replace_text", protection.name)}
+      </span>
+      <Button small to={`${newResticBackupPath}?source=${encodeURIComponent(source.key)}`}>
+        {t("backup.replace_button")}
+      </Button>
+    </div>
   );
 }
 

@@ -103,6 +103,7 @@ const refusalRights: Readonly<Record<string, string>> = {
   "restic.target_right_missing": "restic.target",
   "restic.source_right_missing": "restic.produce",
   "restic.source_vm_right_missing": "backup.produce",
+  "restic.source_docker_right_missing": "restic.docker",
 };
 
 export function rightOfRefusal(key: string): string | null {

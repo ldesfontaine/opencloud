@@ -317,12 +317,26 @@ export function matchesSearch(source: Pick<BackupSource, "name" | "machine_name"
   return wanted === "" || folded(`${source.name} ${source.machine_name}`).includes(wanted);
 }
 
+// Les droits qu'une source demande à son agent : restic.produce, backup.produce
+// pour lancer vzdump (une VM), restic.docker pour lire les volumes et lancer
+// le dump des bases d'un service.
+export function rightsWanted(source: Pick<BackupSource, "kind" | "parts">): string[] {
+  if (scopeOf(source) === "vm") {
+    return ["restic.produce", "backup.produce"];
+  }
+  return needsDocker(source) ? ["restic.produce", "restic.docker"] : ["restic.produce"];
+}
+
+export function needsDocker(source: Pick<BackupSource, "parts">): boolean {
+  return source.parts.some((part) => part.kind !== "folder");
+}
+
 // Une source se sauvegarde quand sa machine (l'hôte pour une VM) a le droit
 // restic.produce, et backup.produce pour lancer vzdump ; l'ordre ne part que
 // par son flux : hors ligne, rien ne se lie.
 export function sourceUnfit(t: Translate, source: BackupSource, machines: readonly BackupMachine[]): Unfitness | null {
   const machine = machines.find((candidate) => candidate.machine_id === source.machine_id);
-  const wanted = scopeOf(source) === "vm" ? ["restic.produce", "backup.produce"] : ["restic.produce"];
+  const wanted = rightsWanted(source);
   if (machine !== undefined && isResticMissing(machine)) {
     return { reason: t("backup.unfit_restic_missing", source.machine_name), install: { software: "restic", machine } };
   }
