@@ -35,26 +35,30 @@ type BrowseRequest struct {
 	Path     string
 }
 
-// browseSlot attend le résultat d'un ordre de parcours. Il est créé par celui
-// des deux qui arrive le premier : l'écran qui attend, ou le signal de la cible.
+// browseSlot attend le résultat d'un ordre de parcours.
 type browseSlot struct {
 	done   chan struct{}
 	once   sync.Once
 	result agentwire.ActionResult
 }
 
-func (s *Service) browseSlot(runID string) *browseSlot {
+// sendBrowse envoie l'ordre et ouvre son créneau sans qu'un résultat puisse
+// passer entre les deux : le verrou est tenu du départ de l'ordre à
+// l'enregistrement du créneau, et deliverBrowse le prend avant de chercher. Une
+// cible qui répond plus vite que la fin de l'envoi attend donc ce verrou.
+func (s *Service) sendBrowse(ctx context.Context, machineID string, params []byte, secret agentwire.ResticBrowseSecret) (action.Run, *browseSlot, error) {
 	s.browseMu.Lock()
 	defer s.browseMu.Unlock()
+	run, err := s.sendSecret(ctx, machineID, agentwire.KindResticBrowse, params, secret, ErrTargetBrowseRightMissing)
+	if err != nil {
+		return action.Run{}, nil, err
+	}
 	if s.browses == nil {
 		s.browses = map[string]*browseSlot{}
 	}
-	slot, found := s.browses[runID]
-	if !found {
-		slot = &browseSlot{done: make(chan struct{})}
-		s.browses[runID] = slot
-	}
-	return slot
+	slot := &browseSlot{done: make(chan struct{})}
+	s.browses[run.ID] = slot
+	return run, slot, nil
 }
 
 func (s *Service) dropBrowseSlot(runID string) {
@@ -117,12 +121,13 @@ func (s *Service) Browse(ctx context.Context, sourceID, id string, request Brows
 	if err != nil {
 		return agentwire.ResticBrowseReport{}, fmt.Errorf("encode browse: %w", err)
 	}
-	run, err := s.sendSecret(ctx, link.TargetMachineID, agentwire.KindResticBrowse, encoded, agentwire.ResticBrowseSecret{RepoPassword: link.Secrets.Repo}, ErrTargetBrowseRightMissing)
+	run, slot, err := s.sendBrowse(ctx, link.TargetMachineID, encoded, agentwire.ResticBrowseSecret{RepoPassword: link.Secrets.Repo})
 	if err != nil {
 		return agentwire.ResticBrowseReport{}, err
 	}
+	defer s.dropBrowseSlot(run.ID)
 	s.auditBrowse(ctx, current, request, run)
-	return s.awaitBrowse(ctx, run)
+	return s.awaitBrowse(ctx, run, slot)
 }
 
 func (s *Service) auditBrowse(ctx context.Context, current Backup, request BrowseRequest, run action.Run) {
@@ -136,9 +141,7 @@ func (s *Service) auditBrowse(ctx context.Context, current Backup, request Brows
 	})
 }
 
-func (s *Service) awaitBrowse(ctx context.Context, run action.Run) (agentwire.ResticBrowseReport, error) {
-	slot := s.browseSlot(run.ID)
-	defer s.dropBrowseSlot(run.ID)
+func (s *Service) awaitBrowse(ctx context.Context, run action.Run, slot *browseSlot) (agentwire.ResticBrowseReport, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, browseWait)
 	defer cancel()
 	finished := make(chan action.Run, 1)
