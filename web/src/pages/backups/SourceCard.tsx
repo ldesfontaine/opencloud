@@ -1,25 +1,24 @@
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
-import { deleteResticBackup, runResticBackup, verifyResticBackup, type BackupMachine, type BackupOverview, type BackupProtection, type BackupSource } from "../../api/backups";
-import { errorKey } from "../../api/client";
+import { type BackupMachine, type BackupOverview, type BackupProtection, type BackupSource } from "../../api/backups";
 import { reasonText } from "../../components/ActionsCard";
 import { Button } from "../../components/Button";
-import { ConfirmDialog } from "../../components/ConfirmModal";
 import { TokenBox } from "../../components/Copy";
 import { Failure } from "../../components/Failure";
 import { Icon, type IconName } from "../../components/Icon";
 import { MissingRightButton } from "../../components/MissingRight";
-import { MoreMenu, type MenuAction } from "../../components/MoreMenu";
+import { MoreMenu } from "../../components/MoreMenu";
 import { Pill } from "../../components/Pill";
-import { useAction } from "../../hooks/useAction";
 import { useNow } from "../../hooks/useNow";
 import { useI18n, useT, type Translate } from "../../i18n/context";
 import { directHint, forgetView, pathReasonText, protectionReasonText, retentionView, scopeOf, sourceStatus, sourceSubtitle, sourceUnfit, statusTones, verifyBlockedBy, verifyView, type Unfitness } from "../../lib/backupOverview";
-import { editPlanPath, editResticPath, firewallIdOf, newFirewallPlanPath, newPlanPath, newResticBackupPath, newTargetPath } from "../../lib/backups";
+import { firewallIdOf, newFirewallPlanPath, newPlanPath, newResticBackupPath, newTargetPath } from "../../lib/backups";
 import { missingSoftware } from "../../lib/resticInstall";
 import { holderOfRefusal, rightOfRefusal } from "../../lib/rights";
 import { ago, formatRemaining, formatWhen } from "../../lib/time";
 import { formatBytes } from "../../lib/units";
+import { DatabaseSetup } from "./DatabaseSetup";
+import { useProtectionGestures } from "./gestures";
 import { InstallBlock } from "./InstallBlock";
 import { PartsBlock } from "./Parts";
 
@@ -60,6 +59,7 @@ export function SourceCard({ source, overview }: { source: BackupSource; overvie
       ) : (
         source.protections.map((protection) => <ProtectionBlock key={`${protection.origin}:${protection.id}`} source={source} protection={protection} machines={overview.machines} />)
       )}
+      {source.kind === "database" && <DatabaseSetup />}
     </article>
   );
 }
@@ -152,7 +152,7 @@ interface Missing {
 // Ce qu'il manque pour que la source parte : la base passe par un plan
 // d'archives ; un volume Docker n'est pas couvert ; sinon un droit, une
 // machine en ligne, ou une cible prête.
-function whatIsMissing(t: Translate, source: BackupSource, overview: BackupOverview): Missing {
+export function whatIsMissing(t: Translate, source: BackupSource, overview: BackupOverview): Missing {
   if (source.kind === "database") {
     return { text: t("backup.missing_plan"), sub: t("backup.missing_plan_sub"), unfit: null, start: newPlanPath, foot: null };
   }
@@ -183,56 +183,23 @@ function whatIsMissing(t: Translate, source: BackupSource, overview: BackupOverv
 // chiffrée d'openCloud, ou restic.
 function ProtectionBlock({ source, protection, machines }: { source: BackupSource; protection: BackupProtection; machines: readonly BackupMachine[] }) {
   const t = useT();
-  const action = useAction();
-  const [deleting, setDeleting] = useState(false);
-  const menu = protectionMenu(t, source, protection, {
-    run: () => action.run(() => runResticBackup(source.machine_id, protection.id), { topic: "backups" }),
-    verify: () => action.run(() => verifyResticBackup(source.machine_id, protection.id), { topic: "backups" }),
-    remove: () => setDeleting(true),
-  });
-  // Un refus de droit se corrige sur la machine qui le manque : la source, ou la cible.
-  const refusedHolder = action.error === null ? source.machine_id : holderOfRefusal(errorKey(action.error), { source: source.machine_id, target: protection.target_machine_id });
+  const gestures = useProtectionGestures(source, protection);
   return (
     <div className="backup-protection">
       <ProtectionFlow source={source} protection={protection} />
       <div className="backup-origin">
         <OriginPill protection={protection} />
         <span className="secondary">{originDetail(t, source, protection)}</span>
-        {menu.length > 0 && <MoreMenu actions={menu} label={t("entity.more", source.name)} />}
+        {gestures.menu.length > 0 && <MoreMenu actions={gestures.menu} label={t("entity.more", source.name)} />}
       </div>
       <ReplaceNote source={source} protection={protection} />
       <PartsBlock parts={source.parts} results={protection.parts} />
       <ProtectionFacts source={source} protection={protection} />
       <ProtectionState source={source} protection={protection} machines={machines} />
-      <Failure error={action.error} gesture={{ machineID: refusedHolder }} />
-      {deleting && (
-        <ConfirmDialog
-          title={t("backup.restic_delete")}
-          question={t("backup.restic_delete_confirm", source.name, protection.target_machine_name)}
-          confirmLabel={t("backup.restic_delete")}
-          onConfirm={() => action.run(() => deleteResticBackup(source.machine_id, protection.id), { topic: "backups" })}
-          onClose={() => setDeleting(false)}
-        />
-      )}
+      <Failure error={gestures.error} gesture={{ machineID: gestures.refusedHolder }} />
+      {gestures.dialogs}
     </div>
   );
-}
-
-function protectionMenu(t: Translate, source: BackupSource, protection: BackupProtection, gestures: { run: () => void; verify: () => void; remove: () => void }): MenuAction[] {
-  if (protection.origin === "archive") {
-    return [{ label: t("backup.plan_edit"), to: editPlanPath(protection.id) }];
-  }
-  if (protection.origin !== "restic") {
-    return [];
-  }
-  // « Sauvegarder maintenant » reste offert pendant un passage : le serveur
-  // refuse alors en le disant (restic.backup_running), sous la carte.
-  return [
-    { label: t("backup.run_now"), onSelect: gestures.run },
-    { label: t("backup.verify_now"), onSelect: gestures.verify },
-    { label: t("backup.restic_edit"), to: editResticPath(source.machine_id, protection.id) },
-    { label: t("backup.restic_delete"), danger: true, onSelect: gestures.remove },
-  ];
 }
 
 function ProtectionFlow({ source, protection }: { source: BackupSource; protection: BackupProtection }) {

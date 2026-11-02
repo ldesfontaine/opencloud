@@ -1,4 +1,4 @@
-import type { BackupDestination, BackupPlan, BackupSourceKind, Backups, PlanRequest } from "../api/backups";
+import type { BackupDestination, BackupPlan, BackupSourceKind, PlanRequest } from "../api/backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 import type { Translate } from "../i18n/context";
 import { reenrollPath, rightOfRefusal, type Unfit } from "./rights";
@@ -74,14 +74,6 @@ export function newFirewallPlanPath(firewallID: string): string {
 // Le sujet d'un plan : le mot qui préfixe ses fichiers sur la destination.
 // Le serveur le juge de même ; ici, pour dire pourquoi avant d'envoyer.
 const subjectPattern = /^[a-z0-9][a-z0-9-]{0,39}$/;
-
-// La base est sauvegardée quand une clé existe et que le plan de la base a
-// sa destination : sinon la page le dit, en tête. Les autres plans ne
-// comptent pas : ils sauvegardent autre chose.
-export function isBackedUp(backups: Backups): boolean {
-  const plan = backups.plans.find((candidate) => candidate.source_kind === "database");
-  return backups.keyring !== null && plan !== undefined && backups.destinations.some((destination) => destination.id === plan.destination_id);
-}
 
 // Le titre d'un plan : son libellé, à défaut son sujet ; la base, qui n'a
 // pas de libellé, porte celui que le catalogue lui donne.
@@ -288,4 +280,9 @@ export function unfitDestination(t: Translate, destination: Pick<BackupDestinati
     return { reason: t("backup.right_unavailable"), link: { to: `/machines/${destination.machine_id}`, label: t("machine.fit_open") } };
   }
   return null;
+}
+
+// La fenêtre de l'explorateur d'une sauvegarde restic : sa source et son identifiant.
+export function browsePath(machineID: string, backupID: string): string {
+  return `${backupsPath}/parcourir/${encodeURIComponent(machineID)}/${encodeURIComponent(backupID)}`;
 }

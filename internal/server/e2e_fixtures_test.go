@@ -895,8 +895,18 @@ func e2eServeBrowse(t *testing.T, ts *testServer, pi *machine.Session) {
 			report.Entries = tree[params.Path]
 		}
 		result := agentwire.ActionReport{Results: []agentwire.ActionResult{{RunID: body.RunID, State: agentwire.ActionSucceeded, Browse: &report}}}
-		if got := signalAnnouncingSections(ts, pi.Token, agentwire.SignalRequest{Actions: &result}); got.Code != http.StatusNoContent {
-			t.Errorf("browse report: %d %s", got.Code, got.Body.String())
+		// Le débit des signaux d'une machine est borné (une réponse tous les deux
+		// secondes) : comme un vrai agent, pi reprend après un refus de débit.
+		for attempt := 0; attempt < 40; attempt++ {
+			got := signalAnnouncingSections(ts, pi.Token, agentwire.SignalRequest{Actions: &result})
+			if got.Code == http.StatusNoContent {
+				break
+			}
+			if got.Code != http.StatusTooManyRequests {
+				t.Errorf("browse report: %d %s", got.Code, got.Body.String())
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
 		}
 	}
 }

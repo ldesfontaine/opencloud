@@ -1,0 +1,153 @@
+// La matrice (maquette : docs/projet/maquettes/sauvegardes.html).
+
+.matrix {
+  padding: 0;
+}
+
+.matrix-scroll {
+  overflow-x: auto;
+}
+
+.matrix table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.matrix-caption {
+  text-align: left;
+  padding: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.matrix th,
+.matrix td {
+  padding: 0 8px;
+  height: 48px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  font-weight: 400;
+  vertical-align: middle;
+}
+
+.matrix thead th {
+  white-space: nowrap;
+  height: 44px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.matrix-col-hint {
+  display: block;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.matrix-group th {
+  height: 30px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+
+  .icon {
+    vertical-align: -3px;
+    margin-right: 4px;
+  }
+}
+
+.matrix-row {
+  font-weight: 500;
+  white-space: nowrap;
+
+  span {
+    display: block;
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 12px;
+  }
+}
+
+.matrix-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--ink);
+
+  &:hover {
+    background: var(--surface-2);
+  }
+
+  &[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent-wash);
+  }
+
+  small {
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+}
+
+.matrix-dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ok);
+  display: inline-block;
+
+  &.matrix-dot-warn {
+    background: var(--warn);
+  }
+
+  &.matrix-dot-danger {
+    background: var(--danger);
+  }
+
+  &.matrix-dot-observed {
+    background: none;
+    border: 2px solid var(--muted);
+  }
+
+  &.matrix-dot-none {
+    background: none;
+    border: 2px dashed var(--line-strong);
+  }
+}
+
+.matrix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 12px;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+}

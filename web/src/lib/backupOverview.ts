@@ -2,6 +2,7 @@ import type { BackupForget, BackupVerify, BackupMachine, BackupOverview, BackupP
 import type { Alert } from "../api/alerts";
 import type { Translate } from "../i18n/context";
 import { counted } from "./counted";
+import { shellQuote } from "./fileExplorer";
 import type { MissingSoftware } from "./resticInstall";
 import { reenrollPath, type Unfit } from "./rights";
 import { folded } from "./select";
@@ -515,4 +516,12 @@ export function sourceSubtitle(t: Translate, source: Pick<BackupSource, "kind" |
     return t(`backup.source_sub_${source.kind}`, source.vmid ?? 0, source.machine_name);
   }
   return t(`backup.source_sub_${source.kind}`, source.machine_name);
+}
+
+// La commande qui sort des fichiers d'un instantané dans un dossier à côté, sans
+// rien écraser : restic restore <instantané> --target … --include <chemin>… Sans
+// chemin, elle sort tout l'instantané. Les noms sont protégés pour le shell.
+export function restoreCommand(snapshotID: string, paths: readonly string[]): string {
+  const includes = paths.map((path) => ` --include ${shellQuote(path)}`).join("");
+  return `restic restore ${snapshotID.slice(0, 8)} --target /tmp/restauration${includes}`;
 }

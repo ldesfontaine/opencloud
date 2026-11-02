@@ -1,12 +1,14 @@
 import { useState, type ReactNode } from "react";
 
 import type { BackupSource } from "../../api/backups";
+import { Button } from "../../components/Button";
 import { Card, EmptyLine } from "../../components/Card";
 import { TokenBox } from "../../components/Copy";
 import { Icon, type IconName } from "../../components/Icon";
 import { SectionHead } from "../../components/SectionHead";
 import { Select } from "../../components/Select";
 import { useT, type Translate } from "../../i18n/context";
+import { browsePath } from "../../lib/backups";
 import { guestArchiveName, repositoryUser, resticAccesses, restoreVMID, type ResticAccess } from "../../lib/backupOverview";
 
 // « Accéder à mes sauvegardes » : le mot de passe du dépôt est sur la machine
@@ -20,13 +22,18 @@ export function AccessSection({ sources }: { sources: readonly BackupSource[] })
   const current = accesses.find((access) => access.key === chosen) ?? accesses[0];
   const picker =
     current === undefined ? undefined : (
-      <Select
-        aria-label={t("backup.access_pick")}
-        icon="archive"
-        value={current.key}
-        options={accesses.map((access) => ({ value: access.key, label: access.source.name, hint: t("backup.access_pick_hint", access.source.machine_name, access.protection.target_machine_name) }))}
-        onChange={setChosen}
-      />
+      <span className="cluster">
+        <Button icon="folder" to={browsePath(current.source.machine_id, current.protection.id)}>
+          {t("backup.browse_in_app")}
+        </Button>
+        <Select
+          aria-label={t("backup.access_pick")}
+          icon="archive"
+          value={current.key}
+          options={accesses.map((access) => ({ value: access.key, label: access.source.name, hint: t("backup.access_pick_hint", access.source.machine_name, access.protection.target_machine_name) }))}
+          onChange={setChosen}
+        />
+      </span>
     );
   return (
     <section className="stack" aria-labelledby="backup-access-title">
@@ -54,25 +61,6 @@ function AccessCards({ access }: { access: ResticAccess }) {
         <TokenBox value={t("backup.access_env", link)} />
       </div>
       <div className="grid-3">
-        <HowCard icon="folder" title={t("backup.access_browse")}>
-          <Step title={t("backup.access_list")}>
-            <TokenBox value={t("backup.access_cmd_snapshots")} />
-          </Step>
-          <Step title={t("backup.access_files")}>
-            <TokenBox value={t("backup.access_cmd_ls")} />
-          </Step>
-          <Step title={t("backup.access_other_date")}>
-            <p className="secondary">{t("backup.access_other_date_text")}</p>
-          </Step>
-        </HowCard>
-        <HowCard icon="file" title={t("backup.access_restore_file")}>
-          <Step title={t("backup.access_restore_file_aside")}>
-            <TokenBox value={t("backup.access_cmd_restore_file")} />
-          </Step>
-          <Step title={t("backup.access_restore_file_compare")}>
-            <p className="secondary">{t("backup.access_restore_file_compare_text")}</p>
-          </Step>
-        </HowCard>
         {access.protection.scope === "vm" ? (
           <HowCard icon="monitor" title={t("backup.access_restore_vm")}>
             <Step title={t("backup.access_restore_vm_new", host)}>

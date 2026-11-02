@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { BackupMachine, BackupOverview, BackupPath, BackupProtection, BackupRetention, BackupSource, BackupTarget, BackupVerify } from "../api/backups";
 import type { Translate } from "../i18n/context";
 import {
+  restoreCommand,
   candidatesFor,
   declaredRetention,
   directHint,
@@ -384,5 +385,15 @@ describe("verifyView", () => {
     expect(verifyBlockedBy(verify({ right: "unavailable" }))).toBe("unavailable");
     expect(verifyBlockedBy(verify({ right: "unknown" }))).toBeNull();
     expect(verifyBlockedBy(verify())).toBeNull();
+  });
+});
+
+describe("restoreCommand", () => {
+  const snapshot = "a".repeat(64);
+  it("sort un fichier à côté, avec son chemin protégé", () => {
+    expect(restoreCommand(snapshot, ["/srv/mes notes/l'an.txt"])).toBe("restic restore aaaaaaaa --target /tmp/restauration --include '/srv/mes notes/l'\\''an.txt'");
+  });
+  it("sort tout l'instantané sans chemin", () => {
+    expect(restoreCommand(snapshot, [])).toBe("restic restore aaaaaaaa --target /tmp/restauration");
   });
 });

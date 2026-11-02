@@ -17,6 +17,7 @@ import { IncidentModal } from "./pages/availability/IncidentModal";
 import { PublicPage } from "./pages/availability/PublicPage";
 import { Backups } from "./pages/Backups";
 import { DestinationModal } from "./pages/backups/DestinationModal";
+import { ExplorerModal } from "./pages/backups/Explorer";
 import { KeyringModal } from "./pages/backups/KeyringModal";
 import { PlanWizard } from "./pages/backups/PlanWizard";
 import { ResticEditModal } from "./pages/backups/ResticEditModal";
@@ -143,6 +144,7 @@ export function App() {
           <Route path="nouvelle" element={<ResticWizard />} />
           <Route path="cibles/nouvelle" element={<TargetModal />} />
           <Route path="restic/:machineId/:backupId/modifier" element={<ResticEditModal />} />
+          <Route path="parcourir/:machineId/:backupId" element={<ExplorerModal />} />
           <Route path="cle" element={<KeyringModal />} />
           <Route path="destinations/nouvelle" element={<DestinationModal />} />
           <Route path="plans/nouveau" element={<PlanWizard />} />

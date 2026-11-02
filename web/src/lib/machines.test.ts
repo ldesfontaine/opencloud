@@ -105,7 +105,7 @@ test("unavailableRights : seuls les droits que le compte ne peut pas exercer, av
 });
 
 test("les droits Proxmox suivent files.write, sans chemin, et ne se proposent qu'à un hôte Proxmox reconnu", () => {
-  expect(capabilityNames.slice(-7, -4)).toEqual(["files.write", "proxmox.power", "proxmox.snapshot"]);
+  expect(capabilityNames.slice(-8, -5)).toEqual(["files.write", "proxmox.power", "proxmox.snapshot"]);
   expect(capabilitiesOf({ rights: ["proxmox.snapshot", "proxmox.power"], backupPath: "", writePaths: "", resticPath: "" })).toEqual([
     { name: "proxmox.power", paths: [] },
     { name: "proxmox.snapshot", paths: [] },

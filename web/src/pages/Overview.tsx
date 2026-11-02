@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { useAlerts, type AlertsResponse } from "../api/alerts";
+import { useBackupOverview } from "../api/backups";
 import { useCounts, type Counts } from "../api/counts";
 import { useMachines } from "../api/machines";
 import { useCurrentResources } from "../api/resources";
@@ -20,8 +21,45 @@ import { useCertificateThresholds, useDiskThresholds, useT } from "../i18n/conte
 import { describeAlert, mostUrgentAlert } from "../lib/alerts";
 import { certificateTone, daysUntil } from "../lib/certificates";
 import { liveMachines, machineSeen, machinesSubtitle } from "../lib/machines";
+import { verdictOf } from "../lib/backupOverview";
+import { counted } from "../lib/counted";
 import { modulesToConfigure } from "../lib/modules";
 import "./Overview.scss";
+
+// La tuile des sauvegardes : combien de sources ont une copie à jour, et ce qui
+// demande un geste. Elle mène à la page ; sans source, elle n'est pas là (la
+// carte « À configurer » invite à commencer).
+function BackupsTile() {
+  const t = useT();
+  const overview = useBackupOverview();
+  const sources = overview.data?.sources ?? [];
+  if (sources.length === 0) {
+    return null;
+  }
+  const verdict = verdictOf(sources);
+  return (
+    <Stat
+      compact
+      icon="archive"
+      to="/sauvegardes"
+      label={t("module.backups")}
+      value={verdict.protectedCount}
+      foot={
+        verdict.failed > 0 ? (
+          <Pill tone="danger" small>
+            {counted(t, "backup.verdict_failed", verdict.failed)}
+          </Pill>
+        ) : verdict.attention > 0 ? (
+          <Pill tone="warn" small>
+            {counted(t, "backup.verdict_attention", verdict.attention)}
+          </Pill>
+        ) : (
+          t("backup.verdict_of_ok", verdict.total)
+        )
+      }
+    />
+  );
+}
 
 // La tuile Alertes : le nombre d'ouvertes, puis en pied, sur une ligne
 // tronquée, ce qui reste à acquitter et la plus urgente (son fait et sa
@@ -186,6 +224,7 @@ export function Overview() {
                 )
               }
             />
+            <BackupsTile />
             <AlertsTile alerts={alerts.data} />
           </div>
           <div className="overview-block">

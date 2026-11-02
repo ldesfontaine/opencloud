@@ -17,7 +17,7 @@
 | L'opérateur | L'opérateur, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche. Tant qu'aucun compte n'existe, l'écran de première configuration à la place de l'interface : il crée le compte, puis l'interface s'ouvre |
 | La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base. **Et son agent, `opencloud agent`, comme toute machine** : `serve` n'observe rien de sa propre machine. La ligne qui l'installe s'affiche dès la première configuration (« La machine openCloud ») |
 | La commande locale | `opencloud export` et `opencloud apply`, lancées sur la machine openCloud, sous le compte du service ou en root | Rien de son côté : elles parlent au `serve` qui tourne par la socket `state_dir/control.sock`. `export` écrit ce qu'il répond ; `apply` lit un fichier, montre le plan que le serveur en tire, demande confirmation, puis lui demande de l'écrire. Elles n'ouvrent pas la base |
-| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker, **sous un compte dédié (`opencloud-agent`), root sur demande**. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `backup.produce` (lance un producteur sur la machine, chiffre ce qu'il écrit et le téléverse au serveur), `restic.verify` (vérifie un dépôt reçu), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
+| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker, **sous un compte dédié (`opencloud-agent`), root sur demande**. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `backup.produce` (lance un producteur sur la machine, chiffre ce qu'il écrit et le téléverse au serveur), `restic.verify` (vérifie un dépôt reçu), `restic.browse` (lit les noms d'un dépôt reçu, pour l'explorateur), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
 | Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : pour observer, l'agent le lit par sa socket, en lecture seule. Il ne lui écrit que par `docker compose up`, pour déployer un service déclaré, avec le droit `docker.deploy` ou `docker.update` (« Comment un service se déploie ») |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
@@ -353,6 +353,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `restic.produce` | — | Lancer restic sur la machine pour sauvegarder un service ou une VM vers une cible. **Refusé par défaut**, coché par machine. Une VM demande aussi `backup.produce` |
 | `restic.docker` | — | Sauvegarder les **volumes nommés** et les **bases** Docker d'un service entier : l'agent lit un volume par le conteneur qui le monte (`docker cp`) et lance l'outil de dump d'une base **dans son conteneur** (`docker exec`). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Équivaut à la socket Docker que l'agent a déjà. Demandé **en plus** de `restic.produce` dès qu'un service porte un volume ou une base ; sans lui, l'ordre est refusé (`right_missing:restic.docker`) |
 | `restic.verify` | — | Vérifier les dépôts que la machine reçoit : `restic check`, puis la relecture **en mémoire** de fichiers du dernier instantané (« Comment restic se vérifie »). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Demandé **en plus** de `restic.target` ; sans lui, l'ordre est refusé (`right_missing:restic.verify`) et l'écran propose « Ré-enrôler avec ce droit ». Coût : l'agent déchiffre du contenu (rien n'est écrit sur son disque, rien n'est rapporté) ; il détient déjà le mot de passe du dépôt pour la rétention, le droit le dit en clair |
+| `restic.browse` | — | Parcourir les dépôts que la machine reçoit, pour l'explorateur de la page Sauvegardes (« Comment on parcourt une sauvegarde ») : elle lit les **noms, tailles et dates** des fichiers d'un instantané et les rend à openCloud, qui ne les garde pas. **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Demandé **en plus** de `restic.target` ; sans lui, l'ordre est refusé (`restic.target_browse_right_missing`) et l'écran propose « Ré-enrôler avec ce droit ». Coût : un nom de fichier est déjà une donnée, et il transite par le serveur le temps de la requête (contenu jamais lu). Ce droit est distinct de `restic.verify` : vérifier ne montre aucun nom |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
@@ -1792,9 +1793,9 @@ lecture ; aucune n'accepte d'écriture) :
 
 `GET /api/backups` (la clé publique, les plans) reste fermé aux jetons.
 
-**L'interface** : sur la page Sauvegardes, la section **Inventaire** : un tableau
-des sources (source, genre, machine, couverte par, dernière sauvegarde, taille,
-cible), les moins protégées en tête, puis un tableau des cibles. « Dernière
+**L'interface** : la page Sauvegardes (v0.5.2 B1 à B5) montre une **carte par
+source** ou une **matrice** sources × endroits (bascule « Cartes / Matrice »),
+les moins protégées en tête, puis les cibles. « Dernière
 sauvegarde » est la plus récente entre la dernière exécution réussie d'un plan et
 la plus récente archive vue sur un stockage Proxmox, avec son origine. Un dernier
 essai échoué ou refusé après la dernière réussite s'y lit.
@@ -1948,6 +1949,42 @@ raison fermée et l'état. Banc de non-fuite : `restic_verify_test.go` (agent :
 mot de passe, nom de fichier et contenu semés, absents du résultat et du
 journal) et `api_restic_verify_test.go` (serveur : mot de passe absent de la
 base en clair, de l'API, de l'audit, du journal).
+
+### Comment on parcourt une sauvegarde
+
+La page Sauvegardes ouvre les sauvegardes restic dans un **explorateur de
+fichiers** (fenêtre `/sauvegardes/parcourir/{machine}/{sauvegarde}`, depuis le
+menu « … » de la carte, la matrice ou « Accéder à mes sauvegardes »). Il lit,
+il ne restaure pas.
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| Ordre | `POST /api/machines/{id}/restic-backups/{backup}/actions/browse` (verbe `restic.backup.browse`), corps `{snapshot, path}`. Sans `snapshot` : la liste des instantanés ; sinon le contenu du dossier `path` de cet instantané. La requête **attend** la cible (45 s au plus) : l'ordre `restic.browse` part à la cible avec le mot de passe du dépôt dans son secret signé |
+| Cible | `restic snapshots --json`, ou `restic ls --json <instantané> <dossier>` ; le mot de passe est un fichier `0600` effacé après. Seuls les **fils directs** du dossier sont gardés, 2 000 au plus (`truncated` sinon) ; l'identifiant et le chemin demandés sont jugés avant tout lancement |
+| Liste blanche | `ResticBrowseReport` : par instantané l'identifiant, l'instant, 8 dossiers au plus ; par fichier le nom (jamais un chemin), la nature (`dir`, `file`, `link`, `other`), la taille, la date. **Rien d'autre** : ni hôte, ni étiquettes, ni propriétaire, ni cible d'un lien, ni contenu, ni sortie brute de restic. Rejugé par le serveur contre ses bornes |
+| Gardé ? | **Non** : les noms vont à l'écran qui les demande, dans un créneau en mémoire le temps de la requête. Ni base, ni journal, ni run (`GET /api/actions` ne montre ni nom ni mot de passe). L'audit note `restic_backup.browse` avec l'instantané et le dossier, jamais un nom de fichier |
+| Sorties | Aujourd'hui une seule : **la commande** `restic restore <instantané> --target /tmp/restauration --include '<chemin>'…`, à copier et à lancer **sur la machine source**, qui garde le mot de passe du dépôt. Rien ne s'écrit sur une machine depuis l'écran |
+
+L'explorateur est un **composant générique** (`web/src/components/FileExplorer.tsx`) :
+il reçoit une **source** (`loadViews` : les vues, ici les instantanés ; `list(vue,
+dossier)` : le contenu d'un dossier) et des **sorties** (ce qu'on peut faire de
+la sélection). Il ne sait rien de restic. Le futur module **Fichiers** (éditer
+les configurations Traefik ou Authelia d'une machine) lui donnera une source
+« système de fichiers vivant » lue par l'agent, sans réécriture ; cette source,
+l'édition et tout droit d'écriture restent à faire. Clavier : ↑ ↓ bouger, Entrée
+ouvrir, Espace cocher, Retour arrière remonter, Échap fermer.
+
+| Ce que ça coûte | Ce que ça rapporte |
+| --- | --- |
+| Un droit d'agent de plus (`restic.browse`), et des noms de fichiers qui passent par le serveur, même sans y rester | On parcourt ses sauvegardes sans mot de passe ni ligne de commande : « où est mon fichier, dans quelle nuit » se lit à l'écran |
+| La restauration reste une commande à lancer sur la source | Aucune écriture sur une machine depuis l'écran ; aucun mot de passe de dépôt ne quitte la source et la cible |
+| Une cible hors ligne ou sans le droit ne répond pas (refus dit, geste « Ré-enrôler avec ce droit ») | Les autres parties de la page ne dépendent pas d'elle |
+| La réponse de la cible suit le débit des signaux d'une machine (0,5 par seconde, rafale de 30) : un parcours très rapide peut attendre quelques secondes | Le serveur n'ouvre aucune voie de plus vers la cible ; la requête abandonne à 45 s (`restic.browse_timeout`) |
+
+Banc de non-fuite : `agent/restic_browse_test.go` (mot de passe, nom d'hôte,
+étiquette, propriétaire, cible de lien semés, absents du résultat et du journal)
+et `server/api_restic_browse_test.go` (mot de passe et nom de fichier absents de
+la base, de l'aperçu, des runs, de l'audit et du journal).
 
 ### La supervision des sauvegardes
 
@@ -4955,6 +4992,7 @@ mêmes corps, mêmes refus.
 | `/sauvegardes/destinations/nouvelle` | la page Sauvegardes | Ajouter une destination : nom, machine, dossier |
 | `/sauvegardes/plans/nouveau` | la page Sauvegardes | Ajouter un plan : un écran (la source, la destination, Ajouter) ; le nom et le nombre de sauvegardes gardées sous « Réglages » |
 | `/sauvegardes/plans/{sujet}/modifier` | la page Sauvegardes | Le même écran ; le sujet et la sorte de source ne changent pas |
+| `/sauvegardes/parcourir/{machine}/{sauvegarde}` | la page Sauvegardes | L'explorateur d'une sauvegarde restic : instantanés à gauche, fil d'Ariane, liste, sélection, commande de restauration |
 | `/disponibilite/pages/{projet}/composants/nouveau` | la page publique du projet | Ajouter un composant : le projet est celui de l'adresse |
 | `/disponibilite/pages/{projet}/composants/{id}` | la page publique du projet | Modifier ou supprimer un composant (le plan de suppression s'ouvre dans une seconde fenêtre) |
 | `/disponibilite/composants/{id}` | — | Redirige vers la ligne précédente : un lien qui ne connaît que l'identifiant du composant (la fiche d'un service) retrouve son projet |
@@ -6438,3 +6476,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Connexions de l'hôte (v0.5.2 L6, #455) | Le paquet `internal/hostconn` (lecture de `/proc/net/tcp{,6}`, bornes, `Service` en mémoire), la section `host_connections` du signal, `link.Sighting`, `SignalHostConnection`, `KindOf` et les clés `account:` / `address:` / `internet:`, `directory.observedLinks` (rapprochement port → instance), `kind` sur les extrémités des liens, la boucle `connectionsLoop` de l'agent et le patron `latestReport[T]` (`internal/agent/keeper.go`), les sources d'une connexion sur la carte Liens. **Aucune migration, aucune route, aucun droit** |
 | Fiche Proxmox visuelle et dernière sauvegarde réelle (v0.5.2 P1, #459) | `internal/proxmox/backup_access.go` (droits du jeton lus par `GET /access/permissions`, `GrantFor`), `Reading.BlindStorages`, `Guest.BackupUnknown`, `proxmox_storages.backups_unreadable` (migration 035), `POST /api/machines/{id}/actions/refresh-proxmox`, champs `backup_blind_storages`, `backup_grant`, `backup_unknown`, `last_backup_storage`, `backup_blind`, `observed_unknown`, la maquette `docs/projet/maquettes/hyperviseur.html`, `EntityCard` partagé par les VM et les stockages. Migration `035`, aucune dépendance, aucun champ d'agent |
 | Vérifications et supervision des sauvegardes (v0.5.2 B4, #372) | L'ordre `restic.verify` (`agentwire/restic_verify.go` : paramètres, secret masqué, `ResticVerifyReport` à trois comptes, `ActionResult.Verify`), le droit `restic.verify` (`machine.CapabilityResticVerify`, jugé par `agent/availability.go`), `agent/restic_verify.go` (check, instantanés, relecture bornée, sortie qui jette), `restic/verify_command.go`, `restic/verify.go` (nuit, `VerifyNow`, rapport), `restic/supervise.go` (`FindingsOf`, `Service.Supervise`), `alert.Engine.BackupsJudged` et l'objet `backup`, cinq alertes (`backup_stale`, `restore_test_stale`, `source_unprotected`, `target_full`, `target_unreachable`), la migration `034_restic_verify.sql`, la route `POST …/restic-backups/{backup}/actions/verify` et le verbe `restic.backup.verify`, `verify` dans l'aperçu, la carte Surveillance et le test de restauration de la page Sauvegardes, `holderOfRefusal` |
+| Page Sauvegardes simple et visuelle, matrice et explorateur (v0.5.2 B5, #373) | L'ordre `restic.browse` (`agentwire/restic_browse.go` : paramètres jugés, secret masqué, `ResticBrowseReport` en liste blanche, `ActionResult.Browse`), le droit `restic.browse` (`machine.CapabilityResticBrowse`, jugé par `agent/availability.go`), `agent/restic_browse.go`, `restic/browse_command.go`, `restic/browse.go` (`Service.Browse`, créneau en mémoire), la route `POST …/restic-backups/{backup}/actions/browse` et le verbe `restic.backup.browse`, l'action d'audit `restic_backup.browse`, les composants `FileExplorer`, `Matrix` et `Inspector`, la matrice et l'explorateur de la page Sauvegardes, la tuile de la vue d'ensemble ; supprimés : le bloc « Archives chiffrées » (`Archives.tsx`, `PlanCard.tsx`) : la clé et les destinations sont sur la carte de la base, le plan se gère par le menu de sa carte. Aucune migration |

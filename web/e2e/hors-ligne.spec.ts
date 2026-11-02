@@ -59,11 +59,12 @@ test("fiche conteneur : journaux et vérification disent la raison", async ({ pa
 
 test("sauvegardes : « lancer maintenant » est grisé quand la destination est hors ligne", async ({ page }) => {
   await page.goto("/sauvegardes");
-  // Les plans d'archives sont repliés sous leur section, la base étant sauvegardée.
-  await page.locator("#archives details > summary").click();
-  const gate = page.locator("main .agent-gate").first();
-  await expect(gate).toBeVisible();
-  await expectGated(gate);
+  // Le plan de la base se lance depuis le menu de sa carte : grisé, avec sa raison.
+  const database = page.locator("article.backup-source").filter({ has: page.locator("h3", { hasText: label("backup.source_database").replace("{product}", "openCloud") }) });
+  await database.getByRole("button", { name: label("entity.more").replace("%s", "opencloud") }).click();
+  const run = page.getByRole("menuitem", { name: new RegExp(label("backup.run_now")) });
+  await expect(run).toHaveAttribute("aria-disabled", "true");
+  await expect(run).toContainText(reason);
 });
 
 test("service déclaré : déployer est grisé", async ({ page }) => {

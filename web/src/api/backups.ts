@@ -413,7 +413,7 @@ export async function runResticBackup(machineID: string, backupID: string): Prom
 
 // Un instantané du dépôt d'une sauvegarde : l'identifiant complet, l'instant
 // (ISO) et les dossiers qu'il a pris.
-export interface BrowseSnapshot {
+interface BrowseSnapshot {
   id: string;
   time: string;
   paths: string[];
@@ -421,7 +421,7 @@ export interface BrowseSnapshot {
 
 // Un fils d'un dossier d'un instantané : son nom (jamais un chemin), ce qu'il
 // est, sa taille en octets et sa date (ISO, vide si inconnue).
-export interface BrowseEntry {
+interface BrowseEntry {
   name: string;
   kind: "dir" | "file" | "link" | "other";
   size: number;
