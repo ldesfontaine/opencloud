@@ -67,6 +67,12 @@
     stroke-dasharray: 4 5;
   }
 
+  // Un lien qu'on ne revoit plus : plus fin et pointillé serré.
+  &.depends.stale path {
+    stroke-dasharray: 1 5;
+    stroke-linecap: round;
+  }
+
   &.hot {
     path {
       stroke: var(--accent);

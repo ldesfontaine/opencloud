@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
@@ -140,6 +141,11 @@ func closedKeyLists() []composedKeys {
 		{prefix: "directory.origin_", values: names(directory.Origins())},
 		{prefix: "directory.provides_", values: names(directory.Capabilities())},
 		{prefix: "directory.declared_by_", values: names(directory.Provenances())},
+		// Un lien : sa nature, sa preuve et le signal qui la fonde.
+		{prefix: "link.", values: []string{"outgoing", "incoming"}},
+		{prefix: "link.nature_", values: []string{string(link.NatureOrder), string(link.NatureConfig), string(link.NatureRoute), string(link.NatureTraffic)}},
+		{prefix: "link.proof_", values: []string{string(link.ProofDeclared), string(link.ProofDeduced), string(link.ProofObserved)}},
+		{prefix: "link.signal_", values: []string{string(link.SignalDependsOn), string(link.SignalContainerLink), string(link.SignalOperator)}},
 		{prefix: "gap.state_", values: names(directory.GapStates())},
 		{prefix: "gap.reason_", values: names(directory.GapReasons())},
 		{prefix: "gap.level_", values: names(container.MatchLevels())},

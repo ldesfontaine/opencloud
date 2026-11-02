@@ -6,6 +6,7 @@ import type { Probe } from "../api/probes";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { read, soonest } from "../lib/certificates";
+import { proofTone } from "../lib/links";
 import { internetID, modeText, peersOf, probesOf, publicPorts } from "../lib/network";
 import { findingText, formatBindings, needsCaution, containerIcon } from "../lib/containers";
 import { Button } from "./Button";
@@ -161,9 +162,21 @@ function ContainerInspector({
         {dependencies.map((edge) => {
           const target = response.containers.find((candidate) => candidate.id === edge.to);
           return (
-            <button type="button" className="link-btn mono" key={edge.to} onClick={() => onSelect(edge.to)}>
-              {target?.name ?? edge.to}
-            </button>
+            <span className="cluster" key={`${edge.to}:${edge.link_id ?? ""}`}>
+              <button type="button" className="link-btn mono" onClick={() => onSelect(edge.to)}>
+                {target?.name ?? edge.to}
+              </button>
+              {edge.proof !== undefined && (
+                <Pill tone={proofTone(edge.proof)} small>
+                  {t(`link.proof_${edge.proof}`)}
+                </Pill>
+              )}
+              {edge.stale === true && (
+                <Pill tone="warn" dot={false} small>
+                  {t("link.stale")}
+                </Pill>
+              )}
+            </span>
           );
         })}
         {unresolved.map((dependency) => (

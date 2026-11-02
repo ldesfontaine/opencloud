@@ -44,6 +44,8 @@ export const writes = [
   "POST /api/directory/services",
   "PUT /api/directory/services/{id}",
   "DELETE /api/directory/services/{id}",
+  "POST /api/directory/links",
+  "DELETE /api/directory/links/{id}",
   "POST /api/directory/services/{id}/actions/deploy",
   "POST /api/directory/services/{id}/actions/redeploy",
   "PUT /api/directory/units/{id}/update-policy",

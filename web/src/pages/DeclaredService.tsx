@@ -9,11 +9,11 @@ import {
   useGaps,
   useProjects,
   type DeclaredServiceDetail,
-  type LinkedObject,
+  type BoundObject,
   type ObservedUnit,
   type Project,
   type ServiceGap,
-  type ServiceLinks,
+  type ServiceBindings,
 } from "../api/directory";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
@@ -24,10 +24,11 @@ import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
 import { GapPill } from "../components/GapPill";
 import { PageHead } from "../components/PageHead";
+import { ServiceLinks } from "../components/ServiceLinks";
 import { Pill } from "../components/Pill";
 import { List, Table } from "../components/Table";
 import { useT } from "../i18n/context";
-import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
+import { formatUnitPorts, hasBindings, projectNames, unitKeyOf } from "../lib/directory";
 import { needsPort, observedPill } from "../lib/systemd";
 import { newMutePath } from "../lib/alerts";
 import { componentLookupPath } from "../lib/status";
@@ -145,7 +146,8 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
           </CardBody>
         </Card>
       </div>
-      <LinksCard links={service.links} />
+      <ServiceLinks serviceID={service.id} />
+      <BindingsCard links={service.links} />
       <AlertsCard serviceID={service.id} />
       <Card className="scroll-x">
         <CardHeader title={t("directory.units_title")} aside={t("directory.units_text")} />
@@ -303,18 +305,18 @@ function AlertsCard({ serviceID }: { serviceID: string }) {
   );
 }
 
-function LinksCard({ links }: { links: ServiceLinks }) {
+function BindingsCard({ links }: { links: ServiceBindings }) {
   const t = useT();
   return (
     <Card>
       <CardHeader title={t("directory.bound_title")} />
       <CardBody gap={10}>
-        {!hasLinks(links) ? (
+        {!hasBindings(links) ? (
           <span className="secondary">{t("directory.links_none")}</span>
         ) : (
           <>
-            <LinkList label={t("directory.links_probes")} objects={links.probes} to={(object) => probePath(object.id)} />
-            <LinkList label={t("directory.links_components")} objects={links.components} to={(object) => componentLookupPath(object.id)} />
+            <BindingList label={t("directory.links_probes")} objects={links.probes} to={(object) => probePath(object.id)} />
+            <BindingList label={t("directory.links_components")} objects={links.components} to={(object) => componentLookupPath(object.id)} />
           </>
         )}
       </CardBody>
@@ -322,7 +324,7 @@ function LinksCard({ links }: { links: ServiceLinks }) {
   );
 }
 
-function LinkList({ label, objects, to }: { label: string; objects: LinkedObject[]; to: (object: LinkedObject) => string }) {
+function BindingList({ label, objects, to }: { label: string; objects: BoundObject[]; to: (object: BoundObject) => string }) {
   if (objects.length === 0) {
     return null;
   }

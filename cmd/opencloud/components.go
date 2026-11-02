@@ -20,6 +20,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
@@ -48,6 +49,7 @@ type components struct {
 	actions      *action.Service
 	sshKeys      *sshkeys.Service
 	systemd      *systemdunits.Service
+	links        *link.Service
 	roles        *role.Service
 	proxmox      *proxmox.Service
 	firewalls    *firewall.Service
@@ -93,6 +95,12 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// des images de redire à la machine ce qu'elle ne doit plus interroger.
 	declared.SetAssigner(updates)
 	containers.SetUnits(declared)
+	// Les liens entre instances : les conteneurs lui disent ce que leur
+	// configuration déclare et lisent ce qu'il garde ; l'annuaire écrit ceux
+	// de l'opérateur.
+	links := link.New(db, logger)
+	declared.SetLinker(links)
+	containers.SetLinks(links)
 	statusPage := status.New(db, db, machines, logger)
 	// Les alertes : chaque composant lui donne ses faits, le notifieur livre
 	// aux canaux dans la langue de l'interface.
@@ -128,6 +136,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	heartbeats.SetAuditor(journal)
 	probes.SetAuditor(journal)
 	declared.SetAuditor(journal)
+	links.SetAuditor(journal)
 	statusPage.SetAuditor(journal)
 	alerts.SetAuditor(journal)
 	// Le journal part aussi vers les canaux qui le reçoivent ; sans notifieur
@@ -196,7 +205,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, apiTokens: apiTokens, verbRequests: verbRequests, operator: operator,
-		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, systemd: systemd, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, deployer: deployer,
+		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, systemd: systemd, links: links, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, deployer: deployer,
 	}, nil
 }
 
@@ -227,6 +236,7 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		Actions:        c.actions,
 		SSHKeys:        c.sshKeys,
 		Systemd:        c.systemd,
+		Links:          c.links,
 		Roles:          c.roles,
 		Host:           c.machines,
 		Proxmox:        c.proxmox,

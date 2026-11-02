@@ -1,9 +1,15 @@
 package container
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/link"
 )
+
+var topologyNow = time.Date(2026, time.November, 1, 12, 0, 0, 0, time.UTC)
 
 const (
 	frontNet = "834fd73b3e7c0000c3adeedade3f9823efe78ea4fc3f7e162e89e879f23a5f6e"
@@ -45,7 +51,7 @@ func fixtureNetworks() []Network {
 }
 
 func TestBuildTopology_GroupsByUserNetworkAndPlacesWhereMostNeighbours(t *testing.T) {
-	topology := BuildTopology(fixtureContainers(), fixtureNetworks())
+	topology := BuildTopology("m", fixtureContainers(), fixtureNetworks(), nil, topologyNow)
 	// bridge, host, none et le réseau vide ne font pas de groupe.
 	if len(topology.Groups) != 1 {
 		t.Fatalf("groups = %+v", topology.Groups)
@@ -62,10 +68,10 @@ func TestBuildTopology_TieGoesToTheFirstNetworkByName(t *testing.T) {
 		{ID: "m:b", Name: "b", Networks: []Attachment{attached(backNet, "alpha")}},
 		{ID: "m:c", Name: "c", Networks: []Attachment{attached(frontNet, "zeta")}},
 	}
-	topology := BuildTopology(containers, []Network{
+	topology := BuildTopology("m", containers, []Network{
 		{NetworkID: backNet, Name: "alpha", Driver: "bridge"},
 		{NetworkID: frontNet, Name: "zeta", Driver: "bridge"},
-	})
+	}, nil, topologyNow)
 	if len(topology.Groups) != 2 || topology.Groups[0].Name != "alpha" || strings.Join(topology.Groups[0].Members, ",") != "m:a,m:b" || strings.Join(topology.Groups[1].Members, ",") != "m:c" {
 		t.Fatalf("groups = %+v", topology.Groups)
 	}
@@ -73,14 +79,14 @@ func TestBuildTopology_TieGoesToTheFirstNetworkByName(t *testing.T) {
 
 func TestBuildTopology_ANetworkNotListedStillGroupsItsMembers(t *testing.T) {
 	containers := []Container{{ID: "m:a", Name: "a", Networks: []Attachment{attached(backNet, "late_net")}}}
-	topology := BuildTopology(containers, nil)
+	topology := BuildTopology("m", containers, nil, nil, topologyNow)
 	if len(topology.Groups) != 1 || topology.Groups[0].Name != "late_net" || topology.Groups[0].Internal {
 		t.Fatalf("groups = %+v", topology.Groups)
 	}
 }
 
 func TestBuildTopology_PublicEdgesDedupeIPv4AndIPv6(t *testing.T) {
-	topology := BuildTopology(fixtureContainers(), fixtureNetworks())
+	topology := BuildTopology("m", fixtureContainers(), fixtureNetworks(), nil, topologyNow)
 	var public []Edge
 	for _, edge := range topology.Edges {
 		if edge.Kind == EdgePublic {
@@ -92,28 +98,61 @@ func TestBuildTopology_PublicEdgesDedupeIPv4AndIPv6(t *testing.T) {
 	}
 }
 
-func TestBuildTopology_DependenciesResolveInTheProjectAndUnknownOnesHaveNoEdge(t *testing.T) {
-	topology := BuildTopology(fixtureContainers(), fixtureNetworks())
-	var depends []string
-	for _, edge := range topology.Edges {
-		if edge.Kind == EdgeDepends {
-			depends = append(depends, edge.From+">"+edge.To+":"+string(edge.Source))
-		}
+func TestOrderLinks_ResolveInTheProjectAndUnknownOnesGiveNothing(t *testing.T) {
+	var got []string
+	for _, order := range OrderLinks(fixtureContainers()) {
+		got = append(got, order.From+">"+order.To+":"+string(order.Signal))
 	}
-	if strings.Join(depends, " ") != "m:web>m:cache:compose m:web>m:db:compose" {
-		t.Fatalf("depends = %v", depends)
+	if strings.Join(got, " ") != "container:web>container:cache:depends_on container:web>container:db:depends_on" {
+		t.Fatalf("orders = %v", got)
 	}
 }
 
-func TestBuildTopology_AComposeDependencyDoesNotCrossProjects(t *testing.T) {
+func TestOrderLinks_AComposeDependencyDoesNotCrossProjects(t *testing.T) {
 	containers := []Container{
 		{ID: "m:web", Name: "web", Group: "one", DependsOn: []Dependency{{Name: "db", Source: DependencyCompose}, {Name: "shared-db", Source: DependencyLink}}},
 		{ID: "m:db", Name: "db", Group: "two"},
 		{ID: "m:shared", Name: "shared-db"},
 	}
-	topology := BuildTopology(containers, nil)
-	if len(topology.Edges) != 1 || topology.Edges[0].To != "m:shared" || topology.Edges[0].Source != DependencyLink {
-		t.Fatalf("edges = %+v", topology.Edges)
+	orders := OrderLinks(containers)
+	if len(orders) != 1 || orders[0].To != "container:shared-db" || orders[0].Signal != link.SignalContainerLink {
+		t.Fatalf("orders = %+v", orders)
+	}
+}
+
+func TestOrderLinks_ReplicasOfAComposeServiceMakeOneLinkKeyedByProjectAndService(t *testing.T) {
+	containers := []Container{
+		{ID: "m:app1", Name: "shop-app-1", Group: "shop", ComposeService: "app", DependsOn: []Dependency{{Name: "shop-db-1", Source: DependencyCompose}}},
+		{ID: "m:app2", Name: "shop-app-2", Group: "shop", ComposeService: "app", DependsOn: []Dependency{{Name: "shop-db-1", Source: DependencyCompose}}},
+		{ID: "m:db", Name: "shop-db-1", Group: "shop", ComposeService: "db"},
+	}
+	orders := OrderLinks(containers)
+	if len(orders) != 1 || orders[0].From != "compose:shop/app" || orders[0].To != "compose:shop/db" {
+		t.Fatalf("orders = %+v", orders)
+	}
+}
+
+func TestBuildTopology_EdgesComeFromStoredLinksOnThisMachineOnly(t *testing.T) {
+	containers := []Container{
+		{ID: "m:web", Name: "web"},
+		{ID: "m:db", Name: "db"},
+		{ID: "m:app1", Name: "app-1", Group: "shop", ComposeService: "app"},
+		{ID: "m:app2", Name: "app-2", Group: "shop", ComposeService: "app"},
+	}
+	seen := topologyNow.Add(-8 * 24 * time.Hour)
+	links := []link.Link{
+		{ID: "l1", From: link.Endpoint{MachineID: "m", Key: "container:web"}, To: link.Endpoint{MachineID: "m", Key: "container:db"}, Nature: link.NatureOrder, Proof: link.ProofDeclared, Signal: link.SignalDependsOn, LastSeen: seen},
+		{ID: "l2", From: link.Endpoint{MachineID: "m", Key: "compose:shop/app"}, To: link.Endpoint{MachineID: "m", Key: "container:db"}, Nature: link.NatureConfig, Proof: link.ProofDeclared, Signal: link.SignalOperator, Port: 5432, LastSeen: seen},
+		{ID: "elsewhere", From: link.Endpoint{MachineID: "m", Key: "container:web"}, To: link.Endpoint{MachineID: "other", Key: "container:db"}, Nature: link.NatureConfig},
+		{ID: "gone", From: link.Endpoint{MachineID: "m", Key: "container:web"}, To: link.Endpoint{MachineID: "m", Key: "container:ghost"}, Nature: link.NatureOrder},
+	}
+	var got []string
+	for _, edge := range BuildTopology("m", containers, nil, links, topologyNow).Edges {
+		got = append(got, fmt.Sprintf("%s>%s:%s:%t:%d", edge.From, edge.To, edge.LinkID, edge.Stale, edge.Port))
+	}
+	want := "m:app1>m:db:l2:false:5432 m:app2>m:db:l2:false:5432 m:web>m:db:l1:true:0"
+	if strings.Join(got, " ") != want {
+		t.Fatalf("edges = %v, attendu %s", got, want)
 	}
 }
 

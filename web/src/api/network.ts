@@ -1,6 +1,7 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { segment } from "./client";
 import type { Container, Engine } from "./containers";
+import type { LinkEnd, LinkNature, LinkProof, LinkSignal } from "./links";
 
 // La topologie des conteneurs : réseaux, ports publiés, dépendances. Sujet
 // du direct : « containers », que topicsOf devine du chemin.
@@ -14,15 +15,34 @@ export interface Group {
   members: string[];
 }
 
-// Une arête : d'Internet à un port publié, ou d'un conteneur à celui dont il
-// dépend. Le nœud Internet a l'identifiant « internet ».
+// Une arête : d'Internet à un port publié, ou d'un conteneur à celui qu'un
+// lien stocké désigne. Le nœud Internet a l'identifiant « internet ». Une
+// arête de lien dit son identifiant, sa nature, sa preuve et si elle est
+// ancienne ; une arête publique ne dit rien de tout cela.
 export interface Edge {
   from: string;
   to: string;
   kind: "public" | "depends";
   port?: number;
   protocol?: string;
-  source?: "compose" | "link";
+  link_id?: string;
+  nature?: LinkNature;
+  proof?: LinkProof;
+  signal?: LinkSignal;
+  stale?: boolean;
+}
+
+// Un lien stocké entre deux machines : la vue d'ensemble le trace d'un cadre
+// à l'autre.
+export interface OverviewLink {
+  id: string;
+  nature: LinkNature;
+  proof: LinkProof;
+  signal: LinkSignal;
+  port: number;
+  stale: boolean;
+  from: LinkEnd;
+  to: LinkEnd;
 }
 
 export interface NetworkResponse {
@@ -38,6 +58,7 @@ export interface NetworkResponse {
 // Toutes les machines, chacune avec sa topologie, pour la vue d'ensemble.
 export interface OverviewNetworkResponse {
   machines: NetworkResponse[];
+  links: OverviewLink[];
 }
 
 export function useNetworkOverview(): Resource<OverviewNetworkResponse> {

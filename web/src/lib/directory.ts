@@ -1,4 +1,4 @@
-import type { Capability, Category, DeclaredService, Nature, Origin, Project, ProposalResponse, ServiceLinks, ServiceRequest, ServiceUnit, UpdatePolicy } from "../api/directory";
+import type { Capability, Category, DeclaredService, Nature, Origin, Project, ProposalResponse, ServiceBindings, ServiceRequest, ServiceUnit, UpdatePolicy } from "../api/directory";
 import type { Translate } from "../i18n/context";
 
 // Les listes fermées du serveur, dans l'ordre des formulaires. Un test Go
@@ -234,6 +234,6 @@ export function directorySubtitle(t: Translate, count: number): string {
   return count === 1 ? t("directory.subtitle_one") : t("directory.subtitle", count);
 }
 
-export function hasLinks(links: ServiceLinks): boolean {
+export function hasBindings(links: ServiceBindings): boolean {
   return links.probes.length > 0 || links.components.length > 0;
 }

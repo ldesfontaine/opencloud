@@ -681,6 +681,7 @@ flowchart LR
 | `container_events` | Transitions d'état, rattachées aussi à l'unité : l'historique traverse les recréations | Ex-`service_transitions`, renommée ; `unit_id` à faire |
 | `service_samples_hourly` | Historique long des mesures par service, sur l'identité stable | Nouvelle |
 | `ignored_keys` | « Présent non déclaré, et c'est voulu » : clé (projet Compose ou nom), jamais un id Docker | Nouvelle, faite |
+| `links` | Un lien entre deux instances (machine + clé stable, jamais un id Docker), avec sa **preuve** (`declared`, `deduced`, `observed`), son signal (`depends_on`, `container_link`, `operator`), sa nature, un port facultatif, sa première et sa dernière vue. Jamais effacé parce qu'on ne le revoit plus | Nouvelle, faite (`030_links.sql`, L3) : seule la preuve `declared` est écrite ; voir `22-fonctionnement.md`, « Comment les liens se stockent » |
 | `update_proposals` | Montée proposée (de, vers) ; jamais appliquée seule (décision 6) ; l'application est un run | Nouvelle |
 | `backup_destinations` | Une machine avec agent et un chemin ; plus tard un stockage externe | **Faite** (`006`, section 20) |
 | `backup_plans` | Une sauvegarde : la base, ou une machine (producteur et sélection), sa destination, son rythme, le nombre gardé. Un sujet par plan. Sans ligne `database`, l'interface dit que la base n'est pas sauvegardée | **Faite** (`006`, section 20 ; plusieurs plans et sources `012`, section 28) |

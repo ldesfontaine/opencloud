@@ -139,6 +139,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les unités systemd que chaque agent relève (migration `029_systemd_units.sql`) : `systemd_reports` (une ligne par machine : systemd lu ou non, raison, relevé tronqué ou non, instant) et `systemd_units` (machine, **nom** de l'unité de service, état de chargement, état d'activité, sous-état : trois mots de listes fermées). **Jamais** la description, le fichier de l'unité, ses `Environment=`, son processus ni son groupe de contrôle | Remplacé en entier à chaque relevé retenu, dans une transaction : une unité que la machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « unités systemd relevées » |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les liens entre instances (migration `030_links.sql`) : la table `links`, une ligne par lien : l'instance de départ et celle d'arrivée (**machine et clé stable**, `compose:projet/service`, `container:nom` ou `systemd:unité.service`, jamais un identifiant Docker), la nature (`order`, `config`), la **preuve** (`declared`), le **signal** (`depends_on`, `container_link`, `operator`), un port facultatif, la première et la dernière vue. Aucune valeur de configuration, aucun environnement | Jamais effacé parce qu'on ne le revoit plus : la dernière vue vieillit, l'écran dit « Ancien » après 7 jours. Un lien d'outil se rafraîchit au rapport suivant ; un lien de l'opérateur ne se retire que par lui (`DELETE /api/directory/links/{id}`). Au plus 2 000 liens par machine. La machine retirée emporte les siens (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille ; depuis la migration `020`, le stockage de la plus récente, le nombre d'archives vzdump vues et leur taille totale) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif ; depuis la migration `035`, si le jeton lit les archives du stockage). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les rôles que l'agent reconnaît sur sa machine (migration `014_machine_roles.sql`) : `machine_roles` (machine, rôle de la liste fermée `proxmox_ve`, version trouvée ; aujourd'hui le seul rôle). **Aucun secret, aucun droit** : un rôle se montre, il n'ouvre rien | Un reflet du dernier rapport, remplacé en entier à chaque rapport retenu : un rôle que l'agent ne voit plus disparaît. Pas d'historique, pas de purge d'âge. La machine retirée l'emporte (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le retour arrière des agents (migration `018_agent_rollback.sql`) : `agents.rollback_version` (la version du retour arrière que l'agent a dite à l'ouverture de son flux, 0 tant qu'il ne la dit pas) et `machines.update_last` (« à mettre à jour en dernier », 0 par défaut) | Aucun secret. `rollback_version` se réécrit à chaque ouverture de flux ; `update_last` ne change que par l'opérateur |
@@ -2970,10 +2971,10 @@ groupes, les arêtes, les constats ; le navigateur place et trace.
    par le nom à égalité ; ses autres réseaux se lisent dans l'inspecteur.
    Une arête publique va d'Internet à chaque port publié sur toutes les
    interfaces (`0.0.0.0`, `::` ou une adresse vide ; les deux sur le même
-   port n'en font qu'une). Une arête de dépendance va d'un service à
-   celui qu'il déclare : une dépendance Compose se résout dans le même
-   projet, un lien par le nom du conteneur ; ce qui ne se résout pas n'a
-   pas d'arête, la fiche le dit. Ce qu'un réseau partagé laisse deviner
+   port n'en font qu'une). Une arête de dépendance **est un lien stocké** (voir « Comment les
+   liens se stockent ») entre deux conteneurs vivants de la machine ; elle
+   dit sa preuve et, si on ne la revoit plus, qu'elle est ancienne. Ce qui
+   ne se résout pas n'a pas d'arête, la fiche le dit. Ce qu'un réseau partagé laisse deviner
    n'est pas une dépendance : c'est une joignabilité, l'inspecteur
    l'écrit « joint par le réseau X ».
 6. Le navigateur place en trois colonnes : Internet ; ce qu'Internet
@@ -4981,6 +4982,86 @@ root » ; sur cette machine, l'absence d'une clé ne prouve rien. La fiche de la
 machine suit la même règle (compte illisible : pastille neutre, phrase grise). Filtres : faibles, accès root, sur une seule machine. La lecture
 « Par machine » liste les comptes qui ont une clé ou qu'on n'a pas pu lire.
 
+## Comment les liens se stockent
+
+Un **lien** dit qu'une instance en utilise une autre. Il se **stocke** (table
+`links`, migration `030`) et chaque lecture (la fiche d'un service, l'onglet
+Réseau d'une machine, la carte Réseau de la vue d'ensemble) lit le même
+stockage : plus aucun écran ne recalcule les dépendances de son côté.
+
+**Une extrémité est une instance** : une machine et une clé stable.
+
+| Clé | Pour | Pourquoi pas l'identifiant Docker |
+| --- | --- | --- |
+| `compose:projet/service` | un service Compose, répliques comprises | l'identifiant change à chaque recréation |
+| `container:nom` | un conteneur seul | le nom est ce que l'opérateur déclare |
+| `systemd:unité.service` | un binaire sous systemd | le nom est celui du relevé (L2) |
+
+**Chaque lien porte sa preuve et sa fraîcheur.**
+
+| Champ | Valeurs | Sens |
+| --- | --- | --- |
+| Preuve | `declared`, `deduced`, `observed` | écrit par l'opérateur ou par la configuration d'un outil ; calculé ; vu. **Seule `declared` est écrite aujourd'hui** (L4 et L6 écriront les deux autres) |
+| Signal | `depends_on`, `container_link`, `operator` | d'où vient la preuve : le `depends_on` de Compose, le `--link` de Docker, la main de l'opérateur |
+| Nature | `order`, `config` | « démarre après » (les deux premiers signaux) ; « est configuré pour joindre » (l'opérateur). `route` et `traffic` sont réservées |
+| Fraîcheur | première et dernière vue | un lien d'outil non revu depuis 7 jours est **ancien** ; un lien de l'opérateur ne vieillit pas (personne ne le « revoit ») |
+
+**Ce qui écrit.**
+
+| Qui | Quoi | Par où |
+| --- | --- | --- |
+| Le suivi des conteneurs | À chaque rapport d'inventaire, les liens d'ordre des conteneurs vivants de la machine : une dépendance Compose se résout dans le même projet, un `--link` par le nom du conteneur ; ce qui ne se résout pas ne donne pas de lien. Au démarrage du serveur, de même, pour les conteneurs déjà connus | `container.OrderLinks` puis `link.Service.RecordOrders` |
+| L'opérateur | Un lien entre deux services, depuis la fiche de l'un (`POST /api/directory/links`) | `directory.DeclareLink` : il traduit l'unité en clé, le composant `link` valide et écrit |
+
+Un lien connu voit sa dernière vue avancer ; un lien qu'un rapport ne cite plus
+**reste** et vieillit : un instantané manque les liens rares. Rien n'est
+effacé tout seul. L'opérateur ne retire que ce qu'il a écrit : retirer un lien
+tiré de Compose n'aurait aucun sens, il reviendrait au rapport suivant (la
+route répond 409, `link.not_removable`, et l'écran dit de le retirer du fichier
+Compose). Les refus : doublon, lien vers soi-même, port hors de 1 à 65535,
+service ou machine disparus, service à plusieurs unités sans l'unité nommée.
+
+**Ce que l'agent envoie : rien de plus.** `depends_on` et `--link` remontent
+depuis l'inventaire de Docker depuis la v0.5 (point 1 de « Comment le réseau
+des services se lit »). L3 ne lit **aucun champ nouveau**, n'ajoute **aucun
+droit** à l'agent et ne demande aucun ré-enrôlement. Ni variable
+d'environnement, ni label Traefik (L5 et L7), ni connexion (L6).
+
+**Ce que l'écran en fait.**
+
+| Écran | Ce qu'il lit |
+| --- | --- |
+| Fiche d'un service, carte **Liens** | `GET /api/directory/services/{id}/links` : les liens des instances du service, sortants et entrants, chacun avec le service déclaré en face (ou « Non déclaré »), sa preuve, son signal, sa fraîcheur. « Ajouter un lien » ouvre une fenêtre à `/services/annuaire/{id}/liens/nouveau` |
+| Onglet Réseau d'une machine | Les arêtes de dépendance (`edges`) sont les liens stockés entre conteneurs de la machine ; l'inspecteur dit la preuve et « Ancien » |
+| Carte Réseau de la vue d'ensemble | Les liens de chaque machine, et ceux **entre machines** (`links` de `GET /api/network`), en courbes fines d'un nœud à l'autre ; un lien ancien est en pointillé serré ; une ligne dit combien |
+
+**Audit.** L'écriture et le retrait d'un lien par l'opérateur s'écrivent
+(`link.create`, `link.delete`, objet « Lien », sans port ni valeur) ; le
+rafraîchissement par un rapport ne s'écrit pas, comme une mesure.
+
+**Jetons d'API.** Aucune des trois routes n'est dans la liste fermée de
+« Comment un agent IA lit openCloud » : un jeton ne lit pas les liens
+(décision à prendre, voir `services-modele.md` §4.1).
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API, rien n'a été relu côté mcp-maison).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| `edges[].source` (`compose`, `link`) **disparaît** | `GET /api/machines/{id}/network` (jeton ouvert), `GET /api/network` | Lire `edges[].signal` (`depends_on`, `container_link`, `operator`) ; un client qui lisait `source` ne trouve plus rien |
+| `edges[]` d'une dépendance gagne `link_id`, `nature`, `proof`, `stale` | idem | Afficher la preuve et « ancien » ; champs absents d'une arête publique |
+| `GET /api/network` gagne `links[]` | route d'opérateur seul | Les liens entre machines (`from`, `to` : `machine_id`, `machine_name`, `key`, `label`, `service_id`, `service_name`, `unit_name`, `container_id`) |
+| `GET /api/directory/services/{id}/links` | opérateur seul, **hors liste des jetons** | Un outil de lecture des liens d'un service si Lucas le veut : il faut une entrée dans `apiTokenRoutes` |
+| `POST /api/directory/links`, `DELETE /api/directory/links/{id}` | opérateur seul, **aucun verbe** | Aucun geste MCP aujourd'hui ; en faire des verbes (`link.create`, `link.delete`) est une décision, le registre des verbes ne change pas |
+| `links` du détail d'un service (sondes, composants de statut) | inchangé | Rien : même nom, autre sens que la carte Liens ; l'écran l'appelle « Ce qui le lie » |
+| Audit : objet `link`, actions `link.create`, `link.delete` | `GET /api/audit` | Les connaître dans les filtres et les libellés |
+
+**Ce que L3 ne fait pas.** Pas de lien déduit (`public_url` et capacité `proxy`,
+L4), pas de variable d'environnement (L5), pas de connexion vue (L6), pas de route
+Traefik (L7), pas de « Confirmer » ni d'« Écarter » (ils n'ont de sens que pour un
+lien déduit ou observé). Les liens de joignabilité (réseau partagé) ne sont
+pas des liens.
+
 ## Comment les unités systemd se relèvent
 
 L'agent relève les **unités de service systemd** de sa machine, en lecture
@@ -5076,7 +5157,7 @@ lit la route des unités (la liste fermée de « Comment un agent IA lit
 openCloud » ne change pas).
 
 **Ce que L2 ne fait pas** (chantiers suivants de `services-modele.md`) : aucun
-lien entre instances (L3, L4), pas de connexions de l'hôte (L6), pas de port
+lien déduit (L4), pas de connexions de l'hôte (L6), pas de port
 déduit d'un processus. Un service systemd d'**un autre utilisateur** (unités
 `--user`) n'est pas vu : `systemctl` interroge le gestionnaire du système.
 

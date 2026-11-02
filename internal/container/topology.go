@@ -3,6 +3,9 @@ package container
 import (
 	"sort"
 	"strconv"
+	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/link"
 )
 
 // InternetNode est l'identifiant du nœud « Internet » dans la topologie :
@@ -14,7 +17,7 @@ type EdgeKind string
 const (
 	// Une route publique : d'Internet au conteneur, par un port publié.
 	EdgePublic EdgeKind = "public"
-	// Une dépendance déclarée : du conteneur vers celui dont il dépend.
+	// Un lien stocké : du conteneur vers celui dont il dépend ou qu'il utilise.
 	EdgeDepends EdgeKind = "depends"
 )
 
@@ -36,19 +39,27 @@ type Group struct {
 	Members   []string
 }
 
+// Edge : une arête. Celle d'un lien stocké porte son identifiant, sa nature,
+// sa preuve et sa fraîcheur.
 type Edge struct {
 	From     string
 	To       string
 	Kind     EdgeKind
 	Port     int
 	Protocol string
-	Source   DependencySource
+	LinkID   string
+	Nature   link.Nature
+	Proof    link.Proof
+	Signal   link.Signal
+	Stale    bool
 }
 
 // BuildTopology calcule la topologie d'une machine à partir de ses conteneurs
-// vivants et de ses réseaux. Un réseau que la machine n'a pas listé mais
-// qu'un conteneur dit joindre compte quand même : l'appartenance fait foi.
-func BuildTopology(containers []Container, networks []Network) Topology {
+// vivants, de ses réseaux et des liens stockés. Un réseau que la machine n'a
+// pas listé mais qu'un conteneur dit joindre compte quand même :
+// l'appartenance fait foi. Un lien dont une extrémité n'est pas un conteneur
+// vivant de la machine n'a pas d'arête ici.
+func BuildTopology(machineID string, containers []Container, networks []Network, links []link.Link, now time.Time) Topology {
 	topology := Topology{Containers: containers, Groups: []Group{}, Edges: []Edge{}}
 	groups := groupsOf(containers, networks)
 	placed := placeContainers(containers, groups)
@@ -61,9 +72,7 @@ func BuildTopology(containers []Container, networks []Network) Topology {
 	for _, item := range containers {
 		topology.Edges = append(topology.Edges, publicEdges(item)...)
 	}
-	for _, item := range containers {
-		topology.Edges = append(topology.Edges, dependencyEdges(item, containers)...)
-	}
+	topology.Edges = append(topology.Edges, linkEdges(machineID, containers, links, now)...)
 	return topology
 }
 
@@ -157,18 +166,37 @@ func publicEdges(item Container) []Edge {
 	return edges
 }
 
-// dependencyEdges résout chaque dépendance déclarée : une dépendance
-// Compose vise un service du même projet, un lien vise un conteneur par
-// son nom. Ce qui ne se résout pas n'a pas d'arête : la fiche le dit.
-func dependencyEdges(item Container, containers []Container) []Edge {
+// linkEdges place les liens stockés entre deux conteneurs de la machine. Les
+// répliques d'une même instance partagent sa clé : chacune a son arête vers
+// la première réplique de la cible.
+func linkEdges(machineID string, containers []Container, links []link.Link, now time.Time) []Edge {
+	byKey := map[string][]Container{}
+	for _, item := range containers {
+		key := InstanceKey(item)
+		byKey[key] = append(byKey[key], item)
+	}
 	edges := []Edge{}
-	for _, dependency := range item.DependsOn {
-		target, found := resolveDependency(item, dependency, containers)
-		if !found || target.ID == item.ID {
+	for _, stored := range links {
+		if stored.From.MachineID != machineID || stored.To.MachineID != machineID {
 			continue
 		}
-		edges = append(edges, Edge{From: item.ID, To: target.ID, Kind: EdgeDepends, Source: dependency.Source})
+		targets := byKey[stored.To.Key]
+		if len(targets) == 0 {
+			continue
+		}
+		for _, source := range byKey[stored.From.Key] {
+			edges = append(edges, Edge{
+				From: source.ID, To: targets[0].ID, Kind: EdgeDepends, Port: stored.Port,
+				LinkID: stored.ID, Nature: stored.Nature, Proof: stored.Proof, Signal: stored.Signal, Stale: stored.Stale(now),
+			})
+		}
 	}
+	sort.SliceStable(edges, func(i, j int) bool {
+		if edges[i].From != edges[j].From {
+			return edges[i].From < edges[j].From
+		}
+		return edges[i].To < edges[j].To
+	})
 	return edges
 }
 

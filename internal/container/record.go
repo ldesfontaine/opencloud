@@ -25,6 +25,9 @@ func (t *Tracker) Record(ctx context.Context, machineID string, report Report) e
 		return err
 	}
 	t.alert(ctx, changes)
+	if len(changes.Containers) > 0 {
+		t.recordOrderLinks(ctx, machineID)
+	}
 	if t.watcher != nil {
 		t.watcher.ContainersChanged(machineID)
 	}

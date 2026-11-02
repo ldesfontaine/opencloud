@@ -35,6 +35,7 @@ import { ReenrollMachine } from "./pages/machines/ReenrollMachine";
 import { ProbeWizard } from "./pages/probes/ProbeWizard";
 import { ProjectWizard } from "./pages/services/ProjectWizard";
 import { ServiceWizard } from "./pages/services/ServiceWizard";
+import { LinkModal } from "./pages/services/LinkModal";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
 import { ProbePage } from "./pages/Probe";
@@ -106,6 +107,7 @@ export function App() {
         <Route path="services/annuaire/journal/:id" element={<ApplyDetail />} />
         <Route path="services/annuaire/:id" element={<DeclaredServicePage />}>
           <Route path="modifier" element={<ServiceWizard />} />
+          <Route path="liens/nouveau" element={<LinkModal />} />
         </Route>
         <Route path="services/projets" element={<Services tab="projets" />}>
           <Route path="nouveau" element={<ProjectWizard />} />

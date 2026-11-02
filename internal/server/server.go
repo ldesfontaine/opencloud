@@ -25,6 +25,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
@@ -167,6 +168,18 @@ type DirectoryService interface {
 	MachineUnits(ctx context.Context, machineID string) (systemdunits.Snapshot, []directory.MachineUnit, error)
 	ObservedUnits(ctx context.Context, services []directory.Service) (map[string]directory.UnitObservation, error)
 	ProposeUnit(ctx context.Context, machineID, unitName string) (directory.Proposal, error)
+	// Les liens des instances d'un service, et ceux que l'opérateur écrit ou
+	// retire. Un lien tiré d'une configuration d'outil ne se retire pas.
+	ServiceLinks(ctx context.Context, serviceID string) ([]directory.ServiceLink, error)
+	DeclareLink(ctx context.Context, definition directory.LinkDefinition) (link.Link, error)
+	RemoveLink(ctx context.Context, id string) error
+}
+
+// Ce que le serveur attend du composant link : la lecture des liens stockés,
+// pour la carte Réseau de la vue d'ensemble. L'écriture passe par l'annuaire,
+// qui sait nommer les extrémités.
+type LinkService interface {
+	List(ctx context.Context, machineID string) ([]link.Link, error)
 }
 
 // Ce que le serveur attend du composant manifest : le fichier de l'annuaire,
@@ -377,6 +390,7 @@ type Server struct {
 	actions      ActionService
 	sshKeys      SSHKeysService
 	systemd      SystemdUnitsService
+	links        LinkService
 	proxmox      ProxmoxService
 	firewalls    FirewallService
 	backups      Backups
@@ -452,6 +466,8 @@ type Options struct {
 	SSHKeys SSHKeysService
 	// Systemd garde le relevé des unités systemd ; voir api_systemd.go.
 	Systemd SystemdUnitsService
+	// Links garde les liens entre instances ; voir api_links.go.
+	Links LinkService
 	// Roles garde ce que l'agent reconnaît sur sa machine ; le signal l'écrit.
 	Roles agentapi.RolesService
 	// Host garde où tourne la machine et ses disques ; le signal l'écrit.
@@ -524,6 +540,7 @@ func New(opts Options) (*Server, error) {
 		actions:        opts.Actions,
 		sshKeys:        opts.SSHKeys,
 		systemd:        opts.Systemd,
+		links:          opts.Links,
 		proxmox:        opts.Proxmox,
 		firewalls:      opts.Firewalls,
 		backups:        opts.Backups,

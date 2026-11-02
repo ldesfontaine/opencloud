@@ -280,7 +280,9 @@ export function publicPorts(edges: Edge[]): number[] {
 // La vue d'ensemble : le même dessin, moins détaillé. Un seul nœud Internet,
 // puis chaque machine dans un cadre, ses conteneurs en nœuds compacts : les
 // publiés dans la première colonne, face à Internet, les autres en grille.
-// Ni groupes ni dépendances : l'onglet Réseau de la machine les dessine.
+// Pas de groupes : l'onglet Réseau de la machine les dessine. Les liens
+// stockés y sont tracés en courbes fines, d'un nœud à l'autre, y compris
+// d'un cadre à l'autre.
 // Une seule machine n'a pas de cadre. Les cadres s'empilent, ou se rangent
 // côte à côte quand la largeur le permet (fitOverview).
 //
@@ -408,7 +410,51 @@ export function layoutOverview(response: OverviewNetworkResponse, perRow = 1): O
       edges.push({ edge, path: orthogonal(points), labelX: (laneX + end.x) / 2, labelY: end.y - 7 });
     }
   }
+  edges.push(...overviewLinkEdges(response, nodes));
   return { width: left + contentWidth + overviewMargin, height, framed, perRow: columns, internet, machines, nodes, edges };
+}
+
+// Les liens stockés de la vue d'ensemble : ceux de chaque machine, plus ceux
+// qui vont d'une machine à l'autre. Un lien dont une extrémité n'est pas un
+// conteneur dessiné n'a pas de trait ; la fiche du service le liste.
+function overviewLinkEdges(response: OverviewNetworkResponse, nodes: PlacedNode[]): PlacedEdge[] {
+  const byID = new Map(nodes.map((node) => [node.id, node]));
+  const edges: Edge[] = response.machines.flatMap((machine) => machine.edges.filter((edge) => edge.kind === "depends"));
+  for (const link of response.links) {
+    edges.push({ from: link.from.container_id, to: link.to.container_id, kind: "depends", port: link.port, link_id: link.id, nature: link.nature, proof: link.proof, signal: link.signal, stale: link.stale });
+  }
+  const placed: PlacedEdge[] = [];
+  for (const edge of edges) {
+    const from = byID.get(edge.from);
+    const to = byID.get(edge.to);
+    if (from !== undefined && to !== undefined) {
+      placed.push({ edge, path: curve(from, to), labelX: (from.x + to.x) / 2, labelY: (from.y + to.y) / 2 });
+    }
+  }
+  return placed;
+}
+
+// Une courbe de la sortie d'un nœud à l'entrée de l'autre : côté droit vers
+// côté gauche quand la cible est à droite, l'inverse à gauche, sinon (même
+// colonne) du bas vers le haut.
+function curve(from: PlacedNode, to: PlacedNode): string {
+  const middleFrom = from.y + compactHeight / 2;
+  const middleTo = to.y + compactHeight / 2;
+  if (to.x >= from.x + compactWidth) {
+    const bend = (from.x + compactWidth + to.x) / 2;
+    return `M${from.x + compactWidth} ${middleFrom} C${bend} ${middleFrom} ${bend} ${middleTo} ${to.x} ${middleTo}`;
+  }
+  if (to.x + compactWidth <= from.x) {
+    const bend = (from.x + to.x + compactWidth) / 2;
+    return `M${from.x} ${middleFrom} C${bend} ${middleFrom} ${bend} ${middleTo} ${to.x + compactWidth} ${middleTo}`;
+  }
+  const down = to.y >= from.y;
+  const startY = down ? from.y + compactHeight : from.y;
+  const endY = down ? to.y : to.y + compactHeight;
+  const bend = (startY + endY) / 2;
+  const startX = from.x + compactWidth / 2;
+  const endX = to.x + compactWidth / 2;
+  return `M${startX} ${startY} C${startX} ${bend} ${endX} ${bend} ${endX} ${endY}`;
 }
 
 // Le dessin de la vue d'ensemble qui tient le mieux dans width : parmi les

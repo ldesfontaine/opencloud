@@ -36,6 +36,8 @@ const (
 	ObjectService         ObjectKind = "service"
 	ObjectUnit            ObjectKind = "unit"
 	ObjectIgnoredKey      ObjectKind = "ignored_key"
+	// Un lien entre deux instances, écrit par l'opérateur.
+	ObjectLink            ObjectKind = "link"
 	ObjectProbe           ObjectKind = "probe"
 	ObjectHeartbeat       ObjectKind = "heartbeat"
 	ObjectStatusComponent ObjectKind = "status_component"
@@ -61,7 +63,7 @@ const (
 
 func ObjectKinds() []ObjectKind {
 	return []ObjectKind{
-		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
+		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey, ObjectLink,
 		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident,
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectAPIToken, ObjectSecrets, ObjectAction,
@@ -120,6 +122,9 @@ const (
 
 	IgnoredKeyCreate Action = "ignored_key.create"
 	IgnoredKeyDelete Action = "ignored_key.delete"
+
+	LinkCreate Action = "link.create"
+	LinkDelete Action = "link.delete"
 
 	ProbeCreate Action = "probe.create"
 	ProbeUpdate Action = "probe.update"
@@ -215,6 +220,7 @@ func Actions() []Action {
 		ServiceCreate, ServiceUpdate, ServiceDelete,
 		UnitUpdatePolicy,
 		IgnoredKeyCreate, IgnoredKeyDelete,
+		LinkCreate, LinkDelete,
 		ProbeCreate, ProbeUpdate, ProbeDelete, ProbePause, ProbeResume,
 		HeartbeatCreate, HeartbeatUpdate, HeartbeatDelete, HeartbeatPause, HeartbeatResume, HeartbeatRegenerateToken,
 		StatusComponentCreate, StatusComponentUpdate, StatusComponentDelete,
