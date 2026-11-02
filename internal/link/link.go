@@ -3,6 +3,7 @@ package link
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +22,9 @@ const (
 	// NatureRoute : le proxy envoie vers le service ce qui arrive à son adresse
 	// publique. Déduite (SignalPublicURL), puis confirmée par l'opérateur.
 	NatureRoute Nature = "route"
-	// NatureTraffic : réservée aux connexions vues, qui n'ont pas de source.
+	// NatureTraffic : une connexion vue. Sa source est un compte ou une adresse
+	// de l'hôte, jamais un service (la table de l'hôte n'attribue pas de
+	// processus).
 	NatureTraffic Nature = "traffic"
 )
 
@@ -37,7 +40,9 @@ const (
 	// l'environnement d'un conteneur (SignalEnvironment) sont les deux seules
 	// lignes « déduit » qui existent en base.
 	ProofDeduced Proof = "deduced"
-	// ProofObserved : une connexion ou un état lu. Pas encore écrit.
+	// ProofObserved : une connexion vue dans la table de l'hôte
+	// (SignalHostConnection). Gardé en mémoire par hostconn.Service, jamais en
+	// base : la table des liens ne connaît pas ce signal.
 	ProofObserved Proof = "observed"
 )
 
@@ -55,6 +60,10 @@ const (
 	// autre instance de la machine. Écrit à chaque inventaire, jamais la
 	// variable ni sa valeur (étude services-modèle §2.4).
 	SignalEnvironment Signal = "environment"
+	// SignalHostConnection : une connexion vue dans la table de l'hôte vers un
+	// port que l'instance publie ou déclare (étude services-modèle §2.3,
+	// signal 9). Jamais écrit : les sources sont dans hostconn.Service.
+	SignalHostConnection Signal = "host_connection"
 )
 
 // StaleAfter : un lien déclaré par un outil et non revu depuis ce délai est
@@ -75,7 +84,58 @@ const (
 	composePrefix   = "compose:"
 	containerPrefix = "container:"
 	systemdPrefix   = "systemd:"
+	// Les sources d'une connexion vue ne sont pas des instances : un compte de
+	// l'hôte, une machine du réseau local, ou Internet.
+	accountPrefix  = "account:"
+	addressPrefix  = "address:"
+	internetPrefix = "internet:"
 )
+
+// Kind : le genre de ce qu'une clé désigne. Le front en tire le libellé et
+// l'adresse où aller ; il ne lit pas le préfixe lui-même.
+type Kind string
+
+const (
+	KindCompose   Kind = "compose"
+	KindContainer Kind = "container"
+	KindSystemd   Kind = "systemd"
+	KindAccount   Kind = "account"
+	KindAddress   Kind = "address"
+	KindInternet  Kind = "internet"
+)
+
+var kindPrefixes = []struct {
+	prefix string
+	kind   Kind
+}{
+	{composePrefix, KindCompose}, {containerPrefix, KindContainer}, {systemdPrefix, KindSystemd},
+	{accountPrefix, KindAccount}, {addressPrefix, KindAddress}, {internetPrefix, KindInternet},
+}
+
+// KindOf rend le genre d'une clé ; vide si le préfixe est inconnu.
+func KindOf(key string) Kind {
+	for _, known := range kindPrefixes {
+		if strings.HasPrefix(key, known.prefix) {
+			return known.kind
+		}
+	}
+	return ""
+}
+
+// AccountKey : un compte de l'hôte qui se connecte.
+func AccountKey(name string) string {
+	return accountPrefix + name
+}
+
+// AddressKey : une machine du réseau local qui se connecte.
+func AddressKey(address string) string {
+	return addressPrefix + address
+}
+
+// InternetKey : tout ce qui vient d'Internet, sans adresse.
+func InternetKey() string {
+	return internetPrefix + "public"
+}
 
 // ComposeKey : un service d'un projet Compose, répliques comprises.
 func ComposeKey(project, service string) string {
@@ -94,17 +154,23 @@ func SystemdKey(unit string) string {
 
 // LabelOf rend le nom qu'on lit d'une clé : sans son préfixe.
 func LabelOf(key string) string {
-	for _, prefix := range []string{composePrefix, containerPrefix, systemdPrefix} {
-		if rest, found := strings.CutPrefix(key, prefix); found {
+	for _, known := range kindPrefixes {
+		if rest, found := strings.CutPrefix(key, known.prefix); found {
 			return rest
 		}
 	}
 	return key
 }
 
-// validKey : un préfixe connu, un nom, rien d'invisible.
+// validKey : une instance (compose, conteneur, unité), un nom, rien
+// d'invisible. Un compte ou une adresse n'est pas une instance : l'opérateur
+// ne l'écrit pas en lien.
 func validKey(key string) bool {
 	if len(key) == 0 || len(key) > MaxKeyLength || LabelOf(key) == key || LabelOf(key) == "" {
+		return false
+	}
+	switch KindOf(key) {
+	case KindAccount, KindAddress, KindInternet:
 		return false
 	}
 	return !strings.ContainsFunc(key, func(character rune) bool { return character < ' ' || character == 0x7f })
@@ -155,6 +221,12 @@ func (l Link) Dismissed() bool {
 	return l.Proof == ProofDeduced && l.Signal == SignalOperator
 }
 
+// Observed : une connexion vue dans la table de l'hôte. Elle n'a pas de ligne
+// en base, seulement un identifiant refait de la paire et du port.
+func (l Link) Observed() bool {
+	return strings.HasPrefix(l.ID, ObservedPrefix)
+}
+
 // Touches dit si une extrémité du lien est sur la machine.
 func (l Link) Touches(machineID string) bool {
 	return l.From.MachineID == machineID || l.To.MachineID == machineID
@@ -173,6 +245,26 @@ func DeducedID(from, to Endpoint, nature Nature) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{from.MachineID, from.Key, to.MachineID, to.Key, string(nature)}, "\x00")))
 	return DeducedPrefix + hex.EncodeToString(sum[:8])
 }
+
+// Sighting : une source a été vue joindre un port de l'hôte. L'instance qui
+// publie ce port se trouve à la lecture, pas à l'écriture : un conteneur
+// recréé ou un port déclaré après coup rattache les mêmes vues.
+type Sighting struct {
+	Source    string
+	Port      int
+	FirstSeen time.Time
+	LastSeen  time.Time
+}
+
+// ObservedID : l'identifiant d'un lien observé, refait de ses extrémités et du
+// port.
+func ObservedID(from, to Endpoint, port int) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{from.MachineID, from.Key, to.MachineID, to.Key, string(NatureTraffic), strconv.Itoa(port)}, "\x00")))
+	return ObservedPrefix + hex.EncodeToString(sum[:8])
+}
+
+// ObservedPrefix précède l'identifiant d'un lien observé.
+const ObservedPrefix = "obs_"
 
 // DeducedPrefix précède l'identifiant d'un lien déduit.
 const DeducedPrefix = "ded_"

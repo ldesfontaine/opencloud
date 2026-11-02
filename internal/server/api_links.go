@@ -58,6 +58,10 @@ type linkEndJSON struct {
 	MachineID   string `json:"machine_id"`
 	MachineName string `json:"machine_name"`
 	Key         string `json:"key"`
+	// Kind : le genre de ce que la clé désigne (compose, container, systemd,
+	// account, address, internet). Les trois derniers sont les sources d'une
+	// connexion observée : jamais un service.
+	Kind        string `json:"kind"`
 	Label       string `json:"label"`
 	ServiceID   string `json:"service_id"`
 	ServiceName string `json:"service_name"`
@@ -204,7 +208,7 @@ func (s *Server) linkEnds(ctx context.Context) (linkEnds, error) {
 func (e linkEnds) describe(end directory.LinkEnd) linkEndJSON {
 	endpoint := link.Endpoint{MachineID: end.MachineID, Key: end.Key}
 	return linkEndJSON{
-		MachineID: end.MachineID, MachineName: e.machineNames[end.MachineID], Key: end.Key, Label: link.LabelOf(end.Key),
+		MachineID: end.MachineID, MachineName: e.machineNames[end.MachineID], Key: end.Key, Kind: string(link.KindOf(end.Key)), Label: link.LabelOf(end.Key),
 		ServiceID: end.ServiceID, ServiceName: end.ServiceName, UnitName: end.UnitName, ContainerID: e.containers[endpoint],
 	}
 }

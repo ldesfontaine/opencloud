@@ -289,6 +289,7 @@ const linkEnd = shape<LinkEnd>("LinkEnd", {
   machine_id: value,
   machine_name: value,
   key: value,
+  kind: value,
   label: value,
   service_id: value,
   service_name: value,

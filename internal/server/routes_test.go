@@ -26,6 +26,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/hostconn"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/link"
@@ -51,6 +52,7 @@ var testNow = servertest.Now()
 
 type testServer struct {
 	*Server
+	hostConns  *hostconn.Service
 	machines   *machine.Service
 	heartbeats *heartbeat.Service
 	resources  *resource.Service
@@ -241,6 +243,10 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	systemd.SetClock(func() time.Time { return testNow })
 	systemd.SetWatcher(bus)
 	declared.SetUnits(systemd)
+	hostConns := hostconn.New()
+	hostConns.SetClock(func() time.Time { return testNow })
+	hostConns.SetWatcher(bus)
+	declared.SetObserver(hostConns)
 	roles := role.New(db, logger)
 	roles.SetWatcher(bus)
 	hypervisors := proxmox.New(db, machines, logger)
@@ -260,37 +266,38 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	firewalls.SetConnector(firewall.KindOPNsense, opnsense.New)
 	firewalls.SetTranslator(firewall.KindOPNsense, opnsense.Policy)
 	server, err := New(Options{
-		Logger:       logger,
-		Version:      "v0.0.1",
-		Reader:       db,
-		Settings:     preferences,
-		Machines:     machines,
-		Heartbeats:   heartbeats,
-		Resources:    resources,
-		Containers:   containers,
-		Probes:       probes,
-		Directory:    declared,
-		Manifest:     newTestManifest(declared, probes, heartbeats, db, bus, logger),
-		Updates:      updates,
-		Lifecycle:    lifecycles,
-		Status:       statusPage,
-		Alerts:       alerts,
-		Notifier:     notifier,
-		APITokens:    apiTokens,
-		VerbRequests: requests,
-		Auth:         operator,
-		Actions:      actions,
-		SSHKeys:      sshKeys,
-		Systemd:      systemd,
-		Links:        links,
-		Roles:        roles,
-		Host:         machines,
-		Proxmox:      hypervisors,
-		Firewalls:    firewalls,
-		Backups:      backups,
-		Deploy:       deployer,
-		Live:         bus,
-		PublicLive:   publicBus,
+		Logger:          logger,
+		Version:         "v0.0.1",
+		Reader:          db,
+		Settings:        preferences,
+		Machines:        machines,
+		Heartbeats:      heartbeats,
+		Resources:       resources,
+		Containers:      containers,
+		Probes:          probes,
+		Directory:       declared,
+		Manifest:        newTestManifest(declared, probes, heartbeats, db, bus, logger),
+		Updates:         updates,
+		Lifecycle:       lifecycles,
+		Status:          statusPage,
+		Alerts:          alerts,
+		Notifier:        notifier,
+		APITokens:       apiTokens,
+		VerbRequests:    requests,
+		Auth:            operator,
+		Actions:         actions,
+		SSHKeys:         sshKeys,
+		Systemd:         systemd,
+		HostConnections: hostConns,
+		Links:           links,
+		Roles:           roles,
+		Host:            machines,
+		Proxmox:         hypervisors,
+		Firewalls:       firewalls,
+		Backups:         backups,
+		Deploy:          deployer,
+		Live:            bus,
+		PublicLive:      publicBus,
 		// httptest donne Host: example.com à ses requêtes : c'est l'hôte
 		// d'écoute de ce serveur, donc un Host reconnu.
 		Listen: "example.com:80",
@@ -304,7 +311,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	probes.SetCommander(server)
 	updates.SetCommander(server)
 	actions.SetCommander(server)
-	return &testServer{actions: actions, backups: backups, proxmox: hypervisors, firewalls: firewalls, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, requests: requests, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{actions: actions, backups: backups, proxmox: hypervisors, firewalls: firewalls, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, requests: requests, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db, hostConns: hostConns}
 }
 
 // testServerKey lit une clé du serveur figée, posée dans un fichier comme

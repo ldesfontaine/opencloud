@@ -9,12 +9,18 @@ import { route } from "./routes";
 export type LinkNature = "order" | "config" | "route" | "traffic";
 // Déclaré : écrit par l'opérateur ou par la configuration d'un outil.
 // Déduit : calculé à chaque lecture, l'opérateur le confirme ou l'écarte.
-// Observé : vu ; aucune source ne l'écrit encore.
+// Observé : une connexion vue dans la table de l'hôte (« host_connection »),
+// gardée en mémoire par le serveur : jamais écrite, ni confirmée ni écartée.
 export type LinkProof = "declared" | "deduced" | "observed";
 // Le signal précis derrière la preuve. « public_url » : une adresse publique
 // et un service qui fournit la capacité proxy (jamais écrit, seulement déduit).
 // « environment » : l'environnement d'un conteneur nomme l'hôte de l'autre instance (droit observe.env).
-export type LinkSignal = "depends_on" | "container_link" | "operator" | "public_url" | "environment";
+// « host_connection » : un compte, une machine du réseau ou Internet a joint un port de l'hôte.
+export type LinkSignal = "depends_on" | "container_link" | "operator" | "public_url" | "environment" | "host_connection";
+
+// Le genre de ce qu'une extrémité désigne. Les trois derniers sont les sources
+// d'une connexion observée : ce ne sont pas des instances, aucun service ne les porte.
+export type LinkEndKind = "compose" | "container" | "systemd" | "account" | "address" | "internet";
 
 // Une extrémité. Service et unité sont vides quand aucun service déclaré ne
 // porte l'instance ; container_id quand un conteneur vivant la porte.
@@ -22,6 +28,7 @@ export interface LinkEnd {
   machine_id: string;
   machine_name: string;
   key: string;
+  kind: LinkEndKind;
   label: string;
   service_id: string;
   service_name: string;

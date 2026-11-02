@@ -19,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense/opnsensetest"
+	"github.com/ldesfontaine/opencloud/internal/hostconn"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -331,6 +332,39 @@ func seedE2ELinks(t *testing.T, ts *testServer) {
 		t.Fatal(err)
 	}
 	seedE2EEnvironment(t, ts)
+	seedE2EHostConnections(t, ts)
+}
+
+// seedE2EHostConnections déclare « dashboard » (un conteneur qui publie le port
+// 3001 de la machine distante) et fait rapporter à l'agent qui l'a joint : un
+// compte de la machine, un portable du réseau local et Internet. Le port 9100
+// n'est publié par personne : la connexion qui y arrive ne donne aucun lien.
+func seedE2EHostConnections(t *testing.T, ts *testServer) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := ts.directory.CreateService(ctx, directory.ServiceDefinition{
+		MachineID: remoteID, Name: "dashboard", Nature: directory.NatureApplication, Origin: directory.OriginContainer,
+		Units: []directory.UnitDefinition{{Name: "dashboard", ContainerName: "dashboard", Image: "grafana", Ports: []string{"3001:3000"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	report := hostconn.Report{Available: true, Connections: []hostconn.Connection{
+		{Port: 3001, Origin: hostconn.OriginAccount, Name: "backup"},
+		{Port: 3001, Origin: hostconn.OriginAddress, Name: "192.168.1.20"},
+		{Port: 3001, Origin: hostconn.OriginInternet},
+		{Port: 9100, Origin: hostconn.OriginInternet},
+	}}
+	// Vu il y a trois heures, puis redit à l'instant par le même rapport : la
+	// première vue date, la dernière est fraîche.
+	ts.hostConns.SetClock(func() time.Time { return testNow.Add(-3 * time.Hour) })
+	if err := ts.hostConns.Record(ctx, remoteID, report); err != nil {
+		t.Fatal(err)
+	}
+	ts.hostConns.SetClock(func() time.Time { return testNow.Add(-5 * time.Minute) })
+	if err := ts.hostConns.Record(ctx, remoteID, report); err != nil {
+		t.Fatal(err)
+	}
+	ts.hostConns.SetClock(func() time.Time { return testNow })
 }
 
 // seedE2EEnvironment déclare « notes » et sa base « notes-db » (deux services

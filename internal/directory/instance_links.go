@@ -158,7 +158,8 @@ func (d *Directory) RunsInContainers(ctx context.Context, serviceID string) (mac
 // ServiceLinks rend les liens des instances d'un service, entrants et
 // sortants, chaque extrémité nommée par le service déclaré qui la porte
 // quand il y en a un. Viennent d'abord les liens écrits, puis les routes
-// déduites à confirmer, puis celles que l'opérateur a écartées. Un lien d'une
+// déduites à confirmer, puis les connexions vues sur les ports du service,
+// puis les routes que l'opérateur a écartées. Un lien d'une
 // unité du service vers une autre unité du même service est rendu une fois,
 // sortant.
 func (d *Directory) ServiceLinks(ctx context.Context, serviceID string) ([]ServiceLink, error) {
@@ -185,6 +186,10 @@ func (d *Directory) ServiceLinks(ctx context.Context, serviceID string) ([]Servi
 	if err != nil {
 		return nil, err
 	}
+	observed, err := d.observedLinks(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
 	ends := indexLinkEnds(declared)
 	own := map[link.Endpoint]bool{}
 	for _, unit := range owner.Units {
@@ -205,6 +210,9 @@ func (d *Directory) ServiceLinks(ctx context.Context, serviceID string) ([]Servi
 		place(found, false)
 	}
 	for _, found := range deduced {
+		place(found, false)
+	}
+	for _, found := range observed {
 		place(found, false)
 	}
 	for _, found := range dismissed {

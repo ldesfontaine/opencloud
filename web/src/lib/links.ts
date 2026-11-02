@@ -18,6 +18,17 @@ export function endName(end: Pick<LinkEnd, "service_name" | "label">): string {
   return end.service_name !== "" ? end.service_name : end.label;
 }
 
+// Les extrémités qui ne sont pas des instances : la source d'une connexion
+// observée. Aucun service ne les porte, aucune fiche n'est à ouvrir.
+export function isSource(end: Pick<LinkEnd, "kind">): boolean {
+  return end.kind === "account" || end.kind === "address" || end.kind === "internet";
+}
+
+// Le nom d'une source : « Compte backup », « Machine 192.168.1.20 », « Internet ».
+export function sourceText(t: Translate, end: Pick<LinkEnd, "kind" | "label">): string {
+  return end.kind === "internet" ? t("link.source_internet") : t(`link.source_${end.kind}`, end.label);
+}
+
 // La fraîcheur d'un lien, en mots : « Vu il y a 2 h », « Écrit le … » pour
 // celui que l'opérateur a écrit (personne ne le « revoit »), « Calculé à
 // l'instant » pour une route proposée (refaite à chaque lecture), « Écartée le … ».

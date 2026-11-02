@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { DeclaredService } from "../api/directory";
-import { emptyLinkForm, endName, freshnessText, isLinkComplete, isPortValid, linkRequestOf, peerOptions, proofTone, unitOptions } from "./links";
+import { emptyLinkForm, endName, freshnessText, isSource, sourceText, isLinkComplete, isPortValid, linkRequestOf, peerOptions, proofTone, unitOptions } from "./links";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join("|");
 const now = Date.parse("2026-11-01T12:00:00Z");
@@ -86,5 +86,20 @@ describe("endName", () => {
   test("le service déclaré d'abord, l'instance sinon", () => {
     expect(endName({ service_name: "caddy", label: "caddy.service" })).toBe("caddy");
     expect(endName({ service_name: "", label: "legacy-cache" })).toBe("legacy-cache");
+  });
+});
+
+describe("sources d'une connexion observée", () => {
+  test("un compte, une machine du réseau et Internet sont des sources, une instance n'en est pas une", () => {
+    expect(isSource({ kind: "account" })).toBe(true);
+    expect(isSource({ kind: "address" })).toBe(true);
+    expect(isSource({ kind: "internet" })).toBe(true);
+    expect(isSource({ kind: "compose" })).toBe(false);
+    expect(isSource({ kind: "systemd" })).toBe(false);
+  });
+  test("le nom dit le genre ; Internet n'a pas d'adresse à citer", () => {
+    expect(sourceText(t, { kind: "account", label: "backup" })).toBe("link.source_account|backup");
+    expect(sourceText(t, { kind: "address", label: "192.168.1.20" })).toBe("link.source_address|192.168.1.20");
+    expect(sourceText(t, { kind: "internet", label: "public" })).toBe("link.source_internet");
   });
 });

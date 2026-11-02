@@ -1,0 +1,11 @@
+# L6 : code mort avant / après (#455)
+
+Avant = origin/dev (L5 fusionnée, PR 472, f40a2d8), après = fin de la branche orca/v052-l6.
+
+deadcode ./... (sans -test) : 81 avant, 81 après ; la liste est identique (numéros de ligne mis à part). Un `Origins()` ajouté puis jamais appelé a été retiré avant le rapport.
+knip@5.88.1 (`cd web && npx knip@5.88.1 --no-progress`) : sortie identique avant et après (mêmes 4 fichiers inutilisés : public/theme.js, src/statut/main.tsx, StatusPage.tsx, statut.scss ; mêmes exports et types non utilisés, tous déjà sur dev ; le dossier dist/ est dans les deux relevés).
+Rien n'est exporté sans servir : chaque export neuf (`hostconn.Read`, `Local`, `Service.Record` / `Seen`, `link.KindOf`, `AccountKey`, `AddressKey`, `InternetKey`, `ObservedID`, `Link.Observed`, `isSource`, `sourceText`) a un appelant de production.
+
+Supprimé dans ce chantier
+- Trois copies du même gardien de rapport côté agent (`roleReports` dans roles.go, `hostReports` dans host.go, `unitReports` dans units.go : struct, `update`, `take`, `restore`, `markReplayed`, une quarantaine de lignes chacune) : remplacées par le patron `latestReport[T]` (internal/agent/keeper.go), que la lecture des connexions de l'hôte utilise aussi. Les noms `roleReports`, `hostReports`, `unitReports` restent comme alias d'une instance. `sshReports` garde son propre gardien (empreinte JSON au lieu de `reflect.DeepEqual`) : même comportement, non fusionné, signalé dans le rapport.
+- Des phrases devenues fausses dans 22-fonctionnement.md : « `observed` vient avec L6 », « `traffic` est réservée (L6) », « L3 / L2 ne fait pas … connexion (L6) », et le commentaire de `link.ProofObserved` (« Pas encore écrit »).

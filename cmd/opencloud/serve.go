@@ -126,6 +126,7 @@ func runServe(args []string) error {
 	parts.actions.SetWatcher(bus)
 	parts.sshKeys.SetWatcher(bus)
 	parts.systemd.SetWatcher(bus)
+	parts.hostConns.SetWatcher(bus)
 	parts.roles.SetWatcher(bus)
 	parts.proxmox.SetWatcher(bus)
 	parts.firewalls.SetWatcher(bus)

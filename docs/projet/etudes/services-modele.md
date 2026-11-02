@@ -267,7 +267,7 @@ Une branche `feat/…` chacun, un commit par fonctionnalité (`12-methode.md`). 
 | L3 | **Liens stockés, déclarés et d'ordre** (fait, v0.5.2 L3 : `030_links.sql`, `internal/link`, carte Liens de la fiche service) | Tables, routes, fiche service > Liens ; `depends_on` et `--link` passent en liens `declared` ; l'opérateur ajoute les siens ; Réseau lit les liens stockés | L1 | Aucun |
 | L4 (fait, v0.5.2 L4 : `internal/directory/deduced_links.go`, aucune migration) | **Liens déduits** | `public_url` + capacité `proxy` → `route` déduit ; confirmer / écarter | L3 | Aucun |
 | L5 (fait, v0.5.2 L5 : `observe.env`, `dockerapi.EnvHosts`, `031_link_environment.sql`) | **Environnement** | `Env` lu avec la liste blanche de §2.4, banc de non-fuite | L3 | Nouveau droit d'observation, coché par machine |
-| L6 | **Connexions de l'hôte** | Table de l'hôte → liens `observed` pour les binaires et les ports publiés ; **pas** de connexion entre conteneurs (décision 5) | L2, L3 | Aucun (table) ; processus non attribué |
+| L6 (fait, v0.5.2 L6 : `internal/hostconn`, `internal/directory/observed_links.go`, aucune migration) | **Connexions de l'hôte** | Table de l'hôte → liens `observed` pour les binaires et les ports publiés ; **pas** de connexion entre conteneurs (décision 5) | L2, L3 | Aucun (table) ; processus non attribué |
 | L7 | **Traefik, plus tard** | Routes lues par le module #361 → liens `route` ; d'ici là, **aucun label Traefik ne quitte la machine** (décision 4) | #361, L3 | Selon #361 |
 
 Le **MCP** et la **vue des flux** (#375) se branchent sur L3 ; leur chiffrage attend la lecture du ticket et du code de mcp-maison.
@@ -303,7 +303,7 @@ Coûts assumés par ces décisions :
 | **Tickets #361 (module Traefik) et #375 (vue des flux)** | Absents du dépôt, aucun accès au forge dans cet espace de travail ; leur contenu n'a pas été lu |
 | **Source de mcp-maison** | Le dossier `workspaces/mcp-maison` est vide ; l'architecture cite `src/tools/opencloud/tools.ts`, non relu. Tout l'impact MCP est déduit de `22-fonctionnement.md` |
 | **Rien n'a été essayé contre Docker ou Podman** | Aucun des deux n'est installé sur la machine de l'étude ; l'API compatible Docker de Podman (champs réseau, `DNSNames`) n'est pas validée |
-| **Les connexions entre conteneurs ne figurent pas dans la table de l'hôte** | Déduit de `proc_net(5)` et du principe des espaces de noms ; **à mesurer** avec un pont Docker réel au début de L6 |
+| **Les connexions entre conteneurs ne figurent pas dans la table de l'hôte** | Déduit de `proc_net(5)` et du principe des espaces de noms ; **L6 n'a toujours pas pu le mesurer** (aucun Docker ni Podman dans l'espace de travail). Mesuré seulement : une vraie connexion de bouclage se retrouve dans la vraie table (`hostconn.TestRead_RealLoopbackConnection`). **Non mesuré** : ce que la table montre d'un client externe redirigé (DNAT) vers un port publié |
 | **Port → unité sans ptrace** | Déduit de `proc_pid_fd(5)` ; mesuré seulement pour sshd (port 22 sans processus) |
 | **Champs exacts de l'API Traefik** (`rule`, `service`, `usedBy`, `servers[].url`) | La doc lue ne les détaille pas ; à confirmer par un GET sur une instance |
 | **Format de `com.docker.compose.depends_on`** | Non lu à la source de Compose ; openCloud le parse déjà (`inspect.go:192-230`), testé |
