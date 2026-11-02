@@ -11,7 +11,7 @@ func homeFirewall() Firewall {
 		{Name: "wan", Device: "igb0", Role: "WAN", Address: "203.0.113.2/24", Up: true},
 		{Name: "lan", Device: "igb1", Role: "SERVICES", Address: "10.1.50.1/24", Up: true},
 		{Name: "opt1", Device: "igb2_vlan60", Role: "DMZ", Address: "10.1.60.1/24", Up: true},
-		{Name: "opt2", Device: "wg0", Role: "TUNNEL", Address: "10.99.0.2/30", Up: true},
+		{Name: "opt2", Device: "wg0", Role: "TUNNEL", Address: "10.77.0.2/30", Up: true},
 	}}
 }
 

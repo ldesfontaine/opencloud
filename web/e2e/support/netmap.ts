@@ -44,7 +44,7 @@ export function fullMap(): NetworkMap {
   const notes = service("notes", "notes");
   const notesDb = service("notes", "notes-db", "running");
   const backup = systemd("pi", "restic", "running");
-  const agent = service("lab", "hermes", "failed");
+  const agent = service("lab", "agent-ia", "failed");
   return {
     zones: [
       { id: zoneAdmin, name: "ADMIN", source: "firewall", cidr: "10.20.11.0/24", vlan: 11, tone: 0 },
@@ -83,7 +83,7 @@ export function fullMap(): NetworkMap {
           { name: "opt1", device: "igc2_vlan50", role: "SERVICES", cidr: "10.20.50.1/24", up: true, zone_id: zoneServices, wan: false, tunnel: false },
           { name: "opt2", device: "igc2_vlan60", role: "DMZ", cidr: "10.20.60.1/24", up: true, zone_id: zoneDmz, wan: false, tunnel: false },
           { name: "opt3", device: "igc2_vlan80", role: "IA", cidr: "10.20.80.1/24", up: true, zone_id: zoneIA, wan: false, tunnel: false },
-          { name: "opt4", device: "wg0", role: "TUNNEL", cidr: "10.99.0.2/30", up: true, zone_id: "", wan: false, tunnel: true },
+          { name: "opt4", device: "wg0", role: "TUNNEL", cidr: "10.77.0.2/30", up: true, zone_id: "", wan: false, tunnel: true },
         ],
       },
     ],
