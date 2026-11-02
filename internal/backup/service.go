@@ -106,16 +106,17 @@ type Watcher interface {
 var destinationNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 type Service struct {
-	store    Store
-	machines Machines
-	stateDir *os.Root
-	sender   Sender
-	parcels  Parcels
-	guests   Guests
-	watcher  Watcher
-	auditor  *audit.Recorder
-	logger   *slog.Logger
-	now      func() time.Time
+	store     Store
+	machines  Machines
+	stateDir  *os.Root
+	sender    Sender
+	parcels   Parcels
+	guests    Guests
+	firewalls Firewalls
+	watcher   Watcher
+	auditor   *audit.Recorder
+	logger    *slog.Logger
+	now       func() time.Time
 	// Le coût de scrypt d'une création de clé ; zéro prend celui d'age. Les
 	// tests le baissent, une création coûte sinon un quart de gigaoctet.
 	workFactor int
@@ -283,6 +284,9 @@ func (s *Service) SavePlan(ctx context.Context, definition PlanDefinition) (Plan
 			return Plan{}, fmt.Errorf("get source machine: %w", err)
 		}
 		plan.SourceMachineID, plan.SourceMachineName = source.ID, source.Name
+	}
+	if err := s.checkNewFirewallPlan(ctx, definition); err != nil {
+		return Plan{}, err
 	}
 	destination, err := s.store.GetBackupDestination(ctx, definition.DestinationID)
 	if errors.Is(err, ErrNotFound) {

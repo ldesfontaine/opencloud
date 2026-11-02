@@ -46,6 +46,7 @@ func firewallBench(t *testing.T) (*testServer, *opnsensetest.Server, *bytes.Buff
 	component.SetTranslator(firewall.KindOPNsense, opnsense.Policy)
 	server.Server.firewalls = component
 	server.firewalls = component
+	server.backups.SetFirewalls(component)
 	return server, opnsensetest.New(t), &journal
 }
 

@@ -285,6 +285,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	firewalls.SetAuditor(journal)
 	firewalls.SetConnector(firewall.KindOPNsense, opnsense.New)
 	firewalls.SetTranslator(firewall.KindOPNsense, opnsense.Policy)
+	backups.SetFirewalls(firewalls)
 	server, err := New(Options{
 		Logger:          logger,
 		Version:         "v0.0.1",

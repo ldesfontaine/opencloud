@@ -195,6 +195,9 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// « all », pour un plan machine, prend les invités que l'hôte Proxmox de la
 	// source a relevés.
 	backups.SetGuests(db)
+	// L'export de la configuration d'un pare-feu déclaré : le serveur lit,
+	// avec la clé qu'il garde ; rien n'en part vers un agent.
+	backups.SetFirewalls(firewalls)
 	backups.SetAuditor(journal)
 	// Les sauvegardes restic : des ordres aux agents des sources et des
 	// cibles, l'aperçu de la page Sauvegardes, qui lit aussi ce que backup
