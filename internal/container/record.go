@@ -28,6 +28,9 @@ func (t *Tracker) Record(ctx context.Context, machineID string, report Report) e
 	if len(changes.Containers) > 0 {
 		t.recordOrderLinks(ctx, machineID)
 	}
+	if report.Complete {
+		t.recordEnvironmentLinks(ctx, machineID, report.Inventory)
+	}
 	if t.watcher != nil {
 		t.watcher.ContainersChanged(machineID)
 	}

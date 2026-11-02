@@ -31,9 +31,11 @@ type Proof string
 const (
 	// ProofDeclared : écrit, par l'opérateur ou par la configuration d'un outil.
 	ProofDeclared Proof = "declared"
-	// ProofDeduced : calculé à partir d'un autre fait, à chaque lecture. Un lien
-	// déduit ne s'écrit pas ; la seule ligne « déduit » qui existe en base est
-	// la trace d'un lien que l'opérateur a écarté (Link.Dismissed).
+	// ProofDeduced : calculé à partir d'un autre fait. Une route déduite se
+	// recalcule à chaque lecture et ne s'écrit pas (Link.Proposed) ; la trace
+	// d'une route que l'opérateur a écartée (Link.Dismissed) et le lien lu dans
+	// l'environnement d'un conteneur (SignalEnvironment) sont les deux seules
+	// lignes « déduit » qui existent en base.
 	ProofDeduced Proof = "deduced"
 	// ProofObserved : une connexion ou un état lu. Pas encore écrit.
 	ProofObserved Proof = "observed"
@@ -49,6 +51,10 @@ const (
 	// SignalPublicURL : le service a une adresse publique et un service fournit
 	// la capacité proxy. Jamais écrit : la table n'en connaît pas la valeur.
 	SignalPublicURL Signal = "public_url"
+	// SignalEnvironment : l'environnement d'un conteneur nomme l'hôte d'une
+	// autre instance de la machine. Écrit à chaque inventaire, jamais la
+	// variable ni sa valeur (étude services-modèle §2.4).
+	SignalEnvironment Signal = "environment"
 )
 
 // StaleAfter : un lien déclaré par un outil et non revu depuis ce délai est
@@ -123,11 +129,17 @@ type Link struct {
 	LastSeen  time.Time
 }
 
-// Stale : un lien d'un outil qu'on ne revoit plus. Un lien écrit par
-// l'opérateur ne vieillit pas : personne ne le « revoit ». Un lien déduit non
-// plus : il est refait à chaque lecture, il n'a pas de dernière vue.
+// Stale : un lien qu'on ne revoit plus. Un lien écrit par l'opérateur ne
+// vieillit pas : personne ne le « revoit ». Une route proposée non plus : elle
+// est refaite à chaque lecture, elle n'a pas de dernière vue.
 func (l Link) Stale(now time.Time) bool {
-	return l.Proof != ProofDeduced && l.Signal != SignalOperator && now.Sub(l.LastSeen) > StaleAfter
+	return !l.Proposed() && l.Signal != SignalOperator && now.Sub(l.LastSeen) > StaleAfter
+}
+
+// Proposed : une route déduite que l'opérateur n'a pas encore décidée. Elle
+// n'a pas de ligne en base, seulement un identifiant refait de la paire.
+func (l Link) Proposed() bool {
+	return strings.HasPrefix(l.ID, DeducedPrefix)
 }
 
 // Removable : seul l'opérateur retire ce qu'il a écrit. Un lien tiré de
@@ -140,7 +152,7 @@ func (l Link) Removable() bool {
 // revient pas tant que l'opérateur ne le rétablit pas, même si la déduction
 // qui l'avait fait naître change.
 func (l Link) Dismissed() bool {
-	return l.Proof == ProofDeduced
+	return l.Proof == ProofDeduced && l.Signal == SignalOperator
 }
 
 // Touches dit si une extrémité du lien est sur la machine.
@@ -165,12 +177,28 @@ func DeducedID(from, to Endpoint, nature Nature) string {
 // DeducedPrefix précède l'identifiant d'un lien déduit.
 const DeducedPrefix = "ded_"
 
-// Order : un lien d'ordre lu dans la configuration d'une machine. Les deux
-// extrémités sont sur elle.
-type Order struct {
+// Seen : un lien lu dans la configuration des conteneurs d'une machine. Les
+// deux extrémités sont sur elle. Le signal dit le reste : sa nature et sa
+// preuve (Seen.Kind).
+type Seen struct {
 	From   string
 	To     string
 	Signal Signal
+	// Port est celui que la configuration nomme ; 0 : aucun.
+	Port int
+}
+
+// Kind rend la nature et la preuve que le signal porte. Un signal qu'un
+// rapport ne peut pas écrire (l'opérateur, l'adresse publique) n'en a pas.
+func (s Seen) Kind() (Nature, Proof, bool) {
+	switch s.Signal {
+	case SignalDependsOn, SignalContainerLink:
+		return NatureOrder, ProofDeclared, true
+	case SignalEnvironment:
+		return NatureConfig, ProofDeduced, true
+	default:
+		return "", "", false
+	}
 }
 
 // Les refus, un par cause.

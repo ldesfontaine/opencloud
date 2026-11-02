@@ -43,6 +43,9 @@ type Options struct {
 	SampleInterval    time.Duration
 	InventoryInterval time.Duration
 	ProbeInterval     time.Duration
+	// ReadEnvironment : l'agent a le droit observe.env. Faux, l'environnement
+	// des conteneurs n'est pas lu (environment.go).
+	ReadEnvironment bool
 }
 
 // Watcher est le veilleur ; un par machine.

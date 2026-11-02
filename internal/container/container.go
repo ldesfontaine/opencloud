@@ -67,6 +67,8 @@ const (
 	MaxNetworksPerContainer = 32
 	MaxAliasesPerNetwork    = 16
 	MaxDependencies         = 64
+	// Les instances qu'un conteneur est configuré pour joindre (EnvTarget).
+	MaxEnvTargets = 32
 	// Les labels <préfixe>.* d'un conteneur : une carte courte, dont une
 	// valeur va jusqu'à MaxNameLength. Deux seulement sont lus
 	// (LabelService, LabelUnit) ; la carte entière part pour qu'un serveur
@@ -281,6 +283,18 @@ const (
 	DependencyCompose DependencySource = "compose"
 	DependencyLink    DependencySource = "link"
 )
+
+// EnvTarget est une instance de la même machine que l'environnement d'un
+// conteneur désigne : son nom (le service Compose, sinon le conteneur), son
+// projet Compose et le port que la configuration nomme (0 : aucun). C'est tout
+// ce qui part de l'environnement : ni le nom de la variable, ni sa valeur, ni
+// un hôte qui n'est pas un conteneur de la machine (étude services-modèle
+// §2.4).
+type EnvTarget struct {
+	Name  string `json:"name"`
+	Group string `json:"group,omitempty"`
+	Port  int    `json:"port,omitempty"`
+}
 
 // Volume est un volume nommé Docker d'une machine : son nom, son pilote et les
 // conteneurs qui le montent. Aucune donnée du volume n'est lue.

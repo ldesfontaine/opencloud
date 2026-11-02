@@ -84,11 +84,11 @@ func TestDeclare_WritesADeclaredOperatorLinkAndRefusesTheRest(t *testing.T) {
 
 // Un lien tiré d'une configuration se revoit au rapport suivant : le retirer
 // ici n'aurait aucun sens, et le dire vaut mieux qu'un lien qui revient.
-func TestRecordOrders_RefreshesWhatIsKnownKeepsWhatIsGoneAndIsNotRemovable(t *testing.T) {
+func TestRecordSeen_RefreshesWhatIsKnownKeepsWhatIsGoneAndIsNotRemovable(t *testing.T) {
 	b := newBench(t)
 	ctx := context.Background()
-	orders := []link.Order{{From: link.ContainerKey("web"), To: link.ContainerKey("db"), Signal: link.SignalDependsOn}}
-	if err := b.service.RecordOrders(ctx, m1, orders); err != nil {
+	orders := []link.Seen{{From: link.ContainerKey("web"), To: link.ContainerKey("db"), Signal: link.SignalDependsOn}}
+	if err := b.service.RecordSeen(ctx, m1, orders); err != nil {
 		t.Fatal(err)
 	}
 	first, err := b.service.List(ctx, m1)
@@ -101,7 +101,7 @@ func TestRecordOrders_RefreshesWhatIsKnownKeepsWhatIsGoneAndIsNotRemovable(t *te
 
 	// Revu plus tard : même ligne, dernière vue avancée, première vue gardée.
 	b.now = testNow.Add(48 * time.Hour)
-	if err := b.service.RecordOrders(ctx, m1, orders); err != nil {
+	if err := b.service.RecordSeen(ctx, m1, orders); err != nil {
 		t.Fatal(err)
 	}
 	again, _ := b.service.List(ctx, m1)
@@ -110,11 +110,11 @@ func TestRecordOrders_RefreshesWhatIsKnownKeepsWhatIsGoneAndIsNotRemovable(t *te
 	}
 
 	// Le conteneur disparaît du rapport : le lien vieillit, il ne part pas.
-	other := []link.Order{{From: link.ContainerKey("job"), To: link.ContainerKey("db"), Signal: link.SignalContainerLink}}
-	if err := b.service.RecordOrders(ctx, m1, other); err != nil {
+	other := []link.Seen{{From: link.ContainerKey("job"), To: link.ContainerKey("db"), Signal: link.SignalContainerLink}}
+	if err := b.service.RecordSeen(ctx, m1, other); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.service.RecordOrders(ctx, m1, nil); err != nil {
+	if err := b.service.RecordSeen(ctx, m1, nil); err != nil {
 		t.Fatal(err)
 	}
 	all, _ := b.service.List(ctx, m1)
@@ -136,7 +136,7 @@ func TestList_FiltersByMachine(t *testing.T) {
 	if _, err := b.service.Declare(ctx, link.Definition{From: endpoint(m1, "web"), To: endpoint(m2, "db")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.service.RecordOrders(ctx, m2, []link.Order{{From: link.ContainerKey("a"), To: link.ContainerKey("b"), Signal: link.SignalDependsOn}}); err != nil {
+	if err := b.service.RecordSeen(ctx, m2, []link.Seen{{From: link.ContainerKey("a"), To: link.ContainerKey("b"), Signal: link.SignalDependsOn}}); err != nil {
 		t.Fatal(err)
 	}
 	for machineID, want := range map[string]int{m1: 1, m2: 2, "": 2, "ghost": 0} {
@@ -194,5 +194,61 @@ func TestService_ADismissedRouteIsKeptOutOfTheLinksAndRestored(t *testing.T) {
 	}
 	if err := b.service.Restore(ctx, confirmed.ID); !errors.Is(err, link.ErrNotFound) {
 		t.Errorf("rétablir un lien confirmé : %v", err)
+	}
+}
+
+// Un lien lu dans l'environnement s'écrit comme un lien d'outil (revu,
+// vieillissant, non retirable), avec la preuve « déduit » ; l'écrire à la main
+// par-dessus se refuse : il existe déjà.
+func TestRecordSeen_EnvironmentLinksAreDeducedKeepTheirPortAndYieldToTheOperator(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	web, db, cache := link.ContainerKey("web"), link.ContainerKey("db"), link.ContainerKey("cache")
+	seen := []link.Seen{
+		{From: web, To: db, Signal: link.SignalEnvironment},
+		{From: web, To: cache, Signal: link.SignalEnvironment, Port: 6379},
+	}
+	if err := b.service.RecordSeen(ctx, m1, seen); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.service.Declare(ctx, link.Definition{From: endpoint(m1, "web"), To: endpoint(m1, "db")}); !errors.Is(err, link.ErrDuplicate) {
+		t.Fatalf("le lien lu dans l'environnement existe déjà : %v", err)
+	}
+	b.now = testNow.Add(time.Hour)
+	seen[1].Port = 0
+	if err := b.service.RecordSeen(ctx, m1, seen); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := b.service.List(ctx, m1)
+	if len(all) != 2 {
+		t.Fatalf("liens = %+v", all)
+	}
+	for _, found := range all {
+		if found.Nature != link.NatureConfig || found.Proof != link.ProofDeduced || found.Signal != link.SignalEnvironment || found.Removable() || found.Dismissed() || found.Proposed() {
+			t.Errorf("lien lu dans l'environnement = %+v", found)
+		}
+		if found.To.Key == cache && (found.Port != 6379 || !found.LastSeen.Equal(b.now)) {
+			t.Errorf("un rapport sans port ne doit pas effacer le port connu : %+v", found)
+		}
+	}
+	if err := b.service.Remove(ctx, all[0].ID); !errors.Is(err, link.ErrNotRemovable) {
+		t.Errorf("retrait d'un lien d'environnement : %v", err)
+	}
+}
+
+func TestRecordSeen_NeverTouchesTheLinkTheOperatorWroteOnTheSamePair(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	written, err := b.service.Declare(ctx, link.Definition{From: endpoint(m1, "web"), To: endpoint(m1, "db"), Port: 5432})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.now = testNow.Add(time.Hour)
+	if err := b.service.RecordSeen(ctx, m1, []link.Seen{{From: link.ContainerKey("web"), To: link.ContainerKey("db"), Signal: link.SignalEnvironment, Port: 6379}}); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := b.service.List(ctx, m1)
+	if len(all) != 1 || all[0].ID != written.ID || all[0].Signal != link.SignalOperator || all[0].Proof != link.ProofDeclared || all[0].Port != 5432 || !all[0].LastSeen.Equal(testNow) {
+		t.Fatalf("le lien de l'opérateur a été touché ou doublé : %+v", all)
 	}
 }

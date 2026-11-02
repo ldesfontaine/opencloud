@@ -118,13 +118,29 @@ func OpenStreamWithoutRollback(t *testing.T, handler http.Handler, machineID str
 // clé du serveur (son empreinte).
 func OpenStreamPinned(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey, serverKey string) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
 	t.Helper()
+	return openStream(t, handler, machineID, private, func(request *http.Request) {
+		if serverKey != "" {
+			request.Header.Set(agentwire.HeaderServerKey, serverKey)
+		}
+	})
+}
+
+// OpenStreamWithRights ouvre le flux d'un agent qui dit avoir ces droits
+// (« observe,observe.env »), comme l'écrit son fichier.
+func OpenStreamWithRights(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey, rights string) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
+	t.Helper()
+	return openStream(t, handler, machineID, private, func(request *http.Request) {
+		request.Header.Set(agentwire.HeaderAgentRights, rights)
+	})
+}
+
+func openStream(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey, tune func(*http.Request)) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
+	t.Helper()
 	live := httptest.NewServer(handler)
 	t.Cleanup(live.Close)
 	ctx, cancel := context.WithCancel(context.Background())
 	request := SignedStreamRequest(t, live.URL, machineID, private, NewNonce(t)).WithContext(ctx)
-	if serverKey != "" {
-		request.Header.Set(agentwire.HeaderServerKey, serverKey)
-	}
+	tune(request)
 	resp, err := live.Client().Do(request)
 	if err != nil {
 		cancel()

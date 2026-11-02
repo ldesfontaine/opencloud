@@ -14,11 +14,14 @@ import (
 // ouverture de flux, et appliqués par l'agent : un ordre dont le droit n'est
 // pas dans son fichier est refusé (action.RightOf dit lequel). observe est
 // toujours là. Les changer, c'est ré-enrôler avec d'autres droits.
-// probe.lan est le seul droit qu'aucun ordre n'exige : c'est une borne de
-// l'observation, que l'agent applique à ses propres sondes.
+// probe.lan et observe.env sont les seuls droits qu'aucun ordre n'exige : ce
+// sont des bornes de l'observation, que l'agent applique à ses propres
+// lectures. observe.env, refusé par défaut, ouvre la lecture de l'environnement
+// des conteneurs (étude services-modèle §2.4) ; sans lui, l'agent ne le lit pas.
 const (
 	CapabilityObserve       = "observe"
 	CapabilityProbeLAN      = "probe.lan"
+	CapabilityObserveEnv    = "observe.env"
 	CapabilityAgentUpdate   = "agent.update"
 	CapabilityDockerDeploy  = "docker.deploy"
 	CapabilityDockerUpdate  = "docker.update"
@@ -36,7 +39,7 @@ const (
 // chaque droit a son libellé dans les catalogues.
 func CapabilityNames() []string {
 	return []string{
-		CapabilityObserve, CapabilityProbeLAN, CapabilityAgentUpdate, CapabilityDockerDeploy,
+		CapabilityObserve, CapabilityProbeLAN, CapabilityObserveEnv, CapabilityAgentUpdate, CapabilityDockerDeploy,
 		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite,
 		CapabilityProxmoxPower, CapabilityProxmoxSnapshot,
 	}

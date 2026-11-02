@@ -326,8 +326,8 @@ func seedE2ELinks(t *testing.T, ts *testServer) {
 	}
 	old := link.New(ts.db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	old.SetClock(func() time.Time { return testNow.Add(-10 * 24 * time.Hour) })
-	orders := []link.Order{{From: link.ComposeKey("nextcloud", "nextcloud"), To: link.ContainerKey("legacy-cache"), Signal: link.SignalContainerLink}}
-	if err := old.RecordOrders(ctx, remoteID, orders); err != nil {
+	orders := []link.Seen{{From: link.ComposeKey("nextcloud", "nextcloud"), To: link.ContainerKey("legacy-cache"), Signal: link.SignalContainerLink}}
+	if err := old.RecordSeen(ctx, remoteID, orders); err != nil {
 		t.Fatal(err)
 	}
 }

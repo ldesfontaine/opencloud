@@ -103,6 +103,7 @@ func (w *Watcher) inventory(ctx context.Context) ([]container.Observed, map[stri
 		return nil, nil, err
 	}
 	inventory := make([]container.Observed, 0, len(list))
+	environments := make([]dockerapi.EnvHosts, 0, len(list))
 	mounts := map[string][]string{}
 	for _, summary := range list {
 		if summary.IsOneOff() {
@@ -117,11 +118,39 @@ func (w *Watcher) inventory(ctx context.Context) ([]container.Observed, map[stri
 		}
 		observed := toContainer(inspected)
 		inventory = append(inventory, observed)
+		environments = append(environments, w.readEnvironment(ctx, inspected.ID))
 		for _, name := range mountedVolumes(inspected) {
 			mounts[name] = append(mounts[name], observed.Name)
 		}
 	}
+	w.resolveEnvironments(inventory, environments)
 	return inventory, mounts, nil
+}
+
+// readEnvironment lit l'environnement d'un conteneur, et seulement avec le
+// droit observe.env : sans lui, l'appel n'est même pas fait. Un échec se dit
+// au journal sans rien de l'environnement, et laisse le conteneur sans lien.
+func (w *Watcher) readEnvironment(ctx context.Context, id string) dockerapi.EnvHosts {
+	if !w.opts.ReadEnvironment {
+		return dockerapi.EnvHosts{}
+	}
+	hosts, err := w.client.InspectEnvironment(ctx, id)
+	if err != nil && !errors.Is(err, dockerapi.ErrNotFound) {
+		w.logger.Warn("docker environment", "container", id, "error", err)
+	}
+	return hosts
+}
+
+// resolveEnvironments pose sur chaque conteneur les instances que son
+// environnement désigne. Les hôtes candidats sont oubliés ici : seules les
+// cibles trouvées dans l'inventaire sortent.
+func (w *Watcher) resolveEnvironments(inventory []container.Observed, environments []dockerapi.EnvHosts) {
+	if !w.opts.ReadEnvironment {
+		return
+	}
+	for index := range inventory {
+		inventory[index].EnvTargets = environmentTargets(inventory[index], environments[index], inventory)
+	}
 }
 
 // mountedVolumes rend les noms des volumes nommés qu'un conteneur monte, une

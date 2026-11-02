@@ -160,7 +160,10 @@ func Run(ctx context.Context, opts Options) error {
 	// Le veilleur Docker aussi ; ses rapports attendent dans le leur.
 	observed := &reports{}
 	docker := dockerapi.New(opts.DockerSocket)
-	watcher := dockerwatch.New(docker, observed, dockerwatch.Options{Logger: opts.Logger})
+	// L'environnement des conteneurs ne se lit que par observe.env, lu une fois
+	// ici comme probe.lan : changer le droit, c'est ré-enrôler.
+	readEnvironment := machine.HasCapability(identity.Capabilities(), machine.CapabilityObserveEnv)
+	watcher := dockerwatch.New(docker, observed, dockerwatch.Options{Logger: opts.Logger, ReadEnvironment: readEnvironment})
 	go watcher.Run(ctx)
 	// Les images de la machine se vérifient contre leur registre, avec le
 	// trousseau Docker de la machine ; les constats attendent aussi.

@@ -92,28 +92,35 @@ func (db *DB) ListLinks(ctx context.Context, machineID string) ([]link.Link, err
 	return collect(rows, scanLink)
 }
 
-// TouchOrderLinks avance la dernière vue des liens connus et crée les neufs,
+// TouchSeenLinks avance la dernière vue des liens connus et crée les neufs,
 // jusqu'au plafond de la machine ; ce qui dépasse est écarté, le rapport
-// passe. Aucun lien n'est retiré : ne plus voir n'est pas supprimer.
-func (db *DB) TouchOrderLinks(ctx context.Context, machineID string, links []link.Link) error {
-	return db.inTx(ctx, "touch order links", func(tx *sql.Tx) error {
+// passe. Aucun lien n'est retiré : ne plus voir n'est pas supprimer. Un lien
+// que l'opérateur a écrit sur la même paire et la même nature reste tel quel,
+// et aucune ligne ne naît à côté : l'opérateur a le dernier mot.
+func (db *DB) TouchSeenLinks(ctx context.Context, machineID string, links []link.Link) error {
+	return db.inTx(ctx, "touch seen links", func(tx *sql.Tx) error {
 		var count int
 		if err := tx.QueryRowContext(ctx, countLinksOf, machineID).Scan(&count); err != nil {
 			return fmt.Errorf("count links: %w", err)
 		}
+		const pair = `from_machine_id = ? AND from_key = ? AND to_machine_id = ? AND to_key = ? AND nature = ?`
 		for _, seen := range links {
+			pairArgs := []any{seen.From.MachineID, seen.From.Key, seen.To.MachineID, seen.To.Key, string(seen.Nature)}
 			result, err := tx.ExecContext(ctx,
-				`UPDATE links SET last_seen_at = ?, signal = ?
-				 WHERE from_machine_id = ? AND from_key = ? AND to_machine_id = ? AND to_key = ? AND nature = ?`,
-				seen.LastSeen.Unix(), string(seen.Signal),
-				seen.From.MachineID, seen.From.Key, seen.To.MachineID, seen.To.Key, string(seen.Nature))
+				`UPDATE links SET last_seen_at = ?, signal = ?, port = CASE WHEN ? > 0 THEN ? ELSE port END
+				 WHERE `+pair+` AND signal <> ?`,
+				append([]any{seen.LastSeen.Unix(), string(seen.Signal), seen.Port, seen.Port}, append(pairArgs, string(link.SignalOperator))...)...)
 			if err != nil {
 				return fmt.Errorf("touch link: %w", err)
 			}
 			if touched, err := result.RowsAffected(); err == nil && touched > 0 {
 				continue
 			}
-			if count >= link.MaxLinksPerMachine {
+			var written int
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM links WHERE `+pair, pairArgs...).Scan(&written); err != nil {
+				return fmt.Errorf("find link pair: %w", err)
+			}
+			if written > 0 || count >= link.MaxLinksPerMachine {
 				continue
 			}
 			if err := insertLink(ctx, tx, seen); err != nil {

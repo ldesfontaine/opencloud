@@ -25,10 +25,11 @@ type Store interface {
 	// ListLinks rend les liens dont une extrémité est sur la machine, tous si
 	// machineID est vide, par date de première vue puis identifiant.
 	ListLinks(ctx context.Context, machineID string) ([]Link, error)
-	// TouchOrderLinks écrit les liens d'ordre d'une machine en une
-	// transaction : un lien connu voit sa dernière vue avancer, un lien neuf
-	// naît. Aucun lien n'est retiré.
-	TouchOrderLinks(ctx context.Context, machineID string, links []Link) error
+	// TouchSeenLinks écrit les liens que la configuration d'une machine
+	// déclare, en une transaction : un lien connu du même signal voit sa
+	// dernière vue avancer, un lien neuf naît. Aucun lien n'est retiré, et un
+	// lien que l'opérateur a écrit sur la même paire n'est jamais touché.
+	TouchSeenLinks(ctx context.Context, machineID string, links []Link) error
 	MachineExists(ctx context.Context, id string) (bool, error)
 }
 
@@ -179,26 +180,30 @@ func (s *Service) filtered(ctx context.Context, machineID string, keep func(Link
 	return slices.DeleteFunc(stored, func(found Link) bool { return !keep(found) }), nil
 }
 
-// RecordOrders écrit les liens d'ordre que la configuration des conteneurs
-// d'une machine déclare : ils sont revus à l'instant, ceux qu'on ne voit plus
-// vieillissent sans disparaître. Un rapport qui n'en porte aucun ne touche à rien.
-func (s *Service) RecordOrders(ctx context.Context, machineID string, orders []Order) error {
-	if len(orders) == 0 {
+// RecordSeen écrit les liens que la configuration des conteneurs d'une machine
+// déclare : ils sont revus à l'instant, ceux qu'on ne voit plus vieillissent
+// sans disparaître. Un rapport qui n'en porte aucun ne touche à rien.
+func (s *Service) RecordSeen(ctx context.Context, machineID string, seen []Seen) error {
+	if len(seen) == 0 {
 		return nil
 	}
 	now := s.now().UTC()
-	links := make([]Link, 0, len(orders))
-	for _, order := range orders {
+	links := make([]Link, 0, len(seen))
+	for _, item := range seen {
+		nature, proof, writable := item.Kind()
+		if !writable {
+			continue
+		}
 		id, err := ident.New()
 		if err != nil {
 			return fmt.Errorf("draw link id: %w", err)
 		}
 		links = append(links, Link{
-			ID: ServicePrefix + id, From: Endpoint{MachineID: machineID, Key: order.From}, To: Endpoint{MachineID: machineID, Key: order.To},
-			Nature: NatureOrder, Proof: ProofDeclared, Signal: order.Signal, FirstSeen: now, LastSeen: now,
+			ID: ServicePrefix + id, From: Endpoint{MachineID: machineID, Key: item.From}, To: Endpoint{MachineID: machineID, Key: item.To},
+			Nature: nature, Proof: proof, Signal: item.Signal, Port: item.Port, FirstSeen: now, LastSeen: now,
 		})
 	}
-	if err := s.store.TouchOrderLinks(ctx, machineID, links); err != nil {
+	if err := s.store.TouchSeenLinks(ctx, machineID, links); err != nil {
 		return err
 	}
 	s.changed()
