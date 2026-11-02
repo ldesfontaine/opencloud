@@ -319,10 +319,12 @@ const serviceLinks = shape<ServiceLinksResponse>("ServiceLinksResponse", {
     last_seen_at: value,
     stale: value,
     removable: value,
+    proposed: value,
     dismissed: value,
     self: linkEnd,
     peer: linkEnd,
   }),
+  environment: shape("EnvironmentRight", { machine_id: value, right: value }),
 });
 
 const network = shape<NetworkResponse>("NetworkResponse", {

@@ -85,6 +85,7 @@ export function tokenPageState(token: TokenResponse, rights: Capability[]): Toke
 export const capabilityNames = [
   "observe",
   "probe.lan",
+  "observe.env",
   "agent.update",
   "docker.deploy",
   "docker.update",

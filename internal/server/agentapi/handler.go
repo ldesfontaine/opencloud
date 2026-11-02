@@ -33,6 +33,9 @@ type MachineService interface {
 	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities, account, unavailable string) (*machine.Session, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
+	// Get rend la machine et l'agent : le serveur y relit les droits que
+	// l'agent a rapportés, pour borner ce qu'il envoie.
+	Get(ctx context.Context, id string) (machine.Status, error)
 	SessionMachine(sessionToken string) (machineID string, err error)
 }
 

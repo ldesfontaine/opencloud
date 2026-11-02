@@ -171,6 +171,7 @@ type DirectoryService interface {
 	// Les liens des instances d'un service, et ceux que l'opérateur écrit ou
 	// retire. Un lien tiré d'une configuration d'outil ne se retire pas.
 	ServiceLinks(ctx context.Context, serviceID string) ([]directory.ServiceLink, error)
+	RunsInContainers(ctx context.Context, serviceID string) (machineID string, runs bool, err error)
 	DeclareLink(ctx context.Context, definition directory.LinkDefinition) (link.Link, error)
 	RemoveLink(ctx context.Context, id string) error
 	ConfirmLink(ctx context.Context, id string) error

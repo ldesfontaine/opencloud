@@ -266,7 +266,7 @@ Une branche `feat/…` chacun, un commit par fonctionnalité (`12-methode.md`). 
 | L2 | **Instances systemd** | L'agent relève les unités ; unité binaire rapprochée de l'unité déclarée (`systemd_unit`) ; état visible ; port à déclarer | — | Aucun (mesuré) |
 | L3 | **Liens stockés, déclarés et d'ordre** (fait, v0.5.2 L3 : `030_links.sql`, `internal/link`, carte Liens de la fiche service) | Tables, routes, fiche service > Liens ; `depends_on` et `--link` passent en liens `declared` ; l'opérateur ajoute les siens ; Réseau lit les liens stockés | L1 | Aucun |
 | L4 (fait, v0.5.2 L4 : `internal/directory/deduced_links.go`, aucune migration) | **Liens déduits** | `public_url` + capacité `proxy` → `route` déduit ; confirmer / écarter | L3 | Aucun |
-| L5 | **Environnement** | `Env` lu avec la liste blanche de §2.4, banc de non-fuite | L3 | Nouveau droit d'observation, coché par machine |
+| L5 (fait, v0.5.2 L5 : `observe.env`, `dockerapi.EnvHosts`, `031_link_environment.sql`) | **Environnement** | `Env` lu avec la liste blanche de §2.4, banc de non-fuite | L3 | Nouveau droit d'observation, coché par machine |
 | L6 | **Connexions de l'hôte** | Table de l'hôte → liens `observed` pour les binaires et les ports publiés ; **pas** de connexion entre conteneurs (décision 5) | L2, L3 | Aucun (table) ; processus non attribué |
 | L7 | **Traefik, plus tard** | Routes lues par le module #361 → liens `route` ; d'ici là, **aucun label Traefik ne quitte la machine** (décision 4) | #361, L3 | Selon #361 |
 

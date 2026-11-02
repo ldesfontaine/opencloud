@@ -56,8 +56,13 @@ func TestLink_FreshnessAndRemovability(t *testing.T) {
 	if operator.Stale(now) || !operator.Removable() {
 		t.Error("un lien écrit par l'opérateur ne vieillit pas, et se retire")
 	}
-	if (Link{Proof: ProofDeduced, Signal: SignalPublicURL}).Stale(now) {
-		t.Error("un lien déduit n'a pas de dernière vue : il n'est jamais ancien")
+	proposed := Link{ID: DeducedPrefix + "ab12", Proof: ProofDeduced, Signal: SignalPublicURL}
+	if !proposed.Proposed() || proposed.Stale(now) {
+		t.Error("une route proposée n'a pas de dernière vue : elle n'est jamais ancienne")
+	}
+	environment := Link{ID: ServicePrefix + "x", Nature: NatureConfig, Proof: ProofDeduced, Signal: SignalEnvironment, LastSeen: old}
+	if environment.Proposed() || environment.Dismissed() || environment.Removable() || !environment.Stale(now) {
+		t.Error("un lien lu dans l'environnement est écrit, déduit, non écarté, ne se retire pas ici et vieillit")
 	}
 	if (Link{Signal: SignalContainerLink, LastSeen: now.Add(-StaleAfter)}).Stale(now) {
 		t.Error("pile 7 jours n'est pas encore ancien")
@@ -81,5 +86,25 @@ func TestDeducedID_IsTheSameForTheSamePairOnly(t *testing.T) {
 	first := DeducedID(a, b, NatureRoute)
 	if again := DeducedID(a, b, NatureRoute); again != first || first == DeducedID(b, a, NatureRoute) || first == DeducedID(a, b, NatureConfig) {
 		t.Error("l'identifiant se refait de la paire, dans son sens et sa nature")
+	}
+}
+
+func TestSeen_TheSignalSaysNatureAndProof(t *testing.T) {
+	cases := map[Signal]struct {
+		nature   Nature
+		proof    Proof
+		writable bool
+	}{
+		SignalDependsOn:     {NatureOrder, ProofDeclared, true},
+		SignalContainerLink: {NatureOrder, ProofDeclared, true},
+		SignalEnvironment:   {NatureConfig, ProofDeduced, true},
+		SignalOperator:      {"", "", false},
+		SignalPublicURL:     {"", "", false},
+	}
+	for signal, want := range cases {
+		nature, proof, writable := (Seen{Signal: signal}).Kind()
+		if nature != want.nature || proof != want.proof || writable != want.writable {
+			t.Errorf("%s : %s %s %v, attendu %s %s %v", signal, nature, proof, writable, want.nature, want.proof, want.writable)
+		}
 	}
 }

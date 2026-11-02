@@ -4,22 +4,26 @@ import { confirmLink, deleteLink, dismissLink, restoreLink, useServiceLinks, typ
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
-import { endName, freshnessText, isProposed, proofTone } from "../lib/links";
+import { endName, freshnessText, proofTone } from "../lib/links";
 import { Button } from "./Button";
 import { Card, CardHeader, Empty } from "./Card";
 import { ConfirmInline } from "./ConfirmInline";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
 import { Loaded } from "./Loaded";
+import { MissingRight } from "./MissingRight";
 import { Pill } from "./Pill";
 import { Table } from "./Table";
 
 // Les liens d'un service : ce qu'il utilise et ce qui l'utilise. Chaque ligne
 // dit sa preuve (déclaré, déduit, observé) et sa fraîcheur ; un lien tiré de
 // la configuration d'un outil ne se retire pas d'ici, il se retire de sa
-// source. Un lien déduit se confirme (il devient le vôtre) ou s'écarte (il
-// ne revient plus, et se rétablit depuis le pli « Écartés »). L'ajout ouvre
-// une fenêtre à l'adresse du service.
+// source. Une route déduite se confirme (elle devient la vôtre) ou s'écarte
+// (elle ne revient plus, et se rétablit depuis le pli « Écartés »). Un lien lu
+// dans l'environnement des conteneurs est écrit à chaque inventaire de
+// l'agent : sans le droit observe.env sur la machine, la carte le dit et
+// porte le geste qui l'ajoute. L'ajout ouvre une fenêtre à l'adresse du
+// service.
 export function ServiceLinks({ serviceID }: { serviceID: string }) {
   const t = useT();
   const links = useServiceLinks(serviceID);
@@ -37,6 +41,13 @@ export function ServiceLinks({ serviceID }: { serviceID: string }) {
           const dismissed = data.links.filter((link) => link.dismissed);
           return (
             <>
+              {data.environment?.right === "missing" && (
+                <div className="card-b">
+                  <MissingRight machineID={data.environment.machine_id} right="observe.env">
+                    {t("link.environment_off")}
+                  </MissingRight>
+                </div>
+              )}
               {active.length === 0 ? <Empty text={t("link.empty")} /> : <LinkTable links={active} />}
               {dismissed.length > 0 && (
                 <div className="card-b">
@@ -92,7 +103,7 @@ function LinkRow({ link }: { link: ServiceLink }) {
       </td>
       <td>
         <span className="stack">
-          <span className="cluster" title={isProposed(link) ? t("link.deduced_help") : undefined}>
+          <span className="cluster" title={link.proposed ? t("link.deduced_help") : undefined}>
             <Pill tone={proofTone(link.proof)}>{t(`link.proof_${link.proof}`)}</Pill>
           </span>
           <span className="secondary">{t(`link.signal_${link.signal}`)}</span>
@@ -155,12 +166,12 @@ function PeerName({ peer }: { peer: LinkEnd }) {
   return <span className="mono">{peer.label}</span>;
 }
 
-// Ce que l'opérateur peut faire de ce lien : décider d'un lien déduit, le
-// rétablir s'il est écarté, retirer ce qu'il a écrit ; un lien d'outil n'a
-// pas de geste ici.
+// Ce que l'opérateur peut faire de ce lien : décider d'une route proposée, la
+// rétablir si elle est écartée, retirer ce qu'il a écrit ; un lien d'outil ou
+// d'environnement n'a pas de geste ici, seulement où le changer.
 function LinkActions({ link }: { link: ServiceLink }) {
   const t = useT();
-  if (isProposed(link)) {
+  if (link.proposed) {
     return <DecideLink link={link} />;
   }
   if (link.dismissed) {
@@ -169,7 +180,7 @@ function LinkActions({ link }: { link: ServiceLink }) {
   return link.removable ? (
     <RemoveLink link={link} />
   ) : (
-    <span className="muted" title={t("link.from_tool_help")}>
+    <span className="muted" title={t(link.signal === "environment" ? "link.from_environment_help" : "link.from_tool_help")}>
       —
     </span>
   );

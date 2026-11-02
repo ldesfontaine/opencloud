@@ -1069,7 +1069,7 @@ test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-age
 - **Une ligne `install -d` par dossier où un droit coché écrit**, au nom du
   compte : la racine des services (`/srv/workspace`) pour `docker.deploy` et
   `docker.update`, le dossier de `backup.receive` en `0700`, ceux de
-  `files.write`. `observe` seul, `probe.lan`, `agent.update` et `backup.produce`
+  `files.write`. `observe` seul, `probe.lan`, `observe.env`, `agent.update` et `backup.produce`
   n'en demandent aucun (le dossier de production est sous l'état de l'agent,
   créé sous le compte). Un droit dont le dossier n'appartient pas au compte est signalé
   « indisponible » sur la fiche, et l'agent refuse l'ordre en le disant
@@ -1519,6 +1519,17 @@ privées, `100.64.0.0/10`) tombent « Hors ligne · adresse du réseau local »
 vous lui donniez le droit : fiche › **Ré-enrôler**, cochez
 « Sonder le réseau local », rejouez la ligne sur la machine (la machine et son
 historique restent). Rien n'est coché à votre place.
+
+**Lire l'environnement des conteneurs (`observe.env`) est refusé par défaut.**
+Pour que la carte **Liens** d'un service montre les liens qu'une image annonce
+dans son environnement (`DB_HOST=db`), cochez sous « Avancé : droits de
+l'agent » **« Lire l'environnement des conteneurs »**, machine par machine. Sur
+une machine déjà enrôlée : fiche d'un service › carte **Liens** › **Ré-enrôler
+avec « Lire l'environnement… »** (ou fiche › **Ré-enrôler**), puis rejouez la
+ligne sur la machine. L'agent ne garde que les noms des autres conteneurs de la
+machine : ni variable ni valeur ne quitte la machine ni n'est stockée. Les
+valeurs passent par sa mémoire, comme la socket Docker qu'il a déjà. Le détail
+est dans `docs/projet/22-fonctionnement.md` (« Les liens de l'environnement »).
 
 ### Mettre à jour les agents depuis openCloud
 

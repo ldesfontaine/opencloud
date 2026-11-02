@@ -393,7 +393,7 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	keep(agentwire.SectionReadings, h.resources.Record(ctx, machineID, request.Readings), resource.ErrReadingInvalid, resource.ErrTooManyReadings)
 	// Un agent plus vieux n'envoie pas toutes les sections : rien à écrire.
 	if request.Services != nil {
-		keep(agentwire.SectionServices, h.containers.Record(ctx, machineID, *request.Services), container.ErrReportInvalid)
+		keep(agentwire.SectionServices, h.containers.Record(ctx, machineID, h.withinRights(ctx, machineID, *request.Services)), container.ErrReportInvalid)
 	}
 	if request.Probes != nil {
 		keep(agentwire.SectionProbes, h.probes.Record(ctx, machineID, *request.Probes), probe.ErrReportInvalid)
@@ -657,4 +657,20 @@ func (h *Handler) uploadParcel(w http.ResponseWriter, r *http.Request) {
 func isSHA256Hex(text string) bool {
 	decoded, err := hex.DecodeString(text)
 	return err == nil && len(decoded) == sha256.Size && text == hex.EncodeToString(decoded)
+}
+
+// withinRights retire du rapport des conteneurs ce que les droits de l'agent ne
+// couvrent pas : l'environnement des conteneurs sans observe.env. La borne est
+// reposée ici parce qu'un agent n'est pas une preuve (étude services-modèle
+// §2.4) ; un doute sur ses droits la ferme.
+func (h *Handler) withinRights(ctx context.Context, machineID string, report container.Report) container.Report {
+	if !report.HasEnvironment() {
+		return report
+	}
+	status, err := h.machines.Get(ctx, machineID)
+	if err == nil && machine.HasCapability(status.Agent.Capabilities, machine.CapabilityObserveEnv) {
+		return report
+	}
+	h.logger.Warn("agent sent environment links without the right, dropped", "machine_id", machineID)
+	return report.WithoutEnvironment()
 }

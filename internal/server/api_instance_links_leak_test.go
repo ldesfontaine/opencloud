@@ -14,8 +14,8 @@ import (
 // Les liens ne gardent que des clés d'instance (projet, service, nom) : un
 // secret semé là où un conteneur peut en porter (valeur d'un label, mot de
 // passe dans une URL de réseau, dépendance) n'arrive dans aucun lien, ni dans
-// aucune réponse qui les lit. L'agent ne lit d'ailleurs pas l'environnement
-// (Env n'est pas déclaré dans le décodeur de dockerwatch).
+// aucune réponse qui les lit. L'environnement a son banc à part
+// (api_environment_leak_test.go).
 func TestAPI_Links_SeededSecret_NeverInAnyOutput(t *testing.T) {
 	const secret = "hunter2-SECRET-VALUE"
 	server := newTestServer(t)

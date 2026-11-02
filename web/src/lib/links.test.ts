@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { DeclaredService } from "../api/directory";
-import { emptyLinkForm, endName, freshnessText, isLinkComplete, isProposed, isPortValid, linkRequestOf, peerOptions, proofTone, unitOptions } from "./links";
+import { emptyLinkForm, endName, freshnessText, isLinkComplete, isPortValid, linkRequestOf, peerOptions, proofTone, unitOptions } from "./links";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join("|");
 const now = Date.parse("2026-11-01T12:00:00Z");
@@ -25,23 +25,18 @@ describe("proofTone", () => {
 });
 
 describe("freshnessText", () => {
-  const base = { proof: "declared", dismissed: false } as const;
+  const base = { proposed: false, dismissed: false } as const;
   test("un lien d'outil se dit vu il y a, celui de l'opérateur écrit le", () => {
     expect(freshnessText(t, { ...base, signal: "depends_on", first_seen_at: "2026-10-01T00:00:00Z", last_seen_at: "2026-11-01T11:00:00Z" }, now)).toContain("link.seen|");
     expect(freshnessText(t, { ...base, signal: "operator", first_seen_at: "2026-10-01T08:00:00Z", last_seen_at: "2026-10-01T08:00:00Z" }, now)).toBe("link.written|2026-10-01");
   });
-  test("un lien déduit est calculé à l'instant, un lien écarté dit quand", () => {
-    const deduced = { proof: "deduced", dismissed: false, signal: "public_url", first_seen_at: "0001-01-01T00:00:00Z", last_seen_at: "0001-01-01T00:00:00Z" } as const;
-    expect(freshnessText(t, deduced, now)).toBe("link.deduced_fresh");
-    expect(freshnessText(t, { ...deduced, dismissed: true, signal: "operator", first_seen_at: "2026-10-01T08:00:00Z" }, now)).toBe("link.dismissed_on|2026-10-01");
+  test("une route proposée est calculée à l'instant, un lien écarté dit quand", () => {
+    const proposed = { proposed: true, dismissed: false, signal: "public_url", first_seen_at: "0001-01-01T00:00:00Z", last_seen_at: "0001-01-01T00:00:00Z" } as const;
+    expect(freshnessText(t, proposed, now)).toBe("link.deduced_fresh");
+    expect(freshnessText(t, { ...proposed, proposed: false, dismissed: true, signal: "operator", first_seen_at: "2026-10-01T08:00:00Z" }, now)).toBe("link.dismissed_on|2026-10-01");
   });
-});
-
-describe("isProposed", () => {
-  test("seul un lien déduit non écarté se propose", () => {
-    expect(isProposed({ proof: "deduced", dismissed: false })).toBe(true);
-    expect(isProposed({ proof: "deduced", dismissed: true })).toBe(false);
-    expect(isProposed({ proof: "declared", dismissed: false })).toBe(false);
+  test("un lien lu dans l'environnement est écrit : il se dit vu, comme celui d'un outil", () => {
+    expect(freshnessText(t, { ...base, signal: "environment", first_seen_at: "2026-10-01T00:00:00Z", last_seen_at: "2026-11-01T11:00:00Z" }, now)).toContain("link.seen|");
   });
 });
 

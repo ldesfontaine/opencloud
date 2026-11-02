@@ -130,6 +130,9 @@ func validateContainer(container Observed, now time.Time) (Observed, []discard, 
 	var labelDiscards []discard
 	container.Labels, labelDiscards = keepLabels(container)
 	discards = append(discards, labelDiscards...)
+	var targetDiscards []discard
+	container.EnvTargets, targetDiscards = keepEnvTargets(container)
+	discards = append(discards, targetDiscards...)
 	return container, discards, checkContainer(container, now)
 }
 
@@ -177,6 +180,26 @@ func keepAttachments(container Observed) ([]Attachment, []discard) {
 			continue
 		}
 		kept = append(kept, attachment)
+	}
+	return kept, discards
+}
+
+// keepEnvTargets garde les instances que l'environnement désigne et dont la
+// forme est celle d'un nom de conteneur ; le reste, et ce qui dépasse la
+// borne, est écarté sans retirer le conteneur du rapport.
+func keepEnvTargets(container Observed) ([]EnvTarget, []discard) {
+	var kept []EnvTarget
+	var discards []discard
+	for _, target := range container.EnvTargets {
+		switch {
+		case len(kept) >= MaxEnvTargets:
+			discards = append(discards, discard{"environment targets of container " + container.Name, "trop d'instances désignées"})
+		case target.Name == "" || len(target.Name) > MaxNameLength || len(target.Group) > MaxNameLength ||
+			hasControlOrBadUTF8(target.Name) || hasControlOrBadUTF8(target.Group) || target.Port < 0 || target.Port > 65535:
+			discards = append(discards, discard{"environment target of container " + container.Name, "nom, projet ou port illisible"})
+		default:
+			kept = append(kept, target)
+		}
 	}
 	return kept, discards
 }

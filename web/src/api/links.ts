@@ -13,7 +13,8 @@ export type LinkNature = "order" | "config" | "route" | "traffic";
 export type LinkProof = "declared" | "deduced" | "observed";
 // Le signal précis derrière la preuve. « public_url » : une adresse publique
 // et un service qui fournit la capacité proxy (jamais écrit, seulement déduit).
-export type LinkSignal = "depends_on" | "container_link" | "operator" | "public_url";
+// « environment » : l'environnement d'un conteneur nomme l'hôte de l'autre instance (droit observe.env).
+export type LinkSignal = "depends_on" | "container_link" | "operator" | "public_url" | "environment";
 
 // Une extrémité. Service et unité sont vides quand aucun service déclaré ne
 // porte l'instance ; container_id quand un conteneur vivant la porte.
@@ -41,14 +42,26 @@ export interface ServiceLink {
   last_seen_at: string;
   stale: boolean;
   removable: boolean;
+  // Une route déduite que vous n'avez pas encore décidée : à confirmer ou à écarter.
+  proposed: boolean;
   // Une route déduite que l'opérateur a écartée : gardée pour être rétablie.
   dismissed: boolean;
   self: LinkEnd;
   peer: LinkEnd;
 }
 
+// Le droit de lire l'environnement des conteneurs sur la machine du service :
+// « granted », « missing » (la fenêtre « Ré-enrôler » le propose) ou « unknown »
+// (l'agent n'a encore rien dit de ses droits). null : le service ne tourne pas
+// dans des conteneurs.
+interface EnvironmentRight {
+  machine_id: string;
+  right: "granted" | "missing" | "unknown";
+}
+
 export interface ServiceLinksResponse {
   links: ServiceLink[];
+  environment: EnvironmentRight | null;
 }
 
 // Ce que l'opérateur donne : un service de chaque côté, et l'unité quand le
