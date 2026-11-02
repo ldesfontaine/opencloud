@@ -113,5 +113,8 @@ func declaredHostPort(declared string, origin Origin) (int, bool) {
 		published = text
 	}
 	port, err := strconv.Atoi(published)
-	return port, err == nil && port >= 1 && port <= 65535
+	if err != nil || port < 1 || port > 65535 {
+		return 0, false
+	}
+	return port, true
 }
