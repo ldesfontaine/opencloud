@@ -14,7 +14,7 @@ import { useAction } from "../../hooks/useAction";
 import { useNow } from "../../hooks/useNow";
 import { useI18n, useT, type Translate } from "../../i18n/context";
 import { directHint, forgetView, pathReasonText, protectionReasonText, retentionView, scopeOf, sourceStatus, sourceSubtitle, sourceUnfit, statusTones, type Unfitness } from "../../lib/backupOverview";
-import { editPlanPath, editResticPath, newPlanPath, newResticBackupPath, newTargetPath } from "../../lib/backups";
+import { editPlanPath, editResticPath, firewallIdOf, newFirewallPlanPath, newPlanPath, newResticBackupPath, newTargetPath } from "../../lib/backups";
 import { missingSoftware } from "../../lib/resticInstall";
 import { rightOfRefusal } from "../../lib/rights";
 import { ago, formatRemaining, formatWhen } from "../../lib/time";
@@ -29,6 +29,7 @@ export const sourceIcons: Record<BackupSource["kind"], IconName> = {
   lxc: "monitor",
   service: "box",
   docker_volume: "disk",
+  firewall: "firewall",
 };
 
 // Une carte par source : ce qu'elle est, puis chaque façon dont elle est
@@ -154,6 +155,9 @@ function whatIsMissing(t: Translate, source: BackupSource, overview: BackupOverv
   if (source.kind === "database") {
     return { text: t("backup.missing_plan"), sub: t("backup.missing_plan_sub"), unfit: null, start: newPlanPath, foot: null };
   }
+  if (source.kind === "firewall") {
+    return { text: t("backup.missing_firewall_plan"), sub: t("backup.missing_firewall_plan_sub"), unfit: null, start: newFirewallPlanPath(firewallIdOf(source.key)), foot: null };
+  }
   if (scopeOf(source) === null) {
     return { text: t("backup.missing_volume"), sub: null, unfit: null, start: null, foot: null };
   }
@@ -189,7 +193,7 @@ function ProtectionBlock({ source, protection, machines }: { source: BackupSourc
       <ProtectionFlow source={source} protection={protection} />
       <div className="backup-origin">
         <OriginPill protection={protection} />
-        <span className="secondary">{originDetail(t, protection)}</span>
+        <span className="secondary">{originDetail(t, source, protection)}</span>
         {menu.length > 0 && <MoreMenu actions={menu} label={t("entity.more", source.name)} />}
       </div>
       <ReplaceNote source={source} protection={protection} />
@@ -234,7 +238,9 @@ function ProtectionFlow({ source, protection }: { source: BackupSource; protecti
     return <Flow from={source.name} fromIcon={icon} fromSub={t("backup.flow_by", source.machine_name)} label={t("backup.flow_vzdump")} to={storage} toSub={t("backup.flow_storage")} tone={stateTone(protection, "muted")} />;
   }
   if (protection.origin === "archive") {
-    return <Flow from={source.machine_name} fromIcon={icon} fromSub={t("backup.flow_source")} label={t("backup.flow_archive")} to={protection.target_machine_name} toSub={protection.storage} tone={stateTone(protection, "accent")} />;
+    // Un pare-feu part de lui-même : la machine openCloud le lit, elle n'en est pas la source.
+    const isFirewall = source.kind === "firewall";
+    return <Flow from={isFirewall ? source.name : source.machine_name} fromIcon={icon} fromSub={isFirewall ? t("backup.flow_read_by", source.machine_name) : t("backup.flow_source")} label={t("backup.flow_archive")} to={protection.target_machine_name} toSub={protection.storage} tone={stateTone(protection, "accent")} />;
   }
   const relay = protection.path?.path === "relay";
   const label = protection.path === null ? t("backup.flow_restic") : t(`backup.path_${protection.path.path}`);
@@ -262,12 +268,12 @@ function OriginPill({ protection }: { protection: BackupProtection }) {
   );
 }
 
-function originDetail(t: Translate, protection: BackupProtection): string {
+function originDetail(t: Translate, source: BackupSource, protection: BackupProtection): string {
   if (protection.origin === "observed") {
     return protection.name === "" ? t("backup.origin_observed_no_job") : t("backup.origin_job", protection.name);
   }
   if (protection.origin === "archive") {
-    return protection.name === "" ? t("backup.source_kind_database") : protection.name;
+    return protection.name === "" ? (source.kind === "firewall" ? source.name : t("backup.source_kind_database")) : protection.name;
   }
   return t(protection.scope === "vm" ? "backup.origin_restic_vm" : "backup.scope_service");
 }

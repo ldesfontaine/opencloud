@@ -10,7 +10,7 @@ import { Pill } from "../../components/Pill";
 import { useAction } from "../../hooks/useAction";
 import { useNow } from "../../hooks/useNow";
 import { useT } from "../../i18n/context";
-import { editPlanPath, lastErrorRight, lastErrorText, passSummary, planTitle, sourceLabel } from "../../lib/backups";
+import { editPlanPath, isFirewallPlan, lastErrorRight, lastErrorText, passSummary, planTitle, sourceLabel } from "../../lib/backups";
 import type { Tone } from "../../lib/tone";
 import { formatWhen } from "../../lib/time";
 
@@ -30,7 +30,8 @@ export function PlanCard({ plan, overview }: { plan: BackupPlan; overview: Backu
   const output = run === null ? "" : run.output.map((line) => line.line).join("\n");
   const title = planTitle(plan, t("backup.source_kind_database"));
   const pass = passSummary(t, plan);
-  const missing = lastErrorRight(plan, destination);
+  // Le serveur lit le pare-feu : aucun agent source, donc aucun droit à y réclamer.
+  const missing = isFirewallPlan(plan) ? null : lastErrorRight(plan, destination);
   const stop = () => {
     action.run(() => deleteBackupPlan(plan.subject), { topic: "backups" });
   };
@@ -39,7 +40,7 @@ export function PlanCard({ plan, overview }: { plan: BackupPlan; overview: Backu
       <CardHeader
         title={title}
         aside={
-          <AgentGate machineIDs={[plan.source_machine_id, destination?.machine_id ?? ""].filter((id) => id !== "")}>
+          <AgentGate machineIDs={[isFirewallPlan(plan) ? "" : plan.source_machine_id, destination?.machine_id ?? ""].filter((id) => id !== "")}>
             {(offline) => (
               <Button small icon="archive" disabled={action.busy || offline} onClick={() => action.run(() => runBackupNow(plan.subject), { topic: "backups" })}>
                 {t("backup.run_now")}
