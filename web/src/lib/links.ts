@@ -18,21 +18,15 @@ export function endName(end: Pick<LinkEnd, "service_name" | "label">): string {
   return end.service_name !== "" ? end.service_name : end.label;
 }
 
-// Un lien déduit que l'opérateur n'a pas encore décidé : on lui propose de le
-// confirmer ou de l'écarter.
-export function isProposed(link: Pick<ServiceLink, "proof" | "dismissed">): boolean {
-  return link.proof === "deduced" && !link.dismissed;
-}
-
 // La fraîcheur d'un lien, en mots : « Vu il y a 2 h », « Écrit le … » pour
 // celui que l'opérateur a écrit (personne ne le « revoit »), « Calculé à
-// l'instant » pour un lien déduit (refait à chaque lecture), « Écartée le … ».
+// l'instant » pour une route proposée (refaite à chaque lecture), « Écartée le … ».
 // Un lien ancien le dit en plus (stale).
-export function freshnessText(t: Translate, link: Pick<ServiceLink, "proof" | "dismissed" | "signal" | "first_seen_at" | "last_seen_at">, now: number): string {
+export function freshnessText(t: Translate, link: Pick<ServiceLink, "proposed" | "dismissed" | "signal" | "first_seen_at" | "last_seen_at">, now: number): string {
   if (link.dismissed) {
     return t("link.dismissed_on", link.first_seen_at.slice(0, 10));
   }
-  if (link.proof === "deduced") {
+  if (link.proposed) {
     return t("link.deduced_fresh");
   }
   if (link.signal === "operator") {

@@ -144,6 +144,17 @@ func (d *Directory) RemoveLink(ctx context.Context, id string) error {
 	return d.linker.Remove(ctx, id)
 }
 
+// RunsInContainers rend la machine du service et dit s'il tourne dans des
+// conteneurs : l'environnement d'un conteneur est ce qui peut dire ses liens,
+// celui d'une unité systemd ne se lit pas.
+func (d *Directory) RunsInContainers(ctx context.Context, serviceID string) (machineID string, runs bool, err error) {
+	owner, err := d.store.GetDeclaredService(ctx, serviceID)
+	if err != nil {
+		return "", false, err
+	}
+	return owner.MachineID, owner.Origin == OriginCompose || owner.Origin == OriginContainer, nil
+}
+
 // ServiceLinks rend les liens des instances d'un service, entrants et
 // sortants, chaque extrémité nommée par le service déclaré qui la porte
 // quand il y en a un. Viennent d'abord les liens écrits, puis les routes

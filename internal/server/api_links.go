@@ -8,6 +8,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/link"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // Les liens d'un service : ceux qui partent de ses instances et ceux qui y
@@ -15,6 +16,18 @@ import (
 // on ne l'a plus revu ; jamais une valeur de configuration.
 type serviceLinksResponse struct {
 	Links []serviceLinkJSON `json:"links"`
+	// Environment : la lecture de l'environnement des conteneurs de la machine
+	// du service (droit observe.env) ; absent pour un service qui ne tourne
+	// pas dans des conteneurs.
+	Environment *environmentRightJSON `json:"environment"`
+}
+
+// environmentRightJSON : right vaut « granted », « missing » (l'agent n'a pas
+// le droit, la fenêtre « Ré-enrôler » le propose) ou « unknown » (l'agent n'a
+// encore rien rapporté de ses droits).
+type environmentRightJSON struct {
+	MachineID string `json:"machine_id"`
+	Right     string `json:"right"`
 }
 
 type serviceLinkJSON struct {
@@ -29,6 +42,9 @@ type serviceLinkJSON struct {
 	LastSeenAt  time.Time `json:"last_seen_at"`
 	Stale       bool      `json:"stale"`
 	Removable   bool      `json:"removable"`
+	// proposed : une route déduite que vous n'avez pas encore décidée (à
+	// confirmer ou à écarter), sans ligne en base.
+	Proposed bool `json:"proposed"`
 	// dismissed : une route déduite que vous avez écartée, gardée pour la rétablir.
 	Dismissed bool        `json:"dismissed"`
 	Self      linkEndJSON `json:"self"`
@@ -68,8 +84,12 @@ func (s *Server) getServiceLinks(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
+	environment, err := s.environmentRight(r.Context(), r.PathValue("id"))
+	if s.failed(w, r, err, directory.ErrNotFound) {
+		return
+	}
 	now := s.now()
-	response := serviceLinksResponse{Links: make([]serviceLinkJSON, 0, len(found))}
+	response := serviceLinksResponse{Links: make([]serviceLinkJSON, 0, len(found)), Environment: environment}
 	for _, item := range found {
 		direction := "incoming"
 		if item.Outgoing {
@@ -78,11 +98,33 @@ func (s *Server) getServiceLinks(w http.ResponseWriter, r *http.Request) {
 		response.Links = append(response.Links, serviceLinkJSON{
 			ID: item.Link.ID, Direction: direction, Nature: string(item.Link.Nature), Proof: string(item.Link.Proof), Signal: string(item.Link.Signal),
 			Port: item.Link.Port, FirstSeenAt: item.Link.FirstSeen, LastSeenAt: item.Link.LastSeen,
-			Stale: item.Link.Stale(now), Removable: item.Link.Removable(), Dismissed: item.Dismissed,
+			Stale: item.Link.Stale(now), Removable: item.Link.Removable(), Proposed: item.Link.Proposed(), Dismissed: item.Dismissed,
 			Self: ends.describe(item.Self), Peer: ends.describe(item.Peer),
 		})
 	}
 	s.writeAPI(w, http.StatusOK, response)
+}
+
+// environmentRight dit si l'agent de la machine du service lit l'environnement
+// des conteneurs ; nil pour un service qui n'en a pas.
+func (s *Server) environmentRight(ctx context.Context, serviceID string) (*environmentRightJSON, error) {
+	machineID, runs, err := s.directory.RunsInContainers(ctx, serviceID)
+	if err != nil || !runs {
+		return nil, err
+	}
+	status, err := s.machines.Get(ctx, machineID)
+	if err != nil {
+		return nil, err
+	}
+	right := "unknown"
+	switch {
+	case status.Agent.ReportedAt.IsZero():
+	case machine.HasCapability(status.Agent.Capabilities, machine.CapabilityObserveEnv):
+		right = "granted"
+	default:
+		right = "missing"
+	}
+	return &environmentRightJSON{MachineID: machineID, Right: right}, nil
 }
 
 func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {

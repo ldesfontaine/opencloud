@@ -1,5 +1,6 @@
 import { useT } from "../i18n/context";
 import { alwaysGranted, capabilityLabelKey, offeredCapabilities, toggleRight, type RightsValues } from "../lib/machines";
+import { Note } from "./Card";
 import { Checkbox, Checks, Field, Input } from "./Field";
 
 // Les droits d'un agent à cocher, avec les chemins d'un droit borné : à
@@ -32,6 +33,7 @@ export function RightsFields({
           ))}
         </Checks>
       </Field>
+      {values.rights.includes("observe.env") && <Note tone="neutral">{t("machine.capability_observe_env_note")}</Note>}
       {values.rights.includes("backup.receive") && (
         <Field label={t("machine.capability_backup_receive")} htmlFor="machine-backup-path" help={t("machine.rights_paths")}>
           <Input

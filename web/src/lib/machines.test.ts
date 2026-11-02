@@ -183,3 +183,19 @@ test("l'option d'une machine porte son type en discret, rien sans type", () => {
 test("le type de chaque machine se retrouve par identifiant", () => {
   expect(kindsByID([{ id: "a", kind: "vm" }]).get("a")).toBe("vm");
 });
+
+test("observe.env : proposé à toute machine, jamais coché d'emblée ni par un rôle, envoyé sans chemin quand il l'est", () => {
+  expect(capabilityNames.slice(0, 3)).toEqual(["observe", "probe.lan", "observe.env"]);
+  expect(offeredCapabilities(false, [])).toContain("observe.env");
+  expect(emptyMachineForm.rights).not.toContain("observe.env");
+  for (const role of sessionRoles) {
+    expect(role.capabilities).not.toContain("observe.env");
+  }
+  expect(capabilitiesOf({ ...emptyMachineForm, rights: ["probe.lan", "observe.env"] })).toEqual([
+    { name: "probe.lan", paths: [] },
+    { name: "observe.env", paths: [] },
+  ]);
+  expect(capabilityLabelKey("observe.env")).toBe("machine.capability_observe_env");
+  // Un agent qui l'a le montre dans les droits du ré-enrôlement, pour le garder coché.
+  expect(rightsFormOf([{ name: "observe", paths: [] }, { name: "observe.env", paths: [] }]).rights).toEqual(["observe.env"]);
+});
