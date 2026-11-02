@@ -158,18 +158,18 @@ func (t *resticTarget) writeRetainPassword(user, password string) (string, func(
 	}
 	name := "retain-" + user + ".password"
 	if err := resticRoot.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		resticRoot.Close()
+		_ = resticRoot.Close() // le dossier n'est pas écrit : une erreur de fermeture ne change rien
 		return "", nil, fmt.Errorf("remove leftover password file: %w", err)
 	}
 	if err := fsx.CreateExclusive(resticRoot, name, []byte(password), resticFileMode); err != nil {
-		resticRoot.Close()
+		_ = resticRoot.Close() // le dossier n'est pas écrit : une erreur de fermeture ne change rien
 		return "", nil, fmt.Errorf("write password file: %w", err)
 	}
 	remove := func() {
 		if err := resticRoot.Remove(name); err != nil {
 			t.logger.Error("remove restic password file", "error", err)
 		}
-		resticRoot.Close()
+		_ = resticRoot.Close() // le dossier n'est pas écrit : une erreur de fermeture ne change rien
 	}
 	absolute, err := absoluteStatePath(t.stateDir, resticDir, name)
 	if err != nil {
