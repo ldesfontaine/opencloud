@@ -1,34 +1,21 @@
 package verb
 
-// Les gestes de restic. Poser une cible (et relever son plancher de
-// rétention) et la retirer se défont l'un l'autre. Créer une sauvegarde lie
-// la source à la cible (un ordre à chacune, les mots de passe du lien dans
-// leur secret) et la supprimer ferme le dépôt : deux gestes que l'opérateur
-// confirme. Lancer une sauvegarde n'efface rien, comme agent.ping : il est
-// son propre inverse. Vérifier un dépôt non plus (la cible relit en mémoire,
-// n'écrit rien) : même chose. Modifier une sauvegarde (son nom, sa rétention) reste à
-// l'opérateur : une rétention plus courte purge plus.
+// Les gestes de restic qu'un jeton peut cocher : lancer une sauvegarde (sans
+// purge), vérifier un dépôt et le relire en test de restauration, parcourir
+// un dépôt, restaurer à côté de l'original. Le cadrage #366 ferme le reste :
+// aucun verbe ne crée, ne modifie ni ne supprime une cible, une sauvegarde ou
+// une rétention. Ces gestes restent à l'opérateur, dans l'interface (une
+// session humaine), et leurs routes sont refusées à tout jeton ;
+// verb_test.go et server/api_token_hostile_test.go le gardent. La
+// purge n'a aucun verbe : seule la nuit du serveur l'ordonne, à la cible.
+// Lancer une sauvegarde n'efface rien, comme agent.ping : il est son propre
+// inverse. Vérifier non plus (la cible relit en mémoire, n'écrit rien).
+// Les identifiants gardent la convention du registre, « restic.backup.* »
+// (« restic » dit le moteur : « backup.* » nommait les archives chiffrées).
+// Le ticket #374 distingue « vérifier » et « test de restauration » : c'est
+// un seul ordre (restic.verify : restic check, puis relecture de fichiers du
+// dernier instantané), donc un seul verbe, restic.backup.verify.
 func init() {
-	Default.MustRegister(Verb{
-		ID: "restic.target.setup", Route: "POST /api/machines/{id}/actions/restic-target-setup",
-		Params: []string{"id"}, Body: []string{"host", "port", "dir", "retention_floor"}, Target: TargetMachine,
-		Label: "api_token.verb_restic_target_setup", Summary: "api_token.verb_restic_target_setup_text", Reverse: "restic.target.remove",
-	})
-	Default.MustRegister(Verb{
-		ID: "restic.target.remove", Route: "POST /api/machines/{id}/actions/restic-target-remove",
-		Params: []string{"id"}, Body: []string{}, Target: TargetMachine,
-		Label: "api_token.verb_restic_target_remove", Summary: "api_token.verb_restic_target_remove_text", Reverse: "restic.target.setup",
-	})
-	Default.MustRegister(Verb{
-		ID: "restic.backup.create", Route: "POST /api/machines/{id}/restic-backups",
-		Params: []string{"id"}, Body: []string{"name", "scope", "vmid", "service_id", "target_machine_id", "retention"}, Target: TargetMachine,
-		Label: "api_token.verb_restic_backup_create", Summary: "api_token.verb_restic_backup_create_text", Confirm: true,
-	})
-	Default.MustRegister(Verb{
-		ID: "restic.backup.delete", Route: "DELETE /api/machines/{id}/restic-backups/{backup}",
-		Params: []string{"id", "backup"}, Body: []string{}, Target: TargetMachine,
-		Label: "api_token.verb_restic_backup_delete", Summary: "api_token.verb_restic_backup_delete_text", Confirm: true,
-	})
 	Default.MustRegister(Verb{
 		ID: "restic.backup.run", Route: "POST /api/machines/{id}/restic-backups/{backup}/actions/run",
 		Params: []string{"id", "backup"}, Body: []string{}, Target: TargetMachine,

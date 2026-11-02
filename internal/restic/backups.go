@@ -33,6 +33,13 @@ type Retention struct {
 	Yearly  int
 }
 
+// LowersFrom dit si la rétention garde moins que l'ancienne, sur un seul
+// des cinq comptes : c'est elle qui fait purger davantage.
+func (r Retention) LowersFrom(before Retention) bool {
+	return r.Last < before.Last || r.Daily < before.Daily || r.Weekly < before.Weekly ||
+		r.Monthly < before.Monthly || r.Yearly < before.Yearly
+}
+
 // DefaultRetention : quatorze nuits, huit semaines, trois mois.
 func DefaultRetention() Retention {
 	return Retention{Daily: 14, Weekly: 8, Monthly: 3}
@@ -106,9 +113,12 @@ var (
 	ErrRetentionInvalid = refusal.Invalid("restic.retention_invalid", "each kept count is between 0 and 1000, and at least one is not zero")
 	// La cible refuserait la rétention : elle garderait moins que son plancher.
 	ErrRetentionBelowFloor = refusal.Invalid("restic.retention_below_floor", "the retention keeps less than the floor of the target")
-	ErrSourceUnknown       = refusal.Invalid("restic.source_unknown", "the source machine does not exist")
-	ErrGuestUnknown        = refusal.Invalid("restic.guest_unknown", "the Proxmox host of the source has not reported this guest")
-	ErrServiceUnknown      = refusal.Invalid("restic.service_unknown", "the service does not exist on the source machine")
+	// Baisser une rétention purge plus : l'opérateur retape le nom de la
+	// sauvegarde, une hausse ne le demande pas.
+	ErrRetentionConfirmName = refusal.Invalid("restic.retention_confirm_name", "lowering a retention asks for the name of the backup")
+	ErrSourceUnknown        = refusal.Invalid("restic.source_unknown", "the source machine does not exist")
+	ErrGuestUnknown         = refusal.Invalid("restic.guest_unknown", "the Proxmox host of the source has not reported this guest")
+	ErrServiceUnknown       = refusal.Invalid("restic.service_unknown", "the service does not exist on the source machine")
 	// Ni dossier Compose, ni volume nommé, ni base détectée.
 	ErrServiceNothingToSave = refusal.Invalid("restic.service_nothing_to_save", "the service has no Compose folder, no named volume and no detected database")
 	ErrTargetNotReady       = refusal.Conflict("restic.target_not_ready", "rest-server of this target has not reported its address and certificate yet")
@@ -353,7 +363,7 @@ func judgeDockerRight(source machine.Status, content ServiceContent) error {
 // UpdateBackup change le nom et la rétention ; la source, la cible
 // et ce qui est sauvegardé ne changent pas (un autre dépôt, une autre
 // sauvegarde).
-func (s *Service) UpdateBackup(ctx context.Context, sourceID, id, name string, retention Retention) (Backup, error) {
+func (s *Service) UpdateBackup(ctx context.Context, sourceID, id, name string, retention Retention, confirmName string) (Backup, error) {
 	current, err := s.ownedBackup(ctx, sourceID, id)
 	if err != nil {
 		return Backup{}, err
@@ -369,11 +379,19 @@ func (s *Service) UpdateBackup(ctx context.Context, sourceID, id, name string, r
 	if err := judgeFloor(target, retention); err != nil {
 		return Backup{}, err
 	}
+	lowered := retention.LowersFrom(current.Retention)
+	if lowered && confirmName != current.Name {
+		return Backup{}, ErrRetentionConfirmName
+	}
+	before := current.Retention
 	current.Name, current.Retention = name, retention
 	if err := s.store.UpdateResticBackup(ctx, current); err != nil {
 		return Backup{}, err
 	}
 	s.auditor.Record(ctx, backupEvent(audit.ResticBackupUpdate, current))
+	if lowered {
+		s.auditor.Record(ctx, retentionLoweredEvent(current, before))
+	}
 	s.changed()
 	return s.store.GetResticBackup(ctx, id)
 }
@@ -408,6 +426,20 @@ func (s *Service) ownedBackup(ctx context.Context, sourceID, id string) (Backup,
 		return Backup{}, ErrBackupNotFound
 	}
 	return current, nil
+}
+
+// retentionLoweredEvent : la ligne d'audit d'une rétention baissée, avec les
+// cinq comptes d'avant et d'après.
+func retentionLoweredEvent(backup Backup, before Retention) audit.Event {
+	event := backupEvent(audit.ResticBackupRetentionLower, backup)
+	event.Details["before"] = retentionSummary(before)
+	event.Details["after"] = retentionSummary(backup.Retention)
+	return event
+}
+
+func retentionSummary(retention Retention) string {
+	return fmt.Sprintf("last=%d daily=%d weekly=%d monthly=%d yearly=%d",
+		retention.Last, retention.Daily, retention.Weekly, retention.Monthly, retention.Yearly)
 }
 
 func backupEvent(verb audit.Action, backup Backup) audit.Event {

@@ -215,7 +215,10 @@ const (
 	ResticBackupCreate Action = "restic_backup.create"
 	ResticBackupUpdate Action = "restic_backup.update"
 	ResticBackupDelete Action = "restic_backup.delete"
-	ResticBackupRun    Action = "restic_backup.run"
+	// Une rétention baissée, après la saisie du nom de la sauvegarde : les
+	// comptes d'avant et d'après.
+	ResticBackupRetentionLower Action = "restic_backup.retention_lower"
+	ResticBackupRun            Action = "restic_backup.run"
 	// Le dépôt d'une sauvegarde vérifié par sa cible (restic.verify), à la
 	// main ou par la règle de la nuit : jamais le mot de passe du dépôt.
 	ResticBackupVerify Action = "restic_backup.verify"
@@ -266,7 +269,7 @@ func Actions() []Action {
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
 		FirewallCreate, FirewallUpdate, FirewallDelete,
 		VerbRequest, VerbReject, VerbExpire,
-		ResticTargetSetup, ResticTargetRemove, ResticBackupCreate, ResticBackupUpdate, ResticBackupDelete, ResticBackupRun, ResticBackupVerify, ResticBackupBrowse, ResticBackupRestore,
+		ResticTargetSetup, ResticTargetRemove, ResticBackupCreate, ResticBackupUpdate, ResticBackupDelete, ResticBackupRetentionLower, ResticBackupRun, ResticBackupVerify, ResticBackupBrowse, ResticBackupRestore,
 	}
 }
 

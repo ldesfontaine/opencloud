@@ -60,6 +60,8 @@ type resticBackupRequest struct {
 type resticBackupChangeRequest struct {
 	Name      string                 `json:"name"`
 	Retention resticRetentionRequest `json:"retention"`
+	// Le nom actuel de la sauvegarde, retapé : exigé quand la rétention baisse.
+	ConfirmName string `json:"confirm_name"`
 }
 
 // La sauvegarde créée : son identifiant, que la route de ses gestes nomme.
@@ -111,7 +113,7 @@ func (s *Server) updateResticBackup(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	_, err := s.restic.UpdateBackup(r.Context(), r.PathValue("id"), r.PathValue("backup"), request.Name, request.Retention.retention())
+	_, err := s.restic.UpdateBackup(r.Context(), r.PathValue("id"), r.PathValue("backup"), request.Name, request.Retention.retention(), request.ConfirmName)
 	s.finishAPIAction(w, r, err, restic.ErrBackupNotFound)
 }
 
