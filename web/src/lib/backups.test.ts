@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackupPlan, Backups } from "../api/backups";
+import type { BackupPlan } from "../api/backups";
 import type { Translate } from "../i18n/context";
-import { backupsPath, editPlanPath, emptyPlanForm, firewallIdOf, isBackedUp, kindPatch, isFirewallPlan, newFirewallPlanPath, lastErrorRight, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
+import { backupsPath, editPlanPath, emptyPlanForm, firewallIdOf, kindPatch, isFirewallPlan, newFirewallPlanPath, lastErrorRight, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
-const keyring = { recipient: "age1x", fingerprint: "0123456789abcdef", created_at: "2026-09-12T12:00:00Z" };
-const destination = { id: "bkd_1", name: "store-1", machine_id: "m1", machine_name: "store-1", path: "/srv/backups", right: "ok" as const, created_at: "2026-09-12T12:00:00Z" };
 const databasePlan: BackupPlan = {
   subject: "database",
   name: "",
@@ -53,24 +51,6 @@ describe("passphraseProblem", () => {
 
   it("does not count the spaces at the ends, as the server does", () => {
     expect(passphraseProblem("  quinze caractèr  ", "  quinze caractèr  ")).toBe("backup.passphrase_too_short");
-  });
-});
-
-describe("isBackedUp", () => {
-  it("needs a key and the database plan with its destination", () => {
-    expect(isBackedUp({ keyring, destinations: [destination], plans: [databasePlan] })).toBe(true);
-    expect(isBackedUp({ keyring: null, destinations: [destination], plans: [databasePlan] })).toBe(false);
-    expect(isBackedUp({ keyring, destinations: [destination], plans: [] })).toBe(false);
-    expect(isBackedUp({ keyring, destinations: [], plans: [databasePlan] })).toBe(false);
-  });
-
-  it("is not backed up by a plan that points elsewhere", () => {
-    const elsewhere: Backups = { keyring, destinations: [destination], plans: [{ ...databasePlan, destination_id: "bkd_2" }] };
-    expect(isBackedUp(elsewhere)).toBe(false);
-  });
-
-  it("is not backed up by the plan of another source", () => {
-    expect(isBackedUp({ keyring, destinations: [destination], plans: [agentPlan] })).toBe(false);
   });
 });
 

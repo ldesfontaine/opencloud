@@ -410,3 +410,42 @@ export async function verifyResticBackup(machineID: string, backupID: string): P
 export async function runResticBackup(machineID: string, backupID: string): Promise<ActionRun> {
   return api.send<ActionRun>(route("POST /api/machines/{id}/restic-backups/{backup}/actions/run", { id: machineID, backup: backupID }), {});
 }
+
+// Un instantané du dépôt d'une sauvegarde : l'identifiant complet, l'instant
+// (ISO) et les dossiers qu'il a pris.
+interface BrowseSnapshot {
+  id: string;
+  time: string;
+  paths: string[];
+}
+
+// Un fils d'un dossier d'un instantané : son nom (jamais un chemin), ce qu'il
+// est, sa taille en octets et sa date (ISO, vide si inconnue).
+interface BrowseEntry {
+  name: string;
+  kind: "dir" | "file" | "link" | "other";
+  size: number;
+  mtime: string;
+}
+
+// Ce que la cible a lu : les instantanés (sans « snapshot »), ou le contenu
+// d'un dossier ; truncated : le dossier avait plus de fils que la borne. Rien
+// n'est gardé par le serveur.
+export interface BrowseReport {
+  snapshots: BrowseSnapshot[];
+  entries: BrowseEntry[];
+  truncated: boolean;
+}
+
+// La cible lit son dépôt : les instantanés (snapshot vide), ou le dossier path
+// de l'instantané snapshot. La requête attend la cible.
+export async function browseResticBackup(machineID: string, backupID: string, snapshot: string, path: string): Promise<BrowseReport> {
+  return api.send<BrowseReport>(route("POST /api/machines/{id}/restic-backups/{backup}/actions/browse", { id: machineID, backup: backupID }), { snapshot, path });
+}
+
+// La source restaure le chemin d'un instantané à côté de l'original, dans
+// <chemin>.restaure-<stamp> (stamp : AAAAMMJJ-HHMMSS, montré avant de confirmer).
+// Rend l'ordre : son état et sa raison arrivent par le signal de la source.
+export async function restoreResticBackup(machineID: string, backupID: string, snapshot: string, path: string, stamp: string): Promise<ActionRun> {
+  return api.send<ActionRun>(route("POST /api/machines/{id}/restic-backups/{backup}/actions/restore", { id: machineID, backup: backupID }), { snapshot, path, stamp });
+}

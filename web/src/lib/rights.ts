@@ -105,6 +105,9 @@ const refusalRights: Readonly<Record<string, string>> = {
   "restic.source_vm_right_missing": "backup.produce",
   "restic.source_docker_right_missing": "restic.docker",
   "restic.target_verify_right_missing": "restic.verify",
+  "restic.target_browse_right_missing": "restic.browse",
+  "restic.source_restore_right_missing": "restic.restore",
+  "restic.restore_outside_right": "files.write",
 };
 
 export function rightOfRefusal(key: string): string | null {
@@ -113,7 +116,7 @@ export function rightOfRefusal(key: string): string | null {
 
 // Les droits que la cible d'une sauvegarde doit tenir ; les autres sont ceux de
 // la source. Un refus de droit se corrige sur la machine qui le manque.
-const targetRights: readonly string[] = ["restic.target", "restic.verify"];
+const targetRights: readonly string[] = ["restic.target", "restic.verify", "restic.browse"];
 
 // La machine à ré-enrôler pour un refus : la cible quand le droit nommé est de
 // la cible, la source sinon. Un seul endroit le décide pour la carte, son

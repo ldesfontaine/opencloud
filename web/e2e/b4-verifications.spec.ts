@@ -105,7 +105,7 @@ test("le menu d'une carte offre « Vérifier maintenant » : le test part, la ca
   await intranet.getByRole("button", { name: filled("entity.more", "intranet") }).click();
   const menu = page.getByRole("menu");
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole("menuitem")).toHaveText([label("backup.run_now"), label("backup.verify_now"), label("backup.restic_edit"), label("backup.restic_delete")]);
+  await expect(menu.getByRole("menuitem")).toHaveText([label("backup.browse"), label("backup.run_now"), label("backup.verify_now"), label("backup.restic_edit"), label("backup.restic_delete")]);
   await menu.getByRole("menuitem", { name: label("backup.verify_now") }).click();
   await expect(intranet).toContainText(label("backup.verify_sent"));
   expect(findings.unknown()).toEqual([]);

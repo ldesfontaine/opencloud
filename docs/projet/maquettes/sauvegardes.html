@@ -4,11 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>openCloud · Sauvegardes (maquette)</title>
-<!-- Maquette de la page Sauvegardes (B1, mise à jour B2). Données fictives, adresses de
+<!-- Maquette de la page Sauvegardes (B1, mise à jour B2, B5). Données fictives, adresses de
 documentation seulement. Paramètres de l'adresse : ?theme=dark ·
-?etat=vide|erreurs|binaire|partielle · ?fenetre=quoi|ou|recap|cible · ?quoi=vm|service · ?nobar (sans la barre de démo).
+?etat=vide|erreurs|binaire|partielle|retard · ?fenetre=quoi|ou|recap|cible|explorateur · ?quoi=vm|service · ?vue=cartes|matrice · ?selection=<source> · ?nobar (sans la barre de démo).
 B2 : un service entier = son dossier + ses volumes + ses bases ; vzdump lancé par openCloud ; la tâche Proxmox « nuit-pi » est observée, à remplacer ;
-supervision (dernière réussite, retard, échec) ; accès aux sauvegardes d'une base ou d'un volume. -->
+supervision (dernière réussite, retard, échec) ; accès aux sauvegardes d'une base ou d'un volume.
+B5 : deux vues de « Ce qui est sauvegardé » (cartes, matrice sources × cibles) ; un inspecteur à droite (340 px) au clic d'une case ;
+l'explorateur de fichiers (fenêtre : instantanés à gauche, fil d'Ariane, liste, sélection, sorties) qui lit une source d'arborescence
+(ici un instantané restic ; plus tard le système de fichiers vivant d'une machine) ; la base d'openCloud est une ligne de plus,
+ses réglages (clé, destination) s'ouvrent depuis son inspecteur ; l'ancien bloc « Archives » est supprimé. -->
 <style>
 /* Jetons : docs/projet/21-direction-artistique.md, tels quels. */
 :root{
@@ -260,6 +264,64 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .trigger .ico:last-child{margin-left:auto;color:var(--muted)}
 .row2{display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:14px}
 
+
+/* Vues, matrice, inspecteur (B5) */
+.view{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.view.with-insp{grid-template-columns:minmax(0,1fr) 340px;align-items:start}
+.matrix{overflow-x:auto;padding:0}
+.matrix table{border-collapse:collapse;width:100%}
+.matrix th,.matrix td{padding:0 12px;height:48px;border-top:1px solid var(--line);text-align:left;font-weight:400;vertical-align:middle}
+.matrix thead th{border-top:0;height:44px;color:var(--muted);font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase}
+.matrix tr.grp th{height:30px;background:var(--surface-2);color:var(--ink-2);font:500 12px var(--sans);letter-spacing:0;text-transform:none}
+.matrix th.row{font-weight:500;white-space:nowrap}
+.matrix th.row span{display:block;color:var(--muted);font-weight:400;font-size:12px}
+.cell{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:9px;border:1px solid transparent;background:none;cursor:pointer;white-space:nowrap}
+.cell:hover{background:var(--surface-2)}
+.cell[aria-pressed=true]{border-color:var(--accent);background:var(--accent-wash)}
+.cell .dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--ok)}
+.cell .dot.warn{background:var(--warn)}.cell .dot.danger{background:var(--danger)}
+.cell .dot.obs{background:none;border:2px solid var(--muted)}
+.cell .dot.none{background:none;border:2px dashed var(--line-strong)}
+.cell small{color:var(--muted);font:12px var(--mono)}
+.legend2{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 12px;border-top:1px solid var(--line);color:var(--ink-2);font-size:12px}
+.legend2 span{display:inline-flex;align-items:center;gap:6px}
+.legend2 .dot{width:10px;height:10px;border-radius:50%;background:var(--ok)}
+.legend2 .dot.warn{background:var(--warn)}.legend2 .dot.danger{background:var(--danger)}
+.legend2 .dot.obs{background:none;border:2px solid var(--muted)}.legend2 .dot.none{background:none;border:2px dashed var(--line-strong)}
+.insp{position:sticky;top:16px;display:flex;flex-direction:column}
+.insp .ih{display:flex;align-items:flex-start;gap:10px;padding:16px;border-bottom:1px solid var(--line)}
+.insp .ih .x{margin-left:auto;width:28px;height:28px;border-radius:7px;border:0;background:none;cursor:pointer;color:var(--muted);display:grid;place-items:center}
+.insp .ib{padding:16px;display:flex;flex-direction:column;gap:14px}
+.insp .acts{display:flex;flex-direction:column;gap:8px}
+.insp .acts .btn{justify-content:flex-start}
+.insp .back{font-size:12px;color:var(--muted)}
+.insp .danger-zone{border-top:1px solid var(--line);padding:12px 16px;display:flex;flex-direction:column;gap:6px}
+.strip{display:flex;gap:3px}
+.strip i{flex:1;height:18px;border-radius:4px;background:var(--ok)}
+.strip i.w{background:var(--warn)}.strip i.d{background:var(--danger)}.strip i.n{background:var(--surface-2);border:1px solid var(--line)}
+
+/* L'explorateur de fichiers (B5) : une source d'arborescence, des sorties */
+.modal.wide{width:min(980px,100%)}
+.xp{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:420px}
+.xp-snaps{border-right:1px solid var(--line);padding:12px;display:flex;flex-direction:column;gap:6px;overflow:auto;max-height:480px}
+.xp-snap{display:flex;flex-direction:column;gap:1px;text-align:left;padding:8px 10px;border:1px solid transparent;border-radius:9px;background:none;cursor:pointer;width:100%}
+.xp-snap:hover{background:var(--surface-2)}
+.xp-snap[aria-selected=true]{background:var(--accent-wash);border-color:var(--accent)}
+.xp-snap b{font-weight:500}.xp-snap span{color:var(--muted);font-size:12px}
+.xp-main{display:flex;flex-direction:column;min-width:0}
+.xp-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.xp-list{list-style:none;margin:0;padding:6px;overflow:auto;max-height:340px}
+.xp-row{display:grid;grid-template-columns:22px 22px minmax(0,1fr) 84px 120px;gap:8px;align-items:center;min-height:34px;padding:0 8px;border-radius:8px;cursor:default}
+.xp-row:hover{background:var(--surface-2)}
+.xp-row[aria-selected=true]{background:var(--accent-wash)}
+.xp-row .sz{font:12px var(--mono);color:var(--ink-2);text-align:right}.xp-row .dt{font-size:12px;color:var(--muted)}
+.xp-row .chk{width:15px;height:15px;accent-color:var(--accent)}
+.xp-out{border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:8px;margin-top:auto}
+.xp-hint{padding:8px 14px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
+kbd{font:11px var(--mono);padding:1px 5px;border:1px solid var(--line-strong);border-radius:5px;background:var(--surface-2)}
+@media (max-width:1100px){.view.with-insp{grid-template-columns:1fr}.insp{position:static}}
+@media (max-width:860px){.xp{grid-template-columns:1fr}.xp-snaps{border-right:0;border-bottom:1px solid var(--line);max-height:160px}}
+
 /* Barre de démonstration (hors produit) */
 .demo{position:fixed;right:16px;bottom:16px;background:var(--surface);border:1px solid var(--line-strong);border-radius:12px;padding:8px;display:flex;gap:6px;align-items:center;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,.1);flex-wrap:wrap;max-width:calc(100% - 32px)}
 .demo .label{padding:0 6px}
@@ -326,6 +388,8 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
     <section class="section" id="sources" aria-labelledby="h-sources">
       <div class="shead">
         <div><div class="label" id="h-sources">Ce qui est sauvegardé</div><p>Une carte par VM ou par service entier : où elle part, quand (dernière et prochaine), combien on garde.</p></div>
+        <div class="right"><div class="seg" role="group" aria-label="Vue" id="pick-view">
+          <button aria-pressed="true" data-view="cartes">Cartes</button><button aria-pressed="false" data-view="matrice">Matrice</button></div></div>
       </div>
       <div id="sources-body"></div>
     </section>
@@ -340,7 +404,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
     <section class="section" id="acceder" aria-labelledby="h-acceder">
       <div class="shead">
         <div><div class="label" id="h-acceder">Accéder à mes sauvegardes</div><p>Parcourir, reprendre un fichier, remettre une base, un volume ou une VM.</p></div>
-        <div class="right"><span class="muted">Pour</span>
+        <div class="right"><button class="btn" data-open="explorateur"><svg class="ico"><use href="#i-folder"/></svg>Parcourir dans l'écran</button><span class="muted">Pour</span>
           <div class="seg" role="group" aria-label="Source" id="pick-src">
             <button aria-pressed="true" data-src="forgejo">forgejo</button>
             <button aria-pressed="false" data-src="base">Base d'openCloud</button>
@@ -446,6 +510,7 @@ const BROKEN = {
 };
 
 let state = "normal";
+let view = "cartes", selected = "";
 
 function kindIcon(kind){ return kind==="vm" ? "vm" : kind==="db" ? "db" : "box"; }
 const PART_ICON = {folder:"folder", volume:"archive", database:"db"};
@@ -535,6 +600,7 @@ function sourceCard(s){
       ${retention}
     </div>
     ${path}
+    ${pve ? "" : `<div class="foot"><button class="btn small" data-open="explorateur" data-src="${s.id}">${ico("folder")}Parcourir ses sauvegardes</button><button class="btn small ghost" data-select="${s.id}">Voir dans la matrice</button></div>`}
   </article>`;
 }
 
@@ -585,7 +651,70 @@ function renderSources(){
     return;
   }
   const shown = state==="binaire" ? SOURCES.filter(s=>s.origin!=="restic") : SOURCES;
+  if (view==="matrice") { body.innerHTML = matrixView(shown); return; }
   body.innerHTML = `<div class="grid">${shown.map(sourceCard).join("")}</div>`;
+}
+
+// La matrice : une ligne par source (groupées par machine), une colonne par endroit où ça peut aller.
+// La case dit l'état de ce couple ; un clic l'ouvre dans l'inspecteur. Une case vide est un choix possible.
+const COLS = [["pi","Cible restic"],["pi-sauvegardes","Tâche Proxmox"],["nas","Pas encore une cible"]];
+function cellOf(s, col){
+  if (s.origin==="none") return col==="pi" ? `<button class="cell" data-select="${s.id}" aria-pressed="${selected===s.id}"><span class="dot none"></span>Aucune</button>` : "";
+  if (s.origin==="proxmox") return col==="pi-sauvegardes" ? `<button class="cell" data-select="${s.id}" aria-pressed="${selected===s.id}"><span class="dot obs"></span>Observée<small>${s.copies}</small></button>` : "";
+  if (col!=="pi") return "";
+  const b = state==="erreurs" ? BROKEN[s.id] : state==="partielle" ? PARTIAL[s.id] : state==="retard" ? LATE[s.id] : null;
+  const tone = b ? (b.tone==="danger" ? "danger" : "warn") : s.path==="relay" ? "warn" : "";
+  return `<button class="cell" data-select="${s.id}" aria-pressed="${selected===s.id}"><span class="dot ${tone}"></span>${b ? b.stateLabel : s.path==="relay" ? "Relais" : "À jour"}<small>${s.copies}</small></button>`;
+}
+function matrixView(list){
+  const hosts = [...new Set(list.map(s=>s.host || (s.origin==="proxmox" ? "pve" : "vps")))];
+  const hostOf = s => s.host || (s.origin==="proxmox" ? "pve" : "vps");
+  const rows = hosts.map(h=>`<tr class="grp"><th colspan="${COLS.length+1}" scope="colgroup">${ico("server")} ${h}</th></tr>` +
+    list.filter(s=>hostOf(s)===h).map(s=>`<tr><th class="row" scope="row">${s.name}<span>${s.sub}</span></th>${COLS.map(([c])=>`<td>${cellOf(s,c)}</td>`).join("")}</tr>`).join("")).join("");
+  const insp = selected ? inspector(list.find(s=>s.id===selected)) : "";
+  return `<div class="view${insp?" with-insp":""}"><div class="card matrix"><table><caption class="label" style="text-align:left;padding:12px">Sources × endroits</caption>
+    <thead><tr><th scope="col">Source</th>${COLS.map(([c,sub])=>`<th scope="col">${c}<br><span style="text-transform:none;letter-spacing:0;font-weight:400">${sub}</span></th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
+    <div class="legend2"><span><i class="dot"></i>À jour</span><span><i class="dot warn"></i>À surveiller</span><span><i class="dot danger"></i>En échec</span><span><i class="dot obs"></i>Observée (Proxmox)</span><span><i class="dot none"></i>Pas sauvegardé</span></div></div>${insp}</div>`;
+}
+// L'inspecteur : verdict, frise des dernières nuits, faits, actions, retour arrière. Il ne montre rien que la carte ne montre.
+function inspector(s){
+  const pve = s.origin==="proxmox", none = s.origin==="none";
+  const tone = none ? "warn" : "ok";
+  const label = none ? "Pas sauvegardé" : pve ? "Observée" : "À jour";
+  const strip = none ? "" : `<div><div class="label" style="margin-bottom:6px">14 dernières nuits</div><div class="strip" role="img" aria-label="14 nuits, toutes réussies">${"<i></i>".repeat(14)}</div></div>`;
+  const facts = none ? `<div class="facts"><div class="fact wide"><span class="k">Dernière</span><span class="v">Jamais</span><span class="s">aucune copie, nulle part</span></div></div>`
+    : `<div class="facts">${tsFact("Dernière", s.last)}${tsFact("Prochaine", s.next)}<div class="fact"><span class="k">Taille</span><span class="v mono">${s.size}</span></div><div class="fact"><span class="k">Copies</span><span class="v mono">${s.copies}</span></div><div class="fact wide"><span class="k">Gardées</span><span class="v">${RETAIN}</span></div></div>`;
+  const acts = none ? `<button class="btn primary" data-open="quoi" data-what="${s.id}" data-mode="${s.kind==="vm"?"vm":"service"}">${ico("plus")}Sauvegarder…</button>`
+    : pve ? `<button class="btn" data-open="quoi" data-what="${s.id}" data-mode="vm">${ico("undo")}Remplacer par openCloud</button>`
+    : `<button class="btn primary" data-open="explorateur" data-src="${s.id}">${ico("folder")}Parcourir ses sauvegardes</button><button class="btn">${ico("search")}Vérifier maintenant</button>${s.kind==="db" ? `<button class="btn" data-open="cible">${ico("lock")}Clé et destination…</button>` : ""}`;
+  return `<aside class="card insp" aria-label="Détail de ${s.name}"><div class="ih"><span class="badge">${ico(kindIcon(s.kind))}</span><div><div class="name" style="font-weight:600;font-size:14px">${s.name}</div><div class="sub muted">${s.sub}</div></div>
+    <button class="x" data-select="" aria-label="Fermer le détail">${ico("x")}</button></div>
+    <div class="ib"><div><span class="pill t-${tone}">${label}</span></div>${strip}${facts}<div class="acts">${acts}</div>
+    ${none ? "" : `<div class="back">Retour : la sauvegarde s'arrête, les copies déjà faites restent sur pi.</div>`}</div></aside>`;
+}
+
+// L'explorateur : même fenêtre pour un instantané restic aujourd'hui, pour le système de fichiers d'une machine plus tard.
+const SNAPS = [["il y a 3 h 35","cette nuit 02:35","a41f9c2e"],["il y a 1 j 3 h","hier 02:35","7be03d11"],["il y a 2 j 3 h","avant-hier 02:35","c90a5b67"],["il y a 7 j","lundi dernier 02:35","1d2e8f40"]];
+const TREE = {"/":[["d","srv","—","hier"],["d","etc","—","il y a 3 mois"]],
+  "/srv":[["d","forgejo","—","cette nuit"]],
+  "/srv/forgejo":[["d","data","—","cette nuit"],["d","config","—","il y a 2 mois"],["f","docker-compose.yml","1,2 Kio","il y a 2 mois"],["f","app.ini","3,4 Kio","il y a 2 mois"]],
+  "/srv/forgejo/config":[["f","app.ini","3,4 Kio","il y a 2 mois"],["f","custom.css","812 o","il y a 5 mois"]]};
+let xp = {snap:0, path:"/srv/forgejo", picked:new Set(["app.ini"])};
+function explorer(){
+  const rows = (TREE[xp.path]||[]).map(([k,n,z,d])=>`<li class="xp-row" role="option" aria-selected="${xp.picked.has(n)}" tabindex="0" data-row="${n}" data-kind="${k}">
+    <input class="chk" type="checkbox" aria-label="Choisir ${n}" ${xp.picked.has(n)?"checked":""} data-pick="${n}">${ico(k==="d"?"folder":"file")}<span>${n}</span><span class="sz">${z}</span><span class="dt">${d}</span></li>`).join("");
+  const parts = xp.path.split("/").filter(Boolean);
+  const crumb = `<div class="crumb"><span>forgejo</span>${parts.map(x=>`<span class="sepc">›</span><span>${x}</span>`).join("")}</div>`;
+  const cmd = `restic restore ${SNAPS[xp.snap][2]} --target /tmp/restauration --include ${xp.path}/${[...xp.picked][0]||""}`;
+  return `<div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <div class="m-head"><h2 id="m-title" tabindex="-1">Sauvegardes de forgejo</h2><span class="pill sm t-ok">pi · direct</span><button class="x" data-close aria-label="Fermer">${ico("x")}</button></div>
+    <div class="xp"><div class="xp-snaps" role="listbox" aria-label="Instantanés"><div class="label" style="padding:2px 4px">Instantanés</div>
+      ${SNAPS.map(([a,b,id],i)=>`<button class="xp-snap" role="option" aria-selected="${xp.snap===i}" data-snap="${i}"><b>${b}</b><span>${a} · <span class="mono">${id}</span></span></button>`).join("")}</div>
+      <div class="xp-main"><div class="xp-bar"><button class="btn small ghost" data-up aria-label="Dossier parent">${ico("undo")}</button>${crumb}</div>
+        <ul class="xp-list" role="listbox" aria-multiselectable="true" aria-label="Contenu du dossier">${rows}</ul>
+        <div class="xp-out"><div class="label">Sorties</div><div class="muted">Sortir à côté, sans rien écraser : à lancer sur <b>docker1</b>, qui garde le mot de passe du dépôt.</div>${copyLine(cmd,"docker1")}</div>
+        <div class="xp-hint"><kbd>↑</kbd> <kbd>↓</kbd> bouger · <kbd>Entrée</kbd> ouvrir · <kbd>Espace</kbd> cocher · <kbd>Retour arrière</kbd> remonter · <kbd>Échap</kbd> fermer</div></div></div>
+    <div class="m-foot"><span class="muted">Lecture seule : rien n'est modifié ni restauré par cet écran.</span><span class="sp"></span><button class="btn" data-close>Fermer</button></div></div>`;
 }
 
 function renderTargets(){
@@ -810,7 +939,7 @@ function targetForm(){
     </div>
     <div class="m-foot"><button class="btn ghost" data-close>Annuler</button><span class="sp"></span><button class="btn primary" data-close>Faire de nas une cible</button></div></div>`;
 }
-const SCREENS = {quoi:stepWhat, ou:stepWhere, recap:stepRecap, cible:targetForm};
+const SCREENS = {quoi:stepWhat, ou:stepWhere, recap:stepRecap, cible:targetForm, explorateur:explorer};
 let lastFocus = null;
 function openModal(name){
   if (document.getElementById("scrim").hidden) lastFocus = document.activeElement;
@@ -824,7 +953,17 @@ function render(){ document.getElementById("acceder").hidden = state==="vide" ||
   document.getElementById("nav-count").textContent = state==="vide" ? "0" : state==="binaire" ? "3" : "6"; }
 
 document.addEventListener("click", (e) => {
-  const t = e.target.closest("button,[data-what],[data-where]"); if (!t) return;
+  const row = e.target.closest("[data-row]");
+  if (row && !e.target.closest("[data-pick]") && document.querySelector(".xp")) {
+    if (row.dataset.kind==="d") { xp.path = (xp.path==="/"?"":xp.path)+"/"+row.dataset.row; xp.picked = new Set(); openModal("explorateur"); }
+    return;
+  }
+  const t = e.target.closest("button,[data-what],[data-where],[data-pick]"); if (!t) return;
+  if (t.dataset.pick) { xp.picked.has(t.dataset.pick) ? xp.picked.delete(t.dataset.pick) : xp.picked.add(t.dataset.pick); return openModal("explorateur"); }
+  if (t.dataset.snap) { xp.snap = +t.dataset.snap; return openModal("explorateur"); }
+  if (t.hasAttribute("data-up")) { xp.path = xp.path.split("/").slice(0,-1).join("/") || "/"; xp.picked = new Set(); return openModal("explorateur"); }
+  if (t.dataset.view) { view = t.dataset.view; document.querySelectorAll("#pick-view button").forEach(b=>b.setAttribute("aria-pressed", b===t)); return renderSources(); }
+  if (t.hasAttribute("data-select")) { selected = t.dataset.select; view = "matrice"; document.querySelectorAll("#pick-view button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.view===view)); renderSources(); return; }
   if (t.dataset.open) { if (t.dataset.mode) { PICK.mode = t.dataset.mode; PICK.what = t.dataset.what; } return openModal(t.dataset.open); }
   if (t.hasAttribute("data-close")) return closeModal();
   if (t.dataset.go) return openModal(t.dataset.go);
@@ -832,14 +971,23 @@ document.addEventListener("click", (e) => {
   if (t.dataset.what) { PICK.what = t.dataset.what; return openModal("quoi"); }
   if (t.dataset.where) { PICK.where = t.dataset.where; return openModal("ou"); }
   if (t.dataset.state) { state = t.dataset.state; document.querySelectorAll("#pick-state button").forEach(b=>b.setAttribute("aria-pressed", b===t)); return render(); }
-  if (t.dataset.src) { accessSrc = t.dataset.src; document.querySelectorAll("#pick-src button").forEach(b=>b.setAttribute("aria-pressed", b===t)); return renderHow(); }
+  if (t.dataset.src && !t.dataset.open) { accessSrc = t.dataset.src; document.querySelectorAll("#pick-src button").forEach(b=>b.setAttribute("aria-pressed", b===t)); return renderHow(); }
   if (t.hasAttribute("data-copy")) {
     const code = t.parentElement.querySelector("code");
     try { navigator.clipboard.writeText(code.textContent); } catch (err) {}
     const before = t.innerHTML; t.textContent = "Copié"; setTimeout(()=>{ t.innerHTML = before; }, 1500);
   }
 });
-document.addEventListener("keydown", (e) => { if (e.key==="Escape" && !document.getElementById("scrim").hidden) closeModal(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key==="Escape" && !document.getElementById("scrim").hidden) return closeModal();
+  const row = e.target.closest && e.target.closest("[data-row]"); if (!row) return;
+  const rows = [...document.querySelectorAll("[data-row]")], i = rows.indexOf(row);
+  if (e.key==="ArrowDown") { e.preventDefault(); (rows[i+1]||row).focus(); }
+  if (e.key==="ArrowUp") { e.preventDefault(); (rows[i-1]||row).focus(); }
+  if (e.key==="Enter" && row.dataset.kind==="d") row.click();
+  if (e.key===" ") { e.preventDefault(); row.querySelector("[data-pick]").click(); }
+  if (e.key==="Backspace") document.querySelector("[data-up]").click();
+});
 const th = document.getElementById("theme");
 function setTheme(dark){ document.documentElement.dataset.theme = dark ? "dark" : "light"; th.textContent = dark ? "Thème clair" : "Thème sombre"; }
 th.onclick = () => setTheme(document.documentElement.dataset.theme !== "dark");
@@ -847,6 +995,8 @@ th.onclick = () => setTheme(document.documentElement.dataset.theme !== "dark");
 const params = new URLSearchParams(location.search);
 if (params.get("theme")==="dark") setTheme(true);
 if (params.has("etat")) state = params.get("etat");
+if (params.get("vue")==="matrice") { view = "matrice"; document.querySelectorAll("#pick-view button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.view===view)); }
+if (params.has("selection")) selected = params.get("selection");
 if (params.get("quoi")==="vm") { PICK.mode = "vm"; PICK.what = VMS[0][0]; }
 document.querySelectorAll("#pick-state button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.state===state));
 if (params.has("nobar")) document.getElementById("demo").hidden = true;

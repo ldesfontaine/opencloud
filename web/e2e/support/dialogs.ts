@@ -41,9 +41,12 @@ async function fillEmptyFields(scope: Locator): Promise<void> {
 }
 
 // Ferme la fenêtre par « Annuler », en répondant « abandonner » si elle
-// demande avant de perdre la saisie.
+// demande avant de perdre la saisie. Une fenêtre en lecture seule (l'explorateur
+// de fichiers) n'a rien à annuler : son pied porte « Fermer ».
 async function cancelDialog(dialog: Locator): Promise<void> {
-  await dialog.getByRole("button", { name: label("modal.cancel"), exact: true }).first().click({ timeout: 3000 });
+  const cancel = dialog.getByRole("button", { name: label("modal.cancel"), exact: true }).first();
+  const close = dialog.locator(".modal-foot").getByRole("button", { name: label("modal.close"), exact: true });
+  await ((await cancel.count()) > 0 ? cancel : close).click({ timeout: 3000 });
   const abandon = dialog.getByText(label("modal.abandon_question"));
   if (await abandon.isVisible().catch(() => false)) {
     // La question remplace le pied : son bouton de confirmation est le premier.

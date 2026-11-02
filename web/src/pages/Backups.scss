@@ -702,36 +702,6 @@
   }
 }
 
-// Les archives : une ligne par destination.
-.backup-rows {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.backup-row {
-  display: grid;
-  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-top: 1px solid var(--line);
-
-  &:first-child {
-    border-top: 0;
-  }
-}
-
-.backup-row-end {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
 // L'assistant : la recherche, les récapitulatifs.
 .backup-search {
   position: relative;
@@ -814,13 +784,6 @@
     }
   }
 
-  .backup-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .backup-row-end {
-    justify-content: flex-start;
-  }
 }
 
 // Ce qu'une sauvegarde de service contient : dossier, volumes, bases.
@@ -912,5 +875,121 @@
 
   > span {
     flex: 1 1 200px;
+  }
+}
+
+// La matrice et son inspecteur : la matrice seule prend la largeur, avec un
+// détail ouvert elle laisse 340 px à droite (maquette B5).
+.backup-matrix {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+
+  &.backup-matrix-open {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .backup-matrix.backup-matrix-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+// La frise des dernières nuits d'une sauvegarde.
+.backup-strip {
+  display: flex;
+  gap: 3px;
+  margin-top: 6px;
+
+  i {
+    flex: 0 0 calc((100% - 18px) / 7);
+    height: 18px;
+    border-radius: 4px;
+    background: var(--ok);
+  }
+
+  .backup-strip-danger {
+    background: var(--danger);
+  }
+
+  .backup-strip-warn {
+    background: var(--warn);
+  }
+
+  .backup-strip-none {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+  }
+}
+
+// Les réglages de la base d'openCloud, sur sa carte : la clé, les destinations.
+.backup-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.backup-setup-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  .btn {
+    margin-left: auto;
+  }
+
+  &.backup-setup-sub {
+    padding-left: 12px;
+  }
+}
+
+.backup-setup-say {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.backup-setup-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+// L'en-tête de la fenêtre de l'explorateur : le chemin pris, et « lecture seule ».
+.backup-explorer-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: -6px 0 14px;
+}
+
+// La sortie « Restaurer » de l'explorateur : le geste, puis où en est chaque ordre.
+.backup-restore {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.backup-restore-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
 }

@@ -82,9 +82,11 @@ test("la page : verdict, cartes, chemin du relais à copier, cible et filtres", 
   await expect(remove).toHaveAttribute("aria-disabled", "true");
   await page.keyboard.press("Escape");
 
-  // Les archives chiffrées de la base, repliées : elles s'ouvrent.
-  await page.locator("#archives details > summary").click();
-  await expect(page.locator("#archives")).toContainText(label("backup.keyring_title"));
+  // La base d'openCloud est une ligne de plus : sa clé et ses destinations sont sur sa carte.
+  const database = card(page, label("backup.source_database").replace("{product}", "openCloud"));
+  await expect(database).toContainText(label("backup.keyring_title"));
+  await expect(database).toContainText(label("backup.destination_title"));
+  await expect(page.locator("#archives")).toHaveCount(0);
   expect(findings.unknown()).toEqual([]);
 });
 

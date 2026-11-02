@@ -134,6 +134,9 @@ type Service struct {
 	busy map[repoKey]bool
 	// passing ne laisse mener qu'un passage de la nuit à la fois.
 	passing sync.Mutex
+	// browses attend les résultats des parcours en cours (l'explorateur).
+	browseMu sync.Mutex
+	browses  map[string]*browseSlot
 
 	// lifetime est la vie du serveur : une sauvegarde lancée à la main est
 	// suivie derrière la requête ; background compte ces suivis.

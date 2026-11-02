@@ -18,7 +18,7 @@ import { newResticBackupPath, newTargetPath } from "../lib/backups";
 import { ago, formatRemaining } from "../lib/time";
 import { bytesQuantity } from "../lib/units";
 import { AccessSection } from "./backups/Access";
-import { ArchivesSection } from "./backups/Archives";
+import { MatrixView } from "./backups/MatrixView";
 import { SourceCard } from "./backups/SourceCard";
 import { TargetsSection } from "./backups/Targets";
 import { WatchSection } from "./backups/Watch";
@@ -55,7 +55,6 @@ export function Backups() {
             <SourcesSection overview={loaded} />
             <TargetsSection overview={loaded} />
             <AccessSection sources={loaded.sources} />
-            <ArchivesSection />
           </div>
         )}
       </Loaded>
@@ -135,11 +134,17 @@ function firstProblem(t: Translate, source: BackupSource): string {
   return t(`backup.verdict_first_${sourceStatus(source)}`, name, source.machine_name);
 }
 
+// Les deux vues de « Ce qui est sauvegardé » : les cartes montrent tout, la
+// matrice croise les sources et les endroits où elles vont.
+const sourcesViews = ["cards", "matrix"] as const;
+type SourcesView = (typeof sourcesViews)[number];
+
 // « Ce qui est sauvegardé » : les cartes, ce qui demande un geste en tête,
 // avec un filtre quand la liste s'allonge.
 function SourcesSection({ overview }: { overview: BackupOverview }) {
   const t = useT();
   const [filter, setFilter] = useState<SourceFilter>("all");
+  const [view, setView] = useState<SourcesView>("cards");
   const sorted = sortSources(overview.sources);
   const shown = filterSources(sorted, filter);
   return (
@@ -149,18 +154,25 @@ function SourcesSection({ overview }: { overview: BackupOverview }) {
         title={t("backup.sources_title")}
         text={t("backup.sources_text")}
         aside={
-          <Choice
-            label={t("backup.filter_label")}
-            name="backup-filter"
-            choices={sourceFilters}
-            value={filter}
-            text={(choice) => t(`backup.filter_${choice}`)}
-            count={(choice) => filterSources(sorted, choice).length}
-            onChange={setFilter}
-          />
+          <span className="cluster">
+            {view === "cards" && (
+              <Choice
+                label={t("backup.filter_label")}
+                name="backup-filter"
+                choices={sourceFilters}
+                value={filter}
+                text={(choice) => t(`backup.filter_${choice}`)}
+                count={(choice) => filterSources(sorted, choice).length}
+                onChange={setFilter}
+              />
+            )}
+            <Choice label={t("backup.view_label")} name="backup-view" choices={sourcesViews} value={view} text={(choice) => t(`backup.view_${choice}`)} onChange={setView} />
+          </span>
         }
       />
-      {shown.length === 0 ? (
+      {view === "matrix" ? (
+        <MatrixView overview={overview} />
+      ) : shown.length === 0 ? (
         <EmptyLine text={t(`backup.filter_empty_${filter}`)} />
       ) : (
         <div className="backup-grid">

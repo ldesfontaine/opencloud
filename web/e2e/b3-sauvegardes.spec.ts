@@ -80,9 +80,9 @@ test("l'assistant mené au bout : Bordure part chiffrée chaque nuit, la carte l
   await expect(bordure).toContainText(label("backup.origin_archive").split("{product}")[1] ?? "");
   await expect(bordure).toContainText(label("backup.status_never"));
 
-  // « Sauvegarder maintenant », sur le plan, dans les archives chiffrées.
-  await page.getByText(label("backup.archives_fold")).click();
-  const plan = page.locator(".card", { hasText: label("backup.source_firewall").split(" · ")[0] ?? "" }).filter({ has: page.getByRole("button", { name: label("backup.run_now") }) });
-  await expect(plan.first()).toBeVisible();
+  // Le plan se gère depuis le menu de la carte : lancer, modifier, supprimer.
+  await bordure.getByRole("button", { name: label("entity.more").replace("%s", "Bordure") }).click();
+  await expect(page.getByRole("menu").getByRole("menuitem")).toContainText([label("backup.run_now"), label("backup.plan_edit"), label("backup.plan_delete")]);
+  await page.keyboard.press("Escape");
   expect(findings.unknown()).toEqual([]);
 });
