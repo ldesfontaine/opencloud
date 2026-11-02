@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	ossignal "os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -549,4 +551,45 @@ func certificateKeyOf(t *testing.T, stateDir *os.Root) string {
 		t.Fatal(err)
 	}
 	return string(content)
+}
+
+// Un rechargement demandé entre l'appel à Start et la prise du processus
+// (le fils a déjà lu son fichier) n'est pas perdu : il part dès la prise. Le
+// processus est celui du test, qui attrape le signal.
+func TestProcessSupervisor_AReloadAskedWhileStartingIsDeliveredOnceTheProcessIsTaken(t *testing.T) {
+	signals := make(chan os.Signal, 1)
+	ossignal.Notify(signals, syscall.SIGHUP)
+	defer ossignal.Stop(signals)
+	self, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	supervisor := newProcessSupervisor("test", nil, slog.New(slog.DiscardHandler), nil)
+
+	supervisor.beginStart()
+	if err := supervisor.reload(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-signals:
+		t.Fatal("the signal left before the process was taken")
+	default:
+	}
+	supervisor.attach(self)
+	receive(t, signals, "the deferred SIGHUP")
+
+	// Entre deux processus, rien n'est gardé : le suivant lit le fichier à son lancement.
+	supervisor.mu.Lock()
+	supervisor.process = nil
+	supervisor.mu.Unlock()
+	if err := supervisor.reload(); err != nil {
+		t.Fatal(err)
+	}
+	supervisor.beginStart()
+	supervisor.attach(self)
+	select {
+	case <-signals:
+		t.Fatal("a reload asked between two processes was delivered to the next one")
+	case <-time.After(100 * time.Millisecond):
+	}
 }

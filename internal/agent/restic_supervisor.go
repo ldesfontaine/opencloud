@@ -47,6 +47,11 @@ type processSupervisor struct {
 	process *os.Process
 	state   string
 	reason  string
+	// starting vaut vrai de l'appel à Start jusqu'à la prise du processus :
+	// le fils peut déjà avoir lu son fichier, et un rechargement demandé
+	// dans cette fenêtre attend d'être livré (reloadPending).
+	starting      bool
+	reloadPending bool
 }
 
 func newProcessSupervisor(name string, launch func(ctx context.Context) *exec.Cmd, logger *slog.Logger, changed func()) *processSupervisor {
@@ -86,14 +91,14 @@ func (s *processSupervisor) runOnce(ctx context.Context) {
 	command.Stderr = tail.writer("stderr")
 	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
 	command.WaitDelay = processStopDelay
+	s.beginStart()
 	if err := command.Start(); err != nil {
+		s.abortStart()
 		s.setState(agentwire.ResticTargetError, startFailureReason(err))
 		s.logger.Warn("supervised process did not start", "process", s.name, "error", err)
 		return
 	}
-	s.mu.Lock()
-	s.process = command.Process
-	s.mu.Unlock()
+	s.attach(command.Process)
 	s.setState(agentwire.ResticTargetRunning, "")
 	if s.onStart != nil {
 		s.onStart(command.Process.Pid)
@@ -145,13 +150,44 @@ func (s *processSupervisor) status() (string, string) {
 	return s.state, s.reason
 }
 
+func (s *processSupervisor) beginStart() {
+	s.mu.Lock()
+	s.starting, s.reloadPending = true, false
+	s.mu.Unlock()
+}
+
+func (s *processSupervisor) abortStart() {
+	s.mu.Lock()
+	s.starting, s.reloadPending = false, false
+	s.mu.Unlock()
+}
+
+// attach prend le processus lancé, et lui livre le rechargement demandé
+// pendant son lancement : il a pu lire son fichier avant l'écriture qui l'a
+// motivé.
+func (s *processSupervisor) attach(process *os.Process) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.process = process
+	s.starting = false
+	if !s.reloadPending {
+		return
+	}
+	s.reloadPending = false
+	if err := process.Signal(syscall.SIGHUP); err != nil {
+		s.logger.Warn("deferred reload", "process", s.name, "error", err)
+	}
+}
+
 // reload envoie SIGHUP au processus qui tourne : rest-server relit son
-// fichier htpasswd sans couper les sauvegardes en cours. Sans processus, il
-// relira le fichier à son prochain lancement.
+// fichier htpasswd sans couper les sauvegardes en cours. Entre deux
+// processus, le suivant relira le fichier à son lancement ; pendant un
+// lancement, le rechargement est gardé jusqu'à la prise du processus.
 func (s *processSupervisor) reload() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.process == nil {
+		s.reloadPending = s.starting
 		return nil
 	}
 	return s.process.Signal(syscall.SIGHUP)
