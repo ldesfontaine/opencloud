@@ -143,9 +143,9 @@ func closedKeyLists() []composedKeys {
 		{prefix: "directory.declared_by_", values: names(directory.Provenances())},
 		// Un lien : sa nature, sa preuve et le signal qui la fonde.
 		{prefix: "link.", values: []string{"outgoing", "incoming"}},
-		{prefix: "link.nature_", values: names(link.Natures())},
-		{prefix: "link.proof_", values: names(link.Proofs())},
-		{prefix: "link.signal_", values: names(link.Signals())},
+		{prefix: "link.nature_", values: []string{string(link.NatureOrder), string(link.NatureConfig), string(link.NatureRoute), string(link.NatureTraffic)}},
+		{prefix: "link.proof_", values: []string{string(link.ProofDeclared), string(link.ProofDeduced), string(link.ProofObserved)}},
+		{prefix: "link.signal_", values: []string{string(link.SignalDependsOn), string(link.SignalContainerLink), string(link.SignalOperator)}},
 		{prefix: "gap.state_", values: names(directory.GapStates())},
 		{prefix: "gap.reason_", values: names(directory.GapReasons())},
 		{prefix: "gap.level_", values: names(container.MatchLevels())},

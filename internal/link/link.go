@@ -22,10 +22,6 @@ const (
 	NatureTraffic Nature = "traffic"
 )
 
-func Natures() []Nature {
-	return []Nature{NatureOrder, NatureConfig, NatureRoute, NatureTraffic}
-}
-
 // Proof : d'où vient le lien. Un mot, jamais la couleur seule à l'écran.
 type Proof string
 
@@ -38,10 +34,6 @@ const (
 	ProofObserved Proof = "observed"
 )
 
-func Proofs() []Proof {
-	return []Proof{ProofDeclared, ProofDeduced, ProofObserved}
-}
-
 // Signal : le signal précis derrière la preuve.
 type Signal string
 
@@ -50,10 +42,6 @@ const (
 	SignalContainerLink Signal = "container_link"
 	SignalOperator      Signal = "operator"
 )
-
-func Signals() []Signal {
-	return []Signal{SignalDependsOn, SignalContainerLink, SignalOperator}
-}
 
 // StaleAfter : un lien déclaré par un outil et non revu depuis ce délai est
 // « ancien ». Il n'est jamais supprimé pour cela : un instantané manque les

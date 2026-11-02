@@ -1,10 +1,11 @@
 # L3 : code mort avant / après (#452)
 
-Avant = origin/dev (cbf7974, L2 fusionnée), après = fin de la branche orca/v052-l3.
+Avant = origin/dev (P1 fusionnée, PR 467), après = fin de la branche orca/v052-l3.
 
-deadcode ./... (Go) : 79 avant, 82 après. Les 3 lignes nées sont `link.Natures`, `link.Proofs`, `link.Signals` (internal/link/link.go) : des listes fermées que seul le test des clés du catalogue (`composed_keys_test.go`) lit, comme `directory.Provenances`, `directory.GapStates` ou `directory.GapReasons`, déjà dans le rapport. Elles font vérifier qu'une valeur ajoutée a sa phrase dans fr.toml et en.toml ; les inliner dans le test casserait ce lien. Aucune autre ligne ne change.
-knip (`cd web && npx knip --no-progress`, node_modules installés des deux côtés) : 10 types exportés non utilisés avant, les mêmes 10 après (aucune ligne ne change, numéros compris) :
-  AlertObjectKind, InventoryKind, RunResult, InventoryTargetKind (src/api/alerts.ts, backups.ts), DeployRight (src/api/directory.ts), ProxmoxKind (src/api/proxmox.ts), ChartPoint (src/components/Chart.tsx), SummaryLine (src/components/Wizard.tsx), CertificateState (src/lib/certificates.ts), PlacedGroup (src/lib/network.ts).
+Mesures refaites après le rebase sur origin/dev (P1 comprise, migration 035).
+deadcode ./... (sans -test) : 79 sur dev, 79 sur la branche ; la liste est identique (numéros de ligne mis à part). deadcode -test ./... : 0 des deux côtés.
+  Les trois listes `link.Natures`, `link.Proofs`, `link.Signals`, que seul le test des clés du catalogue lisait, sont retirées du code de production : le test (internal/server/composed_keys_test.go) énumère les constantes lui-même. Aucun élément mort n'est né dans ce chantier.
+knip@5.88.1 (`cd web && npx knip@5.88.1 --no-progress`, node_modules installés des deux côtés), branche comparée à origin/dev : sortie identique. 4 fichiers inutilisés (public/theme.js, src/statut/main.tsx, StatusPage.tsx, statut.scss) et 3 types exportés non utilisés (TextPart, AvailabilityTab, MachinesTab), tous déjà sur dev. La seule différence brute est le dossier dist/, présent sur la branche parce que le front y est compilé, absent du checkout de dev.
   Rien n'est exporté sans servir dans le code de L3.
 
 Supprimé dans ce chantier
