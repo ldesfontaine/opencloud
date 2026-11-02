@@ -78,7 +78,8 @@ func TestLink_ADeducedRowIsTheTraceOfADismissal(t *testing.T) {
 func TestDeducedID_IsTheSameForTheSamePairOnly(t *testing.T) {
 	a := Endpoint{MachineID: "m1", Key: ContainerKey("caddy")}
 	b := Endpoint{MachineID: "m2", Key: ContainerKey("blog")}
-	if DeducedID(a, b, NatureRoute) != DeducedID(a, b, NatureRoute) || DeducedID(a, b, NatureRoute) == DeducedID(b, a, NatureRoute) {
-		t.Error("l'identifiant se refait de la paire, dans son sens")
+	first := DeducedID(a, b, NatureRoute)
+	if again := DeducedID(a, b, NatureRoute); again != first || first == DeducedID(b, a, NatureRoute) || first == DeducedID(a, b, NatureConfig) {
+		t.Error("l'identifiant se refait de la paire, dans son sens et sa nature")
 	}
 }
