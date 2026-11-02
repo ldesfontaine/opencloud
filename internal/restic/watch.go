@@ -28,6 +28,7 @@ func (s *Service) Watch(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.RunIfDue(ctx)
+			s.Supervise(ctx)
 		}
 	}
 }
@@ -78,6 +79,7 @@ func (s *Service) RunIfDue(ctx context.Context) {
 	// Les sauvegardes de la nuit finies, la cible purge chaque dépôt qui a
 	// reçu un instantané.
 	s.retainAfterNight(passCtx, saved)
+	s.verifyAfterNight(passCtx)
 }
 
 // runLane mène les sauvegardes d'une source, l'une après l'autre, chacune

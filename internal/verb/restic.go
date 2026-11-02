@@ -5,7 +5,8 @@ package verb
 // la source à la cible (un ordre à chacune, les mots de passe du lien dans
 // leur secret) et la supprimer ferme le dépôt : deux gestes que l'opérateur
 // confirme. Lancer une sauvegarde n'efface rien, comme agent.ping : il est
-// son propre inverse. Modifier une sauvegarde (son nom, sa rétention) reste à
+// son propre inverse. Vérifier un dépôt non plus (la cible relit en mémoire,
+// n'écrit rien) : même chose. Modifier une sauvegarde (son nom, sa rétention) reste à
 // l'opérateur : une rétention plus courte purge plus.
 func init() {
 	Default.MustRegister(Verb{
@@ -32,5 +33,10 @@ func init() {
 		ID: "restic.backup.run", Route: "POST /api/machines/{id}/restic-backups/{backup}/actions/run",
 		Params: []string{"id", "backup"}, Body: []string{}, Target: TargetMachine,
 		Label: "api_token.verb_restic_backup_run", Summary: "api_token.verb_restic_backup_run_text", Reverse: "restic.backup.run",
+	})
+	Default.MustRegister(Verb{
+		ID: "restic.backup.verify", Route: "POST /api/machines/{id}/restic-backups/{backup}/actions/verify",
+		Params: []string{"id", "backup"}, Body: []string{}, Target: TargetMachine,
+		Label: "api_token.verb_restic_backup_verify", Summary: "api_token.verb_restic_backup_verify_text", Reverse: "restic.backup.verify",
 	})
 }

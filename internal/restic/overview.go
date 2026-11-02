@@ -128,6 +128,33 @@ type Protection struct {
 	Runs []RunRecord
 	// Restic, portée service : les parties du dernier passage.
 	Parts []PartResult
+	// Restic : la création de la sauvegarde, d'où se mesure l'attente de sa
+	// première réussite ; zéro pour les autres origines.
+	CreatedAt time.Time
+	// Restic : la vérification du dépôt (restic.verify) ; nil pour les autres
+	// origines.
+	Verify *VerifyView
+}
+
+// VerifyView est la vérification du dépôt d'une sauvegarde restic : la
+// dernière tentative et la dernière réussite, ce qu'elle a relu (des
+// comptes), si la cible peut la mener, et quand la nuit la rejouera.
+type VerifyView struct {
+	State     string
+	Reason    string
+	At        time.Time
+	SuccessAt time.Time
+	Snapshots int
+	Files     int
+	Bytes     int64
+	// Le droit restic.verify de la cible : l'écran propose de la ré-enrôler.
+	Right RightFit
+	// Since : d'où court l'attente d'une première réussite (la plus ancienne
+	// sauvegarde du dépôt) ; sert à dire depuis quand le test manque.
+	Since time.Time
+	// Le dépôt n'est pas encore vérifié ou ne l'est plus assez : la nuit la
+	// rejoue (si le droit le permet).
+	IsStale bool
 }
 
 // RetentionView est la rétention en clair : Known faux, on ne la connaît
@@ -213,15 +240,18 @@ const targetPending = "pending"
 
 // overviewInputs est tout ce que l'aperçu lit, d'une traite.
 type overviewInputs struct {
-	inventory  backup.Inventory
-	backups    []Backup
-	runs       map[string][]RunRecord
-	targets    []TargetRecord
-	services   []ServiceRef
-	docker     map[string]ServiceDocker
-	jobs       map[string][]proxmox.BackupJob
-	jobsBlind  map[string]bool
-	links      map[repoKey]Link
+	inventory backup.Inventory
+	backups   []Backup
+	runs      map[string][]RunRecord
+	targets   []TargetRecord
+	services  []ServiceRef
+	docker    map[string]ServiceDocker
+	jobs      map[string][]proxmox.BackupJob
+	jobsBlind map[string]bool
+	links     map[repoKey]Link
+	// La plus ancienne sauvegarde de chaque dépôt : d'où se mesure l'attente de
+	// sa première vérification.
+	oldest     map[repoKey]time.Time
 	machines   []machine.Status
 	machineMap map[string]machine.Status
 }
@@ -274,6 +304,12 @@ func (s *Service) readOverviewInputs(ctx context.Context) (overviewInputs, error
 	inputs.links = map[repoKey]Link{}
 	for _, link := range links {
 		inputs.links[link.repo()] = link
+	}
+	inputs.oldest = map[repoKey]time.Time{}
+	for _, candidate := range inputs.backups {
+		if seen, found := inputs.oldest[candidate.repo()]; !found || candidate.CreatedAt.Before(seen) {
+			inputs.oldest[candidate.repo()] = candidate.CreatedAt
+		}
 	}
 	if inputs.machines, err = s.machines.List(ctx); err != nil {
 		return inputs, fmt.Errorf("list machines: %w", err)
@@ -467,9 +503,30 @@ func resticProtections(inputs overviewInputs, now time.Time, used map[string]boo
 			forget := link.Retain
 			protection.Retention.LastForget = &forget
 		}
+		if hasLink {
+			protection.Verify = verifyViewOf(link, inputs.machineMap[candidate.TargetMachineID], inputs.oldest[candidate.repo()], now)
+		}
 		protections = append(protections, protection)
 	}
 	return protections
+}
+
+// verifyViewOf : la vérification est celle du dépôt, que partagent toutes les
+// sauvegardes d'une source vers une cible. Avant la première réussite,
+// l'attente se mesure depuis la plus ancienne d'entre elles (linkSince).
+func verifyViewOf(link Link, target machine.Status, linkSince, now time.Time) *VerifyView {
+	verify := link.Verify
+	baseline := verify.SuccessAt
+	if baseline.IsZero() {
+		baseline = linkSince
+	}
+	return &VerifyView{
+		State: verify.State, Reason: verify.Reason, At: verify.At, SuccessAt: verify.SuccessAt,
+		Snapshots: verify.Snapshots, Files: verify.Files, Bytes: verify.Bytes,
+		Right:   RightOf(target, machine.CapabilityResticVerify),
+		Since:   linkSince,
+		IsStale: now.Sub(baseline) > VerifyStaleAfter,
+	}
 }
 
 func resticProtection(current Backup, runs []RunRecord, now time.Time) Protection {
@@ -479,7 +536,8 @@ func resticProtection(current Backup, runs []RunRecord, now time.Time) Protectio
 		TargetMachineID: current.TargetMachineID, TargetMachineName: current.TargetMachineName,
 		State: resticState(current, now), Reason: current.Last.Reason, LastAt: current.Last.FinishedAt,
 		LastSuccessAt: current.LastSuccessAt, NextAt: nextRun(now, current.LastAttemptAt), Schedule: current.Schedule,
-		Runs: orEmpty(runs), Parts: PartResults(current.Last.Report.Parts),
+		CreatedAt: current.CreatedAt,
+		Runs:      orEmpty(runs), Parts: PartResults(current.Last.Report.Parts),
 		Retention: RetentionView{
 			Known: true, Applied: true, KeepAll: retention == Retention{}, Last: retention.Last, Daily: retention.Daily,
 			Weekly: retention.Weekly, Monthly: retention.Monthly, Yearly: retention.Yearly,
@@ -620,6 +678,7 @@ func fitsOf(inputs overviewInputs) []MachineFit {
 				RightOf(status, machine.CapabilityResticTarget),
 				produce,
 				RightOf(status, machine.CapabilityResticDocker),
+				RightOf(status, machine.CapabilityResticVerify),
 				RightOf(status, machine.CapabilityBackupProduce),
 			},
 		})

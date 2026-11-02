@@ -207,6 +207,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	resticBackups.SetSender(actions)
 	resticBackups.SetInventory(backups)
 	resticBackups.SetAuditor(journal)
+	resticBackups.SetAlerter(alerts)
 	relay := restic.NewBroker(machines, db, nil, logger)
 	// Le déploiement des services déclarés part par les mêmes ordres signés.
 	deployer := deploy.New(db, declared, machines, db, actions, logger)

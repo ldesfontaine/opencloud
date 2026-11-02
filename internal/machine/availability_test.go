@@ -132,7 +132,7 @@ func TestUnavailableReasons_AreTheClosedListTheAgentJudgesWith(t *testing.T) {
 	}
 	// Les droits qui écrivent, dans l'ordre des droits ; une liste écrite : un
 	// droit ajouté plus tard (probe.lan, ssh.keys) n'y entre pas tout seul.
-	want := []string{CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite, CapabilityProxmoxPower, CapabilityProxmoxSnapshot, CapabilityResticTarget, CapabilityResticProduce, CapabilityResticDocker}
+	want := []string{CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite, CapabilityProxmoxPower, CapabilityProxmoxSnapshot, CapabilityResticTarget, CapabilityResticProduce, CapabilityResticDocker, CapabilityResticVerify}
 	if !slices.Equal(JudgedCapabilities(), want) || slices.Contains(JudgedCapabilities(), CapabilityObserve) {
 		t.Errorf("judged rights %v, want %v", JudgedCapabilities(), want)
 	}

@@ -25,8 +25,8 @@ func TestMigration032_KeepsAnExistingBaseAndAddsTheResticTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range names {
-		// La 033 complète les tables de la 032 : elle la suit.
-		if version := migrationVersion(name); version != 32 && version != 33 {
+		// La 033 et la 034 complètent les tables de la 032 : elles la suivent.
+		if version := migrationVersion(name); version != 32 && version != 33 && version != 34 {
 			if err := db.apply(ctx, name, version); err != nil {
 				t.Fatal(err)
 			}
@@ -41,8 +41,10 @@ func TestMigration032_KeepsAnExistingBaseAndAddsTheResticTables(t *testing.T) {
 	exec(t, db, `INSERT INTO links (id, from_machine_id, from_key, to_machine_id, to_key, nature, proof, signal, first_seen_at, last_seen_at)
 		VALUES ('lnk_1', 'pve-host', 'compose:a/web', 'nas-host', 'compose:a/db', 'order', 'declared', 'operator', 1, 1)`)
 
-	if err := db.apply(ctx, "032_restic.sql", 32); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"032_restic.sql", "033_restic_parts.sql", "034_restic_verify.sql"} {
+		if err := db.apply(ctx, name, migrationVersion(name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if got := count(t, db, `SELECT COUNT(*) FROM proxmox_guests WHERE machine_id = 'pve-host'`); got != 1 {

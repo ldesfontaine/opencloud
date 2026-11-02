@@ -76,7 +76,13 @@ func newResticBench(t *testing.T, sourceRights, targetRights string) *resticBenc
 // en marche, avec son certificat public.
 func readyResticBench(t *testing.T) *resticBench {
 	t.Helper()
-	bench := newResticBench(t, "observe,restic.produce", "observe,restic.target=/srv/restic")
+	return readyResticBenchRights(t, "observe,restic.target=/srv/restic")
+}
+
+// readyResticBenchRights fait de même avec les droits donnés à la cible.
+func readyResticBenchRights(t *testing.T, targetRights string) *resticBench {
+	t.Helper()
+	bench := newResticBench(t, "observe,restic.produce", targetRights)
 	got := callAPI(bench.Server, http.MethodPost, "/api/machines/"+resticTargetID+"/actions/restic-target-setup",
 		map[string]any{"host": resticTargetHost, "port": resticTargetPort})
 	if got.Code != http.StatusNoContent {

@@ -168,6 +168,7 @@ POST /api/machines/{id}/restic-backups
 PUT /api/machines/{id}/restic-backups/{backup}
 DELETE /api/machines/{id}/restic-backups/{backup}
 POST /api/machines/{id}/restic-backups/{backup}/actions/run
+POST /api/machines/{id}/restic-backups/{backup}/actions/verify
 * /api/
 POST /agent/enroll
 GET /agent/stream

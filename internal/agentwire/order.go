@@ -196,6 +196,11 @@ const (
 	ReasonVolumeUnmounted   = "volume_unmounted"
 	ReasonEngineUnsupported = "engine_unsupported"
 	ReasonDumpFailed        = "dump_failed"
+	// Les raisons de restic.verify : restic check a trouvé le dépôt abîmé ; la
+	// relecture d'un fichier a échoué ; le dépôt n'a encore aucun instantané.
+	ReasonCheckFailed   = "check_failed"
+	ReasonRestoreFailed = "restore_failed"
+	ReasonRepoEmpty     = "repo_empty"
 )
 
 // RightMissing rend la raison d'un ordre refusé faute du droit nommé.
@@ -226,6 +231,7 @@ func RefusalReasons() []string {
 		ReasonRestServerMissing, ReasonResticMissing, ReasonResticFailed,
 		ReasonResticNotProvisioned, ReasonRetentionInvalid, ReasonRetentionBelowFloor,
 		ReasonContainerMissing, ReasonVolumeUnmounted, ReasonEngineUnsupported, ReasonDumpFailed,
+		ReasonCheckFailed, ReasonRestoreFailed, ReasonRepoEmpty,
 	}
 }
 
@@ -255,6 +261,9 @@ type ActionResult struct {
 	// Le chemin et le bilan d'une sauvegarde restic.backup, réussie ou non ;
 	// absent pour les autres ordres.
 	Restic *ResticRunReport `json:"restic,omitempty"`
+	// Les comptes d'une vérification restic.verify réussie ; absent pour les
+	// autres ordres.
+	Verify *ResticVerifyReport `json:"verify,omitempty"`
 }
 
 // OutputLine est une ligne de la sortie d'un ordre ; stream vaut « stdout »

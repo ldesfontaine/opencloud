@@ -54,6 +54,14 @@ const (
 	// L'agent d'une machine est revenu à sa version d'avant : la mise à jour
 	// n'a pas été confirmée à l'échéance. Danger si la remise en état a échoué.
 	KindAgentRolledBack Kind = "agent_rolled_back"
+	// La supervision des sauvegardes (module Sauvegardes) : aucune réussite
+	// depuis trop longtemps, test de restauration périmé, source sans plan,
+	// cible pleine, cible injoignable.
+	KindBackupStale       Kind = "backup_stale"
+	KindRestoreTestStale  Kind = "restore_test_stale"
+	KindSourceUnprotected Kind = "source_unprotected"
+	KindTargetFull        Kind = "target_full"
+	KindTargetUnreachable Kind = "target_unreachable"
 )
 
 // Kinds liste le catalogue, dans l'ordre des écrans.
@@ -62,6 +70,7 @@ func Kinds() []Kind {
 		KindMachineLost, KindServiceDown, KindServiceUnhealthy, KindServiceRestart,
 		KindJobLate, KindJobFailed, KindProbeDown,
 		KindCertExpiring, KindCertExpired, KindCertUntrusted, KindDiskFull, KindAgentRolledBack,
+		KindBackupStale, KindRestoreTestStale, KindSourceUnprotected, KindTargetFull, KindTargetUnreachable,
 	}
 }
 
@@ -94,10 +103,13 @@ const (
 	ObjectHeartbeat ObjectKind = "heartbeat"
 	ObjectProbe     ObjectKind = "probe"
 	ObjectVolume    ObjectKind = "volume"
+	// Une sauvegarde, une source ou une cible de sauvegardes : comme un
+	// volume, il ne porte que sa machine (la source, ou la cible).
+	ObjectBackup ObjectKind = "backup"
 )
 
 func ObjectKinds() []ObjectKind {
-	return []ObjectKind{ObjectMachine, ObjectContainer, ObjectHeartbeat, ObjectProbe, ObjectVolume}
+	return []ObjectKind{ObjectMachine, ObjectContainer, ObjectHeartbeat, ObjectProbe, ObjectVolume, ObjectBackup}
 }
 
 func isObjectKind(kind ObjectKind) bool {
@@ -143,14 +155,17 @@ type Details struct {
 	Target string `json:"target,omitempty"`
 	// L'échéance d'un certificat.
 	NotAfter time.Time `json:"not_after,omitzero"`
-	// Depuis quand une machine ne donne plus signe de vie.
+	// Depuis quand une machine ne donne plus signe de vie, ou une sauvegarde
+	// n'a plus réussi.
 	Since time.Time `json:"since,omitzero"`
+	// La place libre d'une cible, en octets.
+	Bytes int64 `json:"bytes,omitempty"`
 }
 
 func (d Details) Equal(other Details) bool {
 	return d.Count == other.Count && d.Percent == other.Percent && d.MountPoint == other.MountPoint && d.Threshold == other.Threshold &&
 		d.ExitCode == other.ExitCode && d.Reason == other.Reason && d.Target == other.Target &&
-		d.NotAfter.Equal(other.NotAfter) && d.Since.Equal(other.Since)
+		d.Bytes == other.Bytes && d.NotAfter.Equal(other.NotAfter) && d.Since.Equal(other.Since)
 }
 
 // Fact est ce qu'une source émet : de quoi ouvrir une alerte, ou en

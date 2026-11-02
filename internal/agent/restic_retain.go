@@ -113,13 +113,13 @@ func (t *resticTarget) retainFloorReason(params agentwire.ResticRetainParams) st
 // variable ; il est effacé quoi qu'il arrive, et masqué dans la sortie.
 func (t *resticTarget) retain(ctx context.Context, job resticRetainJob) ([]agentwire.OutputLine, error) {
 	user := job.params.User
-	if !t.claimRetain(user) {
+	if !t.claimMaintenance(user) {
 		return nil, refuseWith(agentwire.ReasonBusy, errors.New("the repository is busy"))
 	}
-	defer t.releaseRetain(user)
+	defer t.releaseMaintenance(user)
 	ctx, cancel := context.WithTimeout(ctx, resticRetainTimeout)
 	defer cancel()
-	passwordFile, remove, err := t.writeRetainPassword(user, job.password)
+	passwordFile, remove, err := t.writeRepoPassword("retain-", user, job.password)
 	if err != nil {
 		return nil, failWith(agentwire.ReasonPathUnwritable, err)
 	}
@@ -148,15 +148,16 @@ func keptCounts(params agentwire.ResticRetainParams) string {
 		params.KeepLast, params.KeepDaily, params.KeepWeekly, params.KeepMonthly, params.KeepYearly)
 }
 
-// writeRetainPassword écrit le mot de passe du dépôt dans l'état (0600) et
-// rend son chemin absolu, que restic lit, et de quoi l'effacer. Un reste
-// d'un arrêt brutal est effacé d'abord.
-func (t *resticTarget) writeRetainPassword(user, password string) (string, func(), error) {
+// writeRepoPassword écrit le mot de passe du dépôt dans l'état (0600), sous un
+// nom propre à l'ordre qui s'en sert (prefix), et rend son chemin absolu, que
+// restic lit, et de quoi l'effacer. Un reste d'un arrêt brutal est effacé
+// d'abord.
+func (t *resticTarget) writeRepoPassword(prefix, user, password string) (string, func(), error) {
 	resticRoot, err := openResticDir(t.stateDir)
 	if err != nil {
 		return "", nil, err
 	}
-	name := "retain-" + user + ".password"
+	name := prefix + user + ".password"
 	if err := resticRoot.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		_ = resticRoot.Close() // on rend déjà une erreur plus grave : celle de fermeture est sans suite
 		return "", nil, fmt.Errorf("remove leftover password file: %w", err)
@@ -179,7 +180,9 @@ func (t *resticTarget) writeRetainPassword(user, password string) (string, func(
 	return absolute, remove, nil
 }
 
-func (t *resticTarget) claimRetain(user string) bool {
+// claimMaintenance réserve un dépôt pour une rétention ou une vérification :
+// jamais deux à la fois, jamais pendant une sauvegarde relayée.
+func (t *resticTarget) claimMaintenance(user string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.retaining[user] || t.isRelayLockedLocked(user) {
@@ -189,7 +192,7 @@ func (t *resticTarget) claimRetain(user string) bool {
 	return true
 }
 
-func (t *resticTarget) releaseRetain(user string) {
+func (t *resticTarget) releaseMaintenance(user string) {
 	t.mu.Lock()
 	delete(t.retaining, user)
 	t.mu.Unlock()

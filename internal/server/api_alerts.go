@@ -46,6 +46,7 @@ type detailsJSON struct {
 	Target     string     `json:"target,omitempty"`
 	NotAfter   *time.Time `json:"not_after,omitempty"`
 	Since      *time.Time `json:"since,omitempty"`
+	Bytes      int64      `json:"bytes,omitempty"`
 }
 
 type alertCountsJSON struct {
@@ -162,7 +163,7 @@ func alertToJSON(found alert.Alert) alertJSON {
 		Details: detailsJSON{
 			Count: found.Details.Count, Percent: found.Details.Percent, MountPoint: found.Details.MountPoint, Threshold: found.Details.Threshold,
 			ExitCode: found.Details.ExitCode, Reason: found.Details.Reason, Target: probe.RedactTarget(found.Details.Target),
-			NotAfter: httpx.TimeOrNil(found.Details.NotAfter), Since: httpx.TimeOrNil(found.Details.Since),
+			NotAfter: httpx.TimeOrNil(found.Details.NotAfter), Since: httpx.TimeOrNil(found.Details.Since), Bytes: found.Details.Bytes,
 		},
 		OpenedAt: found.OpenedAt.UTC(), UpdatedAt: found.UpdatedAt.UTC(),
 		ResolvedAt: httpx.TimeOrNil(found.ResolvedAt), AcknowledgedAt: httpx.TimeOrNil(found.AcknowledgedAt),
