@@ -26,7 +26,7 @@ interface InstallStep {
 }
 
 // Des étapes à copier, ou la page où prendre le binaire à la main.
-export type InstallPlan = { steps: InstallStep[]; page: null } | { steps: []; page: string };
+type InstallPlan = { steps: InstallStep[]; page: null } | { steps: []; page: string };
 
 export function restServerInstall(arch: string): InstallPlan {
   if (!restServerArchitectures.includes(arch)) {

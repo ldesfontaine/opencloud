@@ -173,12 +173,6 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   folder: <path d="M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2h8a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 17Z" />,
-  lock: (
-    <>
-      <rect x="5" y="11" width="14" height="9" rx="2" />
-      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-    </>
-  ),
 };
 
 // Les tracés seuls, pour un SVG qui dessine l'icône lui-même : le graphe.

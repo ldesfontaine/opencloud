@@ -13,7 +13,7 @@ import type { Tone } from "./tone";
 
 // L'état d'une source, de toutes ses protections : un échec se voit toujours ;
 // sinon une copie réussie suffit ; « inconnu » n'est ni bon ni mauvais.
-export type SourceStatus = "failed" | "none" | "never" | "late" | "running" | "unknown" | "ok";
+type SourceStatus = "failed" | "none" | "never" | "late" | "running" | "unknown" | "ok";
 
 export function sourceStatus(source: Pick<BackupSource, "protections" | "observed_unknown">): SourceStatus {
   const states = source.protections.map((protection) => protection.state);
@@ -73,7 +73,7 @@ export function filterSources(sources: readonly BackupSource[], filter: SourceFi
 // La rétention en clair : « 14 nuits · 8 semaines · 3 mois », et qui
 // l'applique : la cible restic chaque nuit, l'hôte Proxmox à chaque tâche,
 // le serveur à chaque archive.
-export interface RetentionView {
+interface RetentionView {
   value: string;
   note: string | null;
 }
@@ -98,7 +98,7 @@ export function retentionView(t: Translate, protection: Pick<BackupProtection, "
 
 // La dernière purge d'un dépôt restic : pas encore, en cours, faite, ou ce
 // qui l'a empêchée (ton warn).
-export interface ForgetView {
+interface ForgetView {
   text: string;
   tone: Tone;
 }
@@ -202,7 +202,7 @@ export function protectionReasonText(t: Translate, reason: string, describeReaso
 
 // Le disque d'une cible en trois parts : ce que les sauvegardes y prennent,
 // le reste de l'occupé, le libre. En pour cent du total, pour la jauge.
-export interface DiskShare {
+interface DiskShare {
   backup: number;
   other: number;
   free: number;
@@ -247,7 +247,7 @@ function allProtections(sources: readonly BackupSource[]): BackupProtection[] {
 
 // Le verdict de la page : combien sont à jour, combien attendent un geste, et
 // la première qui en attend un (un échec avant une source sans copie).
-export interface BackupVerdict {
+interface BackupVerdict {
   tone: Tone;
   total: number;
   protectedCount: number;
@@ -343,7 +343,7 @@ export function sourceUnfit(t: Translate, source: BackupSource, machines: readon
 
 // Une machine que l'assistant propose comme cible : prête (rest-server en
 // marche, en ligne), ou grisée avec sa raison et son geste.
-export interface TargetChoice {
+interface TargetChoice {
   machine: BackupMachine;
   target: BackupTarget | null;
   unfit: Unfitness | null;
