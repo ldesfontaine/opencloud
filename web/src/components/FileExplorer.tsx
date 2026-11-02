@@ -46,7 +46,7 @@ export interface FileSource {
 }
 
 // Ce qui est choisi : la vue, le dossier ouvert, et les noms cochés dedans.
-interface FileSelection {
+export interface FileSelection {
   view: FileView | null;
   folder: string;
   names: string[];

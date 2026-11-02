@@ -39,6 +39,15 @@ func init() {
 		Params: []string{"id", "backup"}, Body: []string{}, Target: TargetMachine,
 		Label: "api_token.verb_restic_backup_verify", Summary: "api_token.verb_restic_backup_verify_text", Reverse: "restic.backup.verify",
 	})
+	// Restaurer écrit sur la machine source, à côté de l'original, sans rien
+	// effacer : il n'y a pourtant pas de verbe qui défasse cette copie. Un geste
+	// sans retour par verbe est à confirmation : le jeton dépose une demande que
+	// l'opérateur confirme dans l'interface, avec le chemin exact de la copie.
+	Default.MustRegister(Verb{
+		ID: "restic.backup.restore", Route: "POST /api/machines/{id}/restic-backups/{backup}/actions/restore",
+		Params: []string{"id", "backup"}, Body: []string{"snapshot", "path", "stamp"}, Target: TargetMachine,
+		Label: "api_token.verb_restic_backup_restore", Summary: "api_token.verb_restic_backup_restore_text", Confirm: true,
+	})
 	// Parcourir un dépôt n'écrit ni n'efface rien : il est son propre inverse.
 	Default.MustRegister(Verb{
 		ID: "restic.backup.browse", Route: "POST /api/machines/{id}/restic-backups/{backup}/actions/browse",

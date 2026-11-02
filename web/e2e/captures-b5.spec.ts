@@ -69,8 +69,15 @@ for (const theme of ["light", "dark"] as const) {
     await dialog.getByRole("button", { name: "srv", exact: true }).click({ timeout: 30_000 });
     await dialog.getByRole("button", { name: "appli", exact: true }).click({ timeout: 30_000 });
     await dialog.getByRole("checkbox", { name: label("explorer.choose").replace("%s", "app.ini") }).check({ timeout: 30_000 });
-    await expect(dialog.locator(".explorer-outputs code").last()).toContainText("restic restore");
+    await expect(dialog.locator(".explorer-outputs")).toContainText(label("backup.restore_beside").split("%s")[0] ?? "");
     await shoot(page, "explorateur", theme);
+    // La confirmation en ligne dit le chemin exact ; confirmée, le résultat se lit dans la fenêtre.
+    await dialog.getByRole("button", { name: label("backup.restore"), exact: true }).click();
+    await expect(dialog.getByRole("group", { name: /\.restaure-\d{8}-\d{6}/ })).toBeVisible();
+    await shoot(page, "restaurer-confirmation", theme);
+    await dialog.getByRole("button", { name: label("confirm.yes") }).click();
+    await expect(dialog.locator(".backup-restore-results li").first()).toContainText(label("action.state_succeeded"), { timeout: 30_000 });
+    await shoot(page, "restaurer-resultat", theme);
   });
 
   test(`explorateur sur une cible sans le droit ${theme}`, async ({ page }) => {
@@ -86,6 +93,22 @@ for (const theme of ["light", "dark"] as const) {
     await open(page, theme, "/");
     await expect(page.locator("a.stat-link", { hasText: label("module.backups") })).toBeVisible();
     await shoot(page, "vue-ensemble", theme);
+  });
+
+  test(`restaurer sans le droit ${theme}`, async ({ page }) => {
+    await open(page, theme, "/sauvegardes");
+    test.setTimeout(90_000);
+    const vaultwarden = card(page, "vaultwarden");
+    await vaultwarden.getByRole("button", { name: label("entity.more").replace("%s", "vaultwarden") }).click();
+    await page.getByRole("menuitem", { name: label("backup.browse") }).click();
+    const dialog = page.locator("dialog[open]");
+    await dialog.getByRole("button", { name: "srv", exact: true }).click({ timeout: 30_000 });
+    await dialog.getByRole("button", { name: "appli", exact: true }).click({ timeout: 30_000 });
+    await dialog.getByRole("checkbox", { name: label("explorer.choose").replace("%s", "app.ini") }).check({ timeout: 30_000 });
+    await dialog.getByRole("button", { name: label("backup.restore"), exact: true }).click();
+    await dialog.getByRole("button", { name: label("confirm.yes") }).click();
+    await expect(dialog).toContainText(label("restic.source_restore_right_missing"), { timeout: 30_000 });
+    await shoot(page, "restaurer-sans-droit", theme);
   });
 
   test(`enrôlement avec le droit restic.browse ${theme}`, async ({ page }) => {

@@ -212,6 +212,7 @@ func (s *Server) routes() []route {
 		{"POST", "/api/machines/{id}/restic-backups/{backup}/actions/run", s.runResticBackup},
 		{"POST", "/api/machines/{id}/restic-backups/{backup}/actions/verify", s.verifyResticBackup},
 		{"POST", "/api/machines/{id}/restic-backups/{backup}/actions/browse", s.browseResticBackup},
+		{"POST", "/api/machines/{id}/restic-backups/{backup}/actions/restore", s.restoreResticBackup},
 		{anyMethod, "/api/", s.apiUnknown},
 	}
 	add := func(method, pattern string, handler http.HandlerFunc) {

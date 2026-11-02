@@ -375,6 +375,7 @@ type ResticService interface {
 	RunNow(ctx context.Context, sourceID, id string) (action.Run, error)
 	VerifyNow(ctx context.Context, sourceID, id string) (action.Run, error)
 	Browse(ctx context.Context, sourceID, id string, request restic.BrowseRequest) (agentwire.ResticBrowseReport, error)
+	Restore(ctx context.Context, sourceID, id string, request restic.RestoreRequest) (action.Run, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.

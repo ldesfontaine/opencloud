@@ -3,22 +3,21 @@ import { useNavigate, useParams } from "react-router";
 
 import { browseResticBackup, useBackupOverview, type BackupProtection, type BackupSource } from "../../api/backups";
 import { Button } from "../../components/Button";
-import { TokenBox } from "../../components/Copy";
 import { FileExplorer, type FileOutput, type FileSource } from "../../components/FileExplorer";
 import { Modal } from "../../components/Modal";
 import { Pill } from "../../components/Pill";
 import { useI18n, type Translate } from "../../i18n/context";
 import { backupsPath } from "../../lib/backups";
-import { repositoryUser, resticAccesses, restoreCommand } from "../../lib/backupOverview";
-import { childPath } from "../../lib/fileExplorer";
+import { resticAccesses } from "../../lib/backupOverview";
 import { formatWhen } from "../../lib/time";
+import { RestoreOutput } from "./Restore";
 
 // « Parcourir ses sauvegardes » : la fenêtre de la page Sauvegardes, à
 // /sauvegardes/parcourir/<machine>/<sauvegarde>. Elle monte l'explorateur
 // générique sur une source « instantané restic » : la cible lit son dépôt (ordre
-// restic.browse) et rend des noms, des tailles et des dates ; rien ne se
-// restaure d'ici. La sortie est la commande qui sort la sélection à côté, à
-// lancer sur la machine source, qui garde le mot de passe du dépôt.
+// restic.browse) et rend des noms, des tailles et des dates. La sortie est le
+// bouton « Restaurer » : la machine source remet le chemin choisi à côté de
+// l'original (ordre restic.restore), sans rien écraser.
 export function ExplorerModal() {
   const { machineId = "", backupId = "" } = useParams();
   const navigate = useNavigate();
@@ -33,7 +32,7 @@ export function ExplorerModal() {
 function ExplorerDialog({ source, protection, machineId, backupId, onClose }: { source: BackupSource | undefined; protection: BackupProtection | undefined; machineId: string; backupId: string; onClose: () => void }) {
   const { t } = useI18n();
   const snapshots = useMemo<FileSource>(() => resticSnapshotSource(machineId, backupId), [machineId, backupId]);
-  const outputs = useMemo<FileOutput[]>(() => (source === undefined || protection === undefined ? [] : [restoreBesideOutput(t, source, protection)]), [t, source, protection]);
+  const outputs = useMemo<FileOutput[]>(() => (source === undefined || protection === undefined ? [] : [restoreOutput(t, source, protection)]), [t, source, protection]);
   if (source === undefined || protection === undefined) {
     return (
       <Modal title={t("backup.explorer_title", "")} onClose={onClose}>
@@ -78,25 +77,11 @@ function resticSnapshotSource(machineId: string, backupId: string): FileSource {
   };
 }
 
-// Sortir la sélection à côté, sans rien écraser : l'environnement du dépôt, puis
-// la commande. Sans instantané choisi, la sortie attend.
-function restoreBesideOutput(t: Translate, source: BackupSource, protection: BackupProtection): FileOutput {
-  const link = repositoryUser(protection.target_machine_id);
+// La sortie de l'explorateur : restaurer à côté de l'original, par la source.
+function restoreOutput(t: Translate, source: BackupSource, protection: BackupProtection): FileOutput {
   return {
     id: "restore-beside",
-    label: t("backup.explorer_restore", source.machine_name),
-    render: (selection) => {
-      if (selection.view === null) {
-        return <span className="secondary">{t("backup.explorer_pick_snapshot")}</span>;
-      }
-      const paths = selection.names.length === 0 ? [selection.folder] : selection.names.map((name) => childPath(selection.folder, name));
-      return (
-        <>
-          <span className="secondary">{t("backup.explorer_restore_env", source.machine_name)}</span>
-          <TokenBox value={t("backup.access_env", link)} />
-          <TokenBox value={restoreCommand(selection.view.id, selection.folder === "/" && selection.names.length === 0 ? [] : paths)} />
-        </>
-      );
-    },
+    label: t("backup.explorer_restore"),
+    render: (selection) => <RestoreOutput source={source} protection={protection} selection={selection} />,
   };
 }

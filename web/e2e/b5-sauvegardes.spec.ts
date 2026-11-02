@@ -91,7 +91,7 @@ test("l'inspecteur : une case l'ouvre, ses gestes, un menu choisi, il se ferme",
   expect(findings.unknown()).toEqual([]);
 });
 
-test("l'explorateur : les instantanés, un dossier ouvert, une sélection, la commande, le clavier, Échap", async ({ page, findings }) => {
+test("l'explorateur : les instantanés, un dossier ouvert, une sélection, le clavier, Échap", async ({ page, findings }) => {
   const slow = expect.configure({ timeout: browseTimeout });
   findings.where = "/sauvegardes/parcourir";
   await openMatrix(page);
@@ -102,6 +102,8 @@ test("l'explorateur : les instantanés, un dossier ouvert, une sélection, la co
   await slow(page).toHaveURL(/\/sauvegardes\/parcourir\//);
   await slow(dialog).toContainText(filled("backup.explorer_title", "paperless"));
   await slow(dialog).toContainText(label("backup.explorer_readonly"));
+  // Rien à restaurer tant que rien n'est choisi à la racine.
+  await slow(dialog.locator(".explorer-outputs")).toContainText(label("backup.restore_pick"));
   // Trois instantanés, le plus récent choisi ; la racine montre « srv ».
   const snapshots = dialog.getByRole("option", { name: /cccccccc/ });
   await slow(snapshots).toHaveAttribute("aria-selected", "true", { timeout: browseTimeout });
@@ -110,11 +112,33 @@ test("l'explorateur : les instantanés, un dossier ouvert, une sélection, la co
   await dialog.getByRole("button", { name: "srv", exact: true }).click({ timeout: browseTimeout });
   await dialog.getByRole("button", { name: "appli", exact: true }).click({ timeout: browseTimeout });
   await slow(dialog.getByRole("option", { name: /app\.ini/ })).toBeVisible({ timeout: browseTimeout });
-  // Une case cochée : la commande sort ce fichier, à côté, son chemin protégé.
+  // Deux cases : un seul à la fois. Une seule : le bouton « Restaurer ».
   await dialog.getByRole("checkbox", { name: filled("explorer.choose", "app.ini") }).check();
-  await slow(dialog.locator(".explorer-outputs")).toContainText(filled("explorer.chosen_one", 1).replace("1", "1"));
-  await slow(dialog.locator(".explorer-outputs code").last()).toHaveText("restic restore cccccccc --target /tmp/restauration --include '/srv/appli/app.ini'");
+  await dialog.getByRole("checkbox", { name: filled("explorer.choose", "docker-compose.yml") }).check();
+  await slow(dialog.locator(".explorer-outputs")).toContainText(label("backup.restore_one_at_a_time"));
+  await dialog.getByRole("checkbox", { name: filled("explorer.choose", "docker-compose.yml") }).uncheck();
+  await slow(dialog.locator(".explorer-outputs")).toContainText(filled("explorer.chosen_one", 1));
+  await dialog.getByRole("button", { name: label("backup.restore"), exact: true }).click();
+  // La confirmation dit le chemin exact, à côté de l'original ; « Non » la ferme sans rien envoyer.
+  const destination = /\/srv\/appli\/app\.ini\.restaure-\d{8}-\d{6}/;
+  await slow(dialog.getByRole("group", { name: destination })).toBeVisible();
+  await dialog.getByRole("button", { name: label("confirm.cancel") }).click();
+  await slow(dialog.getByRole("button", { name: label("backup.restore"), exact: true })).toBeVisible();
+  await expect(dialog.locator(".backup-restore-results")).toHaveCount(0);
+  // Confirmé : l'ordre part à la machine source, le résultat se lit dans la fenêtre.
+  await dialog.getByRole("button", { name: label("backup.restore"), exact: true }).click();
+  await dialog.getByRole("button", { name: label("confirm.yes") }).click();
+  await slow(dialog.locator(".backup-restore-results li").first()).toContainText(label("action.state_succeeded"));
+  await slow(dialog.locator(".backup-restore-results li").first()).toContainText(destination);
+  // Une copie déjà là : refus net, avec sa raison, rien d'écrasé.
+  await dialog.getByRole("checkbox", { name: filled("explorer.choose", "app.ini") }).uncheck();
+  await dialog.getByRole("checkbox", { name: filled("explorer.choose", "existe") }).check();
+  await dialog.getByRole("button", { name: label("backup.restore"), exact: true }).click();
+  await dialog.getByRole("button", { name: label("confirm.yes") }).click();
+  await slow(dialog.locator(".backup-restore-results li").first()).toContainText(label("action.state_refused"));
+  await slow(dialog.locator(".backup-restore-results li").first()).toContainText(label("action.reason_path_exists"));
   // Un autre instantané ramène à la racine.
+  await dialog.getByRole("checkbox", { name: filled("explorer.choose", "existe") }).uncheck();
   await dialog.getByRole("option", { name: /dddddddd/ }).click();
   await slow(dialog.getByRole("button", { name: "srv", exact: true })).toBeVisible();
   // Le clavier : ↓ Entrée ouvre, Retour arrière remonte.
@@ -146,6 +170,31 @@ test("l'explorateur sur une cible sans restic.browse : le refus porte son geste,
   await gesture.click();
   await expect(page).toHaveURL(/\/machines\/[^/]+\/reenroller\?droit=restic\.browse/);
   await expect(page.locator("dialog[open]").getByRole("checkbox", { name: label("machine.capability_restic_browse") })).toBeChecked();
+  await page.locator("dialog[open]").getByRole("button", { name: label("modal.close") }).first().click();
+  expect(findings.unknown()).toEqual([]);
+});
+
+test("restaurer sans le droit : le refus nomme le droit et porte « Ré-enrôler avec ce droit »", async ({ page, findings }) => {
+  findings.where = "/sauvegardes/parcourir › restaurer sans restic.restore";
+  test.setTimeout(90_000);
+  const slow = expect.configure({ timeout: browseTimeout });
+  await openBackups(page);
+  // vaultwarden part de pve-nord, qui n'a pas restic.restore.
+  const vaultwarden = card(page, "vaultwarden");
+  await vaultwarden.getByRole("button", { name: label("entity.more").replace("%s", "vaultwarden") }).click();
+  await page.getByRole("menuitem", { name: label("backup.browse") }).click();
+  const dialog = page.locator("dialog[open]");
+  await dialog.getByRole("button", { name: "srv", exact: true }).click({ timeout: browseTimeout });
+  await dialog.getByRole("button", { name: "appli", exact: true }).click({ timeout: browseTimeout });
+  await dialog.getByRole("checkbox", { name: filled("explorer.choose", "app.ini") }).check({ timeout: browseTimeout });
+  await dialog.getByRole("button", { name: label("backup.restore"), exact: true }).click();
+  await dialog.getByRole("button", { name: label("confirm.yes") }).click();
+  await slow(dialog).toContainText(label("restic.source_restore_right_missing"));
+  const gesture = dialog.getByRole("link", { name: filled("machine.reenroll_with", label("machine.capability_restic_restore")) });
+  await slow(gesture).toBeVisible();
+  await gesture.click();
+  await slow(page).toHaveURL(/\/machines\/[^/]+\/reenroller\?droit=restic\.restore/);
+  await expect(page.locator("dialog[open]").getByRole("checkbox", { name: label("machine.capability_restic_restore") })).toBeChecked();
   await page.locator("dialog[open]").getByRole("button", { name: label("modal.close") }).first().click();
   expect(findings.unknown()).toEqual([]);
 });
@@ -184,6 +233,21 @@ test("l'enrôlement offre le droit « Parcourir les dépôts reçus », décoch�
   await expect(right).not.toBeChecked();
   await right.check();
   const note = label("machine.capability_restic_browse_note").split("{product}")[0]?.slice(0, 40) ?? "";
+  await expect(dialog).toContainText(note);
+  await right.uncheck();
+  await expect(dialog.getByText(note)).toHaveCount(0);
+  expect(findings.unknown()).toEqual([]);
+});
+
+test("l'enrôlement offre le droit « Restaurer des sauvegardes sur cette machine », décoché d'avance, avec sa note", async ({ page, findings }) => {
+  findings.where = "/machines/nouvelle › restic.restore";
+  await page.goto("/machines/nouvelle");
+  const dialog = page.locator("dialog[open]");
+  await dialog.getByText(label("machine.rights_advanced")).click();
+  const right = dialog.getByRole("checkbox", { name: label("machine.capability_restic_restore") });
+  await expect(right).not.toBeChecked();
+  await right.check();
+  const note = label("machine.capability_restic_restore_note").split("{product}")[0]?.slice(0, 40) ?? "";
   await expect(dialog).toContainText(note);
   await right.uncheck();
   await expect(dialog.getByText(note)).toHaveCount(0);

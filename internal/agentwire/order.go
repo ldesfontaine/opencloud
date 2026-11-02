@@ -201,6 +201,10 @@ const (
 	ReasonCheckFailed   = "check_failed"
 	ReasonRestoreFailed = "restore_failed"
 	ReasonRepoEmpty     = "repo_empty"
+	// Les raisons de restic.restore : la destination existe déjà (rien n'est
+	// écrasé ni numéroté en silence) ; le chemin demandé n'est pas dans l'instantané.
+	ReasonPathExists        = "path_exists"
+	ReasonPathNotInSnapshot = "path_not_in_snapshot"
 )
 
 // RightMissing rend la raison d'un ordre refusé faute du droit nommé.
@@ -231,7 +235,7 @@ func RefusalReasons() []string {
 		ReasonRestServerMissing, ReasonResticMissing, ReasonResticFailed,
 		ReasonResticNotProvisioned, ReasonRetentionInvalid, ReasonRetentionBelowFloor,
 		ReasonContainerMissing, ReasonVolumeUnmounted, ReasonEngineUnsupported, ReasonDumpFailed,
-		ReasonCheckFailed, ReasonRestoreFailed, ReasonRepoEmpty,
+		ReasonCheckFailed, ReasonRestoreFailed, ReasonRepoEmpty, ReasonPathExists, ReasonPathNotInSnapshot,
 	}
 }
 

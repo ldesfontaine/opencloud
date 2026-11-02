@@ -37,6 +37,7 @@ export function RightsFields({
       {values.rights.includes("restic.docker") && <Note tone="neutral">{t("machine.capability_restic_docker_note")}</Note>}
       {values.rights.includes("restic.verify") && <Note tone="neutral">{t("machine.capability_restic_verify_note")}</Note>}
       {values.rights.includes("restic.browse") && <Note tone="neutral">{t("machine.capability_restic_browse_note")}</Note>}
+      {values.rights.includes("restic.restore") && <Note tone="neutral">{t("machine.capability_restic_restore_note")}</Note>}
       {values.rights.includes("backup.receive") && (
         <Field label={t("machine.capability_backup_receive")} htmlFor="machine-backup-path" help={t("machine.rights_paths")}>
           <Input

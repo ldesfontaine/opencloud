@@ -106,6 +106,8 @@ const refusalRights: Readonly<Record<string, string>> = {
   "restic.source_docker_right_missing": "restic.docker",
   "restic.target_verify_right_missing": "restic.verify",
   "restic.target_browse_right_missing": "restic.browse",
+  "restic.source_restore_right_missing": "restic.restore",
+  "restic.restore_outside_right": "files.write",
 };
 
 export function rightOfRefusal(key: string): string | null {

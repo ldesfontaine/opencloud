@@ -176,3 +176,22 @@ func browseReportToJSON(report agentwire.ResticBrowseReport) map[string]any {
 	}
 	return map[string]any{"snapshots": snapshots, "entries": entries, "truncated": report.Truncated}
 }
+
+// restoreResticBackup envoie à la source l'ordre de restaurer un chemin d'un
+// instantané à côté de l'original. Le résultat arrive par le signal de la
+// source : l'écran suit l'ordre rendu.
+func (s *Server) restoreResticBackup(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Snapshot string `json:"snapshot"`
+		Path     string `json:"path"`
+		Stamp    string `json:"stamp"`
+	}
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	run, err := s.restic.Restore(r.Context(), r.PathValue("id"), r.PathValue("backup"), restic.RestoreRequest{Snapshot: request.Snapshot, Path: request.Path, Stamp: request.Stamp})
+	if s.failed(w, r, err, restic.ErrBackupNotFound) {
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
+}

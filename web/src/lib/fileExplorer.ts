@@ -43,9 +43,3 @@ export function moveCursor(current: number, delta: number, length: number): numb
   }
   return Math.min(length - 1, Math.max(0, current + delta));
 }
-
-// Un mot pour un shell POSIX : entre apostrophes, une apostrophe devient '\''.
-// Un nom de fichier peut tout contenir : la commande copiée ne s'y trompe pas.
-export function shellQuote(word: string): string {
-  return `'${word.replaceAll("'", "'\\''")}'`;
-}

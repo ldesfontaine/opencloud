@@ -59,6 +59,12 @@ const (
 	// le serveur ne garde pas les noms. Demande restic.target. Refusé par
 	// défaut, coché par machine : les noms de fichiers sont déjà une donnée.
 	CapabilityResticBrowse = "restic.browse"
+	// Restaurer sur la machine source un fichier ou un dossier d'un instantané,
+	// À CÔTÉ de l'original (<chemin>.restaure-<horodatage>), jamais par-dessus et
+	// sans rien supprimer. Le droit n'a pas de chemin : où l'agent peut écrire est
+	// borné par files.write, que la destination doit couvrir (et par l'unité
+	// systemd). Refusé par défaut, coché par machine.
+	CapabilityResticRestore = "restic.restore"
 )
 
 // CapabilityNames rend la liste fermée, dans l'ordre où elle s'affiche :
@@ -68,7 +74,7 @@ func CapabilityNames() []string {
 		CapabilityObserve, CapabilityProbeLAN, CapabilityObserveEnv, CapabilityAgentUpdate, CapabilityDockerDeploy,
 		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite,
 		CapabilityProxmoxPower, CapabilityProxmoxSnapshot, CapabilityResticTarget, CapabilityResticProduce, CapabilityResticDocker,
-		CapabilityResticVerify, CapabilityResticBrowse,
+		CapabilityResticVerify, CapabilityResticBrowse, CapabilityResticRestore,
 	}
 }
 

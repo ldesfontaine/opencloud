@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { childPath, crumbsOf, moveCursor, parentPath, shellQuote, toggleName } from "./fileExplorer";
+import { childPath, crumbsOf, moveCursor, parentPath, toggleName } from "./fileExplorer";
 
 describe("childPath et parentPath", () => {
   it("joignent et remontent, la racine tient", () => {
@@ -35,12 +35,5 @@ describe("moveCursor", () => {
     expect(moveCursor(2, 1, 3)).toBe(2);
     expect(moveCursor(-1, 1, 3)).toBe(0);
     expect(moveCursor(0, 1, 0)).toBe(-1);
-  });
-});
-
-describe("shellQuote", () => {
-  it("protège les espaces, les apostrophes et les caractères du shell", () => {
-    expect(shellQuote("a b")).toBe("'a b'");
-    expect(shellQuote("l'an $(rm -rf /)")).toBe("'l'\\''an $(rm -rf /)'");
   });
 });

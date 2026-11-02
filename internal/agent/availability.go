@@ -224,7 +224,7 @@ func judgeRights(ctx context.Context, identity Identity, checks hostChecks) map[
 			note(capability.Name, binaryReason(checks.findRestic, agentwire.ReasonResticMissing))
 		case machine.CapabilityResticDocker:
 			note(capability.Name, resticDockerReason(ctx, checks))
-		case machine.CapabilityResticVerify, machine.CapabilityResticBrowse:
+		case machine.CapabilityResticVerify, machine.CapabilityResticBrowse, machine.CapabilityResticRestore:
 			note(capability.Name, binaryReason(checks.findRestic, agentwire.ReasonResticMissing))
 		}
 	}

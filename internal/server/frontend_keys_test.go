@@ -34,6 +34,7 @@ var literalsNotKeys = map[string]string{
 	"restic.docker":    "un droit d'agent (machine.CapabilityResticDocker), que le front envoie au serveur",
 	"restic.verify":    "un droit d'agent (machine.CapabilityResticVerify), que le front envoie au serveur",
 	"restic.browse":    "un droit d'agent (machine.CapabilityResticBrowse), que le front envoie au serveur",
+	"restic.restore":   "un droit d'agent (machine.CapabilityResticRestore), que le front envoie au serveur",
 	"machine.delete":   "un verbe du registre (internal/verb), que le front reconnaît dans une demande à confirmer",
 }
 

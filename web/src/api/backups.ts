@@ -442,3 +442,10 @@ export interface BrowseReport {
 export async function browseResticBackup(machineID: string, backupID: string, snapshot: string, path: string): Promise<BrowseReport> {
   return api.send<BrowseReport>(route("POST /api/machines/{id}/restic-backups/{backup}/actions/browse", { id: machineID, backup: backupID }), { snapshot, path });
 }
+
+// La source restaure le chemin d'un instantané à côté de l'original, dans
+// <chemin>.restaure-<stamp> (stamp : AAAAMMJJ-HHMMSS, montré avant de confirmer).
+// Rend l'ordre : son état et sa raison arrivent par le signal de la source.
+export async function restoreResticBackup(machineID: string, backupID: string, snapshot: string, path: string, stamp: string): Promise<ActionRun> {
+  return api.send<ActionRun>(route("POST /api/machines/{id}/restic-backups/{backup}/actions/restore", { id: machineID, backup: backupID }), { snapshot, path, stamp });
+}

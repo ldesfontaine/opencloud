@@ -222,6 +222,9 @@ const (
 	// Les sauvegardes parcourues dans l'explorateur : l'instantané et le
 	// dossier lus, jamais un nom de fichier ni le mot de passe du dépôt.
 	ResticBackupBrowse Action = "restic_backup.browse"
+	// Une restauration lancée depuis l'écran ou par un jeton : l'instantané, le
+	// chemin source et le chemin de destination, jamais un mot de passe.
+	ResticBackupRestore Action = "restic_backup.restore"
 
 	// Un pare-feu déclaré, redéclaré ou retiré. Ni la clé ni le secret n'y
 	// figurent : seulement l'hôte de l'API et si l'empreinte est épinglée.
@@ -263,7 +266,7 @@ func Actions() []Action {
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
 		FirewallCreate, FirewallUpdate, FirewallDelete,
 		VerbRequest, VerbReject, VerbExpire,
-		ResticTargetSetup, ResticTargetRemove, ResticBackupCreate, ResticBackupUpdate, ResticBackupDelete, ResticBackupRun, ResticBackupVerify, ResticBackupBrowse,
+		ResticTargetSetup, ResticTargetRemove, ResticBackupCreate, ResticBackupUpdate, ResticBackupDelete, ResticBackupRun, ResticBackupVerify, ResticBackupBrowse, ResticBackupRestore,
 	}
 }
 
