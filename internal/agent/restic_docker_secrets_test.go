@@ -68,7 +68,7 @@ exit 97
 
 func writeScript(t *testing.T, name, body string) {
 	t.Helper()
-	if err := os.WriteFile(name, []byte("#!/bin/sh\n"+body), 0o755); err != nil { // #nosec G306 -- un exécutable de test.
+	if err := writeProgram(name, []byte("#!/bin/sh\n"+body), 0o755); err != nil { // #nosec G306 -- un exécutable de test.
 		t.Fatal(err)
 	}
 }

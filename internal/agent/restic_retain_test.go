@@ -32,7 +32,7 @@ func fakeResticBinary(t *testing.T, leak bool, exitCode int) (string, string) {
 	}
 	lines = append(lines, "exit "+strconv.Itoa(exitCode))
 	binary := filepath.Join(dir, "restic")
-	if err := os.WriteFile(binary, []byte(strings.Join(lines, "\n")+"\n"), 0o700); err != nil {
+	if err := writeProgram(binary, []byte(strings.Join(lines, "\n")+"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return binary, dir

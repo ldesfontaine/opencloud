@@ -70,7 +70,7 @@ func fakeRestServer(t *testing.T) (string, string, string) {
 		"exec env " + fakeReadyEnv + "=" + ready + " " + fakeHupEnv + "=" + hup + " " + self + " -test.run '^TestFakeRestServerProcess$' -test.timeout 0 -- \"$@\"",
 	}, "\n") + "\n"
 	binary := filepath.Join(dir, "rest-server")
-	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+	if err := writeProgram(binary, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return binary, ready, hup

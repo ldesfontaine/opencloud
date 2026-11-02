@@ -511,7 +511,7 @@ func TestSudoListsProgram_RunsSudoNonInteractivelyAndReadsTheExitCode(t *testing
 		stubs := t.TempDir()
 		record := filepath.Join(stubs, "record")
 		witness := "#!" + shell + "\nprintf '%s\\n' \"$@\" > " + record + "\nenv >> " + record + "\nexit " + fmt.Sprint(exitCode) + "\n"
-		if err := os.WriteFile(filepath.Join(stubs, "sudo"), []byte(witness), 0o700); err != nil { // #nosec G306 -- un témoin exécutable dans un dossier de test.
+		if err := writeProgram(filepath.Join(stubs, "sudo"), []byte(witness), 0o700); err != nil { // #nosec G306 -- un témoin exécutable dans un dossier de test.
 			t.Fatal(err)
 		}
 		t.Setenv("PATH", stubs)
