@@ -32,8 +32,27 @@ type overviewSourceJSON struct {
 	UsedBy    []string `json:"used_by"`
 	// Vrai quand l'hôte n'a pas pu lire des archives ou ses tâches faute de
 	// droit : l'écran dit « inconnu », jamais « aucune ».
-	ObservedUnknown bool                     `json:"observed_unknown"`
-	Protections     []overviewProtectionJSON `json:"protections"`
+	ObservedUnknown bool `json:"observed_unknown"`
+	// Portée service : ce que « le service entier » prendra ; [] sinon.
+	Parts       []overviewSourcePartJSON `json:"parts"`
+	Protections []overviewProtectionJSON `json:"protections"`
+}
+
+// Une partie d'un service : folder (name vide), volume (son nom) ou database
+// (le nom du conteneur, et son moteur : postgres, mariadb, mysql, mongo).
+type overviewSourcePartJSON struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Engine string `json:"engine"`
+}
+
+// Ce qu'une partie a donné : ok, failed ou skipped ; reason est un mot fermé.
+type overviewPartResultJSON struct {
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	State      string `json:"state"`
+	Reason     string `json:"reason"`
+	BytesAdded int64  `json:"bytes_added"`
 }
 
 type overviewProtectionJSON struct {
@@ -50,18 +69,23 @@ type overviewProtectionJSON struct {
 	ArchiveStorage string `json:"archive_storage"`
 	// ok, late, failed, refused, running, never ou unknown ; reason est un mot
 	// fermé ou la clé d'un refus.
-	State      string                `json:"state"`
-	Reason     string                `json:"reason"`
-	LastAt     *time.Time            `json:"last_at"`
-	NextAt     *time.Time            `json:"next_at"`
-	Schedule   string                `json:"schedule"`
-	SizeBytes  *int64                `json:"size_bytes"`
-	AddedBytes *int64                `json:"added_bytes"`
-	Copies     *int                  `json:"copies"`
-	Retention  overviewRetentionJSON `json:"retention"`
+	State  string     `json:"state"`
+	Reason string     `json:"reason"`
+	LastAt *time.Time `json:"last_at"`
+	// La dernière réussite, même quand le dernier essai a échoué ; null
+	// avant la première.
+	LastSuccessAt *time.Time            `json:"last_success_at"`
+	NextAt        *time.Time            `json:"next_at"`
+	Schedule      string                `json:"schedule"`
+	SizeBytes     *int64                `json:"size_bytes"`
+	AddedBytes    *int64                `json:"added_bytes"`
+	Copies        *int                  `json:"copies"`
+	Retention     overviewRetentionJSON `json:"retention"`
 	// restic : le chemin de la dernière exécution ; null avant la première.
 	Path *overviewPathJSON `json:"path"`
 	Runs []resticRunJSON   `json:"runs"`
+	// restic, portée service : les parties du dernier passage ; [] sinon.
+	Parts []overviewPartResultJSON `json:"parts"`
 }
 
 // La rétention en clair : known faux, inconnue ; applied faux, rien ne la
@@ -114,6 +138,8 @@ type resticRunJSON struct {
 	PathReason      string    `json:"path_reason"`
 	BytesAdded      int64     `json:"bytes_added"`
 	DurationSeconds int64     `json:"duration_seconds"`
+	// Portée service : ce que chaque partie a donné à ce passage ; [] sinon.
+	Parts []overviewPartResultJSON `json:"parts"`
 }
 
 type overviewTargetJSON struct {
@@ -191,6 +217,9 @@ func overviewSourceToJSON(source restic.Source) overviewSourceJSON {
 		Key: source.Key, Kind: source.Kind, Name: source.Name, MachineID: source.MachineID, MachineName: source.MachineName,
 		ServiceID: stringOrNil(source.ServiceID), Driver: source.Driver, UsedBy: orEmpty(source.UsedBy),
 		ObservedUnknown: source.ObservedUnknown, Protections: httpx.ConvertAll(source.Protections, overviewProtectionToJSON),
+		Parts: httpx.ConvertAll(source.Parts, func(part restic.SourcePart) overviewSourcePartJSON {
+			return overviewSourcePartJSON{Kind: part.Kind, Name: part.Name, Engine: part.Engine}
+		}),
 	}
 	if source.VMID != 0 {
 		vmid := source.VMID
@@ -205,13 +234,15 @@ func overviewProtectionToJSON(protection restic.Protection) overviewProtectionJS
 		Origin: protection.Origin, ID: protection.ID, Name: protection.Name, Scope: protection.Scope,
 		TargetMachineID: protection.TargetMachineID, TargetMachineName: protection.TargetMachineName, Storage: protection.Storage,
 		ArchiveStorage: protection.ArchiveStorage, State: protection.State, Reason: protection.Reason, LastAt: httpx.TimeOrNil(protection.LastAt),
-		NextAt: httpx.TimeOrNil(protection.NextAt), Schedule: protection.Schedule, SizeBytes: protection.SizeBytes,
+		LastSuccessAt: httpx.TimeOrNil(protection.LastSuccessAt), NextAt: httpx.TimeOrNil(protection.NextAt),
+		Schedule: protection.Schedule, SizeBytes: protection.SizeBytes,
 		AddedBytes: protection.AddedBytes, Copies: protection.Copies,
 		Retention: overviewRetentionJSON{
 			Known: retention.Known, Applied: retention.Applied, KeepAll: retention.KeepAll, KeepLast: retention.Last,
 			KeepDaily: retention.Daily, KeepWeekly: retention.Weekly, KeepMonthly: retention.Monthly, KeepYearly: retention.Yearly,
 		},
-		Runs: httpx.ConvertAll(protection.Runs, resticRunToJSON),
+		Runs:  httpx.ConvertAll(protection.Runs, resticRunToJSON),
+		Parts: httpx.ConvertAll(protection.Parts, partResultToJSON),
 	}
 	if forget := retention.LastForget; forget != nil {
 		out.Retention.LastForget = &lastForgetJSON{At: httpx.TimeOrNil(forget.At), State: forget.State, Reason: forget.Reason}
@@ -229,7 +260,12 @@ func resticRunToJSON(run restic.RunRecord) resticRunJSON {
 	return resticRunJSON{
 		RunID: run.RunID, FinishedAt: run.FinishedAt.UTC(), State: run.State, Reason: run.Reason, Path: run.Path,
 		PathReason: run.PathReason, BytesAdded: run.BytesAdded, DurationSeconds: run.DurationSeconds,
+		Parts: httpx.ConvertAll(run.Parts, partResultToJSON),
 	}
+}
+
+func partResultToJSON(part restic.PartResult) overviewPartResultJSON {
+	return overviewPartResultJSON{Kind: part.Kind, Name: part.Name, State: part.State, Reason: part.Reason, BytesAdded: part.BytesAdded}
 }
 
 func overviewTargetToJSON(target restic.TargetView) overviewTargetJSON {

@@ -277,3 +277,37 @@ func TestRestic_AProducerCannotDeleteNorForget(t *testing.T) {
 		t.Fatal("restic.retain left for a machine without restic.target")
 	}
 }
+
+// Le rapport de parties est une liste blanche : un agent hostile qui glisse
+// une valeur semée dans le nom d'une partie (avec un chemin) ou dans sa
+// raison (un texte libre) n'en laisse rien : le rapport entier est jeté,
+// l'état de l'ordre reste, et la valeur n'est ni dans l'API, ni dans
+// l'audit, ni dans le journal, ni dans la base. (La raison de l'ordre
+// lui-même est celle du composant action : un texte ASCII court, gardé tel
+// quel ; restic n'en retient qu'un mot de sa liste fermée.)
+func TestRestic_AHostilePartReportLeavesNoTrace(t *testing.T) {
+	const seed = "hunter2-graine-secrete" // gitleaks:allow -- valeur semée par le test
+	bench := readyResticBench(t)
+	backupID := bench.createServiceBackup(t)
+	order := bench.runNow(t, backupID)
+	bench.reportRun(t, agentwire.ActionResult{RunID: order.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonDumpFailed,
+		Restic: &agentwire.ResticRunReport{Path: agentwire.ResticPathDirect, Reason: agentwire.ResticReachable, BytesAdded: 1, Parts: []agentwire.ResticPartReport{
+			{Kind: agentwire.ResticPartFolder, State: agentwire.ResticPartOK, BytesAdded: 1},
+			{Kind: agentwire.ResticPartVolume, Name: "../" + seed + "/_data", State: agentwire.ResticPartOK},
+			{Kind: agentwire.ResticPartDatabase, Name: "nextcloud-db-1", State: agentwire.ResticPartFailed, Reason: "pg_dump: password " + seed + " refused"},
+		}}})
+
+	stored, err := bench.db.GetResticBackup(context.Background(), backupID)
+	if err != nil || stored.Last.State != "failed" || stored.Last.Reason != agentwire.ReasonDumpFailed || stored.Last.Report.Path != "" || len(stored.Last.Report.Parts) != 0 {
+		t.Fatalf("stored %+v %v", stored.Last, err)
+	}
+	places := map[string]string{"journal": bench.logs.String(), "database dump": dumpDatabase(t, bench)}
+	for _, path := range []string{"/api/backups/overview", "/api/backups/runs", "/api/actions", "/api/audit?limit=500", "/api/machines/" + resticSourceID} {
+		places[path] = callAPI(bench.Server, http.MethodGet, path, nil).Body.String()
+	}
+	for place, content := range places {
+		if strings.Contains(content, seed) {
+			t.Errorf("the seeded value leaked into %s", place)
+		}
+	}
+}

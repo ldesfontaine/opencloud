@@ -351,6 +351,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `agent.update` | — | Les ordres `agent.update` (mettre à jour l'agent depuis le serveur) et `agent.rollback` (revenir à la version précédente) (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire, et ne le fait que sous le lanceur stable |
 | `restic.target` | Un dossier | Recevoir des sauvegardes restic : l'agent lance et surveille `rest-server` en écriture seule sur ce dossier (« Comment restic sauvegarde »). **Refusé par défaut**, coché par machine |
 | `restic.produce` | — | Lancer restic sur la machine pour sauvegarder un service ou une VM vers une cible. **Refusé par défaut**, coché par machine. Une VM demande aussi `backup.produce` |
+| `restic.docker` | — | Sauvegarder les **volumes nommés** et les **bases** Docker d'un service entier : l'agent lit un volume par le conteneur qui le monte (`docker cp`) et lance l'outil de dump d'une base **dans son conteneur** (`docker exec`). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Équivaut à la socket Docker que l'agent a déjà. Demandé **en plus** de `restic.produce` dès qu'un service porte un volume ou une base ; sans lui, l'ordre est refusé (`right_missing:restic.docker`) |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
@@ -1780,6 +1781,35 @@ Un autre chemin que les archives `age` : la source garde ses sauvegardes
 | La cible | Son agent lance et surveille **une seule instance** `rest-server --append-only --private-repos --tls` (certificat auto-signé, un an, épinglé par la source, refait si ses noms changent). Il reçoit le mot de passe REST (`restic.user.add`) et en calcule l'empreinte bcrypt ; il applique la rétention chez lui (`restic.retain`), jamais sous son plancher | `restic.target` |
 | Le serveur | Tire, scelle et distribue les mots de passe de chaque lien ; garde les sauvegardes déclarées, leur historique, ce que les agents rapportent ; envoie `restic.target.setup`, `restic.provision`, `restic.user.add`, `restic.user.remove`, `restic.backup`, `restic.retain` ; porte le relais | — |
 
+### Un service entier
+
+Une sauvegarde de portée `service` sauvegarde **tout le service**, relu à
+chaque envoi (un volume ajouté hier part ce soir) : son dossier Compose, ses
+volumes nommés, ses bases détectées. Chaque partie est son **propre instantané**
+restic, dans le dépôt de la source, sous un nom de fichier stable.
+
+| Partie | Détectée par | Comment elle part | Instantané |
+| --- | --- | --- | --- |
+| Dossier | Le projet Compose du service | `restic backup` du dossier sous la racine de l'agent | le dossier |
+| Volume | `machine_volumes` (un conteneur du service le monte) | `docker cp <conteneur>:<point de montage>/. -` en flux : l'agent retrouve **lui-même** le conteneur et le point de montage | `volume-<nom>.tar` |
+| Base | L'image d'un conteneur du service (`postgres`, `mariadb`, `mysql`, `mongo`) | `docker exec <conteneur> sh -c '<script fixe du moteur>'` : le dump se fait **dans** le conteneur, qui lit lui-même ses identifiants | `database-<conteneur>.sql` (`.archive` pour mongo) |
+
+| Règle | Pourquoi |
+| --- | --- |
+| Une partie en échec n'arrête pas les autres ; l'ordre est « Échouée » si une seule a échoué, et l'écran montre laquelle (`parts`) | Un dump qui plante ne doit pas faire perdre le dossier et les volumes |
+| Une partie « ignorée » (conteneur ou volume absent) n'est pas un échec ; tout ignoré est un échec | Un service sans rien à sauvegarder ne doit pas se dire « à jour » |
+| **Aucun secret ne quitte la machine** : l'agent ne lit pas l'environnement des conteneurs pour ça, les scripts de dump sont des constantes du code, le mot de passe d'une base reste dans son conteneur | Banc de non-fuite : une valeur semée dans l'environnement simulé n'apparaît dans aucun argument, sortie, journal, rapport |
+| Le serveur n'apprend que `kind`, `name` (nom d'un volume ou d'un conteneur), `state`, une raison de la liste fermée et `bytes_added` | Liste blanche dans `agentwire` (`ResticPartReport`), rejugée côté serveur |
+| Un volume copié en marche peut être incohérent ; pour une base, c'est le dump qui compte, pas les fichiers de son volume | Coût dit à l'écran (assistant) |
+| Une VM entière : `vzdump` lancé par l'agent de l'hôte Proxmox (`backup.produce`), plus par une tâche Datacenter | Décision de Lucas du 01/11/2026 |
+
+**La supervision se fait sur la page Sauvegardes** : dernière réussite
+(gardée même quand le dernier essai échoue : `last_success_at`), retard
+(plus de 36 h sans réussite : « En retard »), échec et refus avec leur raison.
+Les tâches vzdump que Proxmox mène encore de lui-même (« nuit-pi ») restent
+**observées** : la carte le dit (« À remplacer par un plan openCloud ») et
+porte le bouton **Remplacer par openCloud**.
+
 ### Les mots de passe d'un lien
 
 Un lien est une source vers une cible : un dépôt, partagé par toutes les
@@ -1841,6 +1871,7 @@ rétention vide ; il garde au moins le plancher.
 | Clé privée du certificat | Sur la cible, jamais rapportée |
 | Plancher de rétention | Sur la cible ; rapporté, gardé en base pour juger la saisie |
 | Cibles, liens (retirés compris), sauvegardes, 60 dernières exécutions par sauvegarde, dernière rétention par dépôt, tâches vzdump observées | Base, migration `032_restic` |
+| Les parties de la dernière exécution d'un service (`kind`, `name`, `state`, raison fermée, octets), par sauvegarde et par exécution | Base, migration `033_restic_parts` |
 | Suppression | Impossible depuis la source : `--append-only`, et le relais n'accepte `DELETE` que sur `locks/` (deux barrières de plus : courtier et exécuteur de la cible). Aucune route ni aucun verbe ne lance `restic.retain` : seule la nuit du serveur, vers une machine qui tient `restic.target` |
 | Clé perdue (`opencloud secrets forget`) | Les mots de passe des liens sont vidés : les sources sauvegardent encore avec les leurs, la cible ne purge plus ces dépôts (`restic.link_secret_lost`) |
 

@@ -3,6 +3,7 @@ package restic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -58,6 +59,8 @@ type RunRecord struct {
 	PathReason      string
 	BytesAdded      int64
 	DurationSeconds int64
+	// Portée service : ce que chaque partie a donné ; vide sinon.
+	Parts []PartResult
 }
 
 // RunNow lance la sauvegarde tout de suite et rend l'ordre ; son issue
@@ -97,7 +100,11 @@ func (s *Service) start(ctx context.Context, current Backup) (action.Run, error)
 	if err := judgeSourceRights(source, current.Scope); err != nil {
 		return action.Run{}, err
 	}
-	params, err := backupParams(current)
+	content, err := s.contentToSend(ctx, current, source)
+	if err != nil {
+		return action.Run{}, err
+	}
+	params, err := backupParams(current, content)
 	if err != nil {
 		return action.Run{}, err
 	}
@@ -121,8 +128,26 @@ func (s *Service) start(ctx context.Context, current Backup) (action.Run, error)
 	return run, nil
 }
 
-// backupParams : la cible par son nom de dépôt, la portée et sa référence.
-func backupParams(current Backup) (json.RawMessage, error) {
+// contentToSend rend, pour un service, son contenu du moment, relu dans
+// l'inventaire à chaque envoi et jugé comme à la création ; rien pour un
+// invité.
+func (s *Service) contentToSend(ctx context.Context, current Backup, source machine.Status) (ServiceContent, error) {
+	if current.Scope != agentwire.ResticScopeService {
+		return ServiceContent{}, nil
+	}
+	service, err := s.store.ResticService(ctx, current.ServiceID)
+	if errors.Is(err, ErrServiceNotFound) {
+		return ServiceContent{}, ErrServiceUnknown
+	}
+	if err != nil {
+		return ServiceContent{}, fmt.Errorf("get declared service: %w", err)
+	}
+	return s.judgedContent(ctx, service, source)
+}
+
+// backupParams : la cible par son nom de dépôt, la portée et sa référence ;
+// pour un service, son dossier, ses volumes et ses bases.
+func backupParams(current Backup, content ServiceContent) (json.RawMessage, error) {
 	targetUser, err := agentwire.ResticUserFor(current.TargetMachineID)
 	if err != nil {
 		return nil, ErrTargetUnknown
@@ -131,7 +156,10 @@ func backupParams(current Backup) (json.RawMessage, error) {
 	if current.Scope == agentwire.ResticScopeVM {
 		params.VMID, params.GuestType = current.VMID, current.GuestType
 	} else {
-		params.Service = current.ServiceDir
+		params.Service, params.Volumes = content.Folder, content.Volumes
+		for _, database := range content.Databases {
+			params.Databases = append(params.Databases, database.Container)
+		}
 	}
 	if err := params.Validate(); err != nil {
 		return nil, fmt.Errorf("restic backup params: %w", err)

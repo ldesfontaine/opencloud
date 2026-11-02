@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -66,11 +67,16 @@ func newOrderRunner(stateDir *os.Root, identity Identity, version, dockerSocket 
 		_, reason := readProxmoxToken(stateDir)
 		return reason
 	}
-	return &orderRunner{
+	runner := &orderRunner{
 		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
 		worker: newOrderWorker(), fetch: &fetcher{}, updater: updater, docker: newDockerTools(checks), checks: checks,
 		produce: newProduceTools(stateDir), proxmox: newProxmoxTools(stateDir), restic: newResticTools(stateDir, logger),
 	}
+	if dockerSocket == "" {
+		dockerSocket = dockerapi.DefaultSocket
+	}
+	runner.restic.source.inventory = dockerapi.New(dockerSocket)
+	return runner
 }
 
 // receive juge et exécute un ordre, un à la fois : deux ordres arrivés

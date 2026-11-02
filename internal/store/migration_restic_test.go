@@ -25,7 +25,8 @@ func TestMigration032_KeepsAnExistingBaseAndAddsTheResticTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range names {
-		if version := migrationVersion(name); version != 32 {
+		// La 033 complète les tables de la 032 : elle la suit.
+		if version := migrationVersion(name); version != 32 && version != 33 {
 			if err := db.apply(ctx, name, version); err != nil {
 				t.Fatal(err)
 			}

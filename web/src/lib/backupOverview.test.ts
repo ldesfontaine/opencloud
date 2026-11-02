@@ -9,6 +9,7 @@ import {
   diskShare,
   expectedPath,
   filterSources,
+  rightsWanted,
   floorText,
   forgetView,
   guestArchiveName,
@@ -58,6 +59,7 @@ const protection = (overrides: Partial<BackupProtection> = {}): BackupProtection
   state: "ok",
   reason: "",
   last_at: "2026-09-12T02:00:00Z",
+  last_success_at: "2026-09-12T02:00:00Z",
   next_at: "2026-09-13T02:00:00Z",
   schedule: "daily",
   size_bytes: null,
@@ -65,6 +67,7 @@ const protection = (overrides: Partial<BackupProtection> = {}): BackupProtection
   copies: null,
   retention: retention(),
   path: null,
+  parts: [],
   runs: [],
   ...overrides,
 });
@@ -80,6 +83,7 @@ const source = (overrides: Partial<BackupSource> = {}): BackupSource => ({
   driver: "",
   used_by: [],
   observed_unknown: false,
+  parts: [],
   protections: [],
   ...overrides,
 });
@@ -320,4 +324,11 @@ describe("accéder à une sauvegarde", () => {
     expect(restoreVMID(105)).toBe(1105);
     expect(repositoryUser("AB-12")).toBe("ab-12");
   });
+});
+
+it("un service avec un volume ou une base demande restic.docker, un dossier seul non", () => {
+  expect(rightsWanted(source())).toEqual(["restic.produce"]);
+  expect(rightsWanted(source({ parts: [{ kind: "folder", name: "", engine: "" }] }))).toEqual(["restic.produce"]);
+  expect(rightsWanted(source({ parts: [{ kind: "database", name: "db-1", engine: "postgres" }] }))).toEqual(["restic.produce", "restic.docker"]);
+  expect(rightsWanted(source({ kind: "vm" }))).toEqual(["restic.produce", "backup.produce"]);
 });

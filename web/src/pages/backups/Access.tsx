@@ -93,9 +93,48 @@ function AccessCards({ access }: { access: ResticAccess }) {
             </Step>
           </HowCard>
         )}
+        {access.protection.scope === "service" && <PartRestores source={access.source} />}
       </div>
     </>
   );
+}
+
+// Une base et un volume sont chacun leur instantané : le dump ou l'archive se
+// sort par son nom de fichier (database-<conteneur>.sql, volume-<nom>.tar),
+// puis se rejoue dans le conteneur ou se défait dans un volume neuf.
+function PartRestores({ source }: { source: BackupSource }) {
+  const t = useT();
+  const database = source.parts.find((part) => part.kind === "database");
+  const volume = source.parts.find((part) => part.kind === "volume");
+  const dumpFile = database === undefined ? "" : `database-${database.name}${database.engine === "mongo" ? ".archive" : ".sql"}`;
+  return (
+    <>
+      {database !== undefined && (
+        <HowCard icon="database" title={`${t("backup.access_restore_database")} · ${database.name}`}>
+          <Step title={t("backup.access_restore_database_dump")}>
+            <TokenBox value={dumpCommand(t, dumpFile)} />
+          </Step>
+          <Step title={t("backup.access_restore_database_replay")}>
+            <TokenBox value={t(`backup.access_cmd_replay_${database.engine}`, database.name, dumpFile)} />
+          </Step>
+        </HowCard>
+      )}
+      {volume !== undefined && (
+        <HowCard icon="disk" title={`${t("backup.access_restore_volume")} · ${volume.name}`}>
+          <Step title={t("backup.access_restore_volume_dump")}>
+            <TokenBox value={dumpCommand(t, `volume-${volume.name}.tar`)} />
+          </Step>
+          <Step title={t("backup.access_restore_volume_unpack")}>
+            <TokenBox value={t("backup.access_cmd_unpack_volume", `${volume.name}-restauration`, `volume-${volume.name}.tar`)} />
+          </Step>
+        </HowCard>
+      )}
+    </>
+  );
+}
+
+function dumpCommand(t: Translate, file: string): string {
+  return t("backup.access_cmd_dump_part", file, file, file);
 }
 
 function vmRestoreCommand(t: Translate, source: BackupSource): string {

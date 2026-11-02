@@ -70,10 +70,13 @@ type Container struct {
 }
 
 // Mount est ce qu'un conteneur monte ; on ne lit que les volumes nommés (Type
-// « volume »), jamais un dossier de l'hôte.
+// « volume »), jamais un dossier de l'hôte. Destination, le chemin dans le
+// conteneur, sert à lire le volume par lui (sauvegarde restic.docker) ; il ne
+// part pas dans l'inventaire.
 type Mount struct {
-	Type string
-	Name string
+	Type        string
+	Name        string
+	Destination string
 }
 
 // HostConfig est ce que le démon a reçu à la création ; on n'en lit que ce

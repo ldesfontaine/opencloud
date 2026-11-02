@@ -223,7 +223,7 @@ test("assistant : sauvegarder une VM entière, de bout en bout, puis y accéder"
   await expect(dialog.locator(".wizard-summary")).toContainText(filled("backup.restic_what_vm", "pve"));
   await dialog.getByRole("button", { name: label("backup.restic_submit") }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(card(page, "web")).toContainText(label("backup.scope_vm"));
+  await expect(card(page, "web")).toContainText(label("backup.origin_restic_vm").slice(0, 10));
 
   // Accéder : la VM choisie, la commande de restauration en VM neuve.
   const access = page.locator("section[aria-labelledby=backup-access-title]");

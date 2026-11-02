@@ -4,7 +4,7 @@ import type { ActionsResponse, ActionRun, AgentMigration, AgentUpdateOffer, RunL
 import type { APITokensState } from "./apiTokens";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
-import type { BackupDestination, BackupForget, BackupKeyring, BackupMachine, BackupMachineRight, BackupOverview, BackupPath, BackupPlan, BackupProtection, BackupRetention, BackupSource, BackupTarget, Backups, ResticRun, RetentionFloor } from "./backups";
+import type { BackupDestination, BackupForget, BackupKeyring, BackupMachine, BackupMachineRight, BackupOverview, BackupPath, BackupPlan, BackupPartResult, BackupProtection, BackupRetention, BackupSource, BackupSourcePart, BackupTarget, Backups, ResticRun, RetentionFloor } from "./backups";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
@@ -1019,6 +1019,7 @@ const backupProtection = shape<BackupProtection>("BackupProtection", {
   state: value,
   reason: value,
   last_at: value,
+  last_success_at: value,
   next_at: value,
   schedule: value,
   size_bytes: value,
@@ -1036,6 +1037,7 @@ const backupProtection = shape<BackupProtection>("BackupProtection", {
     last_forget: shape<BackupForget>("BackupForget", { at: value, state: value, reason: value }),
   }),
   path: shape<BackupPath>("BackupPath", { path: value, reason: value, source_name: value, target_name: value, target_host: value, target_port: value }),
+  parts: shape<BackupPartResult>("BackupPartResult", { kind: value, name: value, state: value, reason: value, bytes_added: value }),
   runs: shape<ResticRun>("ResticRun", {
     run_id: value,
     finished_at: value,
@@ -1045,6 +1047,7 @@ const backupProtection = shape<BackupProtection>("BackupProtection", {
     path_reason: value,
     bytes_added: value,
     duration_seconds: value,
+    parts: shape<BackupPartResult>("BackupPartResult", { kind: value, name: value, state: value, reason: value, bytes_added: value }),
   }),
 });
 
@@ -1060,6 +1063,7 @@ const backupOverview = shape<BackupOverview>("BackupOverview", {
     driver: value,
     used_by: value,
     observed_unknown: value,
+    parts: shape<BackupSourcePart>("BackupSourcePart", { kind: value, name: value, engine: value }),
     protections: backupProtection,
   }),
   targets: shape<BackupTarget>("BackupTarget", {

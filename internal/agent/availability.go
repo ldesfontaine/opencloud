@@ -222,6 +222,8 @@ func judgeRights(ctx context.Context, identity Identity, checks hostChecks) map[
 			note(capability.Name, resticTargetReason(checks, capability.Paths))
 		case machine.CapabilityResticProduce:
 			note(capability.Name, binaryReason(checks.findRestic, agentwire.ReasonResticMissing))
+		case machine.CapabilityResticDocker:
+			note(capability.Name, resticDockerReason(ctx, checks))
 		}
 	}
 	return unavailable
@@ -233,6 +235,15 @@ func resticTargetReason(checks hostChecks, paths []string) string {
 		return reason
 	}
 	return binaryReason(checks.findRestServer, agentwire.ReasonRestServerMissing)
+}
+
+// resticDockerReason : la socket et le programme docker d'abord (docker cp,
+// docker exec), puis restic, qui les lance.
+func resticDockerReason(ctx context.Context, checks hostChecks) string {
+	if reason := checks.docker(ctx); reason != "" {
+		return reason
+	}
+	return binaryReason(checks.findRestic, agentwire.ReasonResticMissing)
 }
 
 // binaryReason rend missing quand le binaire ne se trouve pas, ou ne se

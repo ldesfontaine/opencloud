@@ -59,7 +59,7 @@ func runAgent(args []string) error {
 	caFile := flags.String("ca-file", "", "paquet PEM d'une autorité interne, ajouté au magasin du système pour les sondes")
 	// restic.produce et restic.target : l'agent ne télécharge aucun binaire,
 	// il les cherche ici ou dans son PATH.
-	resticBinary := flags.String("restic", "", "chemin absolu de restic (droit restic.produce) ; vide : cherché dans le PATH")
+	resticBinary := flags.String("restic", "", "chemin absolu de restic (droits restic.produce et restic.docker) ; vide : cherché dans le PATH")
 	restServerBinary := flags.String("rest-server", "", "chemin absolu de rest-server (droit restic.target) ; vide : cherché dans le PATH")
 	if err := flags.Parse(args); err != nil {
 		return err

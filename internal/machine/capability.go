@@ -40,6 +40,13 @@ const (
 	// racine, un invité passe par backup.produce).
 	CapabilityResticTarget  = "restic.target"
 	CapabilityResticProduce = "restic.produce"
+	// Sauvegarder les volumes et les bases Docker d'un service : l'agent lit
+	// un volume par le conteneur qui le monte (docker cp) et lance l'outil de
+	// dump d'une base dans son conteneur (docker exec). Équivaut à la socket
+	// Docker qu'il a déjà ; refusé par défaut, coché par machine. Il ne lit
+	// jamais l'environnement du conteneur : le mot de passe de la base reste
+	// dans le conteneur.
+	CapabilityResticDocker = "restic.docker"
 )
 
 // CapabilityNames rend la liste fermée, dans l'ordre où elle s'affiche :
@@ -48,7 +55,7 @@ func CapabilityNames() []string {
 	return []string{
 		CapabilityObserve, CapabilityProbeLAN, CapabilityObserveEnv, CapabilityAgentUpdate, CapabilityDockerDeploy,
 		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite,
-		CapabilityProxmoxPower, CapabilityProxmoxSnapshot, CapabilityResticTarget, CapabilityResticProduce,
+		CapabilityProxmoxPower, CapabilityProxmoxSnapshot, CapabilityResticTarget, CapabilityResticProduce, CapabilityResticDocker,
 	}
 }
 

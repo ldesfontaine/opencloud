@@ -79,7 +79,7 @@ func TestBackup_RefusesWhatWouldEscapeOrRunAShell(t *testing.T) {
 			t.Errorf("directory %q", directory)
 		}
 	}
-	for _, name := range []string{"", "../x", "a/b", "-x", strings.Repeat("a", 129)} {
+	for _, name := range []string{"", "../x", "a/b", "-x", strings.Repeat("a", 161)} {
 		if _, err := BackupStream("/usr/bin/restic", relay, name, []string{"/usr/bin/vzdump"}); err == nil {
 			t.Errorf("name %q", name)
 		}

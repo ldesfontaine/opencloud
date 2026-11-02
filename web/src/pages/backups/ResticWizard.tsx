@@ -39,6 +39,7 @@ import { isFormModified } from "../../lib/modal";
 import { missingSoftware, type MissingSoftware } from "../../lib/resticInstall";
 import { formatBytes, percentOf } from "../../lib/units";
 import { InstallBlock } from "./InstallBlock";
+import { PartsBlock } from "./Parts";
 import { RetentionFields, type RetentionValues } from "./RetentionFields";
 import { sourceIcons } from "./SourceCard";
 
@@ -185,6 +186,7 @@ function stepsOf(t: Translate, form: Form, overview: BackupOverview): WizardStep
           </label>
           <PickList name="restic-source" label={t("backup.restic_step_what")} options={sourceOptions(t, listed)} value={values.source} onChange={pickSource} empty={t(`backup.restic_none_${values.scope}`)} />
           <InstallBlocks unfits={listed.map((item) => item.unfit)} />
+          {source !== undefined && scopeOf(source) === "service" && <PartsBlock parts={source.parts} results={[]} />}
           <Note tone="neutral">{t(`backup.restic_scope_note_${values.scope}`)}</Note>
         </>
       ),

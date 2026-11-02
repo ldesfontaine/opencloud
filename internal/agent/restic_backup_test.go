@@ -587,7 +587,3 @@ func mustCertificate(t *testing.T) string {
 	}
 	return string(certificatePEM)
 }
-
-func hasLine(lines []agentwire.OutputLine, text string) bool {
-	return slices.ContainsFunc(lines, func(line agentwire.OutputLine) bool { return strings.Contains(line.Line, text) })
-}
