@@ -27,7 +27,7 @@ export function hasSearch(optionCount: number): boolean {
 }
 
 // Comparer sans casse ni accent : « etat » trouve « État des services ».
-function folded(text: string): string {
+export function folded(text: string): string {
   return text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }
 

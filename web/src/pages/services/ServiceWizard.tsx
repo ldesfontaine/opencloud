@@ -87,12 +87,15 @@ export function ServiceWizard() {
 
   // À défaut de choix, la première machine de la liste : le sélecteur n'a
   // pas d'option vide, il montrerait une machine sans l'avoir choisie.
-  const first = machines.data?.machines[0];
+  // Un lien « Déclarer » qui nomme la machine (?machine=) la garde, et la
+  // proposition en attente n'est pas écrasée par ce repli.
+  const named = machines.data?.machines.find((machine) => machine.id === machineParam);
+  const first = named ?? machines.data?.machines[0];
   useEffect(() => {
-    if (!isEditing && values.machineID === "" && first !== undefined) {
+    if (!isEditing && !awaitingProposal && values.machineID === "" && first !== undefined) {
       change("machineID", first.id);
     }
-  }, [isEditing, first, values.machineID]);
+  }, [isEditing, awaitingProposal, first, values.machineID]);
 
   const listPath = isEditing ? `/services/annuaire/${id}` : "/services";
   const close = () => void navigate(listPath, { replace: true });

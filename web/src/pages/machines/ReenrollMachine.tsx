@@ -15,7 +15,7 @@ import { detectedProxmox } from "../../lib/proxmox";
 import { wantedRightOf, withWantedRight } from "../../lib/rights";
 import { EnrollFlow } from "./EnrollFlow";
 
-const noRights: RightsValues = { rights: [], backupPath: "", writePaths: "" };
+const noRights: RightsValues = { rights: [], backupPath: "", writePaths: "", resticPath: "" };
 
 // « Ré-enrôler » : la fenêtre de la fiche d'une machine, à l'adresse
 // /machines/:id/reenroller. Ré-enrôler est aussi la seule façon de changer les

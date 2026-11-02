@@ -4,7 +4,7 @@ import type { ActionsResponse, ActionRun, AgentMigration, AgentUpdateOffer, RunL
 import type { APITokensState } from "./apiTokens";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
-import type { BackupCoverage, BackupDestination, BackupInventory, BackupKeyring, BackupObserved, BackupPlan, BackupRun, BackupRuns, BackupSource, BackupTarget, Backups } from "./backups";
+import type { BackupDestination, BackupForget, BackupKeyring, BackupMachine, BackupMachineRight, BackupOverview, BackupPath, BackupPlan, BackupProtection, BackupRetention, BackupSource, BackupTarget, Backups, ResticRun, RetentionFloor } from "./backups";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
@@ -1007,35 +1007,60 @@ const backups = shape<Backups>("Backups", {
   }),
 });
 
-const backupRun = shape<BackupRun>("BackupRun", {
-  plan: value,
-  source: value,
-  pass_at: value,
-  started_at: value,
-  finished_at: value,
-  result: value,
+const backupProtection = shape<BackupProtection>("BackupProtection", {
+  origin: value,
+  id: value,
+  name: value,
+  scope: value,
+  target_machine_id: value,
+  target_machine_name: value,
+  storage: value,
+  archive_storage: value,
+  state: value,
   reason: value,
+  last_at: value,
+  next_at: value,
+  schedule: value,
   size_bytes: value,
-  destination_id: value,
-  destination_name: value,
-  action_run_id: value,
+  added_bytes: value,
+  copies: value,
+  retention: shape<BackupRetention>("BackupRetention", {
+    known: value,
+    applied: value,
+    keep_all: value,
+    keep_last: value,
+    keep_daily: value,
+    keep_weekly: value,
+    keep_monthly: value,
+    keep_yearly: value,
+    last_forget: shape<BackupForget>("BackupForget", { at: value, state: value, reason: value }),
+  }),
+  path: shape<BackupPath>("BackupPath", { path: value, reason: value, source_name: value, target_name: value, target_host: value, target_port: value }),
+  runs: shape<ResticRun>("ResticRun", {
+    run_id: value,
+    finished_at: value,
+    state: value,
+    reason: value,
+    path: value,
+    path_reason: value,
+    bytes_added: value,
+    duration_seconds: value,
+  }),
 });
 
-const backupInventory = shape<BackupInventory>("BackupInventory", {
+const backupOverview = shape<BackupOverview>("BackupOverview", {
   sources: shape<BackupSource>("BackupSource", {
     key: value,
     kind: value,
     name: value,
     machine_id: value,
     machine_name: value,
-    id: value,
+    vmid: value,
+    service_id: value,
     driver: value,
     used_by: value,
-    covered_by: shape<BackupCoverage>("BackupCoverage", { subject: value, plan_name: value, destination_id: value, destination_name: value }),
     observed_unknown: value,
-    observed: shape<BackupObserved>("BackupObserved", { storage: value, count: value, total_bytes: value, last_at: value, last_bytes: value }),
-    last_run: backupRun,
-    last_ok: backupRun,
+    protections: backupProtection,
   }),
   targets: shape<BackupTarget>("BackupTarget", {
     key: value,
@@ -1043,20 +1068,37 @@ const backupInventory = shape<BackupInventory>("BackupInventory", {
     name: value,
     machine_id: value,
     machine_name: value,
-    path: value,
-    right: optional(value),
-    right_reason: optional(value),
+    online: value,
+    state: value,
+    reason: value,
+    host: value,
+    port: value,
+    dir: value,
+    version: value,
+    fingerprint: value,
+    disk_total_bytes: value,
+    disk_free_bytes: value,
+    disk_used_bytes: value,
+    backup_bytes: value,
+    reported_at: value,
+    retention_floor: shape<RetentionFloor>("RetentionFloor", { keep_daily: value, keep_weekly: value, keep_monthly: value }),
     node: value,
     type: value,
-    total_bytes: value,
-    used_bytes: value,
-    avail_bytes: value,
-    active: value,
-    plans: value,
+    holds: value,
+  }),
+  machines: shape<BackupMachine>("BackupMachine", {
+    machine_id: value,
+    machine_name: value,
+    os: value,
+    arch: value,
+    online: value,
+    restic_available: value,
+    is_target: value,
+    proxmox_host: value,
+    proxmox_jobs_unknown: value,
+    rights: shape<BackupMachineRight>("BackupMachineRight", { right: value, state: value, reason: value, path: value }),
   }),
 });
-
-const backupRuns = shape<BackupRuns>("BackupRuns", { runs: backupRun });
 
 const firewallFields = {
   id: value,
@@ -1167,8 +1209,7 @@ const contract: Record<string, Shape<unknown>> = {
   "audit_forwarding.golden.json": auditForwarding,
   "backups.golden.json": backups,
   "backups_empty.golden.json": backups,
-  "backups_inventory.golden.json": backupInventory,
-  "backups_runs.golden.json": backupRuns,
+  "backups_overview.golden.json": backupOverview,
   "backups_plans.golden.json": backups,
   "backups_unavailable.golden.json": backups,
   "auth.golden.json": auth,
@@ -1250,6 +1291,7 @@ const contract: Record<string, Shape<unknown>> = {
 
 // Les autres goldens JSON que le front ne lit pas, chacun avec sa raison.
 const notReadByFront: Record<string, string> = {
+  "backups_runs.golden.json": "l'historique des passages des plans d'archives se lit par un jeton d'API ; la page Sauvegardes lit l'aperçu",
   "agent_updates.golden.json": "le plan des mises à jour se lit par un agent IA (jeton en lecture) ; la fiche d'une machine lit l'offre de sa machine",
   "manifest_plan.golden.json": "le plan se lit par la commande apply ; l'écran ne montre que les passages",
   "verbs.golden.json": "le registre des verbes, pas une réponse de l'API ; parity.test.ts le compare aux écritures de routes.ts",

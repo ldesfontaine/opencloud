@@ -70,8 +70,8 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/backups")).toEqual(["backups", "actions"]);
   });
 
-  it("rereads the backup inventory when the machines or the containers it crosses change", () => {
-    expect(topicsOf("/api/backups/inventory")).toEqual(["backups", "actions", "machines", "containers"]);
+  it("rereads the backup overview when the machines, containers or services it crosses change", () => {
+    expect(topicsOf("/api/backups/overview")).toEqual(["backups", "actions", "machines", "containers", "directory"]);
   });
 
   it("keeps the observed containers on the containers topic", () => {

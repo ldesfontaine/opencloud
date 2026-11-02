@@ -37,6 +37,9 @@ export interface WizardStep {
   title: string;
   render: () => ReactNode;
   validate?: () => string | null;
+  // Vrai tant que l'étape ne peut pas mener plus loin (rien de choisissable,
+  // l'étape dit pourquoi) : Suivant est grisé.
+  blocked?: () => boolean;
   // Sans objet pour un assistant d'un seul écran : il n'a pas de récapitulatif.
   summary?: () => SummaryLine[];
 }
@@ -51,6 +54,9 @@ interface WizardProps {
   error: ApiError | string | null;
   // Où mène un refus de droit de l'écriture finale : voir Failure.
   errorGesture?: RightGesture | undefined;
+  // Ce qui suit le refus de l'écriture finale : le geste qui y remédie,
+  // quand ce n'est pas un droit (un logiciel à installer).
+  errorAside?: ReactNode;
   // L'identifiant de l'étape où s'ouvre une modification (un lien direct).
   startAt?: string | undefined;
 }
@@ -113,7 +119,7 @@ function OneScreen({ steps, onSubmit, submitLabel, submitIcon, busy, error, erro
 // L'assistant est le contenu d'une fenêtre (Modal), qui fait le cadre :
 // « Annuler » est celui de la fenêtre, qui demande avant d'abandonner une
 // saisie.
-function SteppedWizard({ steps, mode, onSubmit, submitLabel, submitIcon, busy, error, errorGesture, startAt }: WizardProps) {
+function SteppedWizard({ steps, mode, onSubmit, submitLabel, submitIcon, busy, error, errorGesture, errorAside, startAt }: WizardProps) {
   const t = useT();
   const stepCount = steps.length;
   const [position, setPosition] = useState(() => startPosition(mode, steps.map((step) => step.id), startAt));
@@ -167,6 +173,7 @@ function SteppedWizard({ steps, mode, onSubmit, submitLabel, submitIcon, busy, e
         {shownError !== null && (
           <div role="alert">
             <Failure error={shownError} gesture={onSummary ? errorGesture : undefined} />
+            {onSummary && errorAside}
           </div>
         )}
         <div className="cluster">
@@ -176,7 +183,7 @@ function SteppedWizard({ steps, mode, onSubmit, submitLabel, submitIcon, busy, e
               {submitLabel}
             </Button>
           ) : (
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" disabled={steps[position]?.blocked?.() === true}>
               {forwardLabel}
             </Button>
           )}

@@ -19,6 +19,9 @@ import { Backups } from "./pages/Backups";
 import { DestinationModal } from "./pages/backups/DestinationModal";
 import { KeyringModal } from "./pages/backups/KeyringModal";
 import { PlanWizard } from "./pages/backups/PlanWizard";
+import { ResticEditModal } from "./pages/backups/ResticEditModal";
+import { ResticWizard } from "./pages/backups/ResticWizard";
+import { TargetModal } from "./pages/backups/TargetModal";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
 import { FirewallPage } from "./pages/Firewall";
@@ -137,6 +140,9 @@ export function App() {
         {/* L'ancien nom de la page : les liens enregistrés suivent, chemin, query et ancre gardés. */}
         <Route path="domaines/*" element={<ProbesRedirect />} />
         <Route path="sauvegardes" element={<Backups />}>
+          <Route path="nouvelle" element={<ResticWizard />} />
+          <Route path="cibles/nouvelle" element={<TargetModal />} />
+          <Route path="restic/:machineId/:backupId/modifier" element={<ResticEditModal />} />
           <Route path="cle" element={<KeyringModal />} />
           <Route path="destinations/nouvelle" element={<DestinationModal />} />
           <Route path="plans/nouveau" element={<PlanWizard />} />

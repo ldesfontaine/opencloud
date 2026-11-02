@@ -9,11 +9,14 @@ import { Note } from "./Card";
 // Le geste d'un droit qui manque : le bouton qui ouvre « Ré-enrôler » avec ce
 // droit déjà coché. Un refus de droit le porte partout où il se dit, pour que
 // l'opérateur ne cherche jamais où changer les droits d'un agent.
-export function MissingRightButton({ machineID, right, path }: { machineID: string; right: string; path?: string | undefined }) {
+// short : dans une carte ou une ligne étroite, « Ré-enrôler avec ce droit »,
+// le droit en entier dans l'infobulle et pour les lecteurs d'écran.
+export function MissingRightButton({ machineID, right, path, short = false }: { machineID: string; right: string; path?: string | undefined; short?: boolean }) {
   const t = useT();
+  const full = t("machine.reenroll_with", t(capabilityLabelKey(right)));
   return (
-    <Button small icon="refresh" to={reenrollPath(machineID, { name: right, path })}>
-      {t("machine.reenroll_with", t(capabilityLabelKey(right)))}
+    <Button small icon="refresh" to={reenrollPath(machineID, { name: right, path })} {...(short ? { title: full, "aria-label": full } : {})}>
+      {short ? t("machine.reenroll_with_right") : full}
     </Button>
   );
 }

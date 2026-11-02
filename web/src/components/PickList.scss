@@ -1,0 +1,122 @@
+.pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+// Une ligne : le bouton radio, la pastille d'icône, le nom et sa ligne, puis
+// ce qui se lit à droite. Toute la ligne choisit (le libellé s'étire).
+.pick-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+
+  // Au-dessus du libellé étiré : le bouton radio reçoit son propre clic.
+  input {
+    position: relative;
+    z-index: 1;
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+  }
+
+  &:hover:not(.pick-row-off) {
+    border-color: var(--line-strong);
+  }
+
+  &:focus-within:not(.pick-row-off) {
+    border-color: var(--accent);
+  }
+}
+
+.pick-row-on {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.pick-row-off {
+  background: var(--surface-2);
+
+  .pick-who b,
+  .pick-badge {
+    color: var(--muted);
+  }
+}
+
+.pick-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  display: grid;
+  place-items: center;
+
+  .pick-row-on & {
+    background: var(--surface);
+  }
+}
+
+.pick-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  cursor: pointer;
+
+  b {
+    font-weight: 500;
+    color: var(--ink);
+  }
+
+  span {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  // Le libellé couvre la ligne : un clic n'importe où choisit.
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+
+  .pick-row-off & {
+    cursor: default;
+  }
+}
+
+// Le geste d'une ligne grisée passe au-dessus du libellé étiré.
+.pick-end {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pick-empty {
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+}
+
+@media (max-width: 860px) {
+  .pick-row {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .pick-end {
+    grid-column: 3;
+    justify-content: flex-start;
+  }
+}

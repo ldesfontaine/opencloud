@@ -92,99 +92,204 @@ export interface PlanRequest {
   keep: number;
 }
 
-// Ce que la section Inventaire lit : calculé par le serveur de ce qu'il a déjà
-// en base, en lecture seule (le même contenu pour un jeton d'API).
-export type InventoryKind = "database" | "vm" | "lxc" | "docker_volume";
+// L'aperçu de la page : ce qui est sauvegardé (et comment), où ça va, et ce
+// que chaque machine peut faire. Des faits : instants ISO, octets, mots
+// fermés ; l'écran compose ses phrases. Sujets du direct : voir topicsOf.
 
-// ok : reçue ; failed : l'ordre est parti, quelque chose a manqué ; refused :
-// rien n'est parti.
-export type RunResult = "ok" | "failed" | "refused";
+// database : la base de la machine openCloud ; vm, lxc : un invité Proxmox ;
+// service : un service Compose déclaré ; docker_volume : un volume nommé.
+type OverviewSourceKind = "database" | "vm" | "lxc" | "service" | "docker_volume";
 
-// Une ligne de l'historique : une cible d'un passage d'un plan.
-export interface BackupRun {
-  plan: string;
-  // La clé de la source ; vide quand le plan entier est refusé avant toute cible.
-  source: string;
-  pass_at: string;
-  started_at: string;
-  finished_at: string;
-  result: RunResult;
-  // Un mot fermé, ou la clé d'un refus (« backup.machine_offline ») ; vide
-  // pour une cible reçue sans souci.
+// observed : une tâche vzdump que Proxmox mène de lui-même ; archive : un plan
+// d'archives chiffrées d'openCloud ; restic : une sauvegarde restic d'openCloud.
+type ProtectionOrigin = "observed" | "archive" | "restic";
+
+type ProtectionState = "ok" | "late" | "failed" | "refused" | "running" | "never" | "unknown";
+
+// La rétention en clair : known faux, inconnue ; applied faux, rien ne la
+// fait respecter. Restic : last_forget, la dernière purge du dépôt par la
+// cible, null avant la première.
+export interface BackupRetention {
+  known: boolean;
+  applied: boolean;
+  keep_all: boolean;
+  keep_last: number;
+  keep_daily: number;
+  keep_weekly: number;
+  keep_monthly: number;
+  keep_yearly: number;
+  last_forget: BackupForget | null;
+}
+
+// La dernière purge d'un dépôt restic par sa cible. reason : un mot fermé
+// (retention_below_floor…) ou la clé d'un refus.
+export interface BackupForget {
+  at: string | null;
+  state: "sent" | "succeeded" | "failed" | "refused";
   reason: string;
-  // null tant que la taille de l'archive n'est pas connue.
-  size_bytes: number | null;
-  destination_id: string;
-  destination_name: string;
-  action_run_id: string;
 }
 
-export interface BackupCoverage {
-  subject: string;
-  plan_name: string;
-  destination_id: string;
-  destination_name: string;
+// Le plancher qu'une cible tient : elle refuse toute rétention qui garderait
+// moins.
+export interface RetentionFloor {
+  keep_daily: number;
+  keep_weekly: number;
+  keep_monthly: number;
 }
 
-// Ce que les stockages de Proxmox gardent d'une VM : vu sur le stockage, pas fait par un plan.
-export interface BackupObserved {
+// Le chemin de la dernière exécution restic, et de quoi dire ce qu'il faut
+// ouvrir : source_name doit joindre target_host:target_port.
+export interface BackupPath {
+  path: "direct" | "relay";
+  reason: string;
+  source_name: string;
+  target_name: string;
+  target_host: string;
+  target_port: number;
+}
+
+export interface ResticRun {
+  run_id: string;
+  finished_at: string;
+  state: string;
+  reason: string;
+  path: string;
+  path_reason: string;
+  bytes_added: number;
+  duration_seconds: number;
+}
+
+export interface BackupProtection {
+  origin: ProtectionOrigin;
+  // La tâche vzdump, le sujet du plan, ou la sauvegarde restic.
+  id: string;
+  name: string;
+  // restic : vm ou service ; vide sinon.
+  scope: string;
+  target_machine_id: string;
+  target_machine_name: string;
   storage: string;
-  count: number;
-  total_bytes: number;
-  last_at: string;
-  last_bytes: number;
+  archive_storage: string;
+  state: ProtectionState;
+  // Un mot fermé, ou la clé d'un refus.
+  reason: string;
+  last_at: string | null;
+  next_at: string | null;
+  schedule: string;
+  size_bytes: number | null;
+  added_bytes: number | null;
+  copies: number | null;
+  retention: BackupRetention;
+  path: BackupPath | null;
+  runs: ResticRun[];
 }
 
 export interface BackupSource {
-  // La clé qui relie la source à son historique.
   key: string;
-  kind: InventoryKind;
+  kind: OverviewSourceKind;
   name: string;
   machine_id: string;
   machine_name: string;
-  // Le numéro de l'invité ; vide pour la base et un volume.
-  id: string;
-  // Pour un volume : son pilote et les conteneurs qui le montent.
+  vmid: number | null;
+  service_id: string | null;
   driver: string;
   used_by: string[];
-  covered_by: BackupCoverage[];
-  observed: BackupObserved | null;
-  // Vrai quand observed est null faute de droit de lecture sur les stockages
-  // Proxmox, non faute d'archive.
+  // L'hôte n'a pas pu lire ses archives ou ses tâches : « inconnu », jamais « aucune ».
   observed_unknown: boolean;
-  last_run: BackupRun | null;
-  last_ok: BackupRun | null;
+  protections: BackupProtection[];
 }
 
-export type InventoryTargetKind = "destination" | "storage";
+// restic : un rest-server d'openCloud ; storage : un stockage Proxmox ;
+// destination : la destination d'un plan d'archives.
+type BackupTargetKind = "restic" | "storage" | "destination";
 
 export interface BackupTarget {
   key: string;
-  kind: InventoryTargetKind;
+  kind: BackupTargetKind;
   name: string;
   machine_id: string;
   machine_name: string;
-  // Destination : son dossier et le droit de l'agent ; vides pour un stockage.
-  path: string;
-  right?: BackupRight;
-  right_reason?: string;
-  // Stockage Proxmox : son nœud, son type et sa capacité ; vides pour une destination.
+  online: boolean;
+  // restic : running, stopped, error (reason binary_missing : rest-server
+  // manque), pending ; storage : active, inactive ; destination : l'état du
+  // droit de l'agent.
+  state: string;
+  reason: string;
+  host: string;
+  port: number;
+  dir: string;
+  version: string;
+  fingerprint: string;
+  disk_total_bytes: number;
+  disk_free_bytes: number;
+  disk_used_bytes: number;
+  backup_bytes: number;
+  reported_at: string | null;
+  // Restic : null tant que la cible ne l'a pas rapporté.
+  retention_floor: RetentionFloor | null;
   node: string;
   type: string;
-  total_bytes: number;
-  used_bytes: number;
-  avail_bytes: number;
-  active: boolean;
-  plans: string[];
+  // Les clés des sources qu'elle garde.
+  holds: string[];
 }
 
-export interface BackupInventory {
+export interface BackupMachineRight {
+  right: string;
+  state: BackupRight;
+  reason: string;
+  // Le dossier du droit restic.target.
+  path: string;
+}
+
+export interface BackupMachine {
+  machine_id: string;
+  machine_name: string;
+  // Le système et l'architecture enrôlés : de quoi composer la commande
+  // d'installation de restic ou de rest-server.
+  os: string;
+  arch: string;
+  online: boolean;
+  // restic.produce tenu et restic trouvé.
+  restic_available: boolean;
+  is_target: boolean;
+  proxmox_host: boolean;
+  proxmox_jobs_unknown: boolean;
+  rights: BackupMachineRight[];
+}
+
+export interface BackupOverview {
   sources: BackupSource[];
   targets: BackupTarget[];
+  machines: BackupMachine[];
 }
 
-export interface BackupRuns {
-  runs: BackupRun[];
+// Ce que l'opérateur saisit pour faire d'une machine une cible ; un dossier
+// vide prend celui du droit restic.target. Le plancher ne fait que monter.
+interface ResticTargetRequest {
+  host: string;
+  port: number;
+  dir: string;
+  retention_floor: RetentionFloor;
+}
+
+// La rétention d'une sauvegarde, que la cible applique après chaque nuit.
+export interface ResticRetentionRequest {
+  keep_last: number;
+  keep_daily: number;
+  keep_weekly: number;
+  keep_monthly: number;
+  keep_yearly: number;
+}
+
+// Une sauvegarde restic, de la machine source vers une cible. Portée vm :
+// vmid ; portée service : service_id.
+export interface ResticBackupRequest {
+  name: string;
+  scope: "vm" | "service";
+  vmid: number;
+  service_id: string;
+  target_machine_id: string;
+  retention: ResticRetentionRequest;
 }
 
 const backupsPath = "/api/backups";
@@ -193,8 +298,8 @@ export function useBackups(): Resource<Backups> {
   return useResource<Backups>(backupsPath);
 }
 
-export function useBackupInventory(): Resource<BackupInventory> {
-  return useResource<BackupInventory>(`${backupsPath}/inventory`);
+export function useBackupOverview(): Resource<BackupOverview> {
+  return useResource<BackupOverview>(`${backupsPath}/overview`);
 }
 
 // La phrase part ici et nulle part ailleurs : le serveur scelle la clé
@@ -225,4 +330,30 @@ export async function deleteBackupPlan(subject: string): Promise<void> {
 // derrière la requête.
 export async function runBackupNow(subject: string): Promise<ActionRun> {
   return api.send<ActionRun>(route("POST /api/backups/plans/{subject}/actions/run", { subject }), {});
+}
+
+// Les gestes restic. Aucun mot de passe ne passe ici : le serveur les tire,
+// les garde scellés et les remet aux deux machines par ordre signé.
+export async function setupResticTarget(machineID: string, request: ResticTargetRequest): Promise<void> {
+  return api.send(route("POST /api/machines/{id}/actions/restic-target-setup", { id: machineID }), request);
+}
+
+export async function removeResticTarget(machineID: string): Promise<void> {
+  return api.send(route("POST /api/machines/{id}/actions/restic-target-remove", { id: machineID }), {});
+}
+
+export async function createResticBackup(machineID: string, request: ResticBackupRequest): Promise<{ id: string }> {
+  return api.send<{ id: string }>(route("POST /api/machines/{id}/restic-backups", { id: machineID }), request);
+}
+
+export async function updateResticBackup(machineID: string, backupID: string, request: { name: string; retention: ResticRetentionRequest }): Promise<void> {
+  return api.send(route("PUT /api/machines/{id}/restic-backups/{backup}", { id: machineID, backup: backupID }), request);
+}
+
+export async function deleteResticBackup(machineID: string, backupID: string): Promise<void> {
+  return api.send(route("DELETE /api/machines/{id}/restic-backups/{backup}", { id: machineID, backup: backupID }));
+}
+
+export async function runResticBackup(machineID: string, backupID: string): Promise<ActionRun> {
+  return api.send<ActionRun>(route("POST /api/machines/{id}/restic-backups/{backup}/actions/run", { id: machineID, backup: backupID }), {});
 }

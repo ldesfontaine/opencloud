@@ -20,6 +20,10 @@ export function MoreMenu({ actions, label }: { actions: MenuAction[]; label?: st
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  // Où était le bouton quand le menu s'est posé : un défilement qui ne l'a pas
+  // bougé (celui qui l'a amené dans la vue, signalé après l'ouverture) laisse
+  // le menu ouvert.
+  const anchor = useRef<{ top: number; left: number } | null>(null);
   const listId = useId();
 
   const items = () => Array.from(list.current?.querySelectorAll<HTMLElement>("[role=menuitem]") ?? []);
@@ -38,8 +42,10 @@ export function MoreMenu({ actions, label }: { actions: MenuAction[]; label?: st
     if (!open || !button || !menu) {
       return;
     }
+    const rect = button.getBoundingClientRect();
+    anchor.current = { top: rect.top, left: rect.left };
     const place = placeMenu(
-      button.getBoundingClientRect(),
+      rect,
       { width: menu.offsetWidth, height: menu.offsetHeight },
       { width: window.innerWidth, height: window.innerHeight },
     );
@@ -61,7 +67,13 @@ export function MoreMenu({ actions, label }: { actions: MenuAction[]; label?: st
       }
       close("outside");
     };
-    const onMove = () => close("scroll");
+    const onMove = () => {
+      const rect = root.current?.querySelector<HTMLButtonElement>(":scope > button")?.getBoundingClientRect();
+      if (rect !== undefined && anchor.current !== null && rect.top === anchor.current.top && rect.left === anchor.current.left) {
+        return;
+      }
+      close("scroll");
+    };
     document.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("scroll", onMove, true);
     window.addEventListener("resize", onMove);

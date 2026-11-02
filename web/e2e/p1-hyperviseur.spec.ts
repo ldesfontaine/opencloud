@@ -30,7 +30,7 @@ for (const theme of ["light", "dark"] as const) {
       }
     };
     const answer = (await (await page.request.get("/api/machines")).json()) as { machines: MachineRef[] };
-    const remote = answer.machines.find((machine) => machine.id !== "local");
+    const remote = answer.machines.find((machine) => machine.name === "vps-paris-1");
     findings.where = `/machines/${remote?.id ?? ""}/hyperviseur`;
     await page.goto(findings.where);
 
@@ -92,7 +92,7 @@ for (const theme of ["light", "dark"] as const) {
     // Le second hôte : celui de l'hôte déjà déclaré, relu avec le jeton « !complet »,
     // qui lit aussi les archives. Il est retiré à la fin : l'état est rendu tel quel.
     const answer = (await (await page.request.get("/api/machines")).json()) as { machines: MachineRef[] };
-    const remote = answer.machines.find((machine) => machine.id !== "local");
+    const remote = answer.machines.find((machine) => machine.name === "vps-paris-1");
     const declared = (await (await page.request.get(`/api/machines/${remote?.id ?? ""}/proxmox`)).json()) as { api_url: string; pin: string };
     const put = await page.request.put("/api/machines/local/proxmox", { data: { api_url: declared.api_url, token_id: "lecteur@pve!complet", token_secret: "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9", pin: declared.pin } });
     expect(put.ok()).toBe(true);

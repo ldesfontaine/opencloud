@@ -27,7 +27,10 @@ for (const theme of ["light", "dark"] as const) {
 
     const answer = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string; kind: string; address: string }[] };
     const kinds = Object.fromEntries(answer.machines.map((machine) => [machine.name, machine.kind]));
-    expect(Object.values(kinds).sort()).toEqual(["vm", "vps"]);
+    // Les deux machines de ce récit ; les autres données fictives (les
+    // sauvegardes restic) ont leur propre type.
+    const local = answer.machines.find((machine) => machine.id === "local");
+    expect([local?.kind, kinds["vps-paris-1"]]).toEqual(["vm", "vps"]);
 
     await page.goto("/machines");
     await expect(page.locator("table .machine-kind").first()).toBeVisible();
@@ -36,7 +39,7 @@ for (const theme of ["light", "dark"] as const) {
     await shoot("machines-types");
 
     // La fiche de la machine distante : le bouton Supprimer sans puce, avec son infobulle.
-    const remote = answer.machines.find((machine) => machine.id !== "local");
+    const remote = answer.machines.find((machine) => machine.name === "vps-paris-1");
     await page.goto(`/machines/${remote?.id ?? ""}`);
     const remove = page.getByRole("button", { name: label("machine.delete"), exact: true });
     await expect(remove).toBeVisible();
