@@ -75,7 +75,7 @@ type ServerKeyParams struct {
 func OrderKinds() []Kind {
 	return []Kind{KindAgentPing, KindAgentUpdate, KindAgentRollback, KindServerKey, KindBackupReceive, KindBackupPrune, KindBackupProduce, KindDockerDeploy, KindDockerUpdate,
 		KindProxmoxStart, KindProxmoxShutdown, KindProxmoxSnapshot, KindProxmoxSnapshotDelete,
-		KindResticTargetSetup, KindResticUserAdd, KindResticUserRemove, KindResticProvision, KindResticBackup, KindResticRetain}
+		KindResticTargetSetup, KindResticUserAdd, KindResticUserRemove, KindResticProvision, KindResticBackup, KindResticRetain, KindResticVerify}
 }
 
 func (k Kind) IsOrder() bool {

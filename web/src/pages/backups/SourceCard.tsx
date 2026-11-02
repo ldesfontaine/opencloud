@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 
-import { deleteResticBackup, runResticBackup, type BackupMachine, type BackupOverview, type BackupProtection, type BackupSource } from "../../api/backups";
+import { deleteResticBackup, runResticBackup, verifyResticBackup, type BackupMachine, type BackupOverview, type BackupProtection, type BackupSource } from "../../api/backups";
+import { errorKey } from "../../api/client";
 import { reasonText } from "../../components/ActionsCard";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmModal";
@@ -13,10 +14,10 @@ import { Pill } from "../../components/Pill";
 import { useAction } from "../../hooks/useAction";
 import { useNow } from "../../hooks/useNow";
 import { useI18n, useT, type Translate } from "../../i18n/context";
-import { directHint, forgetView, pathReasonText, protectionReasonText, retentionView, scopeOf, sourceStatus, sourceSubtitle, sourceUnfit, statusTones, type Unfitness } from "../../lib/backupOverview";
+import { directHint, forgetView, pathReasonText, protectionReasonText, retentionView, scopeOf, sourceStatus, sourceSubtitle, sourceUnfit, statusTones, verifyBlockedBy, verifyView, type Unfitness } from "../../lib/backupOverview";
 import { editPlanPath, editResticPath, firewallIdOf, newFirewallPlanPath, newPlanPath, newResticBackupPath, newTargetPath } from "../../lib/backups";
 import { missingSoftware } from "../../lib/resticInstall";
-import { rightOfRefusal } from "../../lib/rights";
+import { holderOfRefusal, rightOfRefusal } from "../../lib/rights";
 import { ago, formatRemaining, formatWhen } from "../../lib/time";
 import { formatBytes } from "../../lib/units";
 import { InstallBlock } from "./InstallBlock";
@@ -186,8 +187,11 @@ function ProtectionBlock({ source, protection, machines }: { source: BackupSourc
   const [deleting, setDeleting] = useState(false);
   const menu = protectionMenu(t, source, protection, {
     run: () => action.run(() => runResticBackup(source.machine_id, protection.id), { topic: "backups" }),
+    verify: () => action.run(() => verifyResticBackup(source.machine_id, protection.id), { topic: "backups" }),
     remove: () => setDeleting(true),
   });
+  // Un refus de droit se corrige sur la machine qui le manque : la source, ou la cible.
+  const refusedHolder = action.error === null ? source.machine_id : holderOfRefusal(errorKey(action.error), { source: source.machine_id, target: protection.target_machine_id });
   return (
     <div className="backup-protection">
       <ProtectionFlow source={source} protection={protection} />
@@ -200,7 +204,7 @@ function ProtectionBlock({ source, protection, machines }: { source: BackupSourc
       <PartsBlock parts={source.parts} results={protection.parts} />
       <ProtectionFacts source={source} protection={protection} />
       <ProtectionState source={source} protection={protection} machines={machines} />
-      <Failure error={action.error} gesture={{ machineID: source.machine_id }} />
+      <Failure error={action.error} gesture={{ machineID: refusedHolder }} />
       {deleting && (
         <ConfirmDialog
           title={t("backup.restic_delete")}
@@ -214,7 +218,7 @@ function ProtectionBlock({ source, protection, machines }: { source: BackupSourc
   );
 }
 
-function protectionMenu(t: Translate, source: BackupSource, protection: BackupProtection, gestures: { run: () => void; remove: () => void }): MenuAction[] {
+function protectionMenu(t: Translate, source: BackupSource, protection: BackupProtection, gestures: { run: () => void; verify: () => void; remove: () => void }): MenuAction[] {
   if (protection.origin === "archive") {
     return [{ label: t("backup.plan_edit"), to: editPlanPath(protection.id) }];
   }
@@ -225,6 +229,7 @@ function protectionMenu(t: Translate, source: BackupSource, protection: BackupPr
   // refuse alors en le disant (restic.backup_running), sous la carte.
   return [
     { label: t("backup.run_now"), onSelect: gestures.run },
+    { label: t("backup.verify_now"), onSelect: gestures.verify },
     { label: t("backup.restic_edit"), to: editResticPath(source.machine_id, protection.id) },
     { label: t("backup.restic_delete"), danger: true, onSelect: gestures.remove },
   ];
@@ -296,6 +301,7 @@ function ProtectionFacts({ source, protection }: { source: BackupSource; protect
       )}
       {protection.copies !== null && <Fact label={t("backup.fact_copies")} value={protection.copies} sub={t("backup.fact_copies_sub", place)} mono />}
       <Fact label={t("backup.fact_retention")} value={retention.value} sub={retention.note} more={protection.origin === "restic" && <LastForget protection={protection} now={now} />} wide />
+      {protection.verify !== null && <VerifyFact protection={protection} now={now} />}
     </dl>
   );
 }
@@ -347,6 +353,38 @@ function LastForget({ protection, now }: { protection: BackupProtection; now: nu
   return <dd className={forget.tone === "warn" ? "backup-item-sub backup-item-warn" : "backup-item-sub"}>{forget.text}</dd>;
 }
 
+// Le test de restauration du dépôt : quand il a réussi et ce qu'il a relu, ou
+// ce qui l'empêche, avec le geste du droit qui manque à la cible.
+function VerifyFact({ protection, now }: { protection: BackupProtection; now: number }) {
+  const t = useT();
+  const verify = protection.verify;
+  if (verify === null) {
+    return null;
+  }
+  const view = verifyView(t, verify, now, (reason) => reasonText(t, reason));
+  const blocked = verifyBlockedBy(verify);
+  // Une cible qui ne peut pas tester ne le fera pas « la nuit » : la phrase d'attente se tait.
+  const hasSub = view.sub !== null && view.sub !== "" && !(blocked !== null && verify.state === "");
+  return (
+    <Fact
+      label={t("backup.fact_verify")}
+      value={view.text}
+      wide
+      more={
+        <>
+          {hasSub && <dd className={view.tone === "warn" ? "backup-item-sub backup-item-warn" : "backup-item-sub"}>{view.sub}</dd>}
+          {blocked !== null && (
+            <dd className="backup-item-sub backup-item-warn">
+              {t(`backup.verify_right_${blocked}`, protection.target_machine_name)}{" "}
+              {blocked === "missing" && <MissingRightButton machineID={protection.target_machine_id} right="restic.verify" short />}
+            </dd>
+          )}
+        </>
+      }
+    />
+  );
+}
+
 // « dans 20 h » ; une échéance passée attend son tour.
 function upcoming(t: Translate, at: string, now: number): string {
   const remaining = Date.parse(at) - now;
@@ -360,7 +398,7 @@ function ProtectionState({ source, protection, machines }: { source: BackupSourc
   const t = useT();
   if (protection.state === "failed" || protection.state === "refused") {
     const right = rightOfRefusal(protection.reason);
-    const machineID = protection.reason === "restic.target_right_missing" ? protection.target_machine_id : source.machine_id;
+    const machineID = holderOfRefusal(protection.reason, { source: source.machine_id, target: protection.target_machine_id });
     const missing = missingSoftware(protection.reason);
     const holder = machines.find((candidate) => candidate.machine_id === (missing === "rest-server" ? protection.target_machine_id : source.machine_id));
     return (

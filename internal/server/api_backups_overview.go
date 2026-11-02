@@ -86,6 +86,26 @@ type overviewProtectionJSON struct {
 	Runs []resticRunJSON   `json:"runs"`
 	// restic, portée service : les parties du dernier passage ; [] sinon.
 	Parts []overviewPartResultJSON `json:"parts"`
+	// restic : la vérification du dépôt par sa cible ; null pour les autres.
+	Verify *overviewVerifyJSON `json:"verify"`
+}
+
+// La vérification du dépôt d'une sauvegarde restic : state est sent,
+// succeeded, failed ou refused, vide si jamais tentée ; reason un mot fermé ou
+// la clé d'un refus. snapshots, files et bytes sont des comptes : jamais un
+// nom ni un contenu. right dit si la cible peut vérifier (ok, missing,
+// unavailable, unknown) ; stale, que le dernier test réussi est trop ancien.
+type overviewVerifyJSON struct {
+	State       string     `json:"state"`
+	Reason      string     `json:"reason"`
+	At          *time.Time `json:"at"`
+	SuccessAt   *time.Time `json:"success_at"`
+	Snapshots   int        `json:"snapshots"`
+	Files       int        `json:"files"`
+	Bytes       int64      `json:"bytes"`
+	Right       string     `json:"right"`
+	RightReason string     `json:"right_reason"`
+	Stale       bool       `json:"stale"`
 }
 
 // La rétention en clair : known faux, inconnue ; applied faux, rien ne la
@@ -246,6 +266,13 @@ func overviewProtectionToJSON(protection restic.Protection) overviewProtectionJS
 	}
 	if forget := retention.LastForget; forget != nil {
 		out.Retention.LastForget = &lastForgetJSON{At: httpx.TimeOrNil(forget.At), State: forget.State, Reason: forget.Reason}
+	}
+	if verify := protection.Verify; verify != nil {
+		out.Verify = &overviewVerifyJSON{
+			State: verify.State, Reason: verify.Reason, At: httpx.TimeOrNil(verify.At), SuccessAt: httpx.TimeOrNil(verify.SuccessAt),
+			Snapshots: verify.Snapshots, Files: verify.Files, Bytes: verify.Bytes,
+			Right: string(verify.Right.State), RightReason: verify.Right.Reason, Stale: verify.IsStale,
+		}
 	}
 	if path := protection.Path; path != nil {
 		out.Path = &overviewPathJSON{

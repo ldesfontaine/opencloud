@@ -131,3 +131,18 @@ func (s *Server) runResticBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 }
+
+// verifyResticBackup fait vérifier le dépôt de la sauvegarde par sa cible
+// (restic.verify) : l'ordre part, ses comptes arrivent par le signal de la
+// cible.
+func (s *Server) verifyResticBackup(w http.ResponseWriter, r *http.Request) {
+	var request struct{}
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	run, err := s.restic.VerifyNow(r.Context(), r.PathValue("id"), r.PathValue("backup"))
+	if s.failed(w, r, err, restic.ErrBackupNotFound) {
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
+}

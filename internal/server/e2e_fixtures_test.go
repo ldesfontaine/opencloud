@@ -448,7 +448,7 @@ const (
 // part sans réponse.
 func seedE2ERestic(t *testing.T, ts *testServer) {
 	t.Helper()
-	pi := e2eConnect(t, ts, "pi", e2ePiID, "observe,restic.target=/srv/restic")
+	pi := e2eConnect(t, ts, "pi", e2ePiID, "observe,restic.target=/srv/restic,restic.verify")
 	docker := e2eConnect(t, ts, "docker1", e2eDockerID, "observe,restic.produce,restic.docker")
 	north := e2eConnect(t, ts, "pve-nord", e2eNorthID, "observe,restic.produce")
 	pve := e2eConnect(t, ts, "pve", e2ePveID, "observe,restic.produce,backup.produce=proxmox-vzdump")
@@ -462,12 +462,18 @@ func seedE2ERestic(t *testing.T, ts *testServer) {
 		Path: agentwire.ResticPathDirect, Reason: agentwire.ResticReachable, TargetHost: e2ePiHost, TargetPort: e2ePiPort,
 		SnapshotID: strings.Repeat("a", 64), BytesAdded: 42 << 20, DurationSeconds: 95,
 	})
-	e2eResticBackup(t, ts, north, pi, e2eNorthID, "vaultwarden", vaultwarden, agentwire.ResticRunReport{
+	// vaultwarden existe depuis vingt-trois jours, sauvegardé ce matin, et son
+	// dépôt n'a jamais été testé (voir seedE2ESupervision).
+	ts.restic.SetClock(func() time.Time { return testNow.Add(-23 * 24 * time.Hour) })
+	vaultwardenBackup := e2eCreateResticBackup(t, ts, north, pi, e2eNorthID, "vaultwarden", vaultwarden)
+	ts.restic.SetClock(func() time.Time { return testNow })
+	e2eRunResticBackup(t, ts, north, e2eNorthID, vaultwardenBackup, agentwire.ResticRunReport{
 		Path: agentwire.ResticPathRelay, Reason: agentwire.ResticTCPUnreachable, TargetHost: e2ePiHost, TargetPort: e2ePiPort,
 		SnapshotID: strings.Repeat("b", 64), BytesAdded: 200 << 10, DurationSeconds: 12,
 	})
 
 	seedE2EWholeServices(t, ts, docker, pi)
+	seedE2ESupervision(t, ts, docker, pi)
 
 	// Deux hôtes Proxmox de plus, leurs VM sauvegardées par la tâche nuit-pi :
 	// pve peut aussi les sauvegarder avec restic, pve-nord n'a pas backup.produce.
@@ -665,18 +671,24 @@ func e2eConnect(t *testing.T, ts *testServer, name, id, rights string) *machine.
 // marche : 2 Tio, dont 600 Gio libres.
 func e2eReadyTarget(t *testing.T, ts *testServer, pi *machine.Session) {
 	t.Helper()
-	got := callAPI(ts.Server, http.MethodPost, "/api/machines/"+e2ePiID+"/actions/restic-target-setup", map[string]any{"host": e2ePiHost, "port": e2ePiPort})
+	e2eReadyTargetAt(t, ts, pi, e2ePiID, e2ePiHost, e2ePiPort)
+}
+
+// e2eReadyTargetAt fait de même pour une autre machine, à son adresse.
+func e2eReadyTargetAt(t *testing.T, ts *testServer, target *machine.Session, id, host string, port int) {
+	t.Helper()
+	got := callAPI(ts.Server, http.MethodPost, "/api/machines/"+id+"/actions/restic-target-setup", map[string]any{"host": host, "port": port})
 	if got.Code != http.StatusNoContent {
 		t.Fatalf("setup: %d %s", got.Code, got.Body.String())
 	}
-	nextOrder(t, pi)
+	nextOrder(t, target)
 	certificate, fingerprint := testCertificate(t)
 	report := agentwire.ResticReport{Target: &agentwire.ResticTargetReport{
-		State: agentwire.ResticTargetRunning, Version: "rest-server 0.14.0", Host: e2ePiHost, Port: e2ePiPort,
+		State: agentwire.ResticTargetRunning, Version: "rest-server 0.14.0", Host: host, Port: port,
 		Certificate: certificate, Fingerprint: fingerprint, RepoBytes: 1 << 40, DiskTotal: 2 << 40, DiskFree: 600 << 30,
 		RetentionFloor: &agentwire.ResticRetentionFloor{KeepDaily: 7},
 	}}
-	if got := signalAnnouncingSections(ts, pi.Token, agentwire.SignalRequest{Restic: &report}); got.Code != http.StatusNoContent {
+	if got := signalAnnouncingSections(ts, target.Token, agentwire.SignalRequest{Restic: &report}); got.Code != http.StatusNoContent {
 		t.Fatalf("target report: %d %s", got.Code, got.Body.String())
 	}
 }
@@ -697,8 +709,23 @@ func e2eComposeService(t *testing.T, ts *testServer, machineID, name string) str
 // à la cible, la lance et fait rapporter son exécution.
 func e2eResticBackup(t *testing.T, ts *testServer, source, pi *machine.Session, sourceID, name, serviceID string, run agentwire.ResticRunReport) {
 	t.Helper()
+	created := e2eCreateResticBackup(t, ts, source, pi, sourceID, name, serviceID)
+	e2eRunResticBackup(t, ts, source, sourceID, created, run)
+}
+
+// e2eCreateResticBackup déclare la sauvegarde d'un service vers pi et lit les
+// deux ordres du lien : restic.provision à la source, restic.user.add à la
+// cible. Elle rend son identifiant.
+func e2eCreateResticBackup(t *testing.T, ts *testServer, source, pi *machine.Session, sourceID, name, serviceID string) string {
+	t.Helper()
+	return e2eCreateResticBackupTo(t, ts, source, pi, sourceID, e2ePiID, name, serviceID)
+}
+
+// e2eCreateResticBackupTo fait de même vers la cible donnée.
+func e2eCreateResticBackupTo(t *testing.T, ts *testServer, source, target *machine.Session, sourceID, targetID, name, serviceID string) string {
+	t.Helper()
 	got := callAPI(ts.Server, http.MethodPost, "/api/machines/"+sourceID+"/restic-backups", map[string]any{
-		"name": name, "scope": "service", "service_id": serviceID, "target_machine_id": e2ePiID,
+		"name": name, "scope": "service", "service_id": serviceID, "target_machine_id": targetID,
 		"retention": map[string]int{"keep_daily": 14, "keep_weekly": 8, "keep_monthly": 3},
 	})
 	if got.Code != http.StatusCreated {
@@ -706,10 +733,15 @@ func e2eResticBackup(t *testing.T, ts *testServer, source, pi *machine.Session, 
 	}
 	var created resticBackupCreatedJSON
 	decodeAPI(t, got, &created)
-	// Le lien : restic.provision à la source, restic.user.add à la cible.
 	nextOrder(t, source)
-	nextOrder(t, pi)
-	started := callAPI(ts.Server, http.MethodPost, "/api/machines/"+sourceID+"/restic-backups/"+created.ID+"/actions/run", map[string]any{})
+	nextOrder(t, target)
+	return created.ID
+}
+
+// e2eRunResticBackup lance la sauvegarde et fait rapporter son exécution.
+func e2eRunResticBackup(t *testing.T, ts *testServer, source *machine.Session, sourceID, id string, run agentwire.ResticRunReport) {
+	t.Helper()
+	started := callAPI(ts.Server, http.MethodPost, "/api/machines/"+sourceID+"/restic-backups/"+id+"/actions/run", map[string]any{})
 	if started.Code != http.StatusCreated {
 		t.Fatalf("run: %d %s", started.Code, started.Body.String())
 	}
@@ -725,4 +757,100 @@ func e2eResticBackup(t *testing.T, ts *testServer, source, pi *machine.Session, 
 func e2eIgnoreOrders(session *machine.Session) {
 	for range session.Events() {
 	}
+}
+
+// seedE2ESupervision montre la supervision (B4) : le dépôt docker1 → pi a été
+// vérifié par pi (deux instantanés relus) ; celui de pve-nord → pi, créé il y a
+// vingt-trois jours (vaultwarden), n'a jamais été testé ; agenda (docker1) n'a
+// pas réussi depuis quatre jours ; calendrier (docker1) est gardé par
+// stockage, qui n'a pas le droit restic.verify. Les services sans plan (photos,
+// carnet, la base d'openCloud) sont des sources sans plan. Le passage de la
+// supervision ouvre les alertes. Le temps du composant restic est avancé à la
+// main, puis remis.
+func seedE2ESupervision(t *testing.T, ts *testServer, docker, pi *machine.Session) {
+	t.Helper()
+	at := func(moment time.Time) { ts.restic.SetClock(func() time.Time { return moment }) }
+	defer at(testNow)
+	agenda := e2eComposeService(t, ts, e2eDockerID, "agenda")
+	at(testNow.Add(-4 * 24 * time.Hour))
+	e2eResticBackup(t, ts, docker, pi, e2eDockerID, "agenda", agenda, agentwire.ResticRunReport{
+		Path: agentwire.ResticPathDirect, Reason: agentwire.ResticReachable, TargetHost: e2ePiHost, TargetPort: e2ePiPort,
+		SnapshotID: strings.Repeat("d", 64), BytesAdded: 5 << 20, DurationSeconds: 30,
+	})
+	at(testNow)
+
+	paperless := e2eBackupID(t, ts, "paperless")
+	got := callAPI(ts.Server, http.MethodPost, "/api/machines/"+e2eDockerID+"/restic-backups/"+paperless+"/actions/verify", map[string]any{})
+	if got.Code != http.StatusCreated {
+		t.Fatalf("verify: %d %s", got.Code, got.Body.String())
+	}
+	order := nextOrder(t, pi)
+	verified := agentwire.ActionReport{Results: []agentwire.ActionResult{{
+		RunID: order.RunID, State: agentwire.ActionSucceeded, Verify: &agentwire.ResticVerifyReport{Snapshots: 2, Files: 4, Bytes: 6 << 20},
+	}}}
+	if got := signalAnnouncingSections(ts, pi.Token, agentwire.SignalRequest{Actions: &verified}); got.Code != http.StatusNoContent {
+		t.Fatalf("verify report: %d %s", got.Code, got.Body.String())
+	}
+	seedE2EBlindTarget(t, ts, docker)
+	seedE2EQuietRepository(t, ts, pi)
+	ts.restic.Supervise(context.Background())
+}
+
+const e2eBureauID = "bbbbbbbb-cccc-4ddd-8eee-aaaaaaaaaaaa"
+
+// seedE2EQuietRepository : intranet (bureau → pi), un dépôt que le parcours des
+// autres écrans ne touche pas, pour que « Vérifier maintenant » y parte sans
+// trouver le dépôt occupé par une sauvegarde lancée à la main plus tôt.
+func seedE2EQuietRepository(t *testing.T, ts *testServer, pi *machine.Session) {
+	t.Helper()
+	bureau := e2eConnect(t, ts, "bureau", e2eBureauID, "observe,restic.produce")
+	intranet := e2eComposeService(t, ts, e2eBureauID, "intranet")
+	e2eResticBackup(t, ts, bureau, pi, e2eBureauID, "intranet", intranet, agentwire.ResticRunReport{
+		Path: agentwire.ResticPathDirect, Reason: agentwire.ResticReachable, TargetHost: e2ePiHost, TargetPort: e2ePiPort,
+		SnapshotID: strings.Repeat("f", 64), BytesAdded: 1 << 20, DurationSeconds: 8,
+	})
+	go e2eIgnoreOrders(bureau)
+}
+
+const (
+	e2eStockageID   = "aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff"
+	e2eStockageHost = "192.0.2.50"
+)
+
+// seedE2EBlindTarget : stockage, une seconde cible qui n'a pas le droit
+// restic.verify. calendrier (docker1), sauvegardé chaque nuit chez elle depuis
+// vingt-deux jours, ne peut donc pas être testé : la carte et l'alerte disent
+// le droit qui manque.
+func seedE2EBlindTarget(t *testing.T, ts *testServer, docker *machine.Session) {
+	t.Helper()
+	at := func(moment time.Time) { ts.restic.SetClock(func() time.Time { return moment }) }
+	defer at(testNow)
+	stockage := e2eConnect(t, ts, "stockage", e2eStockageID, "observe,restic.target=/srv/restic")
+	e2eReadyTargetAt(t, ts, stockage, e2eStockageID, e2eStockageHost, e2ePiPort)
+	calendrier := e2eComposeService(t, ts, e2eDockerID, "calendrier")
+	at(testNow.Add(-22 * 24 * time.Hour))
+	id := e2eCreateResticBackupTo(t, ts, docker, stockage, e2eDockerID, e2eStockageID, "calendrier", calendrier)
+	at(testNow)
+	e2eRunResticBackup(t, ts, docker, e2eDockerID, id, agentwire.ResticRunReport{
+		Path: agentwire.ResticPathDirect, Reason: agentwire.ResticReachable, TargetHost: e2eStockageHost, TargetPort: e2ePiPort,
+		SnapshotID: strings.Repeat("e", 64), BytesAdded: 2 << 20, DurationSeconds: 20,
+	})
+	go e2eIgnoreOrders(stockage)
+}
+
+// e2eBackupID rend l'identifiant de la sauvegarde restic de ce nom.
+func e2eBackupID(t *testing.T, ts *testServer, name string) string {
+	t.Helper()
+	got := callAPI(ts.Server, http.MethodGet, "/api/backups/overview", nil)
+	var overview backupOverviewJSON
+	decodeAPI(t, got, &overview)
+	for _, source := range overview.Sources {
+		for _, protection := range source.Protections {
+			if protection.Origin == "restic" && protection.Name == name {
+				return protection.ID
+			}
+		}
+	}
+	t.Fatalf("no restic backup named %s", name)
+	return ""
 }

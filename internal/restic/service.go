@@ -63,6 +63,12 @@ type Store interface {
 	SetResticLinkRetired(ctx context.Context, linkID string, at time.Time) error
 	// NoteResticRetain écrit la dernière rétention du dépôt d'un lien.
 	NoteResticRetain(ctx context.Context, linkID string, outcome RetainOutcome) error
+	// NoteResticVerify écrit la dernière vérification du dépôt d'un lien ;
+	// la dernière réussite n'avance que sur une réussite.
+	NoteResticVerify(ctx context.Context, linkID string, outcome VerifyOutcome) error
+	// FindResticLinkByVerifyRun rend le lien dont la dernière vérification est
+	// ce run, envoyé à cette cible ; ErrLinkNotFound sinon.
+	FindResticLinkByVerifyRun(ctx context.Context, targetID, runID string) (Link, error)
 
 	// Ce que la règle lit des autres domaines.
 	ResticGuest(ctx context.Context, hostID string, vmid int) (proxmox.Guest, error)
@@ -105,12 +111,19 @@ type Watcher interface {
 	BackupsChanged()
 }
 
+// Alerter reçoit les constats de la supervision : le moteur des alertes s'y
+// branche et reprend ce qu'il ne reçoit plus. nil est toléré.
+type Alerter interface {
+	BackupsJudged(ctx context.Context, findings []Finding)
+}
+
 type Service struct {
 	store     Store
 	machines  Machines
 	sender    Sender
 	inventory Inventory
 	watcher   Watcher
+	alerter   Alerter
 	auditor   *audit.Recorder
 	logger    *slog.Logger
 	now       func() time.Time
@@ -144,6 +157,7 @@ func New(store Store, machines Machines, logger *slog.Logger) *Service {
 func (s *Service) SetSender(sender Sender)              { s.sender = sender }
 func (s *Service) SetInventory(inventory Inventory)     { s.inventory = inventory }
 func (s *Service) SetWatcher(watcher Watcher)           { s.watcher = watcher }
+func (s *Service) SetAlerter(alerter Alerter)           { s.alerter = alerter }
 func (s *Service) SetAuditor(auditor *audit.Recorder)   { s.auditor = auditor }
 func (s *Service) SetClock(now func() time.Time)        { s.now = now }
 func (s *Service) SetLifetime(lifetime context.Context) { s.lifetime = lifetime }

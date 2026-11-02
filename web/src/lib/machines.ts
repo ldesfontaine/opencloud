@@ -100,6 +100,7 @@ export const capabilityNames = [
   "restic.target",
   "restic.produce",
   "restic.docker",
+  "restic.verify",
 ] as const;
 
 // Les droits qui agissent sur les invités d'un hôte Proxmox, sans chemin.

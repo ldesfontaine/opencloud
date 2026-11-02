@@ -83,7 +83,8 @@ type resticTarget struct {
 	// failure : ce qui empêche de lancer rest-server avant même d'essayer.
 	failure string
 	// Les verrous qu'un restic relayé a posés, par dépôt, et les dépôts en
-	// cours de rétention : une rétention ne part pas sur un dépôt occupé.
+	// cours de rétention ou de vérification : ni l'une ni l'autre ne part sur
+	// un dépôt occupé.
 	relayLocks map[string]map[string]time.Time
 	retaining  map[string]bool
 }

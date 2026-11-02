@@ -40,6 +40,7 @@ type Link struct {
 	// dépôt se rouvre.
 	RetiredAt time.Time
 	Retain    RetainOutcome
+	Verify    VerifyOutcome
 }
 
 // IsRetired dit si plus aucune sauvegarde n'emploie le lien.
@@ -75,6 +76,21 @@ type RetainOutcome struct {
 	State  string
 	Reason string
 	At     time.Time
+}
+
+// VerifyOutcome est la dernière vérification d'un dépôt : l'ordre, son état,
+// une raison fermée, ce qu'elle a relu (des comptes), et la dernière
+// réussite, gardée même quand un essai suivant échoue. State vide : jamais
+// tentée.
+type VerifyOutcome struct {
+	RunID     string
+	State     string
+	Reason    string
+	At        time.Time
+	SuccessAt time.Time
+	Snapshots int
+	Files     int
+	Bytes     int64
 }
 
 func (l Link) repo() repoKey {

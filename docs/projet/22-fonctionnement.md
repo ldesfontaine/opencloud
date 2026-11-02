@@ -17,7 +17,7 @@
 | L'opérateur | L'opérateur, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche. Tant qu'aucun compte n'existe, l'écran de première configuration à la place de l'interface : il crée le compte, puis l'interface s'ouvre |
 | La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base. **Et son agent, `opencloud agent`, comme toute machine** : `serve` n'observe rien de sa propre machine. La ligne qui l'installe s'affiche dès la première configuration (« La machine openCloud ») |
 | La commande locale | `opencloud export` et `opencloud apply`, lancées sur la machine openCloud, sous le compte du service ou en root | Rien de son côté : elles parlent au `serve` qui tourne par la socket `state_dir/control.sock`. `export` écrit ce qu'il répond ; `apply` lit un fichier, montre le plan que le serveur en tire, demande confirmation, puis lui demande de l'écrire. Elles n'ouvrent pas la base |
-| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker, **sous un compte dédié (`opencloud-agent`), root sur demande**. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `backup.produce` (lance un producteur sur la machine, chiffre ce qu'il écrit et le téléverse au serveur), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
+| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker, **sous un compte dédié (`opencloud-agent`), root sur demande**. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `backup.produce` (lance un producteur sur la machine, chiffre ce qu'il écrit et le téléverse au serveur), `restic.verify` (vérifie un dépôt reçu), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
 | Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : pour observer, l'agent le lit par sa socket, en lecture seule. Il ne lui écrit que par `docker compose up`, pour déployer un service déclaré, avec le droit `docker.deploy` ou `docker.update` (« Comment un service se déploie ») |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
@@ -352,6 +352,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `restic.target` | Un dossier | Recevoir des sauvegardes restic : l'agent lance et surveille `rest-server` en écriture seule sur ce dossier (« Comment restic sauvegarde »). **Refusé par défaut**, coché par machine |
 | `restic.produce` | — | Lancer restic sur la machine pour sauvegarder un service ou une VM vers une cible. **Refusé par défaut**, coché par machine. Une VM demande aussi `backup.produce` |
 | `restic.docker` | — | Sauvegarder les **volumes nommés** et les **bases** Docker d'un service entier : l'agent lit un volume par le conteneur qui le monte (`docker cp`) et lance l'outil de dump d'une base **dans son conteneur** (`docker exec`). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Équivaut à la socket Docker que l'agent a déjà. Demandé **en plus** de `restic.produce` dès qu'un service porte un volume ou une base ; sans lui, l'ordre est refusé (`right_missing:restic.docker`) |
+| `restic.verify` | — | Vérifier les dépôts que la machine reçoit : `restic check`, puis la relecture **en mémoire** de fichiers du dernier instantané (« Comment restic se vérifie »). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Demandé **en plus** de `restic.target` ; sans lui, l'ordre est refusé (`right_missing:restic.verify`) et l'écran propose « Ré-enrôler avec ce droit ». Coût : l'agent déchiffre du contenu (rien n'est écrit sur son disque, rien n'est rapporté) ; il détient déjà le mot de passe du dépôt pour la rétention, le droit le dit en clair |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
@@ -1817,8 +1818,8 @@ Un autre chemin que les archives `age` : la source garde ses sauvegardes
 | Acteur | Rôle | Droit |
 | --- | --- | --- |
 | La source | Son agent lance `restic backup` (un service : son dossier sous la racine de l'agent ; une VM : `vzdump` en flux). Il reçoit du serveur les deux mots de passe du lien (`restic.provision`) et les garde en `0600` | `restic.produce` (+ `backup.produce` pour une VM) |
-| La cible | Son agent lance et surveille **une seule instance** `rest-server --append-only --private-repos --tls` (certificat auto-signé, un an, épinglé par la source, refait si ses noms changent). Il reçoit le mot de passe REST (`restic.user.add`) et en calcule l'empreinte bcrypt ; il applique la rétention chez lui (`restic.retain`), jamais sous son plancher | `restic.target` |
-| Le serveur | Tire, scelle et distribue les mots de passe de chaque lien ; garde les sauvegardes déclarées, leur historique, ce que les agents rapportent ; envoie `restic.target.setup`, `restic.provision`, `restic.user.add`, `restic.user.remove`, `restic.backup`, `restic.retain` ; porte le relais | — |
+| La cible | Son agent lance et surveille **une seule instance** `rest-server --append-only --private-repos --tls` (certificat auto-signé, un an, épinglé par la source, refait si ses noms changent). Il reçoit le mot de passe REST (`restic.user.add`) et en calcule l'empreinte bcrypt ; il applique la rétention chez lui (`restic.retain`), jamais sous son plancher, et vérifie les dépôts (`restic.verify`) | `restic.target` (+ `restic.verify` pour vérifier) |
+| Le serveur | Tire, scelle et distribue les mots de passe de chaque lien ; garde les sauvegardes déclarées, leur historique, ce que les agents rapportent ; envoie `restic.target.setup`, `restic.provision`, `restic.user.add`, `restic.user.remove`, `restic.backup`, `restic.retain`, `restic.verify` ; juge la supervision et ouvre les alertes ; porte le relais | — |
 
 ### Un service entier
 
@@ -1847,7 +1848,12 @@ restic, dans le dépôt de la source, sous un nom de fichier stable.
 (plus de 36 h sans réussite : « En retard »), échec et refus avec leur raison.
 Les tâches vzdump que Proxmox mène encore de lui-même (« nuit-pi ») restent
 **observées** : la carte le dit (« À remplacer par un plan openCloud ») et
-porte le bouton **Remplacer par openCloud**.
+porte le bouton **Remplacer par openCloud**. En tête de page, la carte
+**Surveillance** montre les alertes de sauvegarde ouvertes, chacune avec son
+geste (« La supervision des sauvegardes ») ; chaque carte de sauvegarde restic
+porte son **Test de restauration** (réussi, jamais testé, périmé, ou ce qui
+l'empêche, avec « Ré-enrôler avec ce droit » quand la cible n'a pas
+`restic.verify`) et le geste **Vérifier maintenant** au menu « … ».
 
 ### Les mots de passe d'un lien
 
@@ -1857,7 +1863,7 @@ sauvegardes de cette source vers cette cible.
 | Étape | Ce qui se passe |
 | --- | --- |
 | Première sauvegarde du lien | Le serveur tire deux mots de passe (`crypto/rand`, 32 octets, base64url : 43 caractères) : celui de REST et celui du dépôt. Il les **scelle** avec `secret.key` (`internal/seal`, liés à `restic_links`, à leur colonne et à leur ligne) |
-| Distribution | Dans le **secret signé** d'un ordre (`action.SendWithSecret`), jamais dans ses paramètres : `restic.provision` à la source (les deux), `restic.user.add` à la cible (REST seul), `restic.retain` à la cible (dépôt seul, le temps de la purge) |
+| Distribution | Dans le **secret signé** d'un ordre (`action.SendWithSecret`), jamais dans ses paramètres : `restic.provision` à la source (les deux), `restic.user.add` à la cible (REST seul), `restic.retain` et `restic.verify` à la cible (dépôt seul, le temps de la commande) |
 | Sauvegarde suivante du même lien | Les mêmes mots de passe, relus en base |
 | Certificat, adresse ou port de la cible changés | `restic.provision` repart à chaque source liée, mêmes mots de passe |
 | Utilisateur d'un lien absent du rapport de la cible | `restic.user.add` repart ; un utilisateur sans lien est fermé (`restic.user.remove`) |
@@ -1911,8 +1917,64 @@ rétention vide ; il garde au moins le plancher.
 | Plancher de rétention | Sur la cible ; rapporté, gardé en base pour juger la saisie |
 | Cibles, liens (retirés compris), sauvegardes, 60 dernières exécutions par sauvegarde, dernière rétention par dépôt, tâches vzdump observées | Base, migration `032_restic` |
 | Les parties de la dernière exécution d'un service (`kind`, `name`, `state`, raison fermée, octets), par sauvegarde et par exécution | Base, migration `033_restic_parts` |
-| Suppression | Impossible depuis la source : `--append-only`, et le relais n'accepte `DELETE` que sur `locks/` (deux barrières de plus : courtier et exécuteur de la cible). Aucune route ni aucun verbe ne lance `restic.retain` : seule la nuit du serveur, vers une machine qui tient `restic.target` |
+| La dernière vérification de chaque dépôt (ordre, état, raison fermée, instant, **comptes** : instantanés, fichiers, octets) et sa dernière réussite, gardée quand un essai échoue | Base, migration `034_restic_verify` (colonnes `verify_*` de `restic_links`). Jamais un nom de fichier, un chemin ni un contenu |
+| Suppression | Impossible depuis la source : `--append-only`, et le relais n'accepte `DELETE` que sur `locks/` (deux barrières de plus : courtier et exécuteur de la cible). Aucune route ni aucun verbe ne lance `restic.retain` (le verbe `restic.backup.verify` lance `restic.verify`, qui n'écrit ni n'efface rien) : seule la nuit du serveur, vers une machine qui tient `restic.target` |
 | Clé perdue (`opencloud secrets forget`) | Les mots de passe des liens sont vidés : les sources sauvegardent encore avec les leurs, la cible ne purge plus ces dépôts (`restic.link_secret_lost`) |
+
+### Comment restic se vérifie
+
+Un dépôt n'est sûr que s'il se relit. La cible le vérifie **chez elle, sans
+que personne saisisse rien** : le mot de passe du dépôt est celui que le
+serveur détient (même chemin que la rétention).
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| Quand | Chaque dépôt (une source vers une cible) **une fois par semaine**, à la suite de la nuit ; un essai raté est rejoué dès la nuit suivante. À la main : menu « … » de la carte → **Vérifier maintenant** (`POST /api/machines/{id}/restic-backups/{backup}/actions/verify`, verbe `restic.backup.verify`). Une cible sans `restic.verify` est passée sans bruit : l'alerte « test de restauration périmé » dit pourquoi |
+| Verrou | Le dépôt est réservé comme pour une sauvegarde ou une rétention : jamais deux à la fois (`restic.backup_running`) |
+| 1. Structure | `restic check --read-data-subset 5%` : la structure, et une tranche des données relue. Un dépôt abîmé : `check_failed`, avec la fin de la sortie de restic (des noms de paquets) |
+| 2. Relecture | Pour le dernier instantané de chaque ensemble de chemins (8 au plus), le **plus petit** fichier non vide et le **plus gros** sont relus par `restic dump`, jusqu'à 16 Mio chacun, vers une sortie qui compte les octets et les jette. Un fichier qui ne se relit pas en entier : `restore_failed`. Aucun fichier à relire : `repo_empty` |
+| Rapport | La cible rapporte **trois comptes** (`ResticVerifyReport` : instantanés, fichiers, octets), rejugés contre leurs bornes ; hors bornes, la vérification compte pour un échec `unknown` |
+
+| Ce que ça coûte | Ce que ça rapporte |
+| --- | --- |
+| Une relecture en mémoire n'est pas une restauration complète : elle prouve que les blocs se trouvent, se déchiffrent et se reconstituent, pas que l'application relira ses fichiers | Rien n'est écrit sur le disque de la cible : pas de dossier temporaire, pas de clair qui traîne, pas de disque plein |
+| 5 % des données sont relues à chaque passage, pas tout | Un passage dure des secondes à quelques minutes, même pour un dépôt de plusieurs Gio ; une image de VM n'est jamais restaurée en entier |
+| Le droit `restic.verify` s'ajoute à `restic.target` | La cible garde les mots de passe qu'elle avait déjà : le droit rend visible ce qu'elle en fait |
+
+**Aucun secret ne quitte la machine** : le mot de passe est un fichier `0600`
+le temps de l'ordre, jamais un argument ni une variable, effacé quoi qu'il
+arrive et masqué dans toute sortie. Le serveur n'apprend que les comptes, la
+raison fermée et l'état. Banc de non-fuite : `restic_verify_test.go` (agent :
+mot de passe, nom de fichier et contenu semés, absents du résultat et du
+journal) et `api_restic_verify_test.go` (serveur : mot de passe absent de la
+base en clair, de l'API, de l'audit, du journal).
+
+### La supervision des sauvegardes
+
+Décision de Lucas du 01/11/2026 : **elle vit dans ce module**, pas dans
+« Tâches », pas par des webhooks Proxmox. Un passage lit l'aperçu de la page
+Sauvegardes (la même source que l'écran), en tire des **constats**
+(`restic.Finding`) et les donne au moteur des alertes
+(`alert.Engine.BackupsJudged`), qui ouvre, aggrave et reprend. Il tourne à
+chaque tour de la boucle (15 min) et à chaque fin de vérification. Les
+alertes sont celles de la boîte « Alertes » : canaux, silences et acquittement
+y sont les mêmes ; la page Sauvegardes en montre les ouvertes dans sa carte
+**Surveillance**, avec leur geste.
+
+| Alerte | S'ouvre quand | Se résout quand | Gravité |
+| --- | --- | --- | --- |
+| `backup_stale` « Aucune sauvegarde réussie depuis… » | Une sauvegarde restic ou un plan d'archives n'a pas réussi depuis **36 h** (depuis sa création, si elle n'a jamais réussi). Les tâches vzdump que Proxmox mène encore ne sont pas jugées | Une réussite | attention ; danger au-delà de **7 j** |
+| `restore_test_stale` « Test de restauration périmé » | Le dernier test réussi d'un **dépôt** date de plus de **14 j** (depuis la plus ancienne sauvegarde du dépôt, s'il n'a jamais réussi). Une alerte par dépôt, nommé « source → cible » | Une vérification réussie | attention ; danger au-delà de **30 j** |
+| `source_unprotected` « Source sans plan » | Une base, un invité ou un service déclaré n'a aucune protection (ni restic, ni archive, ni tâche Proxmox). Pas un volume (il suit son service), pas une source que l'hôte n'a pas su lire (« inconnue » n'est pas « aucune »). **Seulement quand le module est en service** (au moins une protection existe) : une installation neuve ne sonne pas | La source est couverte | attention |
+| `target_full` « Cible presque pleine » | La cible, en marche, garde des sauvegardes et a moins de place libre que le plus grand de ses ajouts récents ×2 (1 Gio au moins) | Plus de place | attention ; danger sous le plus grand ajout (ou 256 Mio) |
+| `target_unreachable` « Cible injoignable » | La cible garde des sauvegardes et sa machine est hors ligne, ou `rest-server` est arrêté ou en erreur | Elle reçoit de nouveau | danger |
+
+Les seuils sont des constantes du code (`restic/supervise.go`), non réglables :
+le réglage est une décision à prendre (voir le rapport). `target_full` ne
+double pas « Disque presque plein » : celle-ci mesure un volume à 85 %, celle-là
+dit que la prochaine nuit ne tient pas, et nomme les sauvegardes touchées ; les
+deux peuvent sonner pour le même disque. Une alerte part avec sa machine
+(source ou cible) retirée.
 
 ### Installer restic et rest-server
 
@@ -3857,7 +3919,7 @@ canal. Rien n'est recalculé par un moteur qui relirait la base : c'est le
 composant qui sait, lui qui parle.
 
 **L'objet d'une alerte** est une machine, un conteneur (`container`), une
-sonde, une tâche ou un volume (une machine et son point de montage) : un genre
+sonde, une tâche, un volume (une machine et son point de montage) ou une sauvegarde (`backup` : une protection, une source ou une cible de sauvegardes, qui ne porte que sa machine) : un genre
 et un identifiant, le nom recopié, et la clé étrangère de l'objet, mise à NULL
 quand il disparaît (`set null`). Une alerte dit aussi **à quel service déclaré
 elle appartient** (`service_id`, `set null`) : celui de l'unité du conteneur,
@@ -4026,7 +4088,8 @@ liste vit dans `internal/alert`.
 | Certificat non vérifié | `probe` | agrafe « révoqué », nom qui ne correspond pas, ou chaîne refusée d'un certificat pas encore expiré | chaîne et nom valides | attention |
 | Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** par défaut, réglable ; aggravée à **95 %** par défaut, réglable | sous le seuil d'attention **moins 5 points** (80 % par défaut), ou volume disparu | attention → danger |
 | Agent revenu à la version précédente | `action`, au rapport de l'agent | la mise à jour n'a pas été confirmée à temps (`timeout`) ou a planté (`crash`) : l'agent est revenu seul à la précédente ; la remise en état qui échoue à son tour (`failed`) | une mise à jour ou un retour arrière confirmé sur cette machine | attention, danger si la remise en état a échoué |
-| Sauvegarde en échec | aucune | **aucune alerte** : l'échec se lit sur la page Sauvegardes (`last_error` du plan, ou l'état du dernier ordre `backup.receive`), aucun canal n'est prévenu | | |
+| Sauvegarde sans réussite, test de restauration périmé, source sans plan, cible pleine ou injoignable | `restic` (module Sauvegardes), à chaque tour de 15 min et à chaque fin de vérification | voir « La supervision des sauvegardes » : cinq types, un objet « sauvegarde » (`backup`) qui ne porte que sa machine, comme un volume | | |
+| Un plan par archives ou un ordre `backup.receive` en échec | aucune | **aucune alerte** : l'échec se lit sur la page Sauvegardes (`last_error` du plan, ou l'état du dernier ordre `backup.receive`) ; l'absence de réussite depuis 36 h, elle, alerte (`backup_stale`) | | |
 
 **L'anti-rebond des services.** Un conteneur en boucle de redémarrage
 (mémoire épuisée, tué, code d'erreur) n'ouvre et ne résout plus une alerte
@@ -6292,7 +6355,7 @@ refusés avant d'envoyer quoi que ce soit.
 | L'autorité interne se pose machine par machine | `ca_file` n'est pas distribuée par le serveur : chaque machine qui sonde porte la sienne | À décider |
 | Pas d'incident automatique | Une sonde qui tombe change l'état du composant et ouvre une alerte ; personne n'ouvre l'incident public ni ne le résout | À décider, retouche après la 11 : ouvrir un incident public demande une règle, et une erreur se lit en public |
 | Constats d'exposition non alertés | Un port de base publié se voit sur le graphe, personne n'est prévenu | À décider |
-| Une sauvegarde en échec n'alerte pas | Elle se lit sur la page Sauvegardes (état du dernier ordre, `last_error`) ; aucune alerte ne s'ouvre, aucun canal n'est prévenu | À décider |
+| Un échec isolé n'alerte pas | Un plan ou une sauvegarde restic qui échoue se lit sur la page Sauvegardes (état du dernier ordre, `last_error`) ; l'alerte `backup_stale` n'arrive qu'après **36 h** sans réussite, et dit « le dernier essai a échoué » | Seuil non réglable ; à décider si Lucas veut un réglage ou une alerte dès l'échec |
 | Pas d'onglets machine Sauvegardes, Réglages | Onglets masqués tant qu'ils ne sont pas livrés ; leurs adresses mènent au résumé de la machine. La page Sauvegardes existe, au menu, mais pas rangée par machine. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
 | Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
 | Appliquer une mise à jour : ce qui reste | Pour un service **déployé par openCloud**, le tag plus récent se prend d'un geste (« Passer à »). Restent : **aucun retour arrière** si le service ne redevient pas sain ; une **empreinte changée sous le même tag** (aucun bouton : `--pull missing` ne la tirerait pas) ; une **autre version** que celle proposée (modifier le service, puis « Redéployer ») ; un service dont une unité épingle une empreinte (à retirer à la main). Pour les services **qu'openCloud n'a pas déployés**, il montre la ligne `image:` à changer et fabrique la commande ; l'opérateur les applique, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien (décidé le 12 octobre 2026, issue #125) | Le retour arrière : à décider (issue à part) |
@@ -6374,3 +6437,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Instances systemd (v0.5.2 L2, #451) | Le paquet `internal/systemdunits` (relevé par liste blanche, `Exec` à environnement vide, bornes), la section `systemd_units` du signal, la migration `029_systemd_units.sql` (`systemd_reports`, `systemd_units`), `directory.ObserveUnits` / `ApplyUnitObservations` / `ProposeUnit`, la route `GET /api/machines/{id}/systemd-units`, `?machine=&unit=` sur la proposition, le module `systemd_units` (onglet de la machine), la colonne « État de l'unité » et « Port à déclarer » de la fiche du service, le port d'un binaire hors du pli « Avancé » |
 | Connexions de l'hôte (v0.5.2 L6, #455) | Le paquet `internal/hostconn` (lecture de `/proc/net/tcp{,6}`, bornes, `Service` en mémoire), la section `host_connections` du signal, `link.Sighting`, `SignalHostConnection`, `KindOf` et les clés `account:` / `address:` / `internet:`, `directory.observedLinks` (rapprochement port → instance), `kind` sur les extrémités des liens, la boucle `connectionsLoop` de l'agent et le patron `latestReport[T]` (`internal/agent/keeper.go`), les sources d'une connexion sur la carte Liens. **Aucune migration, aucune route, aucun droit** |
 | Fiche Proxmox visuelle et dernière sauvegarde réelle (v0.5.2 P1, #459) | `internal/proxmox/backup_access.go` (droits du jeton lus par `GET /access/permissions`, `GrantFor`), `Reading.BlindStorages`, `Guest.BackupUnknown`, `proxmox_storages.backups_unreadable` (migration 035), `POST /api/machines/{id}/actions/refresh-proxmox`, champs `backup_blind_storages`, `backup_grant`, `backup_unknown`, `last_backup_storage`, `backup_blind`, `observed_unknown`, la maquette `docs/projet/maquettes/hyperviseur.html`, `EntityCard` partagé par les VM et les stockages. Migration `035`, aucune dépendance, aucun champ d'agent |
+| Vérifications et supervision des sauvegardes (v0.5.2 B4, #372) | L'ordre `restic.verify` (`agentwire/restic_verify.go` : paramètres, secret masqué, `ResticVerifyReport` à trois comptes, `ActionResult.Verify`), le droit `restic.verify` (`machine.CapabilityResticVerify`, jugé par `agent/availability.go`), `agent/restic_verify.go` (check, instantanés, relecture bornée, sortie qui jette), `restic/verify_command.go`, `restic/verify.go` (nuit, `VerifyNow`, rapport), `restic/supervise.go` (`FindingsOf`, `Service.Supervise`), `alert.Engine.BackupsJudged` et l'objet `backup`, cinq alertes (`backup_stale`, `restore_test_stale`, `source_unprotected`, `target_full`, `target_unreachable`), la migration `034_restic_verify.sql`, la route `POST …/restic-backups/{backup}/actions/verify` et le verbe `restic.backup.verify`, `verify` dans l'aperçu, la carte Surveillance et le test de restauration de la page Sauvegardes, `holderOfRefusal` |

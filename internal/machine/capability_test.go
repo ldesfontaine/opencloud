@@ -233,3 +233,24 @@ func TestCapabilities_ResticTargetTakesOnePathAndResticProduceNone(t *testing.T)
 		t.Fatalf("restic rights are never granted by default: %+v %v", none, err)
 	}
 }
+
+// restic.verify n'a pas de chemin (le dépôt est sous celui de restic.target),
+// se pose après restic.docker dans l'ordre des droits, et n'est jamais donné
+// par défaut.
+func TestCapability_ResticVerifyHasNoScopeAndIsNeverDefault(t *testing.T) {
+	parsed, err := ParseCapabilities("restic.verify,restic.target=/srv/restic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := FormatCapabilities(parsed); text != "observe,restic.target=/srv/restic,restic.verify" {
+		t.Fatalf("formatted %q", text)
+	}
+	if _, err := ParseCapabilities("restic.verify=/srv/a"); err != ErrCapabilityScope {
+		t.Fatalf("a path on restic.verify: %v", err)
+	}
+	for _, role := range Roles() {
+		if HasCapability(RolePreset(role), CapabilityResticVerify) {
+			t.Errorf("role %s grants restic.verify", role)
+		}
+	}
+}

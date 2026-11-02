@@ -373,6 +373,7 @@ type ResticService interface {
 	UpdateBackup(ctx context.Context, sourceID, id, name string, retention restic.Retention) (restic.Backup, error)
 	DeleteBackup(ctx context.Context, sourceID, id string) error
 	RunNow(ctx context.Context, sourceID, id string) (action.Run, error)
+	VerifyNow(ctx context.Context, sourceID, id string) (action.Run, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.

@@ -21,6 +21,7 @@ import { AccessSection } from "./backups/Access";
 import { ArchivesSection } from "./backups/Archives";
 import { SourceCard } from "./backups/SourceCard";
 import { TargetsSection } from "./backups/Targets";
+import { WatchSection } from "./backups/Watch";
 import "./Backups.scss";
 
 // Les sauvegardes : ce qui est sauvegardé (et ce qui ne l'est pas), où ça va,
@@ -50,6 +51,7 @@ export function Backups() {
         {(loaded) => (
           <div className="stack gap-40">
             <BackupVerdict overview={loaded} />
+            <WatchSection />
             <SourcesSection overview={loaded} />
             <TargetsSection overview={loaded} />
             <AccessSection sources={loaded.sources} />

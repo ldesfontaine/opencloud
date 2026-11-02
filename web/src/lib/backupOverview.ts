@@ -1,4 +1,5 @@
-import type { BackupForget, BackupMachine, BackupOverview, BackupPath, BackupProtection, BackupRetention, BackupSource, BackupTarget, RetentionFloor } from "../api/backups";
+import type { BackupForget, BackupVerify, BackupMachine, BackupOverview, BackupPath, BackupProtection, BackupRetention, BackupSource, BackupTarget, RetentionFloor } from "../api/backups";
+import type { Alert } from "../api/alerts";
 import type { Translate } from "../i18n/context";
 import { counted } from "./counted";
 import type { MissingSoftware } from "./resticInstall";
@@ -116,6 +117,44 @@ export function forgetView(t: Translate, forget: BackupForget | null, now: numbe
   }
   const reason = protectionReasonText(t, forget.reason, describeReason) || t("backup.reason_unreported");
   return { text: t(`backup.forget_${forget.state}`, when, reason), tone: "warn" };
+}
+
+// Les alertes ouvertes de la supervision des sauvegardes : celles dont l'objet
+// est une sauvegarde, une source ou une cible.
+export function backupAlerts(alerts: readonly Alert[]): Alert[] {
+  return alerts.filter((alert) => alert.status === "open" && alert.object.kind === "backup");
+}
+
+// Le test de restauration d'un dépôt : pas encore, en cours, réussi (ce
+// qu'il a relu), ou ce qui l'a empêché (ton warn). Un test réussi mais
+// périmé garde sa date et prend le ton warn.
+interface VerifyView {
+  text: string;
+  sub: string | null;
+  tone: Tone;
+}
+
+export function verifyView(t: Translate, verify: BackupVerify, now: number, describeReason: (reason: string) => string): VerifyView {
+  const when = verify.at === null ? "" : ago(t, verify.at, now);
+  const lastGood = verify.success_at === null ? null : t("backup.verify_last_good", ago(t, verify.success_at, now));
+  if (verify.state === "sent") {
+    return { text: t("backup.verify_sent"), sub: t("backup.verify_sent_sub"), tone: "neutral" };
+  }
+  if (verify.state === "failed" || verify.state === "refused") {
+    const reason = protectionReasonText(t, verify.reason, describeReason) || t("backup.reason_unreported");
+    return { text: t(`backup.verify_${verify.state}`, when), sub: [reason, lastGood].filter((part) => part !== null).join(" "), tone: "warn" };
+  }
+  if (verify.state === "succeeded") {
+    const read = t("backup.verify_read", counted(t, "backup.verify_files", verify.files), counted(t, "backup.verify_snapshots", verify.snapshots));
+    return { text: t("backup.verify_succeeded", when), sub: verify.stale ? `${read} ${t("backup.verify_stale")}` : read, tone: verify.stale ? "warn" : "ok" };
+  }
+  return { text: t("backup.verify_never"), sub: t("backup.verify_never_sub"), tone: verify.stale ? "warn" : "neutral" };
+}
+
+// Le droit qui empêche le test : la cible ne tient pas restic.verify, ou ne
+// peut pas l'exercer. null : elle le peut (ou ne l'a pas encore dit).
+export function verifyBlockedBy(verify: BackupVerify): "missing" | "unavailable" | null {
+  return verify.right === "missing" || verify.right === "unavailable" ? verify.right : null;
 }
 
 // Le plancher en clair : « 7 nuits » ; null quand il n'exige rien.

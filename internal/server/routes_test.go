@@ -269,6 +269,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	resticBackups.SetInventory(backups)
 	resticBackups.SetWatcher(bus)
 	resticBackups.SetAuditor(journal)
+	resticBackups.SetAlerter(alerts)
 	resticBackups.SetLifetime(lifetime)
 	relay := restic.NewBroker(machines, db, nil, logger)
 	t.Cleanup(func() {

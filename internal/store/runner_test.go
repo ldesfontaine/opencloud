@@ -114,11 +114,11 @@ func TestOpen_RefusesADatabaseWithAnUnknownMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exec(t, db, `INSERT INTO schema_migrations (version, applied_at) VALUES (34, 1)`)
+	exec(t, db, `INSERT INTO schema_migrations (version, applied_at) VALUES (36, 1)`)
 	db.Close()
 
 	_, err = Open(ctx, root)
-	if !errors.Is(err, ErrUnknownSchema) || !strings.Contains(err.Error(), "034") {
+	if !errors.Is(err, ErrUnknownSchema) || !strings.Contains(err.Error(), "036") {
 		t.Fatalf("attendu ErrUnknownSchema qui nomme la 034, obtenu %v", err)
 	}
 }

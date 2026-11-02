@@ -199,6 +199,8 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 		return r.acceptResticBackup(body)
 	case agentwire.KindResticRetain:
 		return r.acceptResticRetain(body)
+	case agentwire.KindResticVerify:
+		return r.acceptResticVerify(body)
 	}
 	r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
 	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}, nil

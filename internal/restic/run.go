@@ -208,6 +208,9 @@ func (s *Service) noteServerFinished(ctx context.Context, current Backup, run, f
 func (s *Service) RecordResults(ctx context.Context, machineID string, results []agentwire.ActionResult) error {
 	isChanged := false
 	for _, result := range results {
+		if s.recordVerifyResult(ctx, machineID, result) {
+			continue
+		}
 		current, err := s.store.FindResticBackupByRun(ctx, machineID, result.RunID)
 		if err != nil {
 			continue

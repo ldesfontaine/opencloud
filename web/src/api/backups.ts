@@ -182,6 +182,24 @@ export interface BackupPartResult {
   bytes_added: number;
 }
 
+// La vérification du dépôt d'une sauvegarde restic par sa cible : state est
+// "" (jamais tentée), sent, succeeded, failed ou refused ; reason un mot fermé
+// ou la clé d'un refus. Des comptes, jamais un nom ni un contenu. right : le
+// droit restic.verify de la cible (ok, missing, unavailable, unknown) ; stale :
+// le dernier test réussi est trop ancien.
+export interface BackupVerify {
+  state: "" | "sent" | "succeeded" | "failed" | "refused";
+  reason: string;
+  at: string | null;
+  success_at: string | null;
+  snapshots: number;
+  files: number;
+  bytes: number;
+  right: "ok" | "missing" | "unavailable" | "unknown";
+  right_reason: string;
+  stale: boolean;
+}
+
 export interface BackupProtection {
   origin: ProtectionOrigin;
   // La tâche vzdump, le sujet du plan, ou la sauvegarde restic.
@@ -209,6 +227,8 @@ export interface BackupProtection {
   // restic, portée service : le résultat de chaque partie au dernier passage.
   parts: BackupPartResult[];
   runs: ResticRun[];
+  // restic : la vérification du dépôt ; null pour les autres origines.
+  verify: BackupVerify | null;
 }
 
 export interface BackupSource {
@@ -381,6 +401,10 @@ export async function updateResticBackup(machineID: string, backupID: string, re
 
 export async function deleteResticBackup(machineID: string, backupID: string): Promise<void> {
   return api.send(route("DELETE /api/machines/{id}/restic-backups/{backup}", { id: machineID, backup: backupID }));
+}
+
+export async function verifyResticBackup(machineID: string, backupID: string): Promise<ActionRun> {
+  return api.send<ActionRun>(route("POST /api/machines/{id}/restic-backups/{backup}/actions/verify", { id: machineID, backup: backupID }), {});
 }
 
 export async function runResticBackup(machineID: string, backupID: string): Promise<ActionRun> {

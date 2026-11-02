@@ -37,6 +37,7 @@ import {
 import { backupsPath, newTargetPathFor } from "../../lib/backups";
 import { isFormModified } from "../../lib/modal";
 import { missingSoftware, type MissingSoftware } from "../../lib/resticInstall";
+import { holderOfRefusal } from "../../lib/rights";
 import { formatBytes, percentOf } from "../../lib/units";
 import { InstallBlock } from "./InstallBlock";
 import { PartsBlock } from "./Parts";
@@ -93,7 +94,7 @@ function ResticDialog({ overview }: { overview: BackupOverview }) {
   // Un refus de droit mène à la machine qui le manque : la cible pour
   // restic.target, la source sinon.
   const refused = action.error === null ? "" : errorKey(action.error);
-  const gestureMachine = refused === "restic.target_right_missing" ? values.target : (source?.machine_id ?? "");
+  const gestureMachine = holderOfRefusal(refused, { source: source?.machine_id ?? "", target: values.target });
   // Un logiciel qui manque mène au même bloc que la carte : sur la cible pour
   // rest-server, sur la source pour restic.
   const missing = missingSoftware(refused);

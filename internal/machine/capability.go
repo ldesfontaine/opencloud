@@ -47,6 +47,12 @@ const (
 	// jamais l'environnement du conteneur : le mot de passe de la base reste
 	// dans le conteneur.
 	CapabilityResticDocker = "restic.docker"
+	// Vérifier les dépôts reçus : restic check, puis la relecture d'un
+	// échantillon de fichiers de chaque dernier instantané. L'agent déchiffre
+	// du contenu en mémoire, rien n'est écrit sur son disque ; il détient déjà
+	// le mot de passe du dépôt pour la rétention, mais ce droit le dit en
+	// clair. Demande restic.target. Refusé par défaut, coché par machine.
+	CapabilityResticVerify = "restic.verify"
 )
 
 // CapabilityNames rend la liste fermée, dans l'ordre où elle s'affiche :
@@ -56,6 +62,7 @@ func CapabilityNames() []string {
 		CapabilityObserve, CapabilityProbeLAN, CapabilityObserveEnv, CapabilityAgentUpdate, CapabilityDockerDeploy,
 		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite,
 		CapabilityProxmoxPower, CapabilityProxmoxSnapshot, CapabilityResticTarget, CapabilityResticProduce, CapabilityResticDocker,
+		CapabilityResticVerify,
 	}
 }
 

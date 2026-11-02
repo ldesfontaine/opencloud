@@ -4,7 +4,7 @@ import type { ActionsResponse, ActionRun, AgentMigration, AgentUpdateOffer, RunL
 import type { APITokensState } from "./apiTokens";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
-import type { BackupDestination, BackupForget, BackupKeyring, BackupMachine, BackupMachineRight, BackupOverview, BackupPath, BackupPlan, BackupPartResult, BackupProtection, BackupRetention, BackupSource, BackupSourcePart, BackupTarget, Backups, ResticRun, RetentionFloor } from "./backups";
+import type { BackupDestination, BackupForget, BackupKeyring, BackupMachine, BackupMachineRight, BackupOverview, BackupPath, BackupPlan, BackupPartResult, BackupProtection, BackupRetention, BackupSource, BackupSourcePart, BackupTarget, BackupVerify, Backups, ResticRun, RetentionFloor } from "./backups";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
@@ -570,6 +570,7 @@ const alert = shape<AlertJSON>("Alert", {
     target: optional(value),
     not_after: optional(value),
     since: optional(value),
+    bytes: optional(value),
   }),
   opened_at: value,
   updated_at: value,
@@ -1048,6 +1049,18 @@ const backupProtection = shape<BackupProtection>("BackupProtection", {
     bytes_added: value,
     duration_seconds: value,
     parts: shape<BackupPartResult>("BackupPartResult", { kind: value, name: value, state: value, reason: value, bytes_added: value }),
+  }),
+  verify: shape<BackupVerify>("BackupVerify", {
+    state: value,
+    reason: value,
+    at: value,
+    success_at: value,
+    snapshots: value,
+    files: value,
+    bytes: value,
+    right: value,
+    right_reason: value,
+    stale: value,
   }),
 });
 
