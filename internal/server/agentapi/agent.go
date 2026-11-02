@@ -205,6 +205,10 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	session, err := h.machines.Connect(r.Context(), authenticated, h.clientAddress(r),
 		r.Header.Get(agentwire.HeaderAgentVersion), r.Header.Get(agentwire.HeaderAgentRights),
 		r.Header.Get(agentwire.HeaderAgentAccount), r.Header.Get(agentwire.HeaderAgentUnavailable))
+	if errors.Is(err, machine.ErrAgentRevoked) {
+		h.writeAuthError(w, err)
+		return
+	}
 	if err != nil {
 		h.logger.Error("connect", "machine_id", authenticated.ID, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")

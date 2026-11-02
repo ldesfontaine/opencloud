@@ -286,3 +286,27 @@ func (a *lostAlerter) MachineBack(_ context.Context, machineID string) {
 	a.back = append(a.back, machineID)
 }
 func (a *lostAlerter) MachineRemoved(context.Context, string) {}
+
+// Une révocation arrivée entre l'authentification et l'ouverture du flux
+// n'avait aucune session à fermer : le flux s'ouvrait pour un agent révoqué
+// et vivait jusqu'à sa coupure (et l'agent, sans jamais lire « revoked »,
+// réessayait). Connect relit l'agent une fois la session ouverte.
+func TestConnect_ARevocationBetweenAuthenticationAndOpeningLeavesNoSession(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	m, private := h.enroll(t, "vps-paris-1")
+	authenticated, err := h.service.Authenticate(ctx, h.prove(t, m, private, h.now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.Remove(ctx, m.ID, RemoveOptions{KeepHistory: true}); err != nil {
+		t.Fatal(err)
+	}
+	session, err := h.service.Connect(ctx, authenticated, "192.0.2.1", "v0.0.1", "", "", "")
+	if !errors.Is(err, ErrAgentRevoked) || session != nil {
+		t.Fatalf("connect after the revocation: %v %v", session, err)
+	}
+	if status, _ := h.service.Get(ctx, m.ID); status.Online {
+		t.Fatal("the revoked agent is online")
+	}
+}
