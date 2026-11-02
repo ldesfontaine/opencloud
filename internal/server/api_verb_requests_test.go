@@ -457,3 +457,33 @@ func TestVerbRequests_AWrongTypedFieldIsRefusedByTheRouteAtConfirmation(t *testi
 		t.Fatal("a refused replay removed the machine")
 	}
 }
+
+// Une demande déposée avec un verbe que le registre ne propose plus (comme
+// restic.backup.create, retiré par le ticket #374) est refusée à la
+// confirmation, avec une raison lisible : pas d'erreur interne, rien n'est
+// rejoué, et elle ne reste pas en attente.
+func TestVerbRequests_ConfirmingARequestOfARemovedVerbRefusesItAndReplaysNothing(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	_, token := server.issueWriteToken(t, "agent", "machine.delete")
+	request, err := server.requests.Submit(context.Background(), verbrequest.Submission{
+		Verb: "restic.backup.create", ObjectName: "vps-paris-1", Params: map[string]string{"id": remoteID},
+		Body: `{"name":"x","scope":"service"}`, TokenID: token.ID, TokenName: token.Name, OnBehalfOf: "alice-sub",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := callAPI(server.Server, http.MethodPost, "/api/verb-requests/"+request.ID+"/actions/confirm", nil)
+	if got.Code != http.StatusConflict || errorCode(t, got) != "verb_request.verb_removed" {
+		t.Fatalf("confirm: %d %s", got.Code, got.Body.String())
+	}
+	if pending, _ := server.requests.ListPending(context.Background()); len(pending) != 0 {
+		t.Fatalf("still pending: %+v", pending)
+	}
+	if again := callAPI(server.Server, http.MethodPost, "/api/verb-requests/"+request.ID+"/actions/confirm", nil); again.Code != http.StatusConflict || errorCode(t, again) != "verb_request.already_decided" {
+		t.Fatalf("again: %d %s", again.Code, again.Body.String())
+	}
+	if !strings.Contains(callAPI(server.Server, http.MethodGet, "/api/audit?limit=100", nil).Body.String(), "verb.reject") {
+		t.Error("the refusal is not in the audit")
+	}
+}

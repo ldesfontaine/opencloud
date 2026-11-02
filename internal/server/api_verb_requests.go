@@ -21,7 +21,7 @@ import (
 type VerbRequestService interface {
 	Submit(ctx context.Context, submission verbrequest.Submission) (verbrequest.Request, error)
 	ListPending(ctx context.Context) ([]verbrequest.Request, error)
-	Confirm(ctx context.Context, id string) (verbrequest.Request, error)
+	Confirm(ctx context.Context, id string, offered func(verb string) bool) (verbrequest.Request, error)
 	Reject(ctx context.Context, id string) (verbrequest.Request, error)
 }
 
@@ -175,7 +175,10 @@ func (s *Server) rejectVerbRequest(w http.ResponseWriter, r *http.Request) {
 // rejoue plus ; si le geste échoue (409, 404…), l'opérateur reçoit cet échec
 // et un nouvel appel du jeton dépose une nouvelle demande.
 func (s *Server) confirmVerbRequest(w http.ResponseWriter, r *http.Request) {
-	request, err := s.verbRequests.Confirm(r.Context(), r.PathValue("id"))
+	request, err := s.verbRequests.Confirm(r.Context(), r.PathValue("id"), func(id string) bool {
+		_, found := verb.Default.Lookup(id)
+		return found
+	})
 	if s.failed(w, r, err, verbrequest.ErrNotFound) {
 		return
 	}

@@ -168,23 +168,31 @@ test("menu d'une sauvegarde restic : la lancer maintenant, puis modifier sa rét
   expect(findings.unknown()).toEqual([]);
 });
 
-test("une hausse et un renommage ne demandent pas le nom ; la baisse faite est au journal", async ({ page, findings }) => {
+test("une hausse ne demande pas le nom ; la baisse faite ici est au journal", async ({ page, findings }) => {
   findings.where = "/sauvegardes › vaultwarden › journal";
   await openBackups(page);
-  const relayed = card(page, "vaultwarden");
-  await relayed.getByRole("button", { name: filled("entity.more", "vaultwarden") }).click();
-  await page.getByRole("menuitem", { name: label("backup.restic_edit") }).click();
-  const dialog = page.locator("dialog[open]");
-  const save = dialog.getByRole("button", { name: label("backup.plan_save") });
+  const editRetention = async () => {
+    await card(page, "vaultwarden").getByRole("button", { name: filled("entity.more", "vaultwarden") }).click();
+    await page.getByRole("menuitem", { name: label("backup.restic_edit") }).click();
+    return page.locator("dialog[open]");
+  };
+
+  // Une hausse : pas de saisie du nom, « Enregistrer » est tout de suite prêt.
+  let dialog = await editRetention();
   await dialog.locator("#restic-keep_monthly").fill("24");
   await expect(dialog.locator("#restic-confirm-name")).toHaveCount(0);
-  await expect(save).toBeEnabled();
-  await save.click();
+  await expect(dialog.getByRole("button", { name: label("backup.plan_save") })).toBeEnabled();
+  await dialog.getByRole("button", { name: label("backup.plan_save") }).click();
   await expect(dialog).toHaveCount(0);
 
-  // La baisse de paperless, faite plus haut, est au journal, avec son action.
+  // Une baisse, faite par ce test : le nom est exigé, puis la ligne est au journal.
+  dialog = await editRetention();
+  await dialog.locator("#restic-keep_monthly").fill("12");
+  await dialog.locator("#restic-confirm-name").fill("vaultwarden");
+  await dialog.getByRole("button", { name: label("backup.plan_save") }).click();
+  await expect(dialog).toHaveCount(0);
   await page.goto("/journal");
-  await expect(page.locator("tbody tr", { hasText: label("audit.verb_retention_lower") }).first()).toContainText("paperless");
+  await expect(page.locator("tbody tr", { hasText: label("audit.verb_retention_lower") }).filter({ hasText: "vaultwarden" }).first()).toBeVisible();
   expect(findings.unknown()).toEqual([]);
 });
 
