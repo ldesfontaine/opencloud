@@ -3,8 +3,8 @@ import { Link } from "react-router";
 import { confirmLink, deleteLink, dismissLink, restoreLink, useServiceLinks, type LinkEnd, type ServiceLink } from "../api/links";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
-import { useT } from "../i18n/context";
-import { endName, freshnessText, proofTone } from "../lib/links";
+import { useT, type Translate } from "../i18n/context";
+import { endName, freshnessText, isSource, proofTone, sourceText } from "../lib/links";
 import { Button } from "./Button";
 import { Card, CardHeader, Empty } from "./Card";
 import { ConfirmInline } from "./ConfirmInline";
@@ -22,7 +22,9 @@ import { Table } from "./Table";
 // (elle ne revient plus, et se rétablit depuis le pli « Écartés »). Un lien lu
 // dans l'environnement des conteneurs est écrit à chaque inventaire de
 // l'agent : sans le droit observe.env sur la machine, la carte le dit et
-// porte le geste qui l'ajoute. L'ajout ouvre une fenêtre à l'adresse du
+// porte le geste qui l'ajoute. Une connexion vue sur un port du service (table
+// de l'hôte, sans droit élevé) a pour source un compte, une machine du réseau
+// ou Internet : ce n'est pas une instance, elle n'a ni fiche ni geste. L'ajout ouvre une fenêtre à l'adresse du
 // service.
 export function ServiceLinks({ serviceID }: { serviceID: string }) {
   const t = useT();
@@ -103,7 +105,7 @@ function LinkRow({ link }: { link: ServiceLink }) {
       </td>
       <td>
         <span className="stack">
-          <span className="cluster" title={link.proposed ? t("link.deduced_help") : undefined}>
+          <span className="cluster" title={proofHelp(link, t)}>
             <Pill tone={proofTone(link.proof)}>{t(`link.proof_${link.proof}`)}</Pill>
           </span>
           <span className="secondary">{t(`link.signal_${link.signal}`)}</span>
@@ -137,7 +139,7 @@ function PeerCell({ link }: { link: ServiceLink }) {
     <span className="stack">
       <span className="cluster">
         <PeerName peer={peer} />
-        {peer.service_id === "" && (
+        {peer.service_id === "" && !isSource(peer) && (
           <span title={t("link.undeclared_help")}>
             <Pill tone="neutral" dot={false}>
               {t("link.undeclared")}
@@ -153,6 +155,10 @@ function PeerCell({ link }: { link: ServiceLink }) {
 }
 
 function PeerName({ peer }: { peer: LinkEnd }) {
+  const t = useT();
+  if (isSource(peer)) {
+    return <span>{sourceText(t, peer)}</span>;
+  }
   if (peer.service_id !== "") {
     return <Link to={`/services/annuaire/${peer.service_id}`}>{peer.service_name}</Link>;
   }
@@ -180,10 +186,31 @@ function LinkActions({ link }: { link: ServiceLink }) {
   return link.removable ? (
     <RemoveLink link={link} />
   ) : (
-    <span className="muted" title={t(link.signal === "environment" ? "link.from_environment_help" : "link.from_tool_help")}>
+    <span className="muted" title={t(fromHelpKey(link))}>
       —
     </span>
   );
+}
+
+// L'aide d'une preuve qui s'affirme sans être sûre : la route proposée, la
+// connexion vue.
+function proofHelp(link: ServiceLink, t: Translate): string | undefined {
+  if (link.proposed) {
+    return t("link.deduced_help");
+  }
+  return link.proof === "observed" ? t("link.observed_help") : undefined;
+}
+
+// Où changer un lien que cet écran ne retire pas.
+function fromHelpKey(link: ServiceLink): string {
+  switch (link.signal) {
+    case "environment":
+      return "link.from_environment_help";
+    case "host_connection":
+      return "link.from_host_help";
+    default:
+      return "link.from_tool_help";
+  }
 }
 
 function DecideLink({ link }: { link: ServiceLink }) {
