@@ -57,12 +57,17 @@ type resticSource struct {
 	// Posé par Run ; nil : pas de relais.
 	relay func(target string) (restic.ProxyConfig, error)
 	now   func() time.Time
+	// inventory relit les conteneurs et les volumes de la machine (droit
+	// restic.docker), dockerProgram est le docker que restic lance pour les
+	// lire. Posés par newOrderRunner ; les tests y mettent les leurs.
+	inventory     dockerInventory
+	dockerProgram string
 }
 
 func newResticSource(stateDir *os.Root, logger *slog.Logger) *resticSource {
 	return &resticSource{
 		stateDir: stateDir, logger: logger, runner: execResticRunner{},
-		dialer: &net.Dialer{}, now: time.Now,
+		dialer: &net.Dialer{}, now: time.Now, dockerProgram: dockerBinary,
 	}
 }
 

@@ -23,7 +23,7 @@ const (
 	envRepositoryFile  = "RESTIC_REPOSITORY_FILE"
 	envPasswordFile    = "RESTIC_PASSWORD_FILE"
 	envCACert          = "RESTIC_CACERT"
-	maxStdinNameBytes  = 128
+	maxStdinNameBytes  = 160
 	maxProducerArgs    = 32
 	maxProducerArgSize = 4 << 10
 )
@@ -110,8 +110,9 @@ func BackupStream(binary string, repository Repository, filename string, produce
 	return backupCommand(binary, repository, append(args, producer...))
 }
 
-// validateProducer : un binaire absolu, des arguments bornés ; jamais de
-// shell (le producteur ne passe par aucun sh -c).
+// validateProducer : un binaire absolu, des arguments bornés ; jamais le
+// shell de l'hôte (seul le script fixe d'un moteur tourne sous sh, dans son
+// conteneur : DatabaseProducer).
 func validateProducer(producer []string) error {
 	if len(producer) == 0 || len(producer) > maxProducerArgs || !filepath.IsAbs(producer[0]) {
 		return errCommandProducer

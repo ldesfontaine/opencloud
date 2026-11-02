@@ -43,9 +43,11 @@ const (
 	maxRelayQueryBytes    = 32
 	// Un compte de rétention, comme la règle du serveur : 0 à 1000.
 	maxResticKeep = 1000
-	// Au plus ce nombre de volumes, de bases ou de parties rapportées par
-	// sauvegarde d'un service.
+	// Au plus ce nombre de volumes, et autant de bases, par sauvegarde d'un
+	// service.
 	maxResticParts = 32
+	// Un rapport porte le dossier, puis chaque volume et chaque base.
+	maxResticReportParts = 1 + 2*maxResticParts
 )
 
 // Le chemin d'une sauvegarde : la source joint la cible, ou passe par le
@@ -661,7 +663,7 @@ func (r ResticRunReport) Validate() error {
 	if r.BytesAdded < 0 || r.DurationSeconds < 0 {
 		return errResticNegative
 	}
-	if len(r.Parts) > maxResticParts {
+	if len(r.Parts) > maxResticReportParts {
 		return errResticTooMany
 	}
 	for _, part := range r.Parts {
