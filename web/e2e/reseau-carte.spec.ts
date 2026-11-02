@@ -24,7 +24,7 @@ test("la carte réelle : le dehors, Internet, la maison, les invités dans leur 
   await expect(map.locator(".netmap-internet")).toContainText(label("network.internet"));
   // Une VM n'est jamais à côté de son hôte : l'invité est dans la boîte de l'hôte.
   await expect(map.locator(".netmap-box.is-host .netmap-box", { hasText: "opencloud" })).toBeVisible();
-  await expect(map.locator(".netmap-firewall")).toBeVisible();
+  await expect(map.locator(".netmap-firewall").first()).toBeVisible();
   expect(findings.unknown()).toEqual([]);
 });
 
