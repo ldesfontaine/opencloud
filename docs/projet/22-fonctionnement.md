@@ -5001,9 +5001,9 @@ stockage : plus aucun écran ne recalcule les dépendances de son côté.
 
 | Champ | Valeurs | Sens |
 | --- | --- | --- |
-| Preuve | `declared`, `deduced`, `observed` | écrit par l'opérateur ou par la configuration d'un outil ; calculé ; vu. **Seule `declared` est écrite aujourd'hui** (L4 et L6 écriront les deux autres) |
-| Signal | `depends_on`, `container_link`, `operator` | d'où vient la preuve : le `depends_on` de Compose, le `--link` de Docker, la main de l'opérateur |
-| Nature | `order`, `config` | « démarre après » (les deux premiers signaux) ; « est configuré pour joindre » (l'opérateur). `route` et `traffic` sont réservées |
+| Preuve | `declared`, `deduced`, `observed` | écrit par l'opérateur ou par la configuration d'un outil ; calculé ; vu. **`declared` est écrite ; `deduced` est calculée à chaque lecture** (voir « Les liens déduits ») ; `observed` vient avec L6 |
+| Signal | `depends_on`, `container_link`, `operator`, `public_url` | d'où vient la preuve : le `depends_on` de Compose, le `--link` de Docker, la main de l'opérateur, l'adresse publique d'un service avec un proxy (jamais écrit : la table ne le connaît pas) |
+| Nature | `order`, `config`, `route` | « démarre après » (les deux premiers signaux) ; « est configuré pour joindre » (l'opérateur) ; « route publique » (le proxy envoie vers le service). `traffic` est réservée (L6) |
 | Fraîcheur | première et dernière vue | un lien d'outil non revu depuis 7 jours est **ancien** ; un lien de l'opérateur ne vieillit pas (personne ne le « revoit ») |
 
 **Ce qui écrit.**
@@ -5031,7 +5031,7 @@ d'environnement, ni label Traefik (L5 et L7), ni connexion (L6).
 
 | Écran | Ce qu'il lit |
 | --- | --- |
-| Fiche d'un service, carte **Liens** | `GET /api/directory/services/{id}/links` : les liens des instances du service, sortants et entrants, chacun avec le service déclaré en face (ou « Non déclaré »), sa preuve, son signal, sa fraîcheur. « Ajouter un lien » ouvre une fenêtre à `/services/annuaire/{id}/liens/nouveau` |
+| Fiche d'un service, carte **Liens** | `GET /api/directory/services/{id}/links` : les liens des instances du service, sortants et entrants, chacun avec le service déclaré en face (ou « Non déclaré »), sa preuve, son signal, sa fraîcheur ; puis les routes **déduites** (Confirmer, Écarter) et, sous le pli « Écartés », celles qu'on a écartées (Rétablir). « Ajouter un lien » ouvre une fenêtre à `/services/annuaire/{id}/liens/nouveau` |
 | Onglet Réseau d'une machine | Les arêtes de dépendance (`edges`) sont les liens stockés entre conteneurs de la machine ; l'inspecteur dit la preuve et « Ancien » |
 | Carte Réseau de la vue d'ensemble | Les liens de chaque machine, et ceux **entre machines** (`links` de `GET /api/network`), en courbes fines d'un nœud à l'autre ; un lien ancien est en pointillé serré ; une ligne dit combien |
 
@@ -5039,7 +5039,7 @@ d'environnement, ni label Traefik (L5 et L7), ni connexion (L6).
 (`link.create`, `link.delete`, objet « Lien », sans port ni valeur) ; le
 rafraîchissement par un rapport ne s'écrit pas, comme une mesure.
 
-**Jetons d'API.** Aucune des trois routes n'est dans la liste fermée de
+**Jetons d'API.** Aucune des routes des liens (les trois de L3, les trois gestes de L4) n'est dans la liste fermée de
 « Comment un agent IA lit openCloud » : un jeton ne lit pas les liens
 (décision à prendre, voir `services-modele.md` §4.1).
 
@@ -5056,11 +5056,81 @@ formes de l'API, rien n'a été relu côté mcp-maison).
 | `links` du détail d'un service (sondes, composants de statut) | inchangé | Rien : même nom, autre sens que la carte Liens ; l'écran l'appelle « Ce qui le lie » |
 | Audit : objet `link`, actions `link.create`, `link.delete` | `GET /api/audit` | Les connaître dans les filtres et les libellés |
 
-**Ce que L3 ne fait pas.** Pas de lien déduit (`public_url` et capacité `proxy`,
-L4), pas de variable d'environnement (L5), pas de connexion vue (L6), pas de route
-Traefik (L7), pas de « Confirmer » ni d'« Écarter » (ils n'ont de sens que pour un
-lien déduit ou observé). Les liens de joignabilité (réseau partagé) ne sont
-pas des liens.
+**Ce que L3 ne fait pas.** Pas de variable d'environnement (L5), pas de
+connexion vue (L6), pas de route Traefik (L7). Les liens de joignabilité (réseau
+partagé) ne sont pas des liens.
+
+## Les liens déduits
+
+Un service qui a une **adresse publique** (`public_url`) est joint par chaque
+service qui fournit la capacité **proxy**. La route est **déduite** : calculée à
+chaque lecture, **jamais écrite**. C'est un repli faible (décision 4 de
+`services-modele.md` : les routes publiques viendront du module Traefik, L7).
+
+| Règle | Détail |
+| --- | --- |
+| Source | Le service qui fournit `proxy` (n'importe quelle machine). La clé est celle de **sa première unité** qui en a une |
+| Cible | Le service qui a une `public_url`, par **sa première unité**. Un service à plusieurs unités est donc visé par la première : l'opérateur qui veut une autre unité écrit le lien lui-même (`Ajouter un lien`) |
+| Nature, preuve, signal | `route`, `deduced`, `public_url` |
+| Jamais vers soi | Un proxy qui a lui-même une adresse publique n'est pas joint par lui-même |
+| Plusieurs proxys | Une route par proxy : openCloud ne sait pas lequel route quoi, l'opérateur écarte les autres |
+| Ce que la déduction ne lit pas | L'adresse elle-même ne sort pas de l'annuaire : le lien ne porte ni l'adresse ni le port. Rien ne vient de l'agent |
+| Identifiant | `ded_` + empreinte de la paire : le même à chaque lecture, sans ligne en base |
+| Fraîcheur | Aucune : « Calculé à l'instant », jamais « Ancien » |
+
+**Ce que l'opérateur en fait**, depuis la carte **Liens** de la fiche du service
+(l'un ou l'autre bout) :
+
+| Geste | Effet | Route |
+| --- | --- | --- |
+| **Confirmer** | La route devient un lien **déclaré** (`route`, signal `operator`) : elle est à lui, se retire par **Retirer**, apparaît sur la carte Réseau | `POST /api/directory/links/{id}/actions/confirm` |
+| **Écarter** | La paire est **notée** et la déduction ne la propose plus. La route passe sous le pli **Écartés (n)** de la carte | `POST /api/directory/links/{id}/actions/dismiss` |
+| **Rétablir** (sous « Écartés ») | La trace est effacée : la route se propose de nouveau | `POST /api/directory/links/{id}/actions/restore` |
+
+**Un lien écarté ne revient pas par surprise.** La trace tient à la **paire
+d'instances**, pas à l'adresse : un rapport de plus, un service modifié, une
+adresse publique changée ne la ramènent pas. Test :
+`TestAPI_DeducedLinks_ADismissedRouteNeverComesBackBySurprise`. Ce que ça coûte :
+si la clé d'une unité change (service renommé, unité remplacée), la paire est une
+autre, et la route se propose de nouveau. Retirer une route **confirmée** la rend
+aussi à la déduction (on la défait, on ne la refuse pas) : pour la refuser, il
+faut **Écarter** avant de confirmer.
+
+**Où la trace vit, sans migration.** La table `links` (migration `030`) connaît
+déjà la preuve `deduced`. Une route écartée y est une ligne `route` +
+`deduced` + signal `operator` (c'est l'opérateur qui l'a écartée). `link.Link.Dismissed()`
+la reconnaît ; `link.Service.List` ne la rend **pas** (ce n'est pas un lien : ni la
+carte Réseau, ni l'onglet Réseau, ni le suivi des conteneurs ne la voient),
+`ListDismissed` la rend. Contrepartie : une même colonne dit deux choses
+(une ligne `deduced` est une trace de refus, jamais une déduction stockée) ; le
+jour où L6 écrira des liens `deduced` ou `observed` pour de bon, il faudra une
+colonne ou un signal à part. Elle compte dans les 2 000 liens de la machine.
+
+**Ce que l'agent envoie : rien.** Aucun champ, aucun droit, aucun ré-enrôlement.
+La déduction lit deux faits de l'annuaire (`public_url`, capacité `proxy`).
+Banc de non-fuite : `TestAPI_DeducedLinks_SeededSecretInThePublicURL_NeverInAnyOutput`
+sème un secret dans l'adresse (identifiant et paramètre) ; il n'est dans aucune
+réponse ni dans la base.
+
+**Audit.** `link.confirm`, `link.dismiss`, `link.restore` (objet « Lien », sans
+adresse ni port).
+
+**L'inspecteur du réseau.** Une route confirmée entre deux conteneurs d'une même
+machine s'y lit sous **Envoie vers**, pas sous « Dépend de » : l'application ne
+dépend pas de son proxy.
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| `links[]` d'un service gagne `dismissed` (booléen) | `GET /api/directory/services/{id}/links` (opérateur seul, hors liste des jetons) | Une ligne `dismissed: true` est une route écartée : ni un lien, ni à compter |
+| Valeurs nouvelles : `nature: "route"`, `proof: "deduced"`, `signal: "public_url"` | idem, `edges[]` et `links[]` de `GET /api/network` (`route` et `declared` après confirmation seulement) | Les connaître ; un lien `deduced` n'a pas d'heure de vue (`first_seen_at` et `last_seen_at` valent `0001-01-01T00:00:00Z`) et `stale` est `false` |
+| `id` d'un lien déduit : `ded_…` | idem | Ce n'est **pas** une ligne en base : il ne sert qu'aux deux verbes `confirm` et `dismiss` ; il change si l'une des deux unités change de clé |
+| Trois routes d'écriture : `POST /api/directory/links/{id}/actions/confirm`, `…/dismiss`, `…/restore` | opérateur seul, **aucun verbe** | Aucun geste MCP aujourd'hui ; en faire des verbes (`link.confirm`, `link.dismiss`, `link.restore`) est une décision de Lucas, le registre des verbes ne change pas. Répondent 204 ; 404 `link.not_found` si le lien n'est plus déduit (adresse retirée, déjà décidé) |
+| `edges[]` : une arête `nature: "route"` | `GET /api/machines/{id}/network`, `GET /api/network` | Ne pas la lire comme « dépend de » : la source envoie vers la cible |
+| Audit : actions `link.confirm`, `link.dismiss`, `link.restore` | `GET /api/audit` | Les connaître dans les filtres et les libellés |
+| `link.signal_public_url`, `link.confirm`, `link.dismiss`, `link.restore`, `link.dismissed_title`, `link.dismissed_text`, `link.dismissed_on`, `link.deduced_help`, `link.deduced_fresh`, `network.field_sends_to`, `audit.verb_confirm`, `audit.verb_dismiss`, `audit.verb_restore` | `GET /api/catalog/{lang}` | Clés de catalogue nouvelles, fr et en |
 
 ## Comment les unités systemd se relèvent
 
@@ -5156,8 +5226,8 @@ conteneur). Lecture seule, pour l'opérateur seul : **aucun jeton d'API** ne
 lit la route des unités (la liste fermée de « Comment un agent IA lit
 openCloud » ne change pas).
 
-**Ce que L2 ne fait pas** (chantiers suivants de `services-modele.md`) : aucun
-lien déduit (L4), pas de connexions de l'hôte (L6), pas de port
+**Ce que L2 ne fait pas** (chantiers suivants de `services-modele.md`) : pas de
+connexions de l'hôte (L6), pas de port
 déduit d'un processus. Un service systemd d'**un autre utilisateur** (unités
 `--user`) n'est pas vu : `systemctl` interroge le gestionnaire du système.
 
@@ -5729,7 +5799,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |
 | Les clés SSH ne se relèvent qu'en lecture, dans deux fichiers par compte | Un `AuthorizedKeysFile` personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus. Sous un compte dédié, l'agent ne lit pas les clés des autres comptes (« Illisible pour le compte de l'agent ») ; il ne faut **pas** lui donner `CAP_DAC_READ_SEARCH` pour y remédier : il lirait aussi `/etc/shadow`. L'écriture (`ssh.keys`, #152 étape 2) n'existe pas : ajouter ou retirer une clé reste un geste sur la machine | L'écriture attend une décision (`23-direction.md`, §10 étape 8) |
-| Les unités systemd ne se relèvent qu'au niveau du système, en nom et en état | Les unités d'un utilisateur (`systemctl --user`) ne sont pas vues ; la description, le processus, le fichier et l'environnement d'une unité ne sont jamais lus ; le **port** d'un binaire ne se déduit pas (il demanderait `/proc/<pid>/fd`, donc `ptrace`) : il se déclare. Les liens entre instances viennent avec L3 | Une décision de Lucas, si un jour le port doit se déduire (droit élevé : refusé par la décision 5 de l'étude) |
+| Les unités systemd ne se relèvent qu'au niveau du système, en nom et en état | Les unités d'un utilisateur (`systemctl --user`) ne sont pas vues ; la description, le processus, le fichier et l'environnement d'une unité ne sont jamais lus ; le **port** d'un binaire ne se déduit pas (il demanderait `/proc/<pid>/fd`, donc `ptrace`) : il se déclare. Les liens entre instances viennent avec L3 (déclarés) et L4 (déduits) | Une décision de Lucas, si un jour le port doit se déduire (droit élevé : refusé par la décision 5 de l'étude) |
 | Un jeton d'API ne fait que lire | mcp-maison ne peut ni acquitter, ni mettre en pause, ni ouvrir un incident : la liste fermée ne compte aucune écriture, et l'acteur `api` n'écrit encore rien au journal | Avec les actions de l'API (#153, étape 5) |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par mcp-maison, journaux de conteneur compris, quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui crée un jeton et branche mcp-maison | Par conception |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |

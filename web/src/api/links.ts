@@ -8,10 +8,12 @@ import { route } from "./routes";
 
 export type LinkNature = "order" | "config" | "route" | "traffic";
 // Déclaré : écrit par l'opérateur ou par la configuration d'un outil.
-// Déduit et observé : calculé, ou vu ; aucune source ne les écrit encore.
+// Déduit : calculé à chaque lecture, l'opérateur le confirme ou l'écarte.
+// Observé : vu ; aucune source ne l'écrit encore.
 export type LinkProof = "declared" | "deduced" | "observed";
-// Le signal précis derrière la preuve.
-export type LinkSignal = "depends_on" | "container_link" | "operator";
+// Le signal précis derrière la preuve. « public_url » : une adresse publique
+// et un service qui fournit la capacité proxy (jamais écrit, seulement déduit).
+export type LinkSignal = "depends_on" | "container_link" | "operator" | "public_url";
 
 // Une extrémité. Service et unité sont vides quand aucun service déclaré ne
 // porte l'instance ; container_id quand un conteneur vivant la porte.
@@ -39,6 +41,8 @@ export interface ServiceLink {
   last_seen_at: string;
   stale: boolean;
   removable: boolean;
+  // Une route déduite que l'opérateur a écartée : gardée pour être rétablie.
+  dismissed: boolean;
   self: LinkEnd;
   peer: LinkEnd;
 }
@@ -67,4 +71,18 @@ export async function createLink(body: LinkRequest): Promise<void> {
 
 export async function deleteLink(id: string): Promise<void> {
   return api.send(route("DELETE /api/directory/links/{id}", { id }));
+}
+
+// Les trois gestes sur un lien déduit : le reconnaître juste, l'écarter,
+// rétablir un lien écarté.
+export async function confirmLink(id: string): Promise<void> {
+  return api.send(route("POST /api/directory/links/{id}/actions/confirm", { id }));
+}
+
+export async function dismissLink(id: string): Promise<void> {
+  return api.send(route("POST /api/directory/links/{id}/actions/dismiss", { id }));
+}
+
+export async function restoreLink(id: string): Promise<void> {
+  return api.send(route("POST /api/directory/links/{id}/actions/restore", { id }));
 }

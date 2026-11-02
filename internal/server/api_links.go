@@ -20,17 +20,19 @@ type serviceLinksResponse struct {
 type serviceLinkJSON struct {
 	ID string `json:"id"`
 	// outgoing : le service utilise l'autre ; incoming : l'autre l'utilise.
-	Direction   string      `json:"direction"`
-	Nature      string      `json:"nature"`
-	Proof       string      `json:"proof"`
-	Signal      string      `json:"signal"`
-	Port        int         `json:"port"`
-	FirstSeenAt time.Time   `json:"first_seen_at"`
-	LastSeenAt  time.Time   `json:"last_seen_at"`
-	Stale       bool        `json:"stale"`
-	Removable   bool        `json:"removable"`
-	Self        linkEndJSON `json:"self"`
-	Peer        linkEndJSON `json:"peer"`
+	Direction   string    `json:"direction"`
+	Nature      string    `json:"nature"`
+	Proof       string    `json:"proof"`
+	Signal      string    `json:"signal"`
+	Port        int       `json:"port"`
+	FirstSeenAt time.Time `json:"first_seen_at"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
+	Stale       bool      `json:"stale"`
+	Removable   bool      `json:"removable"`
+	// dismissed : une route déduite que vous avez écartée, gardée pour la rétablir.
+	Dismissed bool        `json:"dismissed"`
+	Self      linkEndJSON `json:"self"`
+	Peer      linkEndJSON `json:"peer"`
 }
 
 // linkEndJSON : une extrémité. Service et unité sont vides quand aucun
@@ -76,7 +78,7 @@ func (s *Server) getServiceLinks(w http.ResponseWriter, r *http.Request) {
 		response.Links = append(response.Links, serviceLinkJSON{
 			ID: item.Link.ID, Direction: direction, Nature: string(item.Link.Nature), Proof: string(item.Link.Proof), Signal: string(item.Link.Signal),
 			Port: item.Link.Port, FirstSeenAt: item.Link.FirstSeen, LastSeenAt: item.Link.LastSeen,
-			Stale: item.Link.Stale(now), Removable: item.Link.Removable(),
+			Stale: item.Link.Stale(now), Removable: item.Link.Removable(), Dismissed: item.Dismissed,
 			Self: ends.describe(item.Self), Peer: ends.describe(item.Peer),
 		})
 	}
@@ -93,6 +95,28 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 		ToServiceID: request.ToServiceID, ToUnitID: request.ToUnitID, Port: request.Port,
 	})
 	if s.failed(w, r, err, nil) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Les trois gestes sur un lien déduit. Chacun répond 204 ; un lien qui n'est
+// plus déduit (adresse publique retirée, déjà décidé) répond 404.
+func (s *Server) confirmLink(w http.ResponseWriter, r *http.Request) {
+	s.decideLink(w, r, s.directory.ConfirmLink)
+}
+
+func (s *Server) dismissLink(w http.ResponseWriter, r *http.Request) {
+	s.decideLink(w, r, s.directory.DismissLink)
+}
+
+func (s *Server) restoreLink(w http.ResponseWriter, r *http.Request) {
+	s.decideLink(w, r, s.directory.RestoreLink)
+}
+
+func (s *Server) decideLink(w http.ResponseWriter, r *http.Request, decide func(context.Context, string) error) {
+	err := decide(r.Context(), r.PathValue("id"))
+	if s.failed(w, r, err, link.ErrNotFound) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

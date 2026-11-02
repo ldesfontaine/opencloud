@@ -173,6 +173,9 @@ type DirectoryService interface {
 	ServiceLinks(ctx context.Context, serviceID string) ([]directory.ServiceLink, error)
 	DeclareLink(ctx context.Context, definition directory.LinkDefinition) (link.Link, error)
 	RemoveLink(ctx context.Context, id string) error
+	ConfirmLink(ctx context.Context, id string) error
+	DismissLink(ctx context.Context, id string) error
+	RestoreLink(ctx context.Context, id string) error
 }
 
 // Ce que le serveur attend du composant link : la lecture des liens stockés,

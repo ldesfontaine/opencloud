@@ -56,7 +56,30 @@ func TestLink_FreshnessAndRemovability(t *testing.T) {
 	if operator.Stale(now) || !operator.Removable() {
 		t.Error("un lien écrit par l'opérateur ne vieillit pas, et se retire")
 	}
+	if (Link{Proof: ProofDeduced, Signal: SignalPublicURL}).Stale(now) {
+		t.Error("un lien déduit n'a pas de dernière vue : il n'est jamais ancien")
+	}
 	if (Link{Signal: SignalContainerLink, LastSeen: now.Add(-StaleAfter)}).Stale(now) {
 		t.Error("pile 7 jours n'est pas encore ancien")
+	}
+}
+
+func TestLink_ADeducedRowIsTheTraceOfADismissal(t *testing.T) {
+	dismissed := Link{Proof: ProofDeduced, Signal: SignalOperator, Nature: NatureRoute}
+	confirmed := Link{Proof: ProofDeclared, Signal: SignalOperator, Nature: NatureRoute}
+	if !dismissed.Dismissed() || dismissed.Removable() {
+		t.Error("une route écartée se rétablit, elle ne se retire pas")
+	}
+	if confirmed.Dismissed() || !confirmed.Removable() {
+		t.Error("une route confirmée est un lien de l'opérateur")
+	}
+}
+
+func TestDeducedID_IsTheSameForTheSamePairOnly(t *testing.T) {
+	a := Endpoint{MachineID: "m1", Key: ContainerKey("caddy")}
+	b := Endpoint{MachineID: "m2", Key: ContainerKey("blog")}
+	first := DeducedID(a, b, NatureRoute)
+	if again := DeducedID(a, b, NatureRoute); again != first || first == DeducedID(b, a, NatureRoute) || first == DeducedID(a, b, NatureConfig) {
+		t.Error("l'identifiant se refait de la paire, dans son sens et sa nature")
 	}
 }

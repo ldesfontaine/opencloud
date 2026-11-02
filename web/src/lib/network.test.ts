@@ -1,10 +1,10 @@
 import { expect, test } from "vitest";
 
 import type { Container } from "../api/containers";
-import type { NetworkResponse, OverviewLink } from "../api/network";
+import type { Edge, NetworkResponse, OverviewLink } from "../api/network";
 import type { Probe } from "../api/probes";
 import type { Translate } from "../i18n/context";
-import { type PlacedMachine, compactHeight, compactWidth, fitOverview, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, overviewCompactGap, overviewFramePadding, overviewGraphFloor, overviewGraphMaxHeight, overviewMargin, overviewScale, peersOf, probesOf, publicPorts, zoomView } from "./network";
+import { type PlacedMachine, compactHeight, compactWidth, fitOverview, fitPorts, fitView, internetID, layoutNetwork, linksFrom, layoutOverview, modeText, nodeHeight, nodeWidth, overviewCompactGap, overviewFramePadding, overviewGraphFloor, overviewGraphMaxHeight, overviewMargin, overviewScale, peersOf, probesOf, publicPorts, zoomView } from "./network";
 
 function container(id: string, name: string, extra: Partial<Container> = {}): Container {
   return {
@@ -394,4 +394,14 @@ test("layoutOverview trace les liens stockés, d'un cadre à l'autre aussi, et s
   expect(drawn.map((placed) => placed.edge.link_id)).toEqual(["l1", "l2"]);
   expect(drawn[1]!.edge.stale).toBe(true);
   expect(drawn.every((placed) => placed.path.startsWith("M") && !placed.path.includes("NaN"))).toBe(true);
+});
+
+test("une route du proxy se lit à part des dépendances : le proxy n'attend pas l'application", () => {
+  const order: Edge = { from: "proxy", to: "db", kind: "depends", nature: "order", proof: "declared" };
+  const route: Edge = { from: "proxy", to: "app", kind: "depends", nature: "route", proof: "declared" };
+  const other: Edge = { from: "app", to: "db", kind: "depends", nature: "order", proof: "declared" };
+  const published: Edge = { from: "internet", to: "proxy", kind: "public", port: 443 };
+  const { dependencies, routes } = linksFrom([order, route, other, published], "proxy");
+  expect(dependencies).toEqual([order]);
+  expect(routes).toEqual([route]);
 });

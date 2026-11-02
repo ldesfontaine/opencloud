@@ -145,3 +145,54 @@ func TestList_FiltersByMachine(t *testing.T) {
 		}
 	}
 }
+
+// Une route écartée tient dans la table telle qu'elle est (aucune migration) :
+// preuve « déduit », signal « opérateur ». Elle n'est pas un lien, ne se
+// retire pas, et se rétablit.
+func TestService_ADismissedRouteIsKeptOutOfTheLinksAndRestored(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	definition := link.Definition{From: endpoint(m1, "caddy"), To: endpoint(m2, "blog")}
+
+	dismissed, err := b.service.DismissRoute(ctx, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dismissed.Nature != link.NatureRoute || !dismissed.Dismissed() {
+		t.Errorf("trace = %+v", dismissed)
+	}
+	if listed, _ := b.service.List(ctx, ""); len(listed) != 0 {
+		t.Errorf("une route écartée n'est pas un lien : %+v", listed)
+	}
+	if kept, _ := b.service.ListDismissed(ctx, m2); len(kept) != 1 || kept[0].ID != dismissed.ID {
+		t.Errorf("écartées = %+v", kept)
+	}
+	if _, err := b.service.DismissRoute(ctx, definition); !errors.Is(err, link.ErrDuplicate) {
+		t.Errorf("écarter deux fois : %v", err)
+	}
+	if err := b.service.Remove(ctx, dismissed.ID); !errors.Is(err, link.ErrNotFound) {
+		t.Errorf("retirer une trace : %v", err)
+	}
+
+	if err := b.service.Restore(ctx, dismissed.ID); err != nil {
+		t.Fatal(err)
+	}
+	if kept, _ := b.service.ListDismissed(ctx, ""); len(kept) != 0 {
+		t.Errorf("après rétablissement : %+v", kept)
+	}
+	if err := b.service.Restore(ctx, dismissed.ID); !errors.Is(err, link.ErrNotFound) {
+		t.Errorf("rétablir deux fois : %v", err)
+	}
+
+	// Confirmer écrit un lien déclaré que l'opérateur peut retirer ; on ne le rétablit pas.
+	confirmed, err := b.service.ConfirmRoute(ctx, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Dismissed() || !confirmed.Removable() || confirmed.Proof != link.ProofDeclared {
+		t.Errorf("confirmé = %+v", confirmed)
+	}
+	if err := b.service.Restore(ctx, confirmed.ID); !errors.Is(err, link.ErrNotFound) {
+		t.Errorf("rétablir un lien confirmé : %v", err)
+	}
+}

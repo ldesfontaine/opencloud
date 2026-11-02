@@ -1,0 +1,11 @@
+# L4 : code mort avant / après (#453)
+
+Avant = origin/dev (L3 fusionnée, PR 469), après = fin de la branche orca/v052-l4.
+
+deadcode ./... (sans -test) : 79 avant, 79 après ; la liste est identique (numéros de ligne mis à part).
+knip@5.88.1 (`cd web && npx knip@5.88.1 --no-progress`) : mêmes 4 fichiers inutilisés avant et après (public/theme.js, src/statut/main.tsx, StatusPage.tsx, statut.scss), tous déjà sur dev. La seule différence brute est le dossier dist/, présent après parce que `make ci` compile le front.
+Rien n'est exporté sans servir : chaque export neuf (`confirmLink`, `dismissLink`, `restoreLink`, `isProposed`, `linksFrom`, `DeduceRoutes`) a un appelant de production.
+
+Supprimé dans ce chantier
+- Rien n'est remplacé : L4 ajoute. Seuls changent des phrases de documents devenues fausses : « Seule `declared` est écrite aujourd'hui » et « `route` est réservée » (22-fonctionnement.md), « Pas de lien déduit … pas de "Confirmer" ni d'"Écarter" » (« Ce que L3 ne fait pas »), « aucun lien déduit (L4) » (« Ce que L2 ne fait pas »).
+- Le bloc de rendu d'une cible de lien, dupliqué dans l'inspecteur du réseau, est devenu le composant `EdgeTargets` (NetworkInspector.tsx), partagé par « Dépend de » et « Envoie vers ».

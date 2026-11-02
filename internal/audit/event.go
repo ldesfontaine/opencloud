@@ -125,6 +125,11 @@ const (
 
 	LinkCreate Action = "link.create"
 	LinkDelete Action = "link.delete"
+	// Les trois gestes sur un lien déduit : confirmé (il devient déclaré),
+	// écarté, rétabli.
+	LinkConfirm Action = "link.confirm"
+	LinkDismiss Action = "link.dismiss"
+	LinkRestore Action = "link.restore"
 
 	ProbeCreate Action = "probe.create"
 	ProbeUpdate Action = "probe.update"
@@ -220,7 +225,7 @@ func Actions() []Action {
 		ServiceCreate, ServiceUpdate, ServiceDelete,
 		UnitUpdatePolicy,
 		IgnoredKeyCreate, IgnoredKeyDelete,
-		LinkCreate, LinkDelete,
+		LinkCreate, LinkDelete, LinkConfirm, LinkDismiss, LinkRestore,
 		ProbeCreate, ProbeUpdate, ProbeDelete, ProbePause, ProbeResume,
 		HeartbeatCreate, HeartbeatUpdate, HeartbeatDelete, HeartbeatPause, HeartbeatResume, HeartbeatRegenerateToken,
 		StatusComponentCreate, StatusComponentUpdate, StatusComponentDelete,

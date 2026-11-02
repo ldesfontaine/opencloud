@@ -319,6 +319,7 @@ const serviceLinks = shape<ServiceLinksResponse>("ServiceLinksResponse", {
     last_seen_at: value,
     stale: value,
     removable: value,
+    dismissed: value,
     self: linkEnd,
     peer: linkEnd,
   }),
