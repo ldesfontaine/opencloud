@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/hostconn"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -97,6 +98,12 @@ type SystemdUnitsService interface {
 	Record(ctx context.Context, machineID string, report systemdunits.Report) error
 }
 
+// Ce que l'agent attend du composant hostconn : le signal garde qui joint les
+// ports de l'hôte de sa machine.
+type HostConnectionsService interface {
+	Record(ctx context.Context, machineID string, report hostconn.Report) error
+}
+
 // Ce que l'agent attend du composant role : le signal écrit ce que l'agent
 // reconnaît sur sa machine.
 type RolesService interface {
@@ -119,8 +126,10 @@ type Options struct {
 	Actions    ActionService
 	SSHKeys    SSHKeysService
 	Systemd    SystemdUnitsService
-	Roles      RolesService
-	Host       HostService
+	// HostConnections garde qui joint les ports de l'hôte.
+	HostConnections HostConnectionsService
+	Roles           RolesService
+	Host            HostService
 	// ClientAddress rend l'adresse du client telle que le serveur la résout,
 	// mandataires de confiance compris : la règle vit à la racine.
 	ClientAddress func(r *http.Request) string
@@ -138,6 +147,7 @@ type Handler struct {
 	actions       ActionService
 	sshKeys       SSHKeysService
 	systemd       SystemdUnitsService
+	hostConns     HostConnectionsService
 	roles         RolesService
 	host          HostService
 	clientAddress func(r *http.Request) string
@@ -157,6 +167,7 @@ func New(opts Options) *Handler {
 		actions:       opts.Actions,
 		sshKeys:       opts.SSHKeys,
 		systemd:       opts.Systemd,
+		hostConns:     opts.HostConnections,
 		roles:         opts.Roles,
 		host:          opts.Host,
 		clientAddress: opts.ClientAddress,

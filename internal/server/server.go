@@ -470,6 +470,8 @@ type Options struct {
 	SSHKeys SSHKeysService
 	// Systemd garde le relevé des unités systemd ; voir api_systemd.go.
 	Systemd SystemdUnitsService
+	// HostConnections garde qui joint les ports de l'hôte ; le signal l'écrit.
+	HostConnections agentapi.HostConnectionsService
 	// Links garde les liens entre instances ; voir api_links.go.
 	Links LinkService
 	// Roles garde ce que l'agent reconnaît sur sa machine ; le signal l'écrit.
@@ -568,19 +570,20 @@ func New(opts Options) (*Server, error) {
 		server.verbDenyLimit.SetClock(opts.Clock)
 	}
 	server.agent = agentapi.New(agentapi.Options{
-		Logger:        opts.Logger,
-		Machines:      opts.Machines,
-		Resources:     opts.Resources,
-		Containers:    opts.Containers,
-		Probes:        opts.Probes,
-		Updates:       opts.Updates,
-		Actions:       opts.Actions,
-		SSHKeys:       opts.SSHKeys,
-		Systemd:       opts.Systemd,
-		Roles:         opts.Roles,
-		Host:          opts.Host,
-		ClientAddress: server.clientAddress,
-		Clock:         opts.Clock,
+		Logger:          opts.Logger,
+		Machines:        opts.Machines,
+		Resources:       opts.Resources,
+		Containers:      opts.Containers,
+		Probes:          opts.Probes,
+		Updates:         opts.Updates,
+		Actions:         opts.Actions,
+		SSHKeys:         opts.SSHKeys,
+		Systemd:         opts.Systemd,
+		HostConnections: opts.HostConnections,
+		Roles:           opts.Roles,
+		Host:            opts.Host,
+		ClientAddress:   server.clientAddress,
+		Clock:           opts.Clock,
 	})
 	server.pings = pingapi.New(pingapi.Options{
 		Logger:        opts.Logger,

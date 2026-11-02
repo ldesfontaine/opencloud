@@ -3,6 +3,7 @@ package agentwire
 import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/hostconn"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/role"
@@ -147,26 +148,32 @@ type SignalRequest struct {
 	// dernier relevé, envoyé quand il change et à chaque ouverture du flux. Un
 	// agent plus vieux ne l'envoie pas : la machine n'a pas d'unités relevées.
 	SystemdUnits *systemdunits.Report `json:"systemd_units,omitempty"`
+	// Qui joint les ports de l'hôte, lu dans la table des connexions de la
+	// machine (aucun droit élevé) : le dernier rapport, envoyé quand il change,
+	// une fois par minute sinon, et à chaque ouverture du flux. Un agent plus
+	// vieux ne l'envoie pas : aucun lien n'est observé.
+	HostConnections *hostconn.Report `json:"host_connections,omitempty"`
 }
 
 // Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
 // rendue quand l'une est refusée. SectionServices garde son nom : clé
 // figée, les agents installés l'envoient et lisent « bad_services ».
 const (
-	SectionReadings = "readings"
-	SectionServices = "services"
-	SectionProbes   = "probes"
-	SectionImages   = "images"
-	SectionActions  = "actions"
-	SectionSSHKeys  = "ssh_keys"
-	SectionRoles    = "roles"
-	SectionHost     = "host"
-	SectionSystemd  = "systemd_units"
+	SectionReadings        = "readings"
+	SectionServices        = "services"
+	SectionProbes          = "probes"
+	SectionImages          = "images"
+	SectionActions         = "actions"
+	SectionSSHKeys         = "ssh_keys"
+	SectionRoles           = "roles"
+	SectionHost            = "host"
+	SectionSystemd         = "systemd_units"
+	SectionHostConnections = "host_connections"
 )
 
 // SignalSections rend les sections dans l'ordre où le serveur les écrit.
 func SignalSections() []string {
-	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles, SectionHost, SectionSystemd}
+	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles, SectionHost, SectionSystemd, SectionHostConnections}
 }
 
 // SectionRefusal rend la clé d'erreur d'une section refusée.

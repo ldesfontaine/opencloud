@@ -91,6 +91,7 @@ type Directory struct {
 	rematcher  Rematcher
 	assigner   Assigner
 	linker     Linker
+	observer   Observer
 	auditor    *audit.Recorder
 	logger     *slog.Logger
 	now        func() time.Time

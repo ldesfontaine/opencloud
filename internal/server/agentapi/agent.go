@@ -19,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/hostconn"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -416,7 +417,19 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	if request.SystemdUnits != nil {
 		keep(agentwire.SectionSystemd, h.recordSystemdUnits(ctx, machineID, *request.SystemdUnits), systemdunits.ErrReportInvalid)
 	}
+	if request.HostConnections != nil {
+		keep(agentwire.SectionHostConnections, h.recordHostConnections(ctx, machineID, *request.HostConnections), hostconn.ErrReportInvalid)
+	}
 	return rejected, failed
+}
+
+// recordHostConnections garde qui joint les ports de l'hôte ; sans composant,
+// la section est refusée.
+func (h *Handler) recordHostConnections(ctx context.Context, machineID string, report hostconn.Report) error {
+	if h.hostConns == nil {
+		return hostconn.ErrReportInvalid
+	}
+	return h.hostConns.Record(ctx, machineID, report)
 }
 
 // recordSystemdUnits écrit le relevé des unités systemd ; sans composant, la

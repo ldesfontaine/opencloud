@@ -18,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/hostconn"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/link"
@@ -50,6 +51,7 @@ type components struct {
 	sshKeys      *sshkeys.Service
 	systemd      *systemdunits.Service
 	links        *link.Service
+	hostConns    *hostconn.Service
 	roles        *role.Service
 	proxmox      *proxmox.Service
 	firewalls    *firewall.Service
@@ -101,6 +103,10 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	links := link.New(db, logger)
 	declared.SetLinker(links)
 	containers.SetLinks(links)
+	// Qui joint les ports de l'hôte : les agents le relèvent, l'annuaire le
+	// rapproche des instances qui publient ces ports.
+	hostConns := hostconn.New()
+	declared.SetObserver(hostConns)
 	statusPage := status.New(db, db, machines, logger)
 	// Les alertes : chaque composant lui donne ses faits, le notifieur livre
 	// aux canaux dans la langue de l'interface.
@@ -205,7 +211,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, apiTokens: apiTokens, verbRequests: verbRequests, operator: operator,
-		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, systemd: systemd, links: links, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, deployer: deployer,
+		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, systemd: systemd, links: links, hostConns: hostConns, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, deployer: deployer,
 	}, nil
 }
 
@@ -213,40 +219,41 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 // PublicLive) et le secret du mandataire sont à la charge de l'appelant.
 func (c *components) serverOptions(cfg config.Config) server.Options {
 	return server.Options{
-		Logger:         c.logger,
-		Version:        version.Number(),
-		Commit:         version.Commit(),
-		Reader:         c.db,
-		Settings:       c.preferences,
-		Machines:       c.machines,
-		Heartbeats:     c.heartbeats,
-		Resources:      c.resources,
-		Containers:     c.containers,
-		Probes:         c.probes,
-		Directory:      c.declared,
-		Manifest:       c.manifests,
-		Updates:        c.updates,
-		Lifecycle:      c.support,
-		Status:         c.statusPage,
-		Alerts:         c.alerts,
-		Notifier:       c.notifier,
-		APITokens:      c.apiTokens,
-		VerbRequests:   c.verbRequests,
-		Auth:           c.operator,
-		Actions:        c.actions,
-		SSHKeys:        c.sshKeys,
-		Systemd:        c.systemd,
-		Links:          c.links,
-		Roles:          c.roles,
-		Host:           c.machines,
-		Proxmox:        c.proxmox,
-		Firewalls:      c.firewalls,
-		Backups:        c.backups,
-		Deploy:         c.deployer,
-		PublicURL:      cfg.PublicURL,
-		Listen:         cfg.Listen,
-		TrustedProxies: cfg.TrustedPrefixes(),
-		ForwardUsers:   cfg.ForwardUsers,
-		MCPURL:         cfg.MCPURL,
+		Logger:          c.logger,
+		Version:         version.Number(),
+		Commit:          version.Commit(),
+		Reader:          c.db,
+		Settings:        c.preferences,
+		Machines:        c.machines,
+		Heartbeats:      c.heartbeats,
+		Resources:       c.resources,
+		Containers:      c.containers,
+		Probes:          c.probes,
+		Directory:       c.declared,
+		Manifest:        c.manifests,
+		Updates:         c.updates,
+		Lifecycle:       c.support,
+		Status:          c.statusPage,
+		Alerts:          c.alerts,
+		Notifier:        c.notifier,
+		APITokens:       c.apiTokens,
+		VerbRequests:    c.verbRequests,
+		Auth:            c.operator,
+		Actions:         c.actions,
+		SSHKeys:         c.sshKeys,
+		Systemd:         c.systemd,
+		Links:           c.links,
+		HostConnections: c.hostConns,
+		Roles:           c.roles,
+		Host:            c.machines,
+		Proxmox:         c.proxmox,
+		Firewalls:       c.firewalls,
+		Backups:         c.backups,
+		Deploy:          c.deployer,
+		PublicURL:       cfg.PublicURL,
+		Listen:          cfg.Listen,
+		TrustedProxies:  cfg.TrustedPrefixes(),
+		ForwardUsers:    cfg.ForwardUsers,
+		MCPURL:          cfg.MCPURL,
 	}
 }
