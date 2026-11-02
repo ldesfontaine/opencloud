@@ -41,7 +41,7 @@ export function Button({ variant = "secondary", small = false, icon, to, href, d
   // Un lien désactivé n'est plus un lien : un bouton grisé, qui ne mène nulle part.
   if (to !== undefined && !rest.disabled) {
     return (
-      <Link className={className} to={to}>
+      <Link className={className} to={to} title={rest.title} aria-label={rest["aria-label"]}>
         {content}
       </Link>
     );

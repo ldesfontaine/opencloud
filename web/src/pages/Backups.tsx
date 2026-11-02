@@ -1,155 +1,172 @@
+import { useState } from "react";
 import { Outlet } from "react-router";
 
-import { deleteBackupDestination, useBackups, type BackupDestination, type BackupRight, type Backups as BackupsOverview } from "../api/backups";
-import { reasonText } from "../components/ActionsCard";
+import { useBackupOverview, type BackupOverview, type BackupSource } from "../api/backups";
 import { ActionButton } from "../components/ActionButton";
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
-import { Failure } from "../components/Failure";
-import { MissingRightButton } from "../components/MissingRight";
+import { EmptyLine } from "../components/Card";
+import { Choice } from "../components/Choice";
 import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { SectionHead } from "../components/SectionHead";
-import { Table } from "../components/Table";
-import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
-import { useT } from "../i18n/context";
-import { isBackedUp, keyringPath, newDestinationPath, newPlanPath } from "../lib/backups";
-import type { Tone } from "../lib/tone";
-import { formatWhen } from "../lib/time";
-import { PlanCard } from "./backups/PlanCard";
-import { Inventory } from "./backups/Inventory";
+import { useI18n, useT, type Translate } from "../i18n/context";
+import { filterSources, isNothingSaved, lastSuccessAt, nextRunAt, sortSources, sourceFilters, sourceStatus, verdictOf, type SourceFilter } from "../lib/backupOverview";
+import { counted } from "../lib/counted";
+import { newResticBackupPath, newTargetPath } from "../lib/backups";
+import { ago, formatRemaining } from "../lib/time";
+import { bytesQuantity } from "../lib/units";
+import { AccessSection } from "./backups/Access";
+import { ArchivesSection } from "./backups/Archives";
+import { SourceCard } from "./backups/SourceCard";
+import { TargetsSection } from "./backups/Targets";
+import "./Backups.scss";
 
-const rightTones: Record<BackupRight, Tone> = { ok: "ok", missing: "danger", unavailable: "warn", unknown: "neutral" };
-
-// Les sauvegardes : la clé et la destination qui les rendent possibles, puis
-// les plans, chacun avec sa source et sa destination. Chaque ajout s'ouvre en
-// fenêtre, à son adresse ; la phrase de passe n'est lue que dans celle de la
-// clé.
+// Les sauvegardes : ce qui est sauvegardé (et ce qui ne l'est pas), où ça va,
+// et comment y accéder. Une carte par VM ou par service, qu'elle soit faite
+// par Proxmox de lui-même, par les archives d'openCloud ou par restic. Chaque
+// ajout s'ouvre en fenêtre, à son adresse.
 export function Backups() {
   const t = useT();
-  const backups = useBackups();
+  const overview = useBackupOverview();
   return (
     <>
       <PageHead
         title={t("backup.title")}
         subtitle={t("backup.subtitle")}
         actions={
-          <ActionButton route="PUT /api/backups/plans/{subject}" icon="plus" to={newPlanPath}>
-            {t("backup.plan_add_title")}
-          </ActionButton>
+          <>
+            <Button icon="server" to={newTargetPath}>
+              {t("backup.make_target")}
+            </Button>
+            <ActionButton route="POST /api/machines/{id}/restic-backups" icon="plus" to={newResticBackupPath}>
+              {t("backup.save_ellipsis")}
+            </ActionButton>
+          </>
         }
       />
-      <Loaded resource={backups}>
-        {(overview) => (
-          <div className="stack">
-            {!isBackedUp(overview) && <Note tone="warn">{t("backup.not_saved")}</Note>}
-            <KeyringCard overview={overview} />
-            <DestinationsCard overview={overview} />
-            <PlansSection overview={overview} />
-            <Inventory />
+      <Loaded resource={overview}>
+        {(loaded) => (
+          <div className="stack gap-40">
+            <BackupVerdict overview={loaded} />
+            <SourcesSection overview={loaded} />
+            <TargetsSection overview={loaded} />
+            <AccessSection sources={loaded.sources} />
+            <ArchivesSection />
           </div>
         )}
       </Loaded>
-      {/* La fenêtre de l'adresse : la clé, une destination ou un plan. */}
+      {/* La fenêtre de l'adresse : l'assistant, une cible, la clé, une destination, un plan. */}
       <Outlet />
     </>
   );
 }
 
-// Les plans, un bloc chacun ; l'ajout est le bouton de l'en-tête.
-function PlansSection({ overview }: { overview: BackupsOverview }) {
-  const t = useT();
+// Le verdict : combien sont à jour, la première source qui attend un geste,
+// puis trois chiffres (à jour, libre sur la cible, avant la prochaine).
+function BackupVerdict({ overview }: { overview: BackupOverview }) {
+  const { t, language } = useI18n();
+  const now = useNow(30_000);
+  const verdict = verdictOf(overview.sources);
+  if (isNothingSaved(overview)) {
+    return (
+      <section className="card verdict backup-verdict" role="status">
+        <Pill tone="neutral">{t("backup.verdict_nothing")}</Pill>
+        <div className="backup-verdict-say">
+          <b>{t("backup.verdict_nothing_fact")}</b>
+          <span>{t("backup.verdict_nothing_context")}</span>
+        </div>
+      </section>
+    );
+  }
+  const last = lastSuccessAt(overview.sources);
+  const next = nextRunAt(overview.sources, now);
+  const target = overview.targets.find((candidate) => candidate.kind === "restic" && candidate.disk_total_bytes > 0);
+  const free = target === undefined ? null : bytesQuantity(t, language, target.disk_free_bytes);
   return (
-    <>
-      <SectionHead id="backup-plans-title" title={t("backup.plans_title")} text={t("backup.plans_text")} />
-      {overview.plans.length === 0 && <EmptyCard text={t("backup.plans_none")} />}
-      {overview.plans.map((plan) => (
-        <PlanCard key={plan.subject} plan={plan} overview={overview} />
-      ))}
-    </>
+    <section className={`card verdict verdict-${verdict.tone} backup-verdict`} role="status">
+      <Pill tone={verdict.tone}>{verdictPill(t, verdict.failed, verdict.attention)}</Pill>
+      <div className="backup-verdict-say">
+        <b>{last === null ? t("backup.verdict_fact_never", verdict.protectedCount, verdict.total) : t("backup.verdict_fact", verdict.protectedCount, verdict.total, ago(t, last, now))}</b>
+        <span>{verdict.first === null ? t("backup.verdict_all_good") : firstProblem(t, verdict.first)}</span>
+      </div>
+      <dl className="backup-verdict-facts">
+        <div>
+          <dd>
+            {verdict.protectedCount}
+            <small>{t("backup.verdict_of", verdict.total)}</small>
+          </dd>
+          <dt>{t("backup.verdict_protected")}</dt>
+        </div>
+        {target !== undefined && free !== null && (
+          <div>
+            <dd>
+              {free.value}
+              <small>{free.unit}</small>
+            </dd>
+            <dt>{t("backup.verdict_free_on", target.name)}</dt>
+          </div>
+        )}
+        {next !== null && (
+          <div>
+            <dd>{formatRemaining(t, Date.parse(next) - now)}</dd>
+            <dt>{t("backup.verdict_next")}</dt>
+          </div>
+        )}
+      </dl>
+    </section>
   );
 }
 
-// La paire de clés : l'empreinte de la publique, et le bouton qui ouvre la
-// fenêtre de la phrase qui scelle la privée.
-function KeyringCard({ overview }: { overview: BackupsOverview }) {
-  const t = useT();
-  const now = useNow();
-  const keyring = overview.keyring;
-  return (
-    <Card>
-      <CardHeader title={t("backup.keyring_title")} />
-      <CardBody gap={10}>
-        {keyring === null ? (
-          <p className="secondary">{t("backup.keyring_none")}</p>
-        ) : (
-          <>
-            <KeyValue label={t("backup.fingerprint")} value={keyring.fingerprint} mono />
-            <KeyValue label={t("backup.created")} value={formatWhen(keyring.created_at, now)} />
-          </>
-        )}
-        <div className="cluster">
-          <Button icon="shield" to={keyringPath}>
-            {keyring === null ? t("backup.keyring_create") : t("backup.keyring_replace")}
-          </Button>
-        </div>
-      </CardBody>
-    </Card>
-  );
+function verdictPill(t: Translate, failed: number, attention: number): string {
+  if (failed > 0) {
+    return counted(t, "backup.verdict_failed", failed);
+  }
+  return attention > 0 ? counted(t, "backup.verdict_attention", attention) : t("backup.verdict_ok");
 }
 
-// Les machines dont l'agent reçoit les sauvegardes, et le bouton qui en
-// ajoute une.
-function DestinationsCard({ overview }: { overview: BackupsOverview }) {
+// La première source à traiter, en une phrase : son échec, ou qu'elle n'a
+// aucune copie.
+function firstProblem(t: Translate, source: BackupSource): string {
+  const name = source.kind === "database" ? t("backup.source_database") : source.name;
+  return t(`backup.verdict_first_${sourceStatus(source)}`, name, source.machine_name);
+}
+
+// « Ce qui est sauvegardé » : les cartes, ce qui demande un geste en tête,
+// avec un filtre quand la liste s'allonge.
+function SourcesSection({ overview }: { overview: BackupOverview }) {
   const t = useT();
-  const action = useAction();
-  const remove = (destination: BackupDestination) => {
-    action.run(() => deleteBackupDestination(destination.id), { topic: "backups" });
-  };
+  const [filter, setFilter] = useState<SourceFilter>("all");
+  const sorted = sortSources(overview.sources);
+  const shown = filterSources(sorted, filter);
   return (
-    <Card>
-      <CardHeader title={t("backup.destination_title")} />
-      <CardBody gap={10}>
-        {overview.destinations.length === 0 ? (
-          <Empty text={t("backup.destination_none")} />
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <th>{t("backup.destination_name")}</th>
-                <th>{t("backup.destination_machine")}</th>
-                <th>{t("backup.destination_path")}</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {overview.destinations.map((destination) => (
-                <tr key={destination.id}>
-                  <td>{destination.name}</td>
-                  <td>{destination.machine_name}</td>
-                  <td className="mono">{destination.path}</td>
-                  <td>
-                    <Pill tone={rightTones[destination.right]}>{t(`backup.right_${destination.right}`)}</Pill>
-                    {destination.right === "unavailable" && <div className="secondary">{reasonText(t, destination.right_reason ?? "")}</div>}
-                    {destination.right === "missing" && <MissingRightButton machineID={destination.machine_id} right="backup.receive" path={destination.path} />}
-                    <Button small variant="ghost" icon="x" disabled={action.busy} onClick={() => remove(destination)}>
-                      {t("backup.destination_delete")}
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-        <Failure error={action.error} />
-        <div className="cluster">
-          <Button icon="plus" to={newDestinationPath}>
-            {t("backup.destination_add")}
-          </Button>
+    <section className="stack" aria-labelledby="backup-sources-title">
+      <SectionHead
+        id="backup-sources-title"
+        title={t("backup.sources_title")}
+        text={t("backup.sources_text")}
+        aside={
+          <Choice
+            label={t("backup.filter_label")}
+            name="backup-filter"
+            choices={sourceFilters}
+            value={filter}
+            text={(choice) => t(`backup.filter_${choice}`)}
+            count={(choice) => filterSources(sorted, choice).length}
+            onChange={setFilter}
+          />
+        }
+      />
+      {shown.length === 0 ? (
+        <EmptyLine text={t(`backup.filter_empty_${filter}`)} />
+      ) : (
+        <div className="backup-grid">
+          {shown.map((source) => (
+            <SourceCard key={source.key} source={source} overview={overview} />
+          ))}
         </div>
-      </CardBody>
-    </Card>
+      )}
+    </section>
   );
 }

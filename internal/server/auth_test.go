@@ -129,6 +129,8 @@ func TestAuthBasic_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T) 
 // chaque mode.
 var wantOpenRoutes = []string{
 	"/agent/enroll", "/agent/stream", "/agent/signal", "/agent/logs/{request}", "/agent/parcels/{parcel}/{name}", "/agent/",
+	// Le relais de restic : la preuve de la source, la session de la cible.
+	"/agent/relay/rest/{target}/", "/agent/relay/body/{id}", "/agent/relay/response/{id}",
 	"/ping/{token}", "/ping/{token}/start", "/ping/{token}/{code}",
 	"/statut", "/statut/{$}", "/statut/{slug}", "/statut/{slug}/{$}",
 	"/statut/{slug}/api/status", "/statut/{slug}/api/i18n", "/statut/{slug}/api/events", "/statut/",

@@ -29,6 +29,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/restic"
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
@@ -56,6 +57,8 @@ type components struct {
 	proxmox      *proxmox.Service
 	firewalls    *firewall.Service
 	backups      *backup.Service
+	restic       *restic.Service
+	relay        *restic.Broker
 	deployer     *deploy.Service
 	logger       *slog.Logger
 	preferences  *settings.Service
@@ -193,6 +196,15 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// source a relevés.
 	backups.SetGuests(db)
 	backups.SetAuditor(journal)
+	// Les sauvegardes restic : des ordres aux agents des sources et des
+	// cibles, l'aperçu de la page Sauvegardes, qui lit aussi ce que backup
+	// sait. Le relais vérifie la preuve de la source par machines et lit le
+	// dépôt dans la base ; le serveur, qui tient les flux, le branche (serve).
+	resticBackups := restic.New(db, machines, logger)
+	resticBackups.SetSender(actions)
+	resticBackups.SetInventory(backups)
+	resticBackups.SetAuditor(journal)
+	relay := restic.NewBroker(machines, db, nil, logger)
 	// Le déploiement des services déclarés part par les mêmes ordres signés.
 	deployer := deploy.New(db, declared, machines, db, actions, logger)
 	// La fin de support : activée tant que l'opérateur ne la coupe pas sous
@@ -211,7 +223,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, apiTokens: apiTokens, verbRequests: verbRequests, operator: operator,
-		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, systemd: systemd, links: links, hostConns: hostConns, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, deployer: deployer,
+		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, systemd: systemd, links: links, hostConns: hostConns, roles: roles, proxmox: hypervisors, firewalls: firewalls, backups: backups, restic: resticBackups, relay: relay, deployer: deployer,
 	}, nil
 }
 
@@ -249,6 +261,9 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		Proxmox:         c.proxmox,
 		Firewalls:       c.firewalls,
 		Backups:         c.backups,
+		Restic:          c.restic,
+		ResticAgent:     c.restic,
+		ResticRelay:     c.relay,
 		Deploy:          c.deployer,
 		PublicURL:       cfg.PublicURL,
 		Listen:          cfg.Listen,

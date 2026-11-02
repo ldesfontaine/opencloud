@@ -10,8 +10,10 @@ const reason = label("agent.offline_reason");
 
 async function remoteID(page: Page): Promise<string> {
   const response = await page.request.get("/api/machines");
-  const body = (await response.json()) as { machines: { id: string; online: boolean }[] };
-  const remote = body.machines.find((machine) => machine.id !== "local");
+  const body = (await response.json()) as { machines: { id: string; name: string; online: boolean }[] };
+  // Les données fictives ont d'autres machines, en ligne (les sauvegardes
+  // restic) : la distante est celle qui porte ce nom.
+  const remote = body.machines.find((machine) => machine.name === "vps-paris-1");
   expect(remote?.online, "la machine distante des données fictives est hors ligne").toBe(false);
   return remote?.id ?? "";
 }
@@ -57,6 +59,8 @@ test("fiche conteneur : journaux et vérification disent la raison", async ({ pa
 
 test("sauvegardes : « lancer maintenant » est grisé quand la destination est hors ligne", async ({ page }) => {
   await page.goto("/sauvegardes");
+  // Les plans d'archives sont repliés sous leur section, la base étant sauvegardée.
+  await page.locator("#archives details > summary").click();
   const gate = page.locator("main .agent-gate").first();
   await expect(gate).toBeVisible();
   await expectGated(gate);

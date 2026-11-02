@@ -62,6 +62,20 @@ export function RightsFields({
           />
         </Field>
       )}
+      {values.rights.includes("restic.target") && (
+        <Field label={t("machine.capability_restic_target")} htmlFor="machine-restic-path" help={t("machine.restic_path_help")}>
+          <Input
+            id="machine-restic-path"
+            mono
+            type="text"
+            value={values.resticPath}
+            onChange={(event) => update({ resticPath: event.target.value })}
+            placeholder={t("machine.restic_path_placeholder")}
+            autoComplete="off"
+            required
+          />
+        </Field>
+      )}
     </>
   );
 }

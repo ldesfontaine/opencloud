@@ -37,6 +37,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/reader"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/restic"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server/agentapi"
 	pingapi "github.com/ldesfontaine/opencloud/internal/server/ping" // ping : l'aide des tests du même nom
@@ -357,9 +358,21 @@ type Backups interface {
 	SavePlan(ctx context.Context, definition backup.PlanDefinition) (backup.Plan, error)
 	DeletePlan(ctx context.Context, subject string) error
 	RunNow(ctx context.Context, subject string) (action.Run, error)
-	// Inventory et Runs sont des lectures : l'inventaire calculé et l'historique.
-	Inventory(ctx context.Context) (backup.Inventory, error)
+	// Runs est une lecture : l'historique des exécutions.
 	Runs(ctx context.Context, query backup.RunQuery) ([]backup.RunRecord, error)
+}
+
+// Ce que le serveur attend du composant restic : l'aperçu de la page
+// Sauvegardes, les cibles et les sauvegardes restic. Le relais et le signal
+// passent par agentapi.
+type ResticService interface {
+	Overview(ctx context.Context) (restic.Overview, error)
+	SetupTarget(ctx context.Context, machineID string, setup restic.TargetSetup) (restic.TargetRecord, error)
+	RemoveTarget(ctx context.Context, machineID string) error
+	CreateBackup(ctx context.Context, definition restic.Definition) (restic.Backup, error)
+	UpdateBackup(ctx context.Context, sourceID, id, name string, retention restic.Retention) (restic.Backup, error)
+	DeleteBackup(ctx context.Context, sourceID, id string) error
+	RunNow(ctx context.Context, sourceID, id string) (action.Run, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.
@@ -401,6 +414,7 @@ type Server struct {
 	proxmox      ProxmoxService
 	firewalls    FirewallService
 	backups      Backups
+	restic       ResticService
 	deploy       Deployer
 	live         Live
 	logStreams   atomic.Int32
@@ -487,6 +501,13 @@ type Options struct {
 	Firewalls FirewallService
 	// Backups pilote la page Sauvegardes ; voir api_backups.go.
 	Backups Backups
+	// Restic rend l'aperçu de la page Sauvegardes et ses gestes restic ; voir
+	// api_restic.go. ResticAgent écrit la section restic du signal et les
+	// résultats des sauvegardes ; ResticRelay est le relais des sources qui ne
+	// joignent pas leur cible.
+	Restic      ResticService
+	ResticAgent agentapi.ResticService
+	ResticRelay agentapi.RelayBroker
 	// Deploy déploie les services déclarés ; voir api_deploy.go.
 	Deploy Deployer
 	Live   Live
@@ -553,6 +574,7 @@ func New(opts Options) (*Server, error) {
 		proxmox:        opts.Proxmox,
 		firewalls:      opts.Firewalls,
 		backups:        opts.Backups,
+		restic:         opts.Restic,
 		deploy:         opts.Deploy,
 		live:           opts.Live,
 		authLimit:      ratelimit.NewBySource(authAttemptRate, authAttemptBurst, authIdle),
@@ -585,6 +607,8 @@ func New(opts Options) (*Server, error) {
 		HostConnections: opts.HostConnections,
 		Roles:           opts.Roles,
 		Host:            opts.Host,
+		Restic:          opts.ResticAgent,
+		Relay:           opts.ResticRelay,
 		ClientAddress:   server.clientAddress,
 		Clock:           opts.Clock,
 	})

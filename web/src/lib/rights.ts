@@ -45,6 +45,8 @@ export function withWantedRight(values: RightsValues, wanted: WantedRight | null
     rights,
     backupPath: wanted.name === "backup.receive" ? addPath(values.backupPath, wanted.path) : values.backupPath,
     writePaths: wanted.name === "files.write" ? addPath(values.writePaths, wanted.path) : values.writePaths,
+    // restic.target n'a qu'un dossier : le voulu remplace l'ancien.
+    resticPath: wanted.name === "restic.target" && wanted.path !== "" ? wanted.path : values.resticPath,
   };
 }
 
@@ -98,6 +100,9 @@ const refusalRights: Readonly<Record<string, string>> = {
   "deploy.right_missing": "docker.deploy",
   "backup.right_missing": "backup.receive",
   "backup.source_right_missing": "backup.produce",
+  "restic.target_right_missing": "restic.target",
+  "restic.source_right_missing": "restic.produce",
+  "restic.source_vm_right_missing": "backup.produce",
 };
 
 export function rightOfRefusal(key: string): string | null {

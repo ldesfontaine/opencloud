@@ -99,6 +99,12 @@ type Coverage struct {
 	PlanName        string
 	DestinationID   string
 	DestinationName string
+	// La machine de la destination, et combien d'archives le plan y garde.
+	DestinationMachineID   string
+	DestinationMachineName string
+	Keep                   int
+	// La prochaine tentative de la nuit.
+	NextAt time.Time
 }
 
 // Source est ce qui peut être sauvegardé : la base d'openCloud, une VM ou un
@@ -111,6 +117,8 @@ type Source struct {
 	MachineName string
 	// L'identifiant propre au genre : le numéro de l'invité ; vide sinon.
 	ID string
+	// Le nœud Proxmox d'un invité ; vide sinon.
+	Node string
 	// Pour un volume : son pilote et les conteneurs qui le montent.
 	Driver string
 	UsedBy []string
@@ -188,10 +196,11 @@ func (s *Service) Inventory(ctx context.Context) (Inventory, error) {
 	if err != nil {
 		return Inventory{}, fmt.Errorf("read latest backup runs: %w", err)
 	}
-	destinationNames := make(map[string]string, len(destinations))
+	destinationsByID := make(map[string]Destination, len(destinations))
 	for _, destination := range destinations {
-		destinationNames[destination.ID] = destination.Name
+		destinationsByID[destination.ID] = destination
 	}
+	now := s.now()
 
 	sources := []Source{s.databaseSource(ctx)}
 	for _, guest := range guests {
@@ -202,7 +211,7 @@ func (s *Service) Inventory(ctx context.Context) (Inventory, error) {
 	}
 	for index := range sources {
 		source := &sources[index]
-		source.CoveredBy = coverageOf(*source, plans, destinationNames)
+		source.CoveredBy = coverageOf(*source, plans, destinationsByID, now)
 		if run, found := latest.Last[source.Key]; found {
 			source.LastRun = &run
 		}
@@ -243,7 +252,7 @@ func (s *Service) databaseSource(ctx context.Context) Source {
 func guestSource(guest ObservedGuest) Source {
 	source := Source{
 		Key: GuestSourceKey(guest.HostMachineID, guest.VMID), Kind: guest.Kind, Name: guest.Name,
-		MachineID: guest.HostMachineID, MachineName: guest.HostMachineName, ID: strconv.Itoa(guest.VMID),
+		MachineID: guest.HostMachineID, MachineName: guest.HostMachineName, ID: strconv.Itoa(guest.VMID), Node: guest.Node,
 	}
 	if guest.Archives.Count > 0 {
 		archives := guest.Archives
@@ -264,15 +273,17 @@ func volumeSource(volume ObservedVolume) Source {
 // plan de la base pour la base, un plan machine pour les invités de l'hôte
 // qu'il nomme, tous pour « all », ceux de la liste sinon. Aucun producteur ne
 // sauvegarde encore un volume Docker.
-func coverageOf(source Source, plans []Plan, destinationNames map[string]string) []Coverage {
+func coverageOf(source Source, plans []Plan, destinations map[string]Destination, now time.Time) []Coverage {
 	var covering []Coverage
 	for _, plan := range plans {
 		if !planCovers(plan, source) {
 			continue
 		}
+		destination := destinations[plan.DestinationID]
 		covering = append(covering, Coverage{
 			Subject: plan.Subject, PlanName: plan.Name, DestinationID: plan.DestinationID,
-			DestinationName: destinationNames[plan.DestinationID],
+			DestinationName: destination.Name, DestinationMachineID: destination.MachineID,
+			DestinationMachineName: destination.MachineName, Keep: plan.Keep, NextAt: nextAttempt(now, plan),
 		})
 	}
 	return covering

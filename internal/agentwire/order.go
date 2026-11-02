@@ -174,6 +174,20 @@ const (
 	ReasonComposeTooOld     = "compose_too_old"
 	ReasonDiskFull          = "disk_full"
 	ReasonComposeFailed     = "compose_failed"
+	// Les raisons des droits et des ordres restic : rest-server ou restic
+	// manque sur la machine (ni dans le PATH, ni au chemin déclaré) ; restic
+	// a échoué, rejeu compris (sa sortie d'erreur filtrée est dans le
+	// résultat). Une cible injoignable n'est pas un échec : la source passe
+	// par le relais.
+	ReasonRestServerMissing = "rest_server_missing"
+	ReasonResticMissing     = "restic_missing"
+	ReasonResticFailed      = "restic_failed"
+	// La source n'a pas reçu les mots de passe du lien (restic.provision) :
+	// elle ne sauvegarde pas. La cible refuse une rétention hors bornes, ou
+	// sous son plancher, et un plancher plus bas que celui posé.
+	ReasonResticNotProvisioned = "restic_not_provisioned"
+	ReasonRetentionInvalid     = "retention_invalid"
+	ReasonRetentionBelowFloor  = "retention_below_floor"
 )
 
 // RightMissing rend la raison d'un ordre refusé faute du droit nommé.
@@ -201,6 +215,8 @@ func RefusalReasons() []string {
 		ReasonProxmoxUnreachable, ReasonProxmoxCertificate, ReasonProxmoxUnauthorized, ReasonProxmoxBadResponse,
 		ReasonProxmoxGuestMissing, ReasonProxmoxTemplate, ReasonProxmoxStateMismatch,
 		ReasonProxmoxSnapshotNotOurs, ReasonProxmoxSnapshotMissing, ReasonProxmoxTaskFailed, ReasonProxmoxTaskTimeout,
+		ReasonRestServerMissing, ReasonResticMissing, ReasonResticFailed,
+		ReasonResticNotProvisioned, ReasonRetentionInvalid, ReasonRetentionBelowFloor,
 	}
 }
 
@@ -227,6 +243,9 @@ type ActionResult struct {
 	State  ActionState  `json:"state"`
 	Reason string       `json:"reason,omitempty"`
 	Output []OutputLine `json:"output,omitempty"`
+	// Le chemin et le bilan d'une sauvegarde restic.backup, réussie ou non ;
+	// absent pour les autres ordres.
+	Restic *ResticRunReport `json:"restic,omitempty"`
 }
 
 // OutputLine est une ligne de la sortie d'un ordre ; stream vaut « stdout »

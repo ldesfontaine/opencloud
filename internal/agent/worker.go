@@ -83,6 +83,18 @@ func (f *fetcher) open(ctx context.Context, parcel, name string) (io.ReadCloser,
 	return client.GetParcel(ctx, session, parcel, name)
 }
 
+// current rend le client et le jeton du flux courant ; une erreur hors
+// connexion.
+func (f *fetcher) current() (*Client, string, error) {
+	f.mu.Lock()
+	client, session := f.client, f.session
+	f.mu.Unlock()
+	if client == nil || session == "" {
+		return nil, "", errNoSession
+	}
+	return client, session, nil
+}
+
 // put téléverse un fichier dans un colis du serveur, sous le jeton de session
 // du flux courant. Comme un téléchargement, un envoi commencé sur une session
 // tombée échoue ; l'exécuteur de l'ordre le relance.

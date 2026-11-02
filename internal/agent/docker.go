@@ -409,7 +409,7 @@ func (t dockerTools) writeAndUp(ctx context.Context, base *os.Root, job dockerJo
 	lines, upErr := t.compose.Up(ctx, path.Join(job.root, project), project)
 	// Compose cite parfois une ligne de l'.env (une erreur de syntaxe) : ses
 	// valeurs sont masquées avant de partir au serveur.
-	lines = redactLines(lines, envSecrets(envOf(dir, job)))
+	lines = redactLines(lines, envSecrets(envOf(dir, job)), redactedText)
 	output = append(summary, lines[max(len(lines)-(agentwire.MaxOutputLines-len(summary)), 0):]...)
 	if upErr != nil {
 		return output, failWith(agentwire.ReasonComposeFailed, upErr)
@@ -540,15 +540,16 @@ func envSecrets(env string) []string {
 	return secrets
 }
 
-// redactLines remplace chaque valeur de l'.env dans la sortie.
-func redactLines(lines []agentwire.OutputLine, secrets []string) []agentwire.OutputLine {
+// redactLines remplace chaque secret (une valeur de l'.env, un mot de passe
+// restic) par marker dans la sortie.
+func redactLines(lines []agentwire.OutputLine, secrets []string, marker string) []agentwire.OutputLine {
 	if len(secrets) == 0 {
 		return lines
 	}
 	redacted := make([]agentwire.OutputLine, 0, len(lines))
 	for _, line := range lines {
 		for _, secret := range secrets {
-			line.Line = strings.ReplaceAll(line.Line, secret, redactedText)
+			line.Line = strings.ReplaceAll(line.Line, secret, marker)
 		}
 		redacted = append(redacted, line)
 	}

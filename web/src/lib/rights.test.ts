@@ -37,18 +37,23 @@ test("wantedRightOf : seul un droit de la liste fermée, hors observe, se coche"
 });
 
 test("withWantedRight : coche le droit sans doublon et ajoute son chemin à ceux qui y sont", () => {
-  const values = { rights: ["probe.lan", "backup.receive"], backupPath: "/srv/a", writePaths: "" };
+  const values = { rights: ["probe.lan", "backup.receive"], backupPath: "/srv/a", writePaths: "", resticPath: "" };
   expect(withWantedRight(values, null)).toBe(values);
   expect(withWantedRight(values, { name: "agent.update", path: "" }).rights).toEqual(["probe.lan", "backup.receive", "agent.update"]);
-  expect(withWantedRight(values, { name: "backup.receive", path: "/srv/b" })).toEqual({ rights: ["probe.lan", "backup.receive"], backupPath: "/srv/a, /srv/b", writePaths: "" });
+  expect(withWantedRight(values, { name: "backup.receive", path: "/srv/b" })).toEqual({ rights: ["probe.lan", "backup.receive"], backupPath: "/srv/a, /srv/b", writePaths: "", resticPath: "" });
   expect(withWantedRight(values, { name: "backup.receive", path: "/srv/a" }).backupPath).toBe("/srv/a");
-  expect(withWantedRight({ rights: [], backupPath: "", writePaths: "" }, { name: "files.write", path: "/srv/w" })).toEqual({ rights: ["files.write"], backupPath: "", writePaths: "/srv/w" });
+  expect(withWantedRight({ rights: [], backupPath: "", writePaths: "", resticPath: "" }, { name: "files.write", path: "/srv/w" })).toEqual({ rights: ["files.write"], backupPath: "", writePaths: "/srv/w", resticPath: "" });
+  // Un seul dossier pour une cible restic : le voulu remplace l'ancien.
+  expect(withWantedRight({ rights: [], backupPath: "", writePaths: "", resticPath: "/srv/old" }, { name: "restic.target", path: "/srv/restic" }).resticPath).toBe("/srv/restic");
 });
 
 test("rightOfRefusal : les refus qui nomment leur droit", () => {
   expect(rightOfRefusal("backup.right_missing")).toBe("backup.receive");
   expect(rightOfRefusal("backup.source_right_missing")).toBe("backup.produce");
   expect(rightOfRefusal("deploy.right_missing")).toBe("docker.deploy");
+  expect(rightOfRefusal("restic.target_right_missing")).toBe("restic.target");
+  expect(rightOfRefusal("restic.source_right_missing")).toBe("restic.produce");
+  expect(rightOfRefusal("restic.source_vm_right_missing")).toBe("backup.produce");
   expect(rightOfRefusal("action.right_missing")).toBeNull();
 });
 

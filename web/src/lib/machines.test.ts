@@ -20,7 +20,7 @@ test("machineSeen : en ligne, vue à l'instant ; hors ligne, depuis son dernier 
 });
 
 test("capabilitiesOf : les droits cochés dans l'ordre de la liste, avec leurs chemins, sans observe", () => {
-  const values = { name: "vps", rights: ["files.write", "observe", "agent.update", "backup.receive"], backupPath: " /srv/backups ", writePaths: "/srv/a, ,/srv/b" };
+  const values = { name: "vps", rights: ["files.write", "observe", "agent.update", "backup.receive"], backupPath: " /srv/backups ", writePaths: "/srv/a, ,/srv/b", resticPath: "" };
   expect(capabilitiesOf(values)).toEqual([
     { name: "agent.update", paths: [] },
     { name: "backup.receive", paths: ["/srv/backups"] },
@@ -30,7 +30,7 @@ test("capabilitiesOf : les droits cochés dans l'ordre de la liste, avec leurs c
 });
 
 test("backup.produce : une case, sa portée est le producteur unique, sans champ à remplir", () => {
-  const values = { name: "pve", rights: ["backup.produce"], backupPath: "", writePaths: "" };
+  const values = { name: "pve", rights: ["backup.produce"], backupPath: "", writePaths: "", resticPath: "" };
   expect(capabilitiesOf(values)).toEqual([{ name: "backup.produce", paths: [backupProducer] }]);
   expect(backupProducer).toBe("proxmox-vzdump");
   expect(capabilityLabelKey("backup.produce")).toBe("machine.capability_backup_produce");
@@ -57,7 +57,7 @@ test("rightsFormOf : les droits d'un agent reviennent cochés, chemins compris, 
     { name: "files.write", paths: ["/opt/site", "/srv/workspace"] },
   ];
   const values = rightsFormOf(requested);
-  expect(values).toEqual({ rights: ["agent.update", "files.write"], backupPath: "", writePaths: "/opt/site, /srv/workspace" });
+  expect(values).toEqual({ rights: ["agent.update", "files.write"], backupPath: "", writePaths: "/opt/site, /srv/workspace", resticPath: "" });
   expect(capabilitiesOf(values)).toEqual(requested.slice(1));
 });
 
@@ -104,9 +104,9 @@ test("unavailableRights : seuls les droits que le compte ne peut pas exercer, av
   expect(unavailableRights(t, { run_as: null, capabilities: [{ name: "observe", paths: [], unavailable: "" }] })).toEqual([]);
 });
 
-test("les droits Proxmox se rangent en fin de liste, sans chemin, et ne se proposent qu'à un hôte Proxmox reconnu", () => {
-  expect(capabilityNames.slice(-3)).toEqual(["files.write", "proxmox.power", "proxmox.snapshot"]);
-  expect(capabilitiesOf({ rights: ["proxmox.snapshot", "proxmox.power"], backupPath: "", writePaths: "" })).toEqual([
+test("les droits Proxmox suivent files.write, sans chemin, et ne se proposent qu'à un hôte Proxmox reconnu", () => {
+  expect(capabilityNames.slice(-5, -2)).toEqual(["files.write", "proxmox.power", "proxmox.snapshot"]);
+  expect(capabilitiesOf({ rights: ["proxmox.snapshot", "proxmox.power"], backupPath: "", writePaths: "", resticPath: "" })).toEqual([
     { name: "proxmox.power", paths: [] },
     { name: "proxmox.snapshot", paths: [] },
   ]);
@@ -115,6 +115,15 @@ test("les droits Proxmox se rangent en fin de liste, sans chemin, et ne se propo
   // Déjà coché, il reste visible pour être décoché, même si le rôle a disparu.
   expect(offeredCapabilities(false, ["proxmox.snapshot"])).toEqual([...capabilityNames.filter((name) => name !== "proxmox.power")]);
   expect(capabilityLabelKey("proxmox.power")).toBe("machine.capability_proxmox_power");
+});
+
+test("les droits restic ferment la liste : la cible porte son seul dossier, la source aucun", () => {
+  expect(capabilityNames.slice(-2)).toEqual(["restic.target", "restic.produce"]);
+  expect(capabilitiesOf({ rights: ["restic.produce", "restic.target"], backupPath: "", writePaths: "", resticPath: " /srv/restic " })).toEqual([
+    { name: "restic.target", paths: ["/srv/restic"] },
+    { name: "restic.produce", paths: [] },
+  ]);
+  expect(rightsFormOf([{ name: "restic.target", paths: ["/srv/restic"] }]).resticPath).toBe("/srv/restic");
 });
 
 test("isMachineFormModified : le formulaire neuf est propre, un nom ou un droit changé ne l'est plus", () => {

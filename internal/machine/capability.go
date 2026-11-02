@@ -33,6 +33,13 @@ const (
 	// supprimer ses propres instantanés.
 	CapabilityProxmoxPower    = "proxmox.power"
 	CapabilityProxmoxSnapshot = "proxmox.snapshot"
+	// La cible restic : l'agent lance rest-server en écriture seule sur le
+	// dossier des dépôts, le chemin du droit, et y applique la rétention
+	// (restic.retain), jamais sous le plancher qu'il tient. La source : l'agent lance restic
+	// vers une cible liée, sans chemin (le dossier d'un service est sous sa
+	// racine, un invité passe par backup.produce).
+	CapabilityResticTarget  = "restic.target"
+	CapabilityResticProduce = "restic.produce"
 )
 
 // CapabilityNames rend la liste fermée, dans l'ordre où elle s'affiche :
@@ -41,7 +48,7 @@ func CapabilityNames() []string {
 	return []string{
 		CapabilityObserve, CapabilityProbeLAN, CapabilityObserveEnv, CapabilityAgentUpdate, CapabilityDockerDeploy,
 		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite,
-		CapabilityProxmoxPower, CapabilityProxmoxSnapshot,
+		CapabilityProxmoxPower, CapabilityProxmoxSnapshot, CapabilityResticTarget, CapabilityResticProduce,
 	}
 }
 
@@ -70,7 +77,7 @@ var capabilityPathPattern = regexp.MustCompile(`^/[A-Za-z0-9._/-]{1,254}$`)
 var (
 	ErrCapabilityUnknown = refusal.Invalid("machine.capability_unknown", "unknown agent capability")
 	ErrCapabilityPath    = refusal.Invalid("machine.capability_path", "capability path must be absolute, clean, and made of letters, digits, dot, dash, underscore")
-	ErrCapabilityScope   = refusal.Invalid("machine.capability_scope", "backup.receive takes one path, files.write one to eight, backup.produce one to four producers, the others none")
+	ErrCapabilityScope   = refusal.Invalid("machine.capability_scope", "backup.receive and restic.target take one path, files.write one to eight, backup.produce one to four producers, the others none")
 )
 
 // NormalizeCapabilities vérifie une liste de droits, ajoute observe, retire
@@ -97,8 +104,8 @@ func NormalizeCapabilities(capabilities []Capability) ([]Capability, error) {
 	return normalized, nil
 }
 
-// normalizePaths juge la portée d'un droit : un chemin pour backup.receive, un
-// à huit pour files.write, des producteurs pour backup.produce, rien pour les
+// normalizePaths juge la portée d'un droit : un chemin pour backup.receive et
+// restic.target, un à huit pour files.write, des producteurs pour backup.produce, rien pour les
 // autres. Elle ressort triée, sans doublon.
 func normalizePaths(capability Capability) ([]string, error) {
 	if capability.Name == CapabilityBackupProduce {
@@ -113,7 +120,7 @@ func normalizePaths(capability Capability) ([]string, error) {
 		}
 	}
 	switch capability.Name {
-	case CapabilityBackupReceive:
+	case CapabilityBackupReceive, CapabilityResticTarget:
 		if len(paths) != 1 {
 			return nil, ErrCapabilityScope
 		}

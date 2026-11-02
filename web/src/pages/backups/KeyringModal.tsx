@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import { createKeyring, useBackups } from "../../api/backups";
+import { createKeyring, useBackups, type BackupKeyring } from "../../api/backups";
+import { Button } from "../../components/Button";
+import { KeyValue, Note } from "../../components/Card";
 import { ConfirmDialog } from "../../components/ConfirmModal";
 import { Field, Input } from "../../components/Field";
+import { Modal } from "../../components/Modal";
 import { ModalForm } from "../../components/ModalForm";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
@@ -28,11 +31,18 @@ function KeyringDialog({ replacing }: { replacing: boolean }) {
   const action = useAction();
   const [refusal, setRefusal] = useState<string | null>(null);
   const [confirmingReplace, setConfirmingReplace] = useState(false);
+  // La clé créée : la fenêtre le dit et rappelle de noter la phrase avant de
+  // se fermer (F-6) ; rien d'autre ne le rappellera.
+  const [created, setCreated] = useState<BackupKeyring | null>(null);
 
   const close = () => void navigate(backupsPath, { replace: true });
   const createNow = () => {
-    action.run(() => createKeyring(values.first, replacing), { topic: "backups", onDone: close });
+    action.run(() => createKeyring(values.first, replacing), { topic: "backups", onDone: setCreated });
   };
+
+  if (created !== null) {
+    return <KeyringCreated keyring={created} onClose={close} />;
+  }
   const save = () => {
     const problem = passphraseProblem(values.first, values.second);
     setRefusal(problem);
@@ -77,5 +87,30 @@ function KeyringDialog({ replacing }: { replacing: boolean }) {
         />
       )}
     </>
+  );
+}
+
+// Après la création : noter la phrase de passe maintenant. Sans elle, aucune
+// archive ne se relit, et openCloud ne la garde pas.
+function KeyringCreated({ keyring, onClose }: { keyring: BackupKeyring; onClose: () => void }) {
+  const t = useT();
+  return (
+    <Modal
+      title={t("backup.keyring_created_title")}
+      onClose={onClose}
+      actions={
+        <Button variant="primary" icon="check" onClick={onClose}>
+          {t("backup.keyring_noted")}
+        </Button>
+      }
+    >
+      <Note tone="warn">
+        <p>
+          <b>{t("backup.passphrase_note_now")}</b>
+        </p>
+        <p>{t("backup.passphrase_note_text")}</p>
+      </Note>
+      <KeyValue label={t("backup.fingerprint")} value={keyring.fingerprint} mono />
+    </Modal>
   );
 }

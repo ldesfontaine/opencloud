@@ -22,6 +22,10 @@ test("la carte réelle : le dehors, Internet, la maison, les invités dans leur 
   await expect(map).toBeVisible();
   await expect(map.locator(".netmap-outside")).toContainText("vps-paris-1");
   await expect(map.locator(".netmap-internet")).toContainText(label("network.internet"));
+  // Les données fictives dépassent douze boîtes (les sauvegardes y posent leurs
+  // cibles et leurs sources) : les hôtes sans défaut partent repliés, comme le
+  // veut la carte. On les déplie pour voir l'invité dans la boîte de son hôte.
+  await page.getByRole("button", { name: label("network.map_unfold_all"), exact: true }).click();
   // Une VM n'est jamais à côté de son hôte : l'invité est dans la boîte de l'hôte.
   await expect(map.locator(".netmap-box.is-host .netmap-box", { hasText: "opencloud" })).toBeVisible();
   await expect(map.locator(".netmap-firewall").first()).toBeVisible();

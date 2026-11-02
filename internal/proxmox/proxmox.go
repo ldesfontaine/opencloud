@@ -70,7 +70,10 @@ type Host struct {
 	// de droit (BlindStorages) : tant qu'il y en a, « aucune sauvegarde » n'est
 	// pas une réponse. Dérivé des stockages relevés, jamais saisi.
 	BlindStorages []string
-	CreatedAt     time.Time
+	// Vrai quand le dernier relevé n'a pas pu lire les tâches de sauvegarde
+	// (403 sur /cluster/backup) : « aucune tâche » n'est pas une réponse.
+	JobsUnreadable bool
+	CreatedAt      time.Time
 }
 
 // Credentials est l'hôte avec son secret : il ne sort de la base que pour
@@ -165,6 +168,9 @@ type Reading struct {
 	Cluster  string
 	Guests   []Guest
 	Storages []Storage
+	// Les tâches vzdump de la grappe, et si le jeton a pu les lire.
+	Jobs           []BackupJob
+	JobsUnreadable bool
 }
 
 // View est ce que la fiche de l'hôte montre.
@@ -172,6 +178,7 @@ type View struct {
 	Host     Host
 	Guests   []Guest
 	Storages []Storage
+	Jobs     []BackupJob
 }
 
 // Summary est ce que chaque machine dit de Proxmox : porte-t-elle un hôte,

@@ -27,14 +27,15 @@ const contentSeparator = ","
 // VM n'est pas « sans sauvegarde », on ne sait pas.
 const blindStorageExists = `EXISTS (SELECT 1 FROM proxmox_storages s WHERE s.machine_id = g.machine_id AND s.backups_unreadable = 1)`
 
-const proxmoxHostColumns = `machine_id, api_url, token_id, token_secret, pin, node, version, verified_at, last_read_at, last_error, created_at`
+const proxmoxHostColumns = `machine_id, api_url, token_id, token_secret, pin, node, version, verified_at, last_read_at, last_error,
+	backup_jobs_unreadable, created_at`
 
 // scanProxmoxHost lit l'hôte et son secret tel que la base le garde, scellé.
 func scanProxmoxHost(row scanner) (host proxmox.Host, sealedSecret string, err error) {
 	var verifiedAt, createdAt int64
 	var lastReadAt sql.NullInt64
 	err = row.Scan(&host.MachineID, &host.APIURL, &host.TokenID, &sealedSecret, &host.Pin, &host.Node, &host.Version,
-		&verifiedAt, &lastReadAt, &host.LastError, &createdAt)
+		&verifiedAt, &lastReadAt, &host.LastError, &host.JobsUnreadable, &createdAt)
 	host.VerifiedAt = time.Unix(verifiedAt, 0)
 	host.LastReadAt = timeOf(lastReadAt)
 	host.CreatedAt = time.Unix(createdAt, 0)
@@ -163,8 +164,9 @@ func (db *DB) ReplaceProxmoxReading(ctx context.Context, machineID string, readi
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `
-			UPDATE machine_proxmox SET node = ?, version = ?, cluster_id = ?, last_read_at = ?, last_error = '' WHERE machine_id = ?`,
-			reading.Node, reading.Version, clusterID, at.Unix(), machineID)
+			UPDATE machine_proxmox SET node = ?, version = ?, cluster_id = ?, last_read_at = ?, last_error = '', backup_jobs_unreadable = ?
+			WHERE machine_id = ?`,
+			reading.Node, reading.Version, clusterID, at.Unix(), reading.JobsUnreadable, machineID)
 		if err != nil {
 			return fmt.Errorf("update proxmox host: %w", err)
 		}
@@ -186,6 +188,9 @@ func (db *DB) ReplaceProxmoxReading(ctx context.Context, machineID string, readi
 			if err := insertProxmoxStorage(ctx, tx, machineID, storage); err != nil {
 				return err
 			}
+		}
+		if err := replaceProxmoxBackupJobs(ctx, tx, machineID, reading.Jobs); err != nil {
+			return err
 		}
 		return pruneClusters(ctx, tx)
 	})
@@ -282,7 +287,11 @@ func (db *DB) GetProxmoxView(ctx context.Context, machineID string) (proxmox.Vie
 		return proxmox.View{}, fmt.Errorf("scan proxmox storages: %w", err)
 	}
 	host.BlindStorages = proxmox.BlindStorages(storages)
-	return proxmox.View{Host: host, Guests: guests, Storages: storages}, nil
+	jobs, err := db.listProxmoxBackupJobs(ctx, machineID)
+	if err != nil {
+		return proxmox.View{}, err
+	}
+	return proxmox.View{Host: host, Guests: guests, Storages: storages, Jobs: jobs}, nil
 }
 
 // ListProxmoxGuestIDs rend les numéros des VM et conteneurs que l'hôte de cette

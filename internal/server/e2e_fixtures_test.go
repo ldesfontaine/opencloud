@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
@@ -82,6 +85,7 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2ESystemd(t, ts)
 	seedE2EProxmox(t, ts)
 	seedE2ELinks(t, ts)
+	seedE2ERestic(t, ts)
 }
 
 // seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
@@ -404,4 +408,202 @@ func e2eServiceNamed(t *testing.T, ts *testServer, machineID, name string) direc
 	}
 	t.Fatalf("service %q absent de la machine %s", name, machineID)
 	return directory.Service{}
+}
+
+// Les machines restic des données fictives : pi, la cible en marche ; docker1
+// et pve-nord, deux sources (l'une en direct, l'autre par le relais) ; pve, un
+// hôte Proxmox qui peut sauvegarder ses VM ; nas, qui a le droit d'être cible
+// sans l'être encore. Des noms d'exemple, des adresses de documentation.
+const (
+	e2ePiID     = "33333333-4444-4555-8666-777777777777"
+	e2eDockerID = "44444444-5555-4666-8777-888888888888"
+	e2ePveID    = "55555555-6666-4777-8888-999999999999"
+	e2eNorthID  = "66666666-7777-4888-8999-aaaaaaaaaaaa"
+	e2eNasID    = "77777777-8888-4999-8aaa-cccccccccccc"
+	e2ePiHost   = "192.0.2.10"
+	e2ePiPort   = 8000
+)
+
+// seedE2ERestic remplit la page Sauvegardes : une cible restic en marche, une
+// sauvegarde de service passée en direct, une autre par le relais (pve-nord ne
+// joint pas pi:8000), des VM que Proxmox sauvegarde de lui-même (la tâche
+// nuit-pi), et des machines à qui il manque un droit. Les flux des machines
+// restent ouverts : elles sont en ligne, et chaque ordre qu'un écran envoie
+// part sans réponse.
+func seedE2ERestic(t *testing.T, ts *testServer) {
+	t.Helper()
+	pi := e2eConnect(t, ts, "pi", e2ePiID, "observe,restic.target=/srv/restic")
+	docker := e2eConnect(t, ts, "docker1", e2eDockerID, "observe,restic.produce")
+	north := e2eConnect(t, ts, "pve-nord", e2eNorthID, "observe,restic.produce")
+	pve := e2eConnect(t, ts, "pve", e2ePveID, "observe,restic.produce,backup.produce=proxmox-vzdump")
+	nas := e2eConnect(t, ts, "nas", e2eNasID, "observe,restic.target=/srv/restic")
+
+	e2eReadyTarget(t, ts, pi)
+	paperless := e2eComposeService(t, ts, e2eDockerID, "paperless")
+	e2eComposeService(t, ts, e2eDockerID, "photos")
+	vaultwarden := e2eComposeService(t, ts, e2eNorthID, "vaultwarden")
+	e2eResticBackup(t, ts, docker, pi, e2eDockerID, "paperless", paperless, agentwire.ResticRunReport{
+		Path: agentwire.ResticPathDirect, Reason: agentwire.ResticReachable, TargetHost: e2ePiHost, TargetPort: e2ePiPort,
+		SnapshotID: strings.Repeat("a", 64), BytesAdded: 42 << 20, DurationSeconds: 95,
+	})
+	e2eResticBackup(t, ts, north, pi, e2eNorthID, "vaultwarden", vaultwarden, agentwire.ResticRunReport{
+		Path: agentwire.ResticPathRelay, Reason: agentwire.ResticTCPUnreachable, TargetHost: e2ePiHost, TargetPort: e2ePiPort,
+		SnapshotID: strings.Repeat("b", 64), BytesAdded: 200 << 10, DurationSeconds: 12,
+	})
+
+	// Deux hôtes Proxmox de plus, leurs VM sauvegardées par la tâche nuit-pi :
+	// pve peut aussi les sauvegarder avec restic, pve-nord n'a pas backup.produce.
+	for id, guest := range map[string]string{e2ePveID: "web", e2eNorthID: "mail"} {
+		api := newFakeProxmox(t)
+		api.setGuestName(guest)
+		request := api.request(pveTokenSecret)
+		request.TokenID = pveFullTokenID
+		if got := putProxmox(ts, id, request); got.Code != http.StatusOK {
+			t.Fatalf("proxmox %s: %d %s", id, got.Code, got.Body.String())
+		}
+	}
+	// Leur type rapporté : des machines physiques, docker1 une VM.
+	for id, kind := range map[string]machine.Kind{e2ePiID: machine.KindPhysical, e2eDockerID: machine.KindVM, e2ePveID: machine.KindPhysical, e2eNorthID: machine.KindPhysical, e2eNasID: machine.KindPhysical} {
+		if _, err := ts.db.ReplaceHostReport(context.Background(), id, kind, hostinfo.Report{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, session := range []*machine.Session{pi, docker, north, pve, nas} {
+		go e2eIgnoreOrders(session)
+	}
+	seedE2EMissingBinaries(t, ts)
+}
+
+// Deux machines à qui il manque un binaire : coffre (arm64) est une cible
+// dont l'agent ne trouve pas rest-server ; atelier tient restic.produce sans
+// restic, et déclare le service grimoire.
+const (
+	e2eCoffreID  = "88888888-9999-4aaa-8bbb-dddddddddddd"
+	e2eAtelierID = "99999999-aaaa-4bbb-8ccc-eeeeeeeeeeee"
+)
+
+func seedE2EMissingBinaries(t *testing.T, ts *testServer) {
+	t.Helper()
+	coffre := e2eConnectAs(t, ts, "coffre", e2eCoffreID, "Debian 12", "arm64", "observe,restic.target=/srv/restic", "")
+	got := callAPI(ts.Server, http.MethodPost, "/api/machines/"+e2eCoffreID+"/actions/restic-target-setup", map[string]any{"host": "192.0.2.40", "port": 8000})
+	if got.Code != http.StatusNoContent {
+		t.Fatalf("setup coffre: %d %s", got.Code, got.Body.String())
+	}
+	nextOrder(t, coffre)
+	report := agentwire.ResticReport{Target: &agentwire.ResticTargetReport{State: agentwire.ResticTargetError, Reason: agentwire.ResticErrorBinaryMissing}}
+	if got := signalAnnouncingSections(ts, coffre.Token, agentwire.SignalRequest{Restic: &report}); got.Code != http.StatusNoContent {
+		t.Fatalf("coffre report: %d %s", got.Code, got.Body.String())
+	}
+	atelier := e2eConnectAs(t, ts, "atelier", e2eAtelierID, "Ubuntu 24.04 LTS", "amd64", "observe,restic.produce", "restic.produce="+agentwire.ReasonResticMissing)
+	e2eComposeService(t, ts, e2eAtelierID, "grimoire")
+	for _, id := range []string{e2eCoffreID, e2eAtelierID} {
+		if _, err := ts.db.ReplaceHostReport(context.Background(), id, machine.KindPhysical, hostinfo.Report{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	go e2eIgnoreOrders(coffre)
+	go e2eIgnoreOrders(atelier)
+}
+
+// e2eConnectAs enrôle une machine sous ce système et cette architecture, puis
+// ouvre son flux avec ces droits rapportés et ceux qu'elle ne peut pas exercer.
+func e2eConnectAs(t *testing.T, ts *testServer, name, id, system, arch, rights, unavailable string) *machine.Session {
+	t.Helper()
+	ctx := context.Background()
+	token, _, err := ts.machines.CreateToken(ctx, name, machine.RoleGeneric, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrolled, err := ts.machines.Enroll(ctx, machine.Enrollment{
+		MachineID: id, PublicKey: public, Token: token, Hostname: name, Address: "192.0.2.31", OS: system, Arch: arch, AgentVersion: "v0.0.1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := ts.machines.Connect(ctx, enrolled, "192.0.2.31", "v0.0.1", rights, "", unavailable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+// e2eConnect enrôle une machine et ouvre son flux avec ces droits rapportés.
+func e2eConnect(t *testing.T, ts *testServer, name, id, rights string) *machine.Session {
+	t.Helper()
+	enrolled, _ := ts.enroll(t, name, id)
+	session, err := ts.machines.Connect(context.Background(), enrolled, "192.0.2.30", "v0.0.1", rights, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+// e2eReadyTarget fait de pi une cible, puis lui fait rapporter rest-server en
+// marche : 2 Tio, dont 600 Gio libres.
+func e2eReadyTarget(t *testing.T, ts *testServer, pi *machine.Session) {
+	t.Helper()
+	got := callAPI(ts.Server, http.MethodPost, "/api/machines/"+e2ePiID+"/actions/restic-target-setup", map[string]any{"host": e2ePiHost, "port": e2ePiPort})
+	if got.Code != http.StatusNoContent {
+		t.Fatalf("setup: %d %s", got.Code, got.Body.String())
+	}
+	nextOrder(t, pi)
+	certificate, fingerprint := testCertificate(t)
+	report := agentwire.ResticReport{Target: &agentwire.ResticTargetReport{
+		State: agentwire.ResticTargetRunning, Version: "rest-server 0.14.0", Host: e2ePiHost, Port: e2ePiPort,
+		Certificate: certificate, Fingerprint: fingerprint, RepoBytes: 1 << 40, DiskTotal: 2 << 40, DiskFree: 600 << 30,
+		RetentionFloor: &agentwire.ResticRetentionFloor{KeepDaily: 7},
+	}}
+	if got := signalAnnouncingSections(ts, pi.Token, agentwire.SignalRequest{Restic: &report}); got.Code != http.StatusNoContent {
+		t.Fatalf("target report: %d %s", got.Code, got.Body.String())
+	}
+}
+
+func e2eComposeService(t *testing.T, ts *testServer, machineID, name string) string {
+	t.Helper()
+	service, err := ts.directory.CreateService(context.Background(), directory.ServiceDefinition{
+		MachineID: machineID, Name: name, Nature: directory.NatureApplication, Origin: directory.OriginCompose, ComposeProject: name,
+		Units: []directory.UnitDefinition{{Name: name, Image: name, Version: "1.0"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service.ID
+}
+
+// e2eResticBackup déclare la sauvegarde d'un service vers pi, lie la source
+// à la cible, la lance et fait rapporter son exécution.
+func e2eResticBackup(t *testing.T, ts *testServer, source, pi *machine.Session, sourceID, name, serviceID string, run agentwire.ResticRunReport) {
+	t.Helper()
+	got := callAPI(ts.Server, http.MethodPost, "/api/machines/"+sourceID+"/restic-backups", map[string]any{
+		"name": name, "scope": "service", "service_id": serviceID, "target_machine_id": e2ePiID,
+		"retention": map[string]int{"keep_daily": 14, "keep_weekly": 8, "keep_monthly": 3},
+	})
+	if got.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", got.Code, got.Body.String())
+	}
+	var created resticBackupCreatedJSON
+	decodeAPI(t, got, &created)
+	// Le lien : restic.provision à la source, restic.user.add à la cible.
+	nextOrder(t, source)
+	nextOrder(t, pi)
+	started := callAPI(ts.Server, http.MethodPost, "/api/machines/"+sourceID+"/restic-backups/"+created.ID+"/actions/run", map[string]any{})
+	if started.Code != http.StatusCreated {
+		t.Fatalf("run: %d %s", started.Code, started.Body.String())
+	}
+	order := nextOrder(t, source)
+	result := agentwire.ActionReport{Results: []agentwire.ActionResult{{RunID: order.RunID, State: agentwire.ActionSucceeded, Restic: &run}}}
+	if got := signalAnnouncingSections(ts, source.Token, agentwire.SignalRequest{Actions: &result}); got.Code != http.StatusNoContent {
+		t.Fatalf("run report: %d %s", got.Code, got.Body.String())
+	}
+}
+
+// e2eIgnoreOrders lit les ordres d'une machine sans y répondre : un agent
+// qui ne finit rien, sans que sa file se remplisse.
+func e2eIgnoreOrders(session *machine.Session) {
+	for range session.Events() {
+	}
 }

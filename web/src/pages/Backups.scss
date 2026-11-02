@@ -1,0 +1,824 @@
+// La page Sauvegardes (docs/projet/maquettes/sauvegardes.html) : des cartes,
+// pas de tableau. Les jetons de la direction artistique, aucun de plus.
+
+.backup-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.backup-badge {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  display: grid;
+  place-items: center;
+}
+
+// Le verdict : la pastille, le fait et sa précision, trois chiffres à droite.
+.backup-verdict {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 24px;
+  row-gap: 12px;
+  padding: 20px 24px;
+}
+
+.backup-verdict-say {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  b {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  span {
+    color: var(--ink-2);
+  }
+}
+
+.backup-verdict-facts {
+  display: flex;
+  gap: 28px;
+  margin: 0;
+
+  div {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  dd {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+
+    small {
+      margin-left: 4px;
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0;
+      color: var(--ink-2);
+    }
+  }
+
+  dt {
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+}
+
+// Les cartes des sources : trois de front au plus, une sur un téléphone.
+.backup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.backup-source {
+  padding: 16px;
+  gap: 14px;
+}
+
+.backup-source-warn {
+  background: var(--warn-wash);
+  border-color: var(--warn);
+}
+
+.backup-source-danger {
+  border-color: var(--danger);
+}
+
+// Sur le lavis, les fonds discrets reprennent la surface.
+.backup-source-warn .backup-flow,
+.backup-source-warn .backup-badge,
+.backup-source-warn .token-box,
+.backup-source-warn .pill {
+  background: var(--surface);
+}
+
+.backup-source-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+
+  h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+}
+
+.backup-source-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+// Une façon dont la source est sauvegardée ; deux se séparent d'un trait.
+.backup-protection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  & + & {
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+}
+
+// Le trajet : source, fil, cible.
+.backup-flow {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(48px, 1fr) minmax(0, max-content);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.backup-flow-node {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+
+  // Un nom long se tronque (entier au survol et dans l'étiquette du trajet)
+  // plutôt que de se couper lettre à lettre.
+  b {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    min-width: 0;
+
+    .icon {
+      flex: none;
+    }
+  }
+}
+
+.backup-flow-name,
+.backup-flow-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-flow-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.backup-flow-to {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.backup-flow-wire {
+  position: relative;
+  height: 18px;
+  display: flex;
+  justify-content: center;
+  color: var(--muted);
+
+  em {
+    font-style: normal;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1;
+    color: var(--ink-2);
+  }
+
+  // Le trait et sa pointe.
+  &::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 4px;
+    bottom: 2px;
+    border-top: 2px solid currentColor;
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    border-left: 7px solid currentColor;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+  }
+}
+
+.backup-flow-accent {
+  color: var(--accent);
+}
+
+.backup-flow-warn {
+  color: var(--warn);
+
+  &::before {
+    border-top-style: dashed;
+  }
+}
+
+.backup-flow-danger {
+  color: var(--danger);
+
+  &::before {
+    border-top-style: dashed;
+  }
+}
+
+.backup-flow-none {
+  &::before {
+    border-top: 2px dotted currentColor;
+    right: 0;
+  }
+
+  &::after {
+    display: none;
+  }
+}
+
+.backup-origin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  .more-menu {
+    margin-left: auto;
+  }
+}
+
+// Les faits, deux par ligne ; la rétention et « ce qu'il manque » sur toute
+// la largeur.
+.backup-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 0;
+}
+
+.backup-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  text-align: left;
+
+  dt {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.backup-item-wide {
+  grid-column: 1 / -1;
+}
+
+.backup-item-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+// Une purge qui a échoué se lit, sans crier : le ton warn.
+.backup-item-warn {
+  color: var(--warn);
+}
+
+// Le chemin de la dernière exécution, ou l'échec et son geste.
+.backup-path {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.backup-path-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--ink-2);
+}
+
+.backup-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+// Où ça va : la carte de chaque cible restic, et celle qui en ajoute une.
+.backup-targets {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+// Les cibles s'empilent à gauche, la carte qui en ajoute une reste à droite ;
+// seule, elle prend la ligne.
+.backup-target {
+  grid-column: 1;
+  padding: 20px;
+  gap: 18px;
+}
+
+.backup-target-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .more-menu {
+    margin-left: auto;
+  }
+}
+
+.backup-target-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backup-target-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+}
+
+.backup-big {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+
+  small {
+    margin-left: 6px;
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--muted);
+  }
+}
+
+.backup-bar {
+  display: block;
+
+  .backup-bar-track {
+    fill: var(--surface-2);
+  }
+
+  .backup-bar-backup {
+    fill: var(--accent);
+  }
+
+  .backup-bar-other {
+    fill: var(--line-strong);
+  }
+}
+
+.backup-bar-stale .backup-bar-backup {
+  fill: var(--muted);
+}
+
+.backup-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  i {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+
+  b {
+    font-weight: 500;
+  }
+}
+
+.backup-legend-backup {
+  background: var(--accent);
+}
+
+.backup-legend-other {
+  background: var(--line-strong);
+}
+
+.backup-legend-free {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+}
+
+.backup-kv {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+
+  dt {
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+}
+
+// Le plancher que la cible tient, sous son rest-server.
+.backup-floor {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+// Ce qu'il faut installer : la machine nommée en tête, puis les commandes,
+// chacune marquée de la machine où la coller. Sur une carte, un trait le
+// sépare ; dans une fenêtre, il a son cadre.
+.backup-install {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+
+  .backup-steps {
+    padding-left: 18px;
+  }
+
+  .token-box {
+    align-items: flex-start;
+  }
+
+  .token-box .button {
+    flex: none;
+  }
+}
+
+.backup-install-framed {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.backup-install-head {
+  display: flex;
+  align-items: baseline;
+  gap: 4px 10px;
+  flex-wrap: wrap;
+
+  b {
+    font-size: 14px;
+    font-weight: 600;
+  }
+}
+
+.backup-install-page {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+// Un segment de commande ne se coupe pas sur son tiret (voir CommandText).
+.backup-nb {
+  white-space: nowrap;
+}
+
+// La machine où coller la commande, hors de la copie.
+.backup-on {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--ink-2);
+}
+
+.backup-holds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.backup-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backup-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+
+  b {
+    font-weight: 500;
+  }
+}
+
+.backup-add {
+  grid-column: 2;
+  grid-row: 1;
+  padding: 20px;
+  gap: 10px;
+  border-style: dashed;
+  background: transparent;
+
+  b {
+    font-size: 14px;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+// Accéder : la note du mot de passe, puis trois cartes de gestes.
+.backup-access-note {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  .token-box {
+    background: var(--surface);
+  }
+}
+
+.backup-access-lead,
+.backup-note-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+
+  .icon {
+    flex: none;
+    margin-top: 2px;
+  }
+}
+
+.backup-how {
+  padding: 20px;
+  gap: 14px;
+
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+}
+
+.backup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding-left: 20px;
+
+  li {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  li::marker {
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  b {
+    font-weight: 500;
+  }
+
+  .token-box {
+    padding: 6px 6px 6px 10px;
+  }
+
+  // Une commande passe à la ligne entre ses mots, jamais au milieu d'une option.
+  .token-box code {
+    overflow-wrap: break-word;
+  }
+}
+
+.backup-alt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+
+  b {
+    font-weight: 500;
+  }
+}
+
+.backup-crumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    padding: 1px 8px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    font-size: 12px;
+  }
+
+  li + li::before {
+    content: "›";
+    margin: 0 6px 0 -2px;
+    color: var(--muted);
+  }
+}
+
+// Les archives : une ligne par destination.
+.backup-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backup-row {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+
+  &:first-child {
+    border-top: 0;
+  }
+}
+
+.backup-row-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+// L'assistant : la recherche, les récapitulatifs.
+.backup-search {
+  position: relative;
+  display: block;
+
+  .icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+  }
+
+  .input {
+    padding-left: 36px;
+  }
+}
+
+.backup-summary-value,
+.backup-summary-path {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  text-align: right;
+
+  b {
+    font-weight: 600;
+  }
+}
+
+.backup-mini {
+  display: inline-block;
+  width: 72px;
+}
+
+.backup-row2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  gap: 12px;
+}
+
+.backup-row3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.backup-add:first-child {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1100px) {
+  .backup-targets,
+  .backup-target-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backup-add {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 860px) {
+  .backup-verdict {
+    grid-template-columns: minmax(0, 1fr);
+
+    > .pill {
+      justify-self: start;
+    }
+  }
+
+  .backup-verdict-facts {
+    flex-wrap: wrap;
+    gap: 16px;
+
+    div {
+      align-items: flex-start;
+    }
+  }
+
+  .backup-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backup-row-end {
+    justify-content: flex-start;
+  }
+}

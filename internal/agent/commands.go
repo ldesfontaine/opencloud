@@ -73,6 +73,9 @@ func (r *commandRunner) handle(name, data string) {
 		// passage complet.
 		r.logger.Info("image checks assigned", "excluded", len(command.Images.Excluded), "now", command.Images.Now)
 		r.updates.Assign(*command.Images)
+	case agentwire.KindResticRelay:
+		// À part : la réponse part par le serveur pendant que le flux lit.
+		go r.orders.serveRelay(r.ctx, *command.Relay)
 	}
 }
 

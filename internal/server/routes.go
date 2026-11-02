@@ -193,7 +193,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/actions", s.listActions},
 		{"GET", "/api/agents/server-key", s.getServerKey},
 		{"GET", "/api/backups", s.getBackups},
-		{"GET", "/api/backups/inventory", s.getBackupInventory},
+		{"GET", "/api/backups/overview", s.getBackupOverview},
 		{"GET", "/api/backups/runs", s.getBackupRuns},
 		{"POST", "/api/backups/keyring", s.createBackupKeyring},
 		{"POST", "/api/backups/destinations", s.createBackupDestination},
@@ -201,6 +201,15 @@ func (s *Server) routes() []route {
 		{"PUT", "/api/backups/plans/{subject}", s.saveBackupPlan},
 		{"DELETE", "/api/backups/plans/{subject}", s.deleteBackupPlan},
 		{"POST", "/api/backups/plans/{subject}/actions/run", s.runBackup},
+		// Restic : une cible est une machine, une sauvegarde part d'une machine
+		// source. La machine est dans le chemin : la portée d'un jeton se juge
+		// sur elle, comme pour les gestes Proxmox.
+		{"POST", "/api/machines/{id}/actions/restic-target-setup", s.setupResticTarget},
+		{"POST", "/api/machines/{id}/actions/restic-target-remove", s.removeResticTarget},
+		{"POST", "/api/machines/{id}/restic-backups", s.createResticBackup},
+		{"PUT", "/api/machines/{id}/restic-backups/{backup}", s.updateResticBackup},
+		{"DELETE", "/api/machines/{id}/restic-backups/{backup}", s.deleteResticBackup},
+		{"POST", "/api/machines/{id}/restic-backups/{backup}/actions/run", s.runResticBackup},
 		{anyMethod, "/api/", s.apiUnknown},
 	}
 	add := func(method, pattern string, handler http.HandlerFunc) {
@@ -229,7 +238,7 @@ var apiTokenRoutes = []string{
 	"GET /api/directory/projects", "GET /api/directory/projects/{id}", "GET /api/status/components", "GET /api/status/incidents",
 	"GET /api/alerts", "GET /api/alerts/{id}", "GET /api/alerts/channels",
 	"GET /api/audit", "GET /api/actions", "GET /api/agent-updates",
-	"GET /api/backups/inventory", "GET /api/backups/runs",
+	"GET /api/backups/overview", "GET /api/backups/runs",
 	"GET /api/token/verbs",
 }
 

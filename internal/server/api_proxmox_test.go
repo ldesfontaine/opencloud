@@ -33,6 +33,11 @@ const (
 	pveGoldenPinHex = "abababababababababababababababababababababababababababababababab"
 )
 
+// Les tâches vzdump de l'hôte, telles que /cluster/backup les rend : chaque
+// nuit, tous les invités vers le partage du Pi, avec sa rétention.
+const pveBackupJobs = `{"data":[{"id":"nuit-pi","type":"vzdump","schedule":"03:00","next-run":1793329200,
+	"storage":"pi-sauvegardes","enabled":1,"all":1,"mode":"snapshot","prune-backups":"keep-daily=14,keep-weekly=8,keep-monthly=3"}]}`
+
 // L'adresse de la carte de la VM 5012, telle que l'hôte la dit dans sa configuration.
 const pveGuestMAC = "BC:24:11:AA:BB:CC"
 
@@ -100,6 +105,8 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 			body = `{"data":{"` + r.URL.Query().Get("path") + `":{` + privileges + `}}}`
 		case r.URL.Path == "/api2/json/nodes/pve/storage/local/content":
 			body = `{"data":[{"vmid":5012,"ctime":1790086400,"size":244318208}]}`
+		case r.URL.Path == "/api2/json/cluster/backup":
+			body = pveBackupJobs
 		default:
 			http.NotFound(w, r)
 			return

@@ -28,6 +28,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/restic"
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
@@ -106,6 +107,11 @@ type Options struct {
 	SampleInterval time.Duration
 	// DockerSocket est la socket du démon ; vide vaut celle de Docker.
 	DockerSocket string
+	// ResticBinary et RestServerBinary sont les chemins que l'opérateur a
+	// déclarés (-restic, -rest-server) ; vides, l'agent les cherche dans son
+	// PATH. Il ne les télécharge jamais.
+	ResticBinary     string
+	RestServerBinary string
 	// Roots est le magasin contre lequel les sondes de cette machine
 	// vérifient une chaîne. nil vaut le magasin du système : c'est la
 	// machine qui sonde qui juge, avec les autorités qu'elle connaît.
@@ -204,6 +210,13 @@ func Run(ctx context.Context, opts Options) error {
 		updated.Store(true)
 		stop()
 	}
+	// restic : les binaires déclarés, le relais par le serveur pour la source,
+	// et rest-server relancé si la machine est une cible déjà préparée.
+	orders.useResticBinaries(opts.ResticBinary, opts.RestServerBinary)
+	orders.restic.source.relay = func(target string) (restic.ProxyConfig, error) {
+		return client.resticRelayConfig(identity, target)
+	}
+	orders.startRestic(ctx)
 	// Une production coupée net a laissé de quoi remplir le disque dans produce/.
 	if err := clearProduceDir(opts.StateDir); err != nil {
 		opts.Logger.Warn("clear produce dir", "error", err)
@@ -244,8 +257,11 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	connectionsReported := &connectionReports{}
 	go connectionsLoop(ctx, readHostConnections, connectionsReported, connectionsPeriod, connectionsHeartbeat, opts.Logger)
+	// La cible ou la source restic : relue à part du flux, comme les rôles.
+	resticReported := &resticReports{}
+	go resticLoop(ctx, orders, resticReported, resticPeriod, opts.Logger)
 	err = keepConnected(ctx, client, identity, &pending{
-		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported, host: hostReported, units: unitsReported, connections: connectionsReported,
+		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported, host: hostReported, units: unitsReported, connections: connectionsReported, restic: resticReported,
 		logs: watcher, probes: prober, updates: updater, orders: orders, outcome: outcome,
 	}, catalogs.For(identity.Language), opts)
 	if updated.Load() {
@@ -269,6 +285,7 @@ type pending struct {
 	units    *unitReports
 	// connections : qui joint les ports de l'hôte.
 	connections *connectionReports
+	restic      *resticReports
 	logs        container.LogSource
 	probes      probe.Assignable
 	updates     update.Assignable
@@ -442,6 +459,7 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	pending.host.markReplayed()
 	pending.units.markReplayed()
 	pending.connections.markReplayed()
+	pending.restic.markReplayed()
 
 	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, pending.orders, opts.Logger)
 	lost := make(chan error, 1)
@@ -488,6 +506,7 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 			host:        pending.host.take(),
 			units:       pending.units.take(),
 			connections: pending.connections.take(),
+			restic:      pending.restic.take(),
 		}
 		rejected, err := client.Signal(ctx, session, sent.request())
 		var refused *ServerError
@@ -532,10 +551,11 @@ type signalBatch struct {
 	host        *hostinfo.Report
 	units       *systemdunits.Report
 	connections *hostconn.Report
+	restic      *agentwire.ResticReport
 }
 
 func (b signalBatch) request() agentwire.SignalRequest {
-	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys, Roles: b.roles, Host: b.host, SystemdUnits: b.units, HostConnections: b.connections}
+	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys, Roles: b.roles, Host: b.host, SystemdUnits: b.units, HostConnections: b.connections, Restic: b.restic}
 }
 
 // restoreAfter remet dans le tampon les sections qui suivent celle
@@ -578,6 +598,8 @@ func (b signalBatch) restore(pending *pending, section string) {
 		pending.units.restore(b.units)
 	case agentwire.SectionHostConnections:
 		pending.connections.restore(b.connections)
+	case agentwire.SectionRestic:
+		pending.restic.restore(b.restic)
 	}
 }
 

@@ -48,6 +48,8 @@ type orderRunner struct {
 	produce produceTools
 	// Le jeton local et l'API de Proxmox, que les ordres proxmox.vm.* touchent.
 	proxmox proxmoxTools
+	// La cible et la source restic, que les ordres restic.* touchent.
+	restic *resticTools
 	// Ce que la machine répond au compte de l'agent : Docker, les dossiers, son
 	// propre dossier bin/. Les mêmes questions que le rapport des droits
 	// indisponibles ; un ordre est refusé, avant d'écrire, sur la même raison.
@@ -67,7 +69,7 @@ func newOrderRunner(stateDir *os.Root, identity Identity, version, dockerSocket 
 	return &orderRunner{
 		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
 		worker: newOrderWorker(), fetch: &fetcher{}, updater: updater, docker: newDockerTools(checks), checks: checks,
-		produce: newProduceTools(stateDir), proxmox: newProxmoxTools(stateDir),
+		produce: newProduceTools(stateDir), proxmox: newProxmoxTools(stateDir), restic: newResticTools(stateDir, logger),
 	}
 }
 
@@ -181,6 +183,16 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 		return r.acceptDocker(body, false)
 	case agentwire.KindDockerUpdate:
 		return r.acceptDocker(body, true)
+	case agentwire.KindResticTargetSetup:
+		return r.resticTargetSetup(body), nil
+	case agentwire.KindResticUserAdd, agentwire.KindResticUserRemove:
+		return r.resticUser(body), nil
+	case agentwire.KindResticProvision:
+		return r.resticProvision(body), nil
+	case agentwire.KindResticBackup:
+		return r.acceptResticBackup(body)
+	case agentwire.KindResticRetain:
+		return r.acceptResticRetain(body)
 	}
 	r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
 	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}, nil
