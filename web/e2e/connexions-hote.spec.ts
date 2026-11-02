@@ -68,7 +68,8 @@ test("Fiche d'un service : « Ajouter un lien » reste joignable à côté des c
   // Le menu propose des services, jamais une source observée.
   const options = page.locator("[role=listbox] [role=option]");
   await expect(options.filter({ hasText: "notes" }).first()).toBeVisible();
-  await expect(options.filter({ hasText: "backup" })).toHaveCount(0);
+  await expect(options.filter({ hasText: label("link.source_account").replace("%s", "backup") })).toHaveCount(0);
+  await expect(options.filter({ hasText: "192.168.1.20" })).toHaveCount(0);
   await options.filter({ hasText: "notes" }).first().click();
   await dialog.getByRole("button", { name: label("link.dialog_save"), exact: true }).click();
   await expect(dialog).toHaveCount(0);

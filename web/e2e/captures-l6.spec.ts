@@ -5,8 +5,7 @@ import { expect, test } from "@playwright/test";
 
 // Les captures de L6 (docs/projet/refonte-ux/captures/L6-*.png) : la fiche du
 // service « dashboard » (trois connexions vues sur son port, preuve
-// « Observé »), la même fiche avec l'aide de la preuve au survol, et la
-// fenêtre « Ajouter un lien » avec son menu ouvert (des services, jamais une source). Rien ne s'écrit. Données
+// « Observé »), et la fenêtre « Ajouter un lien » avec son menu ouvert (des services, jamais une source). Rien ne s'écrit. Données
 // fictives seulement. Hors `make ci` : `E2E_CAPTURES=1 npm run e2e`.
 test.skip(process.env.E2E_CAPTURES !== "1", "captures demandées par E2E_CAPTURES=1");
 
@@ -34,16 +33,8 @@ for (const theme of ["light", "dark"] as const) {
     test(`fiche d'un service, connexions vues ${theme}`, async ({ page }) => {
       await openService(page, "dashboard");
       await expect(page.getByText(label("link.source_internet"), { exact: true })).toBeVisible();
-      await page.getByText(label("link.title"), { exact: true }).scrollIntoViewIfNeeded();
+      await page.locator("main section", { has: page.getByText(label("link.title"), { exact: true }) }).evaluate((card) => card.scrollIntoView({ block: "start" }));
       await shoot(page, "fiche-connexions", theme);
-    });
-
-    test(`aide de la preuve au survol ${theme}`, async ({ page }) => {
-      await openService(page, "dashboard");
-      const proof = page.locator("main tbody tr", { hasText: "backup" }).locator("[title]", { hasText: label("link.proof_observed") });
-      await proof.scrollIntoViewIfNeeded();
-      await proof.hover();
-      await shoot(page, "fiche-aide-preuve", theme);
     });
 
     test(`fenêtre Ajouter un lien depuis le service, menu ouvert ${theme}`, async ({ page }) => {

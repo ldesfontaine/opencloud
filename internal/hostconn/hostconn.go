@@ -34,10 +34,6 @@ const (
 	OriginInternet Origin = "internet"
 )
 
-func Origins() []Origin {
-	return []Origin{OriginAccount, OriginAddress, OriginInternet}
-}
-
 // Reason dit pourquoi la table n'a pas pu être lue.
 type Reason string
 
