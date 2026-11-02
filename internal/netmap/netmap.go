@@ -26,7 +26,7 @@ const (
 	StateFailed   = "failed"
 	// StateMissing : l'annuaire le déclare, la machine ne le montre pas.
 	StateMissing = "missing"
-	StateUnknown  = "unknown"
+	StateUnknown = "unknown"
 )
 
 // Le genre d'un service : ce que la clé d'instance désigne.
