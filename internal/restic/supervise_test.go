@@ -135,6 +135,7 @@ func TestFindingsOf_SourceWithoutAPlan(t *testing.T) {
 	protected := serviceSource(resticProtectionOf("b1", hoursAgo(1), nil))
 	bare := []Source{
 		{Key: "database", Kind: backup.KindDatabase, Name: "opencloud", MachineID: "local"},
+		{Key: "firewall:f1", Kind: backup.KindFirewall, Name: "opnsense", MachineID: "local"},
 		{Key: "vm:100", Kind: backup.KindVM, Name: "docker1", MachineID: "pve"},
 		{Key: "service:s2", Kind: agentwire.ResticScopeService, Name: "paperless", MachineID: "vps", ServiceID: "s2"},
 		{Key: "vm:101", Kind: backup.KindVM, Name: "inconnue", MachineID: "pve2", ObservedUnknown: true},
@@ -149,7 +150,7 @@ func TestFindingsOf_SourceWithoutAPlan(t *testing.T) {
 		got = append(got, finding.ObjectID)
 	}
 	slices.Sort(got)
-	if !slices.Equal(got, []string{"source:database", "source:service:s2", "source:vm:100"}) {
+	if !slices.Equal(got, []string{"source:database", "source:firewall:f1", "source:service:s2", "source:vm:100"}) {
 		t.Errorf("sources without a plan: %v (a volume belongs to its service, an unknown host is not « none »)", got)
 	}
 }

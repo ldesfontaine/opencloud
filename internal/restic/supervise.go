@@ -187,11 +187,11 @@ func verifyReason(verify VerifyView) string {
 	return ""
 }
 
-// unprotectedFinding : une base, un invité ou un service que rien ne couvre.
+// unprotectedFinding : une base, un invité, un pare-feu ou un service que rien ne couvre.
 // Un volume appartient à son service. Une source dont l'hôte n'a pas su
 // lire les sauvegardes n'est pas « sans plan » : on ne sait pas.
 func unprotectedFinding(source Source) (Finding, bool) {
-	judged := []string{backup.KindDatabase, backup.KindVM, backup.KindLXC, agentwire.ResticScopeService}
+	judged := []string{backup.KindDatabase, backup.KindVM, backup.KindLXC, backup.KindFirewall, agentwire.ResticScopeService}
 	if !slices.Contains(judged, source.Kind) || len(source.Protections) > 0 || source.ObservedUnknown {
 		return Finding{}, false
 	}
