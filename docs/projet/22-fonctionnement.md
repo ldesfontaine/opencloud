@@ -346,6 +346,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
 | `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à un ré-enrôlement qui coche le droit (on ne coche rien à la place de l'opérateur) |
+| `observe.env` | — | Que l'agent **lise l'environnement des conteneurs Docker** et en tire les liens entre instances de la machine (« Les liens de l'environnement »). **Refusé par défaut** : décoché dans le formulaire, absent des préréglages de rôle, absent de la ligne de la machine openCloud ; il se coche **machine par machine**, sous « Avancé : droits de l'agent », avec sa note. Comme `probe.lan`, aucun ordre ne l'exige : c'est une borne de l'observation, lue **une fois** au démarrage de l'agent. Un agent enrôlé avant ne l'a pas : la carte **Liens** de la fiche d'un service dit que l'environnement n'est pas lu et porte le bouton **Ré-enrôler avec « Lire l'environnement… »** (fenêtre déjà cochée, geste de U1) |
 | `agent.update` | — | Les ordres `agent.update` (mettre à jour l'agent depuis le serveur) et `agent.rollback` (revenir à la version précédente) (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire, et ne le fait que sous le lanceur stable |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
@@ -2333,6 +2334,7 @@ machine suit toujours le flux, pas cette règle.
 | `GET /events?filters=container` | flux | action, id, instant, code de sortie, signal d'un `kill` (pour savoir si un arrêt était demandé) |
 | `GET /containers/{id}/stats?one-shot` | mesure | compteurs processeur, mémoire, limite |
 | `GET /containers/{id}/logs` | journal multiplexé | lignes horodatées, stdout et stderr |
+| `GET /containers/{id}/json` (2ᵉ appel, **seulement avec `observe.env`**) | inspect, champ `Config.Env` | des **noms d'hôtes candidats**, jamais le nom d'une variable ni une valeur, et ensuite seulement les conteneurs de la machine qu'ils désignent (« Les liens de l'environnement ») |
 | `GET /images/{nom}/json` | inspect d'une image | `RepoDigests` : l'empreinte que la machine a tirée, pour les mises à jour |
 
 Les labels de Compose sont lus : le projet, le service, le dossier et le
@@ -5001,8 +5003,8 @@ stockage : plus aucun écran ne recalcule les dépendances de son côté.
 
 | Champ | Valeurs | Sens |
 | --- | --- | --- |
-| Preuve | `declared`, `deduced`, `observed` | écrit par l'opérateur ou par la configuration d'un outil ; calculé ; vu. **`declared` est écrite ; `deduced` est calculée à chaque lecture** (voir « Les liens déduits ») ; `observed` vient avec L6 |
-| Signal | `depends_on`, `container_link`, `operator`, `public_url` | d'où vient la preuve : le `depends_on` de Compose, le `--link` de Docker, la main de l'opérateur, l'adresse publique d'un service avec un proxy (jamais écrit : la table ne le connaît pas) |
+| Preuve | `declared`, `deduced`, `observed` | écrit par l'opérateur ou par la configuration d'un outil ; déduit ; vu. **`declared` est écrite ; `deduced` est une route calculée à chaque lecture** (« Les liens déduits »), **ou** un lien lu dans l'environnement d'un conteneur, écrit à chaque inventaire (« Les liens de l'environnement ») ; `observed` vient avec L6 |
+| Signal | `depends_on`, `container_link`, `operator`, `public_url`, `environment` | d'où vient la preuve : le `depends_on` de Compose, le `--link` de Docker, la main de l'opérateur, l'adresse publique d'un service avec un proxy (jamais écrit : la table ne le connaît pas), l'environnement d'un conteneur (migration `031` ; « Les liens de l'environnement ») |
 | Nature | `order`, `config`, `route` | « démarre après » (les deux premiers signaux) ; « est configuré pour joindre » (l'opérateur) ; « route publique » (le proxy envoie vers le service). `traffic` est réservée (L6) |
 | Fraîcheur | première et dernière vue | un lien d'outil non revu depuis 7 jours est **ancien** ; un lien de l'opérateur ne vieillit pas (personne ne le « revoit ») |
 
@@ -5010,7 +5012,8 @@ stockage : plus aucun écran ne recalcule les dépendances de son côté.
 
 | Qui | Quoi | Par où |
 | --- | --- | --- |
-| Le suivi des conteneurs | À chaque rapport d'inventaire, les liens d'ordre des conteneurs vivants de la machine : une dépendance Compose se résout dans le même projet, un `--link` par le nom du conteneur ; ce qui ne se résout pas ne donne pas de lien. Au démarrage du serveur, de même, pour les conteneurs déjà connus | `container.OrderLinks` puis `link.Service.RecordOrders` |
+| Le suivi des conteneurs | À chaque rapport d'inventaire, les liens d'ordre des conteneurs vivants de la machine : une dépendance Compose se résout dans le même projet, un `--link` par le nom du conteneur ; ce qui ne se résout pas ne donne pas de lien. Au démarrage du serveur, de même, pour les conteneurs déjà connus | `container.OrderLinks` puis `link.Service.RecordSeen` |
+| Le suivi des conteneurs, avec `observe.env` | À chaque inventaire **complet**, les liens que l'environnement des conteneurs désigne (nature `config`, preuve `deduced`, signal `environment`) | `container.EnvironmentLinks` puis `link.Service.RecordSeen` |
 | L'opérateur | Un lien entre deux services, depuis la fiche de l'un (`POST /api/directory/links`) | `directory.DeclareLink` : il traduit l'unité en clé, le composant `link` valide et écrit |
 
 Un lien connu voit sa dernière vue avancer ; un lien qu'un rapport ne cite plus
@@ -5025,7 +5028,7 @@ service ou machine disparus, service à plusieurs unités sans l'unité nommée.
 depuis l'inventaire de Docker depuis la v0.5 (point 1 de « Comment le réseau
 des services se lit »). L3 ne lit **aucun champ nouveau**, n'ajoute **aucun
 droit** à l'agent et ne demande aucun ré-enrôlement. Ni variable
-d'environnement, ni label Traefik (L5 et L7), ni connexion (L6).
+d'environnement (L5, droit `observe.env`), ni label Traefik (L7), ni connexion (L6).
 
 **Ce que l'écran en fait.**
 
@@ -5102,9 +5105,11 @@ déjà la preuve `deduced`. Une route écartée y est une ligne `route` +
 la reconnaît ; `link.Service.List` ne la rend **pas** (ce n'est pas un lien : ni la
 carte Réseau, ni l'onglet Réseau, ni le suivi des conteneurs ne la voient),
 `ListDismissed` la rend. Contrepartie : une même colonne dit deux choses
-(une ligne `deduced` est une trace de refus, jamais une déduction stockée) ; le
-jour où L6 écrira des liens `deduced` ou `observed` pour de bon, il faudra une
-colonne ou un signal à part. Elle compte dans les 2 000 liens de la machine.
+(une ligne `deduced` est une trace de refus, jamais une route stockée) ; depuis
+L5, la table porte aussi des liens `deduced` **vrais** (signal `environment`) : la
+trace d'un refus se reconnaît donc à `deduced` **et** signal `operator`
+(`Link.Dismissed`), et une route proposée à son identifiant `ded_`
+(`Link.Proposed`). Elle compte dans les 2 000 liens de la machine.
 
 **Ce que l'agent envoie : rien.** Aucun champ, aucun droit, aucun ré-enrôlement.
 La déduction lit deux faits de l'annuaire (`public_url`, capacité `proxy`).
@@ -5131,6 +5136,83 @@ formes de l'API).
 | `edges[]` : une arête `nature: "route"` | `GET /api/machines/{id}/network`, `GET /api/network` | Ne pas la lire comme « dépend de » : la source envoie vers la cible |
 | Audit : actions `link.confirm`, `link.dismiss`, `link.restore` | `GET /api/audit` | Les connaître dans les filtres et les libellés |
 | `link.signal_public_url`, `link.confirm`, `link.dismiss`, `link.restore`, `link.dismissed_title`, `link.dismissed_text`, `link.dismissed_on`, `link.deduced_help`, `link.deduced_fresh`, `network.field_sends_to`, `audit.verb_confirm`, `audit.verb_dismiss`, `audit.verb_restore` | `GET /api/catalog/{lang}` | Clés de catalogue nouvelles, fr et en |
+
+## Les liens de l'environnement
+
+Une image « douzaine-de-facteurs » dit où est sa base dans son **environnement**
+(`DB_HOST=db`, `REDIS_URL=redis://cache:6379`). Avec le droit **`observe.env`**
+(refusé par défaut, coché machine par machine), l'agent en tire des **liens**
+entre les conteneurs de sa machine. Étude : `services-modele.md` §2.4,
+décision 3.
+
+**Le coût, dit franchement.** `Config.Env` est rendu **en clair par Docker, mots
+de passe compris**. Les valeurs **passent donc par la mémoire de l'agent**, qui a
+déjà la socket Docker (donc, de fait, root sur la machine). Ce que la règle
+apporte : **rien n'est envoyé, rien n'est stocké, rien n'est journalisé**. Elle
+ne promet pas que l'agent ne lit pas.
+
+**La liste blanche, par résolution et non par nom de variable.**
+
+| Règle | Où |
+| --- | --- |
+| **Sans le droit, `Env` n'est pas lu** : le second appel d'inspect n'est pas fait, et `dockerapi.Container` ne déclare pas `Env` | `dockerwatch.readEnvironment` ; `TestInventory_WithoutTheRightTheEnvironmentIsNeverAskedFor` |
+| **Un type qui ne garde que des hôtes** : `dockerapi.EnvHosts` décode la liste entrée par entrée et jette le nom de la variable et la valeur ; il ne se sérialise pas (`MarshalJSON` refuse), ne s'imprime pas, ne se journalise pas | `internal/dockerapi/environment.go` |
+| **Extraction stricte** : `schéma://[infos@]hôte[:port]/…` (infos, chemin, requête écartés **avant** toute comparaison) ou `hôte[:port]` nu ; une valeur de plus de 1 024 octets, ou d'une autre forme, ne donne rien ; au plus 256 candidats par conteneur | `hostOf` |
+| **Résolution contre l'inventaire de la machine** : un hôte n'est gardé que s'il est le nom d'un conteneur ou d'un service Compose de l'inventaire, l'un de ses alias ou l'une de ses adresses, **et** que la cible partage un réseau avec la source. Tout le reste est jeté, y compris tout mot de passe qui ne s'appelle pas comme un conteneur. Un conteneur n'est jamais sa propre cible | `dockerwatch.environmentTargets` |
+| **Ce qui part** : `env_targets` = nom du conteneur visé, son projet Compose, le port (32 au plus). Ni variable, ni valeur. `DB_PASSWORD=db` ne ressort que comme « source → db » : la fuite se limite à un nom déjà public dans l'inventaire | `container.EnvTarget` |
+| **Le serveur borne encore** : un rapport d'un agent sans `observe.env` (droits rapportés à l'ouverture du flux) perd ses `env_targets`, et le serveur les résout une seconde fois contre l'inventaire du **même rapport** (cible inconnue, soi-même : rien) | `agentapi.withinRights`, `container.EnvironmentLinks`, `keepEnvTargets` |
+| **Un lien lu de l'environnement ne remplace jamais celui de l'opérateur** sur la même paire | `store.TouchSeenLinks` |
+
+**Ce qui s'écrit.** Un lien `config` + `deduced` + signal `environment`, entre deux
+clés d'instance de la **même machine**, avec le port nommé (s'il y en a un). Il
+est **revu à chaque inventaire complet** ; un lien qu'on ne revoit plus devient
+**ancien** (7 jours) et **reste** : changer une variable ne supprime pas le lien,
+comme pour `depends_on`. Un lien d'environnement ne se retire pas depuis l'écran
+(409 `link.not_removable`) ; il n'est pas non plus une route à confirmer ou à
+écarter.
+
+**Migration `031`.** La liste fermée des signaux est un `CHECK` : la table `links`
+est refaite avec `environment` en plus, lignes recopiées telles quelles, index
+remis (test sur base existante : `TestMigration031_…`).
+
+**Ce que l'écran en fait.** Carte **Liens** de la fiche d'un service (preuve
+« Déduit », signal « Environnement du conteneur », « Vu il y a… », port). Si le
+service tourne dans des conteneurs et que l'agent de sa machine n'a pas le droit,
+une note le dit (« Les liens de l'environnement des conteneurs ne sont pas lus… »)
+avec le bouton **Ré-enrôler avec « Lire l'environnement… »** : la fenêtre s'ouvre
+sur la machine, droit déjà coché, avec sa note (`GET …/links` rend
+`environment: {machine_id, right}` : `granted`, `missing` ou `unknown` tant que
+l'agent n'a rien rapporté de ses droits ; `null` pour un service sur binaire).
+
+**Banc de non-fuite** (valeurs semées : mot de passe, jeton, `utilisateur:mot de
+passe@`, jeton dans la requête d'une URL ; noms de variables) :
+
+| Banc | Ce qu'il prouve |
+| --- | --- |
+| `dockerapi` · `TestEnvHosts_NeverLeavesThroughAnyOutput` | `EnvHosts` ne ressort par aucun `json`, `%v`, `%+v`, `%#v`, `%s`, ni `slog` (texte, JSON) ; une erreur de décodage ne reprend pas la valeur |
+| `dockerwatch` · `TestInventory_NoSeededSecretNorVariableNameLeavesTheAgent` | le rapport complet de l'agent (JSON), son journal (niveau debug) et ses impressions ne portent ni valeur semée ni nom de variable |
+| `agentapi` · `TestSignal_EnvironmentLinksNeedTheRightAndNothingSecretIsStored` | sans le droit, aucun lien ; avec, un seul ; la base entière (copie `VACUUM INTO`, octet par octet) ne porte aucune valeur ni nom, même glissés dans le signal par un agent hostile |
+| `server` · `TestAPI_Environment_SeededSecretsAreInNoOutput` | idem de bout en bout (flux, signal, API), puis la base et **les réponses de l'API** (seize routes d'écran et d'audit, plus les lectures ouvertes aux jetons du MCP) |
+
+**Audit.** Aucun : le rafraîchissement par un rapport ne s'écrit pas (comme une
+mesure) ; le droit se lit dans les droits de l'agent, qui sont déjà montrés.
+
+**Ce que L5 ne fait pas.** Pas de valeur lue ailleurs que dans la mémoire de
+l'agent (ni fichier de configuration, ni `Cmd`), pas de lien entre deux machines
+(un hôte distant n'est pas dans l'inventaire), pas de « confirmer / écarter » pour
+ces liens (un lien faux se corrige dans l'environnement du conteneur ; il vieillit alors), pas de label Traefik (L7).
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| Droit d'agent `observe.env` (liste fermée) | `capabilities[]` de `GET /api/machines/{id}` (jeton ouvert), `GET /api/machines`, `GET /api/session` | Le connaître dans les libellés ; refusé par défaut, absent de tout préréglage |
+| Valeur nouvelle `signal: "environment"` (avec `nature: "config"`, `proof: "deduced"`) | `edges[]` de `GET /api/machines/{id}/network` (jeton ouvert), `GET /api/network` | Une arête qui n'est pas une route à décider : elle a un `last_seen`, peut être `stale`, **ne se retire pas** |
+| `proof: "deduced"` ne veut plus dire « calculé à la lecture » | idem | Le lien lu dans l'environnement est écrit, revu à chaque inventaire ; seul `id` en `ded_…` est une route proposée |
+| `links[].proposed` (booléen) et `environment` (`null` ou `{machine_id, right}`) | `GET /api/directory/services/{id}/links` (opérateur seul, **hors liste des jetons**) | Rien aujourd'hui ; si la route est ouverte un jour, lire `proposed` plutôt que de déduire de `proof` |
+| Clés de catalogue `machine.capability_observe_env`, `machine.capability_observe_env_note`, `link.signal_environment`, `link.from_environment_help`, `link.environment_off`, `link.not_removable` (texte changé) | `GET /api/catalog/{lang}` | Clés nouvelles, fr et en |
+| Aucune route, aucun verbe, aucun champ de requête | | Rien : **la parité UI / MCP ne bouge** |
 
 ## Comment les unités systemd se relèvent
 
@@ -5799,7 +5881,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |
 | Les clés SSH ne se relèvent qu'en lecture, dans deux fichiers par compte | Un `AuthorizedKeysFile` personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus. Sous un compte dédié, l'agent ne lit pas les clés des autres comptes (« Illisible pour le compte de l'agent ») ; il ne faut **pas** lui donner `CAP_DAC_READ_SEARCH` pour y remédier : il lirait aussi `/etc/shadow`. L'écriture (`ssh.keys`, #152 étape 2) n'existe pas : ajouter ou retirer une clé reste un geste sur la machine | L'écriture attend une décision (`23-direction.md`, §10 étape 8) |
-| Les unités systemd ne se relèvent qu'au niveau du système, en nom et en état | Les unités d'un utilisateur (`systemctl --user`) ne sont pas vues ; la description, le processus, le fichier et l'environnement d'une unité ne sont jamais lus ; le **port** d'un binaire ne se déduit pas (il demanderait `/proc/<pid>/fd`, donc `ptrace`) : il se déclare. Les liens entre instances viennent avec L3 (déclarés) et L4 (déduits) | Une décision de Lucas, si un jour le port doit se déduire (droit élevé : refusé par la décision 5 de l'étude) |
+| Les unités systemd ne se relèvent qu'au niveau du système, en nom et en état | Les unités d'un utilisateur (`systemctl --user`) ne sont pas vues ; la description, le processus, le fichier et l'environnement d'une unité ne sont jamais lus ; le **port** d'un binaire ne se déduit pas (il demanderait `/proc/<pid>/fd`, donc `ptrace`) : il se déclare. Les liens entre instances viennent avec L3 (déclarés), L4 (déduits) et L5 (environnement, sous `observe.env`) | Une décision de Lucas, si un jour le port doit se déduire (droit élevé : refusé par la décision 5 de l'étude) |
 | Un jeton d'API ne fait que lire | mcp-maison ne peut ni acquitter, ni mettre en pause, ni ouvrir un incident : la liste fermée ne compte aucune écriture, et l'acteur `api` n'écrit encore rien au journal | Avec les actions de l'API (#153, étape 5) |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par mcp-maison, journaux de conteneur compris, quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui crée un jeton et branche mcp-maison | Par conception |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |

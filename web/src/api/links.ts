@@ -54,7 +54,7 @@ export interface ServiceLink {
 // « granted », « missing » (la fenêtre « Ré-enrôler » le propose) ou « unknown »
 // (l'agent n'a encore rien dit de ses droits). null : le service ne tourne pas
 // dans des conteneurs.
-export interface EnvironmentRight {
+interface EnvironmentRight {
   machine_id: string;
   right: "granted" | "missing" | "unknown";
 }

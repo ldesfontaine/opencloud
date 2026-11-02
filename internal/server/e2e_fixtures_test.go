@@ -330,6 +330,31 @@ func seedE2ELinks(t *testing.T, ts *testServer) {
 	if err := old.RecordSeen(ctx, remoteID, orders); err != nil {
 		t.Fatal(err)
 	}
+	seedE2EEnvironment(t, ts)
+}
+
+// seedE2EEnvironment déclare « notes » et sa base « notes-db » (deux services
+// de conteneurs de la machine distante) et pose le lien que l'environnement de
+// « notes » désigne, vu il y a deux heures : le lien que l'agent écrit avec le
+// droit observe.env. L'agent de la machine distante ne l'a pas (voir
+// seedE2EBackups) : la fiche le dit et propose de ré-enrôler.
+func seedE2EEnvironment(t *testing.T, ts *testServer) {
+	t.Helper()
+	ctx := context.Background()
+	for _, name := range []string{"notes", "notes-db"} {
+		if _, err := ts.directory.CreateService(ctx, directory.ServiceDefinition{
+			MachineID: remoteID, Name: name, Nature: directory.NatureApplication, Origin: directory.OriginContainer,
+			Units: []directory.UnitDefinition{{Name: name, ContainerName: name, Image: "notes"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seen := link.New(ts.db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	seen.SetClock(func() time.Time { return testNow.Add(-2 * time.Hour) })
+	read := []link.Seen{{From: link.ContainerKey("notes"), To: link.ContainerKey("notes-db"), Signal: link.SignalEnvironment, Port: 5432}}
+	if err := seen.RecordSeen(ctx, remoteID, read); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func e2eServiceNamed(t *testing.T, ts *testServer, machineID, name string) directory.Service {
