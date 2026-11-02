@@ -50,7 +50,7 @@ export const producers = ["proxmox-vzdump"] as const;
 // Le producteur que le serveur joue lui-même (backup.ProducerOPNsense) : la
 // configuration d'un pare-feu déclaré. Le formulaire en fait une troisième
 // source ; la requête reste « agent », sur la machine openCloud.
-export const firewallProducer = "opnsense-config";
+const firewallProducer = "opnsense-config";
 const firewallSourcePrefix = "firewall:";
 
 // Les sources du formulaire : la requête n'en connaît que deux (database, agent).
