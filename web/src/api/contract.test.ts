@@ -1047,6 +1047,7 @@ const backupProtection = shape<BackupProtection>("BackupProtection", {
     path_reason: value,
     bytes_added: value,
     duration_seconds: value,
+    parts: shape<BackupPartResult>("BackupPartResult", { kind: value, name: value, state: value, reason: value, bytes_added: value }),
   }),
 });
 

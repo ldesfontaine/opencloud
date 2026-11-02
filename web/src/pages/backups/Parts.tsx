@@ -54,6 +54,6 @@ function partDetail(t: Translate, part: BackupSourcePart): string {
   return part.kind === "database" ? t("backup.part_database", engineName(t, part.engine)) : "";
 }
 
-export function engineName(t: Translate, engine: string): string {
+function engineName(t: Translate, engine: string): string {
   return engine === "" ? "" : t(`backup.part_engine_${engine}`);
 }

@@ -20,7 +20,7 @@ import (
 // sortie d'erreur quand l'outil de dump échoue : restic la recopie, l'agent
 // y lit dump_failed. La sortie d'erreur de l'outil, elle, est jetée : elle
 // pourrait citer un identifiant que l'agent ne sait pas masquer.
-const DumpFailedMarker = "opencloud-dump-failed"
+const DumpFailedMarker = "dump-failed-by-the-tool"
 
 // Les scripts des moteurs, sur une ligne, constants : rien d'un ordre ni de
 // l'inventaire n'y entre. Les mots de passe passent par une variable

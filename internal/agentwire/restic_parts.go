@@ -33,11 +33,6 @@ const (
 	EngineMongo    = "mongo"
 )
 
-// DatabaseEngines rend la liste fermée des moteurs pris en charge.
-func DatabaseEngines() []string {
-	return []string{EnginePostgres, EngineMariaDB, EngineMySQL, EngineMongo}
-}
-
 var (
 	errResticPart   = errors.New("restic: backup part invalid")
 	dockerNameRegex = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)

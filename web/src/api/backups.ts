@@ -157,6 +157,8 @@ export interface ResticRun {
   path_reason: string;
   bytes_added: number;
   duration_seconds: number;
+  // Portée service : ce que chaque partie a donné à ce passage.
+  parts: BackupPartResult[];
 }
 
 // Ce qu'une sauvegarde de service contient : son dossier, un volume nommé de

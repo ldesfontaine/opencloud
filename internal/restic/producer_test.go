@@ -32,7 +32,7 @@ func TestVolumeProducer_CopiesTheMountAsATarOnStdout(t *testing.T) {
 }
 
 func TestDatabaseProducer_RunsTheFixedScriptOfTheEngine(t *testing.T) {
-	for _, engine := range agentwire.DatabaseEngines() {
+	for _, engine := range []string{agentwire.EnginePostgres, agentwire.EngineMariaDB, agentwire.EngineMySQL, agentwire.EngineMongo} {
 		producer, err := DatabaseProducer("/usr/bin/docker", "db-1", engine)
 		if err != nil {
 			t.Fatalf("%s: %v", engine, err)

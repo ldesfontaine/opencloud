@@ -433,7 +433,7 @@ const (
 func seedE2ERestic(t *testing.T, ts *testServer) {
 	t.Helper()
 	pi := e2eConnect(t, ts, "pi", e2ePiID, "observe,restic.target=/srv/restic")
-	docker := e2eConnect(t, ts, "docker1", e2eDockerID, "observe,restic.produce")
+	docker := e2eConnect(t, ts, "docker1", e2eDockerID, "observe,restic.produce,restic.docker")
 	north := e2eConnect(t, ts, "pve-nord", e2eNorthID, "observe,restic.produce")
 	pve := e2eConnect(t, ts, "pve", e2ePveID, "observe,restic.produce,backup.produce=proxmox-vzdump")
 	nas := e2eConnect(t, ts, "nas", e2eNasID, "observe,restic.target=/srv/restic")
@@ -450,6 +450,8 @@ func seedE2ERestic(t *testing.T, ts *testServer) {
 		Path: agentwire.ResticPathRelay, Reason: agentwire.ResticTCPUnreachable, TargetHost: e2ePiHost, TargetPort: e2ePiPort,
 		SnapshotID: strings.Repeat("b", 64), BytesAdded: 200 << 10, DurationSeconds: 12,
 	})
+
+	seedE2EWholeServices(t, ts, docker, pi)
 
 	// Deux hôtes Proxmox de plus, leurs VM sauvegardées par la tâche nuit-pi :
 	// pve peut aussi les sauvegarder avec restic, pve-nord n'a pas backup.produce.
@@ -472,6 +474,107 @@ func seedE2ERestic(t *testing.T, ts *testServer) {
 		go e2eIgnoreOrders(session)
 	}
 	seedE2EMissingBinaries(t, ts)
+}
+
+// seedE2EWholeServices montre le service entier (B2) : recettes, sur docker1,
+// a un volume et une base postgres, et sa base a échoué cette nuit après une
+// première nuit réussie ; photos (docker1) a un volume que rien ne sauvegarde ;
+// carnet (pve-nord) a une base, mais pve-nord n'a pas restic.docker.
+func seedE2EWholeServices(t *testing.T, ts *testServer, docker, pi *machine.Session) {
+	t.Helper()
+	ctx := context.Background()
+	service := func(machineID, name string, units ...directory.UnitDefinition) string {
+		created, err := ts.directory.CreateService(ctx, directory.ServiceDefinition{
+			MachineID: machineID, Name: name, Nature: directory.NatureApplication, Origin: directory.OriginCompose, ComposeProject: name, Units: units,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return created.ID
+	}
+	observed := func(name, group, composeService, image, digit string) container.Observed {
+		return container.Observed{
+			ContainerID: strings.Repeat(digit, 64), Name: name, Group: group, Image: image, ImageID: "sha256:" + strings.Repeat(digit, 64),
+			ComposeService: composeService, State: container.StateRunning, CreatedAt: testNow.Add(-time.Hour),
+		}
+	}
+	recettes := service(e2eDockerID, "recettes", directory.UnitDefinition{Name: "app", Image: "recettes", Version: "1.0"}, directory.UnitDefinition{Name: "db", Image: "postgres", Version: "16"})
+	service(e2eNorthID, "carnet", directory.UnitDefinition{Name: "db", Image: "mariadb", Version: "11"})
+	record := func(machineID string, report container.Report) {
+		if err := ts.containers.Record(ctx, machineID, report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(e2eDockerID, container.Report{
+		Complete: true,
+		Inventory: []container.Observed{
+			observed("recettes-app-1", "recettes", "app", "recettes:1.0", "d"),
+			observed("recettes-db-1", "recettes", "db", "postgres:16", "e"),
+			observed("photos-1", "photos", "photos", "photos:1.0", "f"),
+		},
+		VolumesComplete: true,
+		Volumes: []container.VolumeReport{
+			{Name: "recettes_data", Driver: "local", UsedBy: []string{"recettes-app-1"}},
+			{Name: "photos_data", Driver: "local", UsedBy: []string{"photos-1"}},
+		},
+	})
+	record(e2eNorthID, container.Report{
+		Complete:  true,
+		Inventory: []container.Observed{observed("carnet-db-1", "carnet", "db", "mariadb:11", "9")},
+	})
+	good := agentwire.ResticRunReport{
+		Path: agentwire.ResticPathDirect, Reason: agentwire.ResticReachable, TargetHost: e2ePiHost, TargetPort: e2ePiPort,
+		SnapshotID: strings.Repeat("c", 64), BytesAdded: 3 << 20, DurationSeconds: 40,
+		Parts: []agentwire.ResticPartReport{
+			{Kind: agentwire.ResticPartFolder, State: agentwire.ResticPartOK, BytesAdded: 1 << 20},
+			{Kind: agentwire.ResticPartVolume, Name: "recettes_data", State: agentwire.ResticPartOK, BytesAdded: 1 << 20},
+			{Kind: agentwire.ResticPartDatabase, Name: "recettes-db-1", State: agentwire.ResticPartOK, BytesAdded: 1 << 20},
+		},
+	}
+	e2eResticBackup(t, ts, docker, pi, e2eDockerID, "recettes", recettes, good)
+	// La nuit suivante : le dossier et le volume passent, la base échoue.
+	bad := good
+	bad.Parts = []agentwire.ResticPartReport{
+		{Kind: agentwire.ResticPartFolder, State: agentwire.ResticPartOK, BytesAdded: 10 << 10},
+		{Kind: agentwire.ResticPartVolume, Name: "recettes_data", State: agentwire.ResticPartOK, BytesAdded: 10 << 10},
+		{Kind: agentwire.ResticPartDatabase, Name: "recettes-db-1", State: agentwire.ResticPartFailed, Reason: agentwire.ReasonDumpFailed},
+	}
+	bad.BytesAdded = 20 << 10
+	e2eRunAgain(t, ts, docker, e2eDockerID, "recettes", agentwire.ActionFailed, agentwire.ReasonDumpFailed, bad)
+}
+
+// e2eRunAgain relance la sauvegarde nommée et lui fait rapporter ce résultat.
+func e2eRunAgain(t *testing.T, ts *testServer, source *machine.Session, sourceID, name string, state agentwire.ActionState, reason string, run agentwire.ResticRunReport) {
+	t.Helper()
+	var list struct {
+		Sources []struct {
+			Name        string `json:"name"`
+			Protections []struct {
+				Origin string `json:"origin"`
+				ID     string `json:"id"`
+			} `json:"protections"`
+		} `json:"sources"`
+	}
+	decodeAPI(t, callAPI(ts.Server, http.MethodGet, "/api/backups/overview", nil), &list)
+	id := ""
+	for _, candidate := range list.Sources {
+		for _, protection := range candidate.Protections {
+			if candidate.Name == name && protection.Origin == "restic" {
+				id = protection.ID
+			}
+		}
+	}
+	if id == "" {
+		t.Fatalf("no restic backup for %s", name)
+	}
+	if got := callAPI(ts.Server, http.MethodPost, "/api/machines/"+sourceID+"/restic-backups/"+id+"/actions/run", map[string]any{}); got.Code != http.StatusCreated {
+		t.Fatalf("run again: %d %s", got.Code, got.Body.String())
+	}
+	order := nextOrder(t, source)
+	result := agentwire.ActionReport{Results: []agentwire.ActionResult{{RunID: order.RunID, State: state, Reason: reason, Restic: &run}}}
+	if got := signalAnnouncingSections(ts, source.Token, agentwire.SignalRequest{Actions: &result}); got.Code != http.StatusNoContent {
+		t.Fatalf("run report: %d %s", got.Code, got.Body.String())
+	}
 }
 
 // Deux machines à qui il manque un binaire : coffre (arm64) est une cible

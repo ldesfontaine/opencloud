@@ -4,7 +4,7 @@ import { label } from "./support/catalog";
 import { expect, test } from "./support/findings";
 
 // La page Sauvegardes de B2, contre les données fictives : un service entier
-// est son dossier, ses volumes et ses bases. paperless (docker1) les a tous
+// est son dossier, ses volumes et ses bases. recettes (docker1) les a tous
 // les trois et sa base a échoué cette nuit ; photos (docker1) a un volume et
 // rien ne le sauvegarde ; carnet (pve-nord) a une base, mais pve-nord n'a pas
 // le droit restic.docker ; Proxmox sauvegarde encore ses VM de lui-même (la
@@ -28,25 +28,25 @@ async function openBackups(page: Page): Promise<void> {
 
 test.describe.configure({ mode: "serial" });
 
-test("un service entier : son dossier, son volume, sa base ; la partie en échec et la dernière réussite se lisent", async ({ page, findings }) => {
+test("un service entier (recettes) : son dossier, son volume, sa base ; la partie en échec et la dernière réussite se lisent", async ({ page, findings }) => {
   findings.where = "/sauvegardes › service entier";
   await openBackups(page);
-  const paperless = card(page, "paperless");
-  const parts = paperless.locator(".backup-parts");
+  const recettes = card(page, "recettes");
+  const parts = recettes.locator(".backup-parts");
   await expect(parts).toContainText(label("backup.parts_has"));
   await expect(parts.locator(".backup-part")).toHaveCount(3);
   await expect(parts).toContainText(label("backup.part_folder"));
-  await expect(parts).toContainText("paperless_data");
-  await expect(parts).toContainText("paperless-db-1");
+  await expect(parts).toContainText("recettes_data");
+  await expect(parts).toContainText("recettes-db-1");
   await expect(parts).toContainText(filled("backup.part_database", label("backup.part_engine_postgres")));
   // La base a échoué : sa raison est dite, les deux autres parties sont gardées.
   await expect(parts.locator(".backup-part-failed")).toHaveCount(1);
   await expect(parts.locator(".backup-part-ok")).toHaveCount(2);
   await expect(parts).toContainText(label("action.reason_dump_failed"));
-  await expect(paperless.locator(".pill", { hasText: label("backup.status_failed") }).first()).toBeVisible();
+  await expect(recettes.locator(".pill", { hasText: label("backup.status_failed") }).first()).toBeVisible();
   // Le dernier essai et la dernière réussite sont deux faits.
-  await expect(paperless).toContainText(label("backup.fact_last_attempt"));
-  await expect(paperless).toContainText(label("backup.fact_last_success"));
+  await expect(recettes).toContainText(label("backup.fact_last_attempt"));
+  await expect(recettes).toContainText(label("backup.fact_last_success"));
 
   // Un service qu'aucune sauvegarde ne couvre dit ce qui partira.
   const photos = card(page, "photos");
@@ -61,8 +61,8 @@ test("la tâche Proxmox nuit-pi est observée, à remplacer : le bouton ouvre l'
   await openBackups(page);
   const mail = card(page, "mail");
   await expect(mail).toContainText(label("backup.origin_observed"));
-  await expect(mail).toContainText(label("backup.replace_title").replace("{product}", ""));
-  await mail.getByRole("link", { name: label("backup.replace_button").replace("{product}", "") }).click();
+  await expect(mail).toContainText(label("backup.replace_title").split("{product}")[0]?.trim() ?? "");
+  await mail.getByRole("link", { name: new RegExp(`^${label("backup.replace_button").split("{product}")[0]?.trim()}`) }).click();
   await expect(page).toHaveURL(/\/sauvegardes\/nouvelle\?source=/);
   const dialog = page.locator("dialog[open]");
   await expect(dialog.getByRole("radiogroup", { name: label("backup.restic_scope_label") }).getByRole("radio", { name: label("backup.restic_scope_vm") })).toBeChecked();
@@ -108,11 +108,11 @@ test("accéder : la base et le volume d'un service entier se restaurent, command
   await openBackups(page);
   const access = page.locator("section[aria-labelledby=backup-access-title]");
   await access.getByRole("combobox", { name: label("backup.access_pick") }).click();
-  await page.getByRole("option", { name: /^paperless/ }).click();
-  await expect(access).toContainText(`${label("backup.access_restore_database")} · paperless-db-1`);
-  await expect(access).toContainText(`${label("backup.access_restore_volume")} · paperless_data`);
-  await expect(access).toContainText("database-paperless-db-1.sql");
-  await expect(access).toContainText("volume-paperless_data.tar");
+  await page.getByRole("option", { name: /^recettes/ }).click();
+  await expect(access).toContainText(`${label("backup.access_restore_database")} · recettes-db-1`);
+  await expect(access).toContainText(`${label("backup.access_restore_volume")} · recettes_data`);
+  await expect(access).toContainText("database-recettes-db-1.sql");
+  await expect(access).toContainText("volume-recettes_data.tar");
   await expect(access).toContainText('psql -U "$POSTGRES_USER"');
   await access.getByRole("button", { name: label("machine.copy") }).last().click();
   await expect(access.getByRole("button", { name: new RegExp(`${label("machine.copied")}|${label("machine.copy_failed")}`) }).first()).toBeVisible();
@@ -131,7 +131,9 @@ test("ajouter une machine : le droit restic.docker se coche, avec sa note, et pa
   await expect(dialog).toContainText(label("machine.capability_restic_docker_note"));
   await dialog.getByRole("button", { name: label("machine.create_token") }).click();
   await expect(dialog.locator(".token-box", { hasText: "restic.docker" }).first()).toBeVisible();
+  await dialog.getByRole("button", { name: label("wizard.next") }).click();
   await dialog.locator(".modal-foot").getByRole("button", { name: label("modal.close") }).click();
+  await expect(dialog).toHaveCount(0);
   expect(findings.unknown()).toEqual([]);
 });
 

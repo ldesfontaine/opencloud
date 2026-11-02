@@ -327,7 +327,7 @@ export function rightsWanted(source: Pick<BackupSource, "kind" | "parts">): stri
   return needsDocker(source) ? ["restic.produce", "restic.docker"] : ["restic.produce"];
 }
 
-export function needsDocker(source: Pick<BackupSource, "parts">): boolean {
+function needsDocker(source: Pick<BackupSource, "parts">): boolean {
   return source.parts.some((part) => part.kind !== "folder");
 }
 
