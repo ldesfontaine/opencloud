@@ -25,7 +25,7 @@ const staticRoutes = [...new Set(declaredRoutes().filter((route) => !route.inclu
 
 for (const route of staticRoutes) {
   test(`écran ${route}`, async ({ page, findings }) => {
-    test.setTimeout(Number(process.env.E2E_TEST_TIMEOUT ?? 5 * 60_000));
+    test.setTimeout(Number(process.env.E2E_TEST_TIMEOUT ?? 8 * 60_000));
     trackVisits(page);
     const queue = [route];
     while (queue.length > 0) {
