@@ -1102,6 +1102,21 @@ d'`add`, `del`, `set`, `toggle`, `apply`, `revert`, `reconfigure`. Un test le ga
 (`TestSource_HasNoWritingCallToOPNsense`, `TestRead_OnlyEverSendsGETsToTheReadingEndpoints`),
 et l'interface `firewall.Connector` n'a aucune méthode d'écriture.
 
+**L'export de la configuration** (B3, #371) est un neuvième `GET`, hors du
+relevé : il n'entre ni dans `firewall.Snapshot` ni dans `firewall.Connector`, mais
+dans `firewall.Exporter`, que seul un connecteur qui sait l'exporter implémente.
+
+| Appel | Ce qu'on en garde | Privilège demandé (nom OPNsense, en anglais) |
+| --- | --- | --- |
+| `/api/core/backup/download/this` | Le `config.xml` tel que le pare-feu le livre : **la dernière version enregistrée** de sa configuration (celle que Système → Configuration → Sauvegardes télécharge), pas l'état en mémoire. Le corps doit contenir `<opnsense` (sinon `firewall.bad_response`) ; 64 Mio au plus | `Diagnostics: Configuration History` (`page-diagnostics-configurationhistory`, motif `api/core/backup/*`) |
+
+Un `403` sur cet appel, alors que les relevés passent, est le privilège
+manquant : `firewall.export_forbidden`, dont le texte nomme le libellé exact. Un
+`401` reste `firewall.unauthorized` (la paire est fausse). Le fichier contient
+des secrets (empreintes de mots de passe, clés VPN, certificats) : il ne se
+journalise ni ne s'affiche, il n'existe qu'en mémoire du serveur avant d'être
+chiffré (« Une configuration de pare-feu », sous « Comment une sauvegarde se fait »).
+
 **Le coût, dit franchement.** OPNsense n'a **pas de privilège en lecture seule**
 pour ces pages : celui qui ouvre `searchRule` ouvre aussi l'ajout et la
 suppression de règles. L'utilisateur d'API créé pour openCloud **pourrait donc
@@ -1671,6 +1686,30 @@ que les sauvegardes. Qui a la machine openCloud n'a pas besoin des
 sauvegardes. Une destination qui perd son disque perd ses sauvegardes : en
 avoir deux est à la charge de l'opérateur (huit au plus ; plusieurs plans
 peuvent viser des destinations différentes).
+
+### Une configuration de pare-feu
+
+Le **producteur `opnsense-config`** sauvegarde le `config.xml` d'un pare-feu
+déclaré (module Pare-feu). **C'est `serve` qui le joue, pas un agent** : la clé
+d'API ne quitte pas la machine openCloud, et le fichier n'en sort que chiffré.
+
+| | |
+| --- | --- |
+| Le plan | Un plan `agent` (aucune migration : `producer` et `selector` sont libres en base). Producteur `opnsense-config`, machine source **la machine openCloud** (posée par le serveur si le formulaire ne la donne pas ; toute autre est refusée, `backup.source_machine_unknown`), sélecteur **l'identifiant du pare-feu** (jamais `all`). L'écran en fait une source à part : « La configuration d'un pare-feu » |
+| À la création | Le pare-feu doit être déclaré (`422 backup.firewall_unknown`) et sa clé doit pouvoir **exporter** : `serve` lit la configuration une fois. Sans le privilège, `422 firewall.export_forbidden` nomme `Diagnostics: Configuration History`, et **rien n'est créé**. Modifier un plan existant ne relit pas le pare-feu |
+| Chaque nuit | `serve` lit le fichier (`firewall.Service.ExportConfiguration`), l'emballe dans un tar d'une entrée `config.xml`, le chiffre age pour la clé publique du trousseau **dans le colis**, dépose la clé scellée à côté, envoie `backup.receive` puis `backup.prune` à la destination, comme pour la base. Le clair n'est jamais écrit sur le disque. Nom : `<sujet>-AAAAMMJJ-HHMMSS.tar.age` ; l'élagage garde `keep` copies du préfixe du plan |
+| Aucun droit d'agent | L'agent de la machine openCloud ne reçoit ni ordre ni fichier ; la destination reçoit de l'age, comme toujours. Aucune nouvelle ligne dans l'enrôlement |
+| Un refus | Pare-feu retiré ou illisible (`backup.firewall_unknown`, `backup.firewall_unreadable`), clé sans le privilège (`firewall.export_forbidden`) : la clé du refus est écrite sur le plan (`last_error`), l'historique garde une ligne `firewall:<id>`, rien ne part |
+| Dans l'inventaire | Chaque pare-feu déclaré est une source (`kind: firewall`, clé `firewall:<id>`) couverte par le plan qui vise son identifiant |
+| Restaurer | Déchiffrer l'archive comme celle de la base (clé scellée à côté, phrase du trousseau), puis Système → Configuration → Sauvegardes → Restaurer sur `config.xml` |
+
+**Ce que ça coûte.** Le serveur lit un fichier qui contient des secrets du
+pare-feu, et le tient en mémoire le temps de le chiffrer. Un pare-feu retiré du
+module laisse son plan en place : il échoue chaque nuit (`backup.firewall_unknown`)
+jusqu'à ce qu'on le supprime. La clé d'API a un privilège de plus, et OPNsense
+n'a toujours pas de privilège en lecture seule pour cet appel (« Le coût, dit
+franchement », plus haut). Les noms et chemins viennent des sources d'OPNsense
+(`opnsense/core`) : **non vérifié sur un OPNsense réel**.
 
 ### L'inventaire et l'historique
 

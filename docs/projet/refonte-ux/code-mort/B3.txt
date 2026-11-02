@@ -1,0 +1,14 @@
+# B3 : code mort avant / après (#371)
+
+Avant = 8351b9b (dev après B2), après = fin de la branche orca/v052-b3.
+
+deadcode ./... (Go ; ce que seuls les tests appellent) avant : 81 ; après : 81, rapport identique (lignes et colonnes mises à part).
+knip, `npx knip` dans web/ (après `npm ci`), mesuré sur 8351b9b puis sur la branche : rapports identiques. Une première mesure avait trouvé `firewallProducer` exporté sans usage hors de `lib/backups.ts` : l'export est retiré.
+
+Supprimé dans ce chantier
+- Rien n'est remplacé : un producteur et une source s'ajoutent, aucun écran ni verbe n'en perd.
+- Renommés (même rôle, nom exact) : `runDatabase`, `followDatabase`, `recordDatabase` de `internal/backup/run.go` deviennent `runOnServer`, `followServerRun`, `recordServerRun`, parce qu'ils mènent aussi le plan d'un pare-feu ; `stage` reste celui de la base, `stageArchive` choisit entre lui et `stageFirewall`.
+- Aucune table, aucune migration, aucune route d'API, aucun verbe touchés.
+
+Gardé, avec sa raison
+- `firewall.Exporter` à côté de `firewall.Connector` : Connector garde sa liste de lectures du relevé (un test le garantit) ; tous les genres de pare-feu n'ont pas d'export.
