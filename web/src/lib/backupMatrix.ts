@@ -118,7 +118,7 @@ export function pickedOf(sources: readonly BackupSource[], pick: MatrixPick | nu
 // récente : la frise de l'inspecteur. Les passages que le serveur garde, pas
 // plus ; un passage qui n'a pas réussi est rouge, une nuit sans passage connu est
 // vide.
-export const nightsShown = 7;
+const nightsShown = 7;
 
 export function nightsOf(protection: BackupProtection): CellTone[] {
   const nights = protection.runs.slice(0, nightsShown).map((run): CellTone => (run.state === "succeeded" ? "ok" : "danger"));
