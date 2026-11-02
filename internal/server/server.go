@@ -332,6 +332,9 @@ type ProxmoxService interface {
 	// Act envoie à l'agent de l'hôte le geste sur un invité (démarrer, arrêter,
 	// instantané) et rend l'ordre écrit.
 	Act(ctx context.Context, machineID string, vmid int, verb proxmox.Verb, snapshot string) (action.Run, error)
+	// Networks rend les cartes réseau des invités du dernier relevé d'un hôte,
+	// par numéro d'invité : la carte du réseau en tire les zones.
+	Networks(machineID string) map[int][]proxmox.NIC
 }
 
 // Ce que le serveur attend du composant firewall : déclarer, redéclarer et

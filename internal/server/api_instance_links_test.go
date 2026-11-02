@@ -99,10 +99,8 @@ func TestAPI_ServiceLinks_TheOperatorAddsAndRemovesHisOwnAndNeverAToolOne(t *tes
 		t.Errorf("l'application voit son lien d'ordre et celui du proxy : %+v", appLinks.Links)
 	}
 
-	var overview overviewNetworkResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/network", nil), &overview)
-	if len(overview.Links) != 1 || overview.Links[0].ID != mine.ID || overview.Links[0].To.ContainerID == "" || overview.Links[0].From.MachineName == "" {
-		t.Errorf("la carte lit les liens entre machines : %+v", overview.Links)
+	if got := mapLinkByID(networkMapOf(t, server), mine.ID); got == nil || got.From == got.To || got.Proof != "declared" {
+		t.Errorf("la carte lit le lien entre machines : %+v", got)
 	}
 
 	refusals := map[string]struct {

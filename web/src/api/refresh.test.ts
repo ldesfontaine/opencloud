@@ -140,3 +140,13 @@ describe("bumpVersions", () => {
     expect(topics.every((topic) => before[topic] === 0)).toBe(true);
   });
 });
+
+describe("topicsOf, la carte du réseau", () => {
+  it("se relit quand une machine, un conteneur, l'annuaire ou un pare-feu change", () => {
+    expect(topicsOf("/api/network")).toEqual(expect.arrayContaining(["machines", "containers", "directory", "firewalls"]));
+  });
+
+  it("l'onglet Réseau d'une machine ne suit toujours que les conteneurs", () => {
+    expect(topicsOf("/api/machines/abc/network")).toEqual(["containers"]);
+  });
+});

@@ -5038,7 +5038,7 @@ d'environnement (L5, droit `observe.env`), ni label Traefik (L7), ni connexion (
 | --- | --- |
 | Fiche d'un service, carte **Liens** | `GET /api/directory/services/{id}/links` : les liens des instances du service, sortants et entrants, chacun avec le service déclaré en face (ou « Non déclaré »), sa preuve, son signal, sa fraîcheur ; puis les routes **déduites** (Confirmer, Écarter) et, sous le pli « Écartés », celles qu'on a écartées (Rétablir). « Ajouter un lien » ouvre une fenêtre à `/services/annuaire/{id}/liens/nouveau` |
 | Onglet Réseau d'une machine | Les arêtes de dépendance (`edges`) sont les liens stockés entre conteneurs de la machine ; l'inspecteur dit la preuve et « Ancien » |
-| Carte Réseau de la vue d'ensemble | Les liens de chaque machine, et ceux **entre machines** (`links` de `GET /api/network`), en courbes fines d'un nœud à l'autre ; un lien ancien est en pointillé serré ; une ligne dit combien |
+| Carte Réseau de la vue d'ensemble | Les liens entre **puces** (`links` de `GET /api/network`), en courbes entre les services, preuve au survol (« La carte Réseau de la vue d'ensemble ») |
 
 **Audit.** L'écriture et le retrait d'un lien par l'opérateur s'écrivent
 (`link.create`, `link.delete`, objet « Lien », sans port ni valeur) ; le
@@ -5055,7 +5055,7 @@ formes de l'API, rien n'a été relu côté mcp-maison).
 | --- | --- | --- |
 | `edges[].source` (`compose`, `link`) **disparaît** | `GET /api/machines/{id}/network` (jeton ouvert), `GET /api/network` | Lire `edges[].signal` (`depends_on`, `container_link`, `operator`) ; un client qui lisait `source` ne trouve plus rien |
 | `edges[]` d'une dépendance gagne `link_id`, `nature`, `proof`, `stale` | idem | Afficher la preuve et « ancien » ; champs absents d'une arête publique |
-| `GET /api/network` gagne `links[]` | route d'opérateur seul | Les liens entre machines (`from`, `to` : `machine_id`, `machine_name`, `key`, `label`, `service_id`, `service_name`, `unit_name`, `container_id`) |
+| `GET /api/network` gagne `links[]` | route d'opérateur seul | *Remplacé par R1 : voir « La carte Réseau de la vue d'ensemble »* |
 | `GET /api/directory/services/{id}/links` | opérateur seul, **hors liste des jetons** | Un outil de lecture des liens d'un service si Lucas le veut : il faut une entrée dans `apiTokenRoutes` |
 | `POST /api/directory/links`, `DELETE /api/directory/links/{id}` | opérateur seul, **aucun verbe** | Aucun geste MCP aujourd'hui ; en faire des verbes (`link.create`, `link.delete`) est une décision, le registre des verbes ne change pas |
 | `links` du détail d'un service (sondes, composants de statut) | inchangé | Rien : même nom, autre sens que la carte Liens ; l'écran l'appelle « Ce qui le lie » |
@@ -5425,6 +5425,99 @@ openCloud » ne change pas).
 connexions de l'hôte (L6, voir « Les connexions de l'hôte »), pas de port
 déduit d'un processus. Un service systemd d'**un autre utilisateur** (unités
 `--user`) n'est pas vu : `systemctl` interroge le gestionnaire du système.
+
+## La carte Réseau de la vue d'ensemble
+
+`GET /api/network` rend **un arbre**, pas un graphe de conteneurs : le serveur
+le déduit (`internal/netmap`, fonction pure), le front le dessine (v0.5.2 R1,
+#457). Aucune zone, aucun nom, aucune adresse n'est écrit en dur.
+
+**Ce que la carte lit, et d'où.** Rien ne vient de l'agent en plus : aucune
+lecture neuve, aucun droit neuf, aucun ré-enrôlement.
+
+| Fait | Source | Écrit par |
+| --- | --- | --- |
+| Machines, type retenu (`physical`, `vm`, `lxc`, `vps`), hôte | liste des machines, `kind` et `host` de chaque fiche | déjà là (v0.5.2 P1) |
+| Invités d'un hôte Proxmox : numéro, type, état, machine rapprochée | dernier relevé de l'hôte (`proxmox_guests`) | déjà là |
+| **Tag VLAN et pont de chaque carte** d'un invité | configuration de l'invité chez l'hôte (`net0: …,bridge=vmbr0,tag=50`), lue par le relevé qui lit déjà les MAC | **mémoire du serveur** (`proxmox.Service.Networks`), jamais en base : aucune migration. Un redémarrage les relit au premier relevé (au plus quelques secondes) ; d'ici là, la zone vient de l'adresse |
+| Interfaces du pare-feu : nom, appareil, rôle, adresse CIDR | dernier relevé du pare-feu déclaré (`GET /api/firewalls/{id}/interfaces`) | déjà là |
+| Services : conteneurs vivants regroupés par instance, unités systemd déclarées, état | suivi des conteneurs, annuaire et relevé systemd | déjà là |
+| Liens : déclarés, déduits (routes à confirmer), observés | `directory.ServiceLinks` de chaque service déclaré, plus les liens stockés | déjà là (L3, L4, L6) |
+
+**Comment un invité trouve sa zone** (dans cet ordre, la première règle qui
+répond) :
+
+| Règle | Zone | Nom |
+| --- | --- | --- |
+| L'adresse de la machine tombe dans le sous-réseau d'une **interface du pare-feu** (la plus précise gagne ; ni l'interface publique, ni un tunnel) | cette interface | le **rôle** de l'interface chez le pare-feu (« SERVICES »), sinon son nom |
+| Pas d'adresse, mais un **tag VLAN** : les autres machines du même tag ont voté (la zone la plus citée gagne), sinon l'appareil de l'interface porte le tag (`…vlan50`, `….50`) | la zone du vote ou de l'interface | idem ; sans pare-feu, « VLAN 50 » |
+| Un tag que rien ne rapproche | une zone de tag | « VLAN 50 » |
+| Seulement une adresse | le **sous-réseau** supposé (/24 en IPv4, /64 en IPv6) | le CIDR |
+| Ni adresse ni tag | aucune zone | l'invité va dans le groupe « sans zone » |
+
+Un tag appris par le vote est **dit sur la zone** (`vlan`). La **teinte** (de 0 à
+7) vient d'un hachage stable de l'identifiant de la zone ; deux zones ne
+partagent une teinte que s'il y a plus de huit zones.
+
+**Où va chaque machine.**
+
+| Machine | Place |
+| --- | --- |
+| Type `vps` sans hôte | **Dehors**, à gauche d'Internet |
+| Hôte d'invités (Proxmox ou « hôte » posé à la main) | Une boîte de la maison, avec **ses invités dedans**, rangés par zone |
+| Invité rapproché d'une machine enrôlée | Dans son hôte, avec son numéro (`VM 5010`) ; jamais à côté |
+| Invité que seul l'hôte connaît (sans agent) | Dans son hôte, sans service, son état tel que l'hôte le dit |
+| Un modèle de VM | Nulle part |
+| Les autres (Pi, machine à plat) | Une boîte de la maison, avec sa zone |
+| Une chaîne d'hôtes qui boucle, un hôte inconnu | À plat |
+
+**Tunnels.** Une interface de pare-feu dont l'appareil s'appelle `wg…`, `tun…`,
+`ovpn…`, `ipsec…` ou `gif…` est un tunnel ; un service du dehors dont le nom
+contient « wireguard » ou commence par `wg` en est l'autre bout. Preuve :
+**observé** (le pare-feu le lit) quand les deux bouts se voient, **déclaré**
+(service de l'annuaire) ou **déduit** (une unité vue seule) quand un seul bout
+se voit. Ces noms d'appareils sont les conventions des systèmes, pas la liste
+des tunnels possibles : un tunnel sous un autre nom n'est pas dessiné.
+
+**Entrées d'Internet.** Un service qui publie un port sur toutes les
+interfaces de sa machine, ou qu'une connexion venue d'Internet a atteint
+(L6, mot « observé »).
+
+**Ce que la carte ne dessine pas.** Un lien dont une extrémité n'est pas une
+puce de la carte (un conteneur qui ne tourne plus et n'est pas déclaré, un
+compte de l'hôte, une adresse du réseau local) : il reste sur la fiche du
+service. Une route déduite que l'opérateur a écartée : jamais.
+
+**Ce que le front en fait** (`web/src/components/netmap/`, maquette
+`docs/projet/maquettes/reseau-carte.html`).
+
+| Élément | Rendu |
+| --- | --- |
+| Trois colonnes | **Hébergeur externe** (machines `vps`), bande **Internet**, **Chez vous** ; sans VPS, la première colonne disparaît |
+| Machine | Une boîte : nom (lien vers la fiche), badge de type (`VM 5010`, `LXC 5011`), adresse, ses services en **puces** (état en mot si ce n'est pas « en marche ») |
+| Hôte | Une boîte qui porte ses invités, rangés par **zone** (cadre, nom, VLAN, CIDR, teinte) ; il se replie sur son en-tête (nombre de machines et de services, pire état) |
+| Machine sans service | Jamais une boîte : une ligne « n machines sans service : a · b » par zone |
+| Repli au départ | Au-delà de **12 machines**, tous les hôtes sans service en défaut ; le choix de l'opérateur l'emporte ensuite |
+| Pare-feu | Une boîte entre Internet et les zones, une ligne par interface (teinte de sa zone, cadenas pour un tunnel, « WAN ») ; un connecteur coloré mène à chaque zone |
+| Traits | Zones (connecteurs), entrées d'Internet (ports sur la puce), liens (plein : déclaré, pointillé court : déduit, pointillé long : observé ; « ? » : à confirmer ; pâle : ancien), tunnel (épais, cadenas) |
+| Preuve | Au survol **et au clavier** (focus du trait) ; la même chose dans la liste « Liens (n) » sous la carte, ouverte d'office sous 860 px où les traits sont cachés |
+| Teinte de zone | `oklch(from var(--accent) l c calc(h + n × 45))` : aucun jeton ajouté |
+
+Un hôte replié reçoit sur son en-tête les traits de ses invités (deux liens qui
+tombent sur les mêmes ancres n'en font qu'un).
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| **`GET /api/network` change de forme** : `machines[]` et `links[]` disparaissent ; `zones[]`, `outside[]`, `home[]` (boîtes avec `services[]` et `groups[].guests[]`), `firewalls[]`, `tunnels[]`, `entries[]`, `links[]` (`from`, `to` = identifiants de puces `s:<machine>\|<clé>`) | route d'opérateur seul, **hors liste des jetons** : aucun jeton ne la lisait | Rien tant qu'un outil n'y est pas branché ; `GET /api/machines/{id}/network` (jeton ouvert) **ne change pas** |
+| Aucune route, aucun verbe, aucun droit d'agent de plus | | Rien |
+
+**Coût.** La carte relit tout à chaque ouverture (machines, conteneurs,
+annuaire, liens de chaque service déclaré) : une quarantaine de machines et
+une centaine de services tiennent sans cache ; au-delà, un cache serait à
+poser.
 
 ## Comment un renvoi de menu devient un lien
 

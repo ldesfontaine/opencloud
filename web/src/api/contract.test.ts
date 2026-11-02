@@ -17,7 +17,7 @@ import type { MachineStorage, PhysicalDisk, StoragePool } from "./storage";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { LinkEnd, ServiceLinksResponse } from "./links";
-import type { NetworkResponse, OverviewLink, OverviewNetworkResponse } from "./network";
+import type { MapBox, MapEntry, MapFirewall, MapGroup, MapLink, MapService, MapTunnel, MapZone, NetworkMap, NetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
 import type { BackupGrant, ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
@@ -297,15 +297,51 @@ const linkEnd = shape<LinkEnd>("LinkEnd", {
   container_id: value,
 });
 
-const overviewLink = shape<OverviewLink>("OverviewLink", {
+// Un hôte porte ses invités, qui ont la forme d'une machine : la description se
+// referme sur elle-même, une fois les deux formes faites.
+const mapService = shape<MapService>("MapService", { id: value, label: value, kind: value, state: value, replicas: value, container_id: value, service_id: value });
+const mapGroup = shape<MapGroup>("MapGroup", { zone_id: value, guests: value as never });
+const mapBox = shape<MapBox>("MapBox", {
   id: value,
-  nature: value,
-  proof: value,
-  signal: value,
-  port: value,
-  stale: value,
-  from: linkEnd,
-  to: linkEnd,
+  machine_id: value,
+  name: value,
+  kind: value,
+  vmid: value,
+  node: value,
+  managed: value,
+  online: value,
+  guest_status: value,
+  address: value,
+  zone_id: value,
+  services: mapService,
+  groups: mapGroup,
+});
+mapGroup.fields.guests = mapBox;
+
+const networkMap = shape<NetworkMap>("NetworkMap", {
+  zones: shape<MapZone>("MapZone", { id: value, name: value, source: value, cidr: value, vlan: value, tone: value }),
+  outside: mapBox,
+  home: mapBox,
+  firewalls: shape<MapFirewall>("MapFirewall", {
+    id: value,
+    name: value,
+    interfaces: shape("MapInterface", { name: value, device: value, role: value, cidr: value, up: value, zone_id: value, wan: value, tunnel: value }),
+  }),
+  tunnels: shape<MapTunnel>("MapTunnel", { id: value, label: value, proof: value, outside: value, service: value, firewall: value, interface: value }),
+  entries: shape<MapEntry>("MapEntry", { to: value, ports: value, observed: value }),
+  links: shape<MapLink>("MapLink", {
+    id: value,
+    from: value,
+    to: value,
+    nature: value,
+    proof: value,
+    signal: value,
+    port: value,
+    stale: value,
+    proposed: value,
+    first_seen_at: value,
+    last_seen_at: value,
+  }),
 });
 
 const serviceLinks = shape<ServiceLinksResponse>("ServiceLinksResponse", {
@@ -1176,7 +1212,7 @@ const contract: Record<string, Shape<unknown>> = {
   "machines.golden.json": machines,
   "manifest_applies.golden.json": shape<AppliesResponse>("AppliesResponse", { applies: apply }),
   "manifest_apply.golden.json": apply,
-  "network.golden.json": shape<OverviewNetworkResponse>("OverviewNetworkResponse", { machines: network, links: overviewLink }),
+  "network.golden.json": networkMap,
   "probe.golden.json": probeResponse,
   "probes.golden.json": probes,
   "projects.golden.json": projects,

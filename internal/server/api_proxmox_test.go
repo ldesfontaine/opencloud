@@ -89,7 +89,9 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 		case r.URL.Path == "/api2/json/cluster/status":
 			body = `{"data":[{"type":"cluster","name":"homelab","nodes":1},{"type":"node","name":"pve","local":1}]}`
 		case r.URL.Path == "/api2/json/nodes/pve/qemu/5012/config":
-			body = `{"data":{"name":"` + runningName + `","net0":"virtio=` + pveGuestMAC + `,bridge=vmbr0,firewall=1"}}`
+			body = `{"data":{"name":"` + runningName + `","net0":"virtio=` + pveGuestMAC + `,bridge=vmbr0,firewall=1,tag=50"}}`
+		case r.URL.Path == "/api2/json/nodes/pve/lxc/200/config":
+			body = `{"data":{"net0":"name=eth0,bridge=vmbr0,hwaddr=BC:24:11:AA:BB:DD,tag=50,ip=dhcp"}}`
 		case r.URL.Path == "/api2/json/access/permissions":
 			privileges := `"Datastore.Audit":1,"Datastore.Allocate":1`
 			if auditor {

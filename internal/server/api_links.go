@@ -212,7 +212,3 @@ func (e linkEnds) describe(end directory.LinkEnd) linkEndJSON {
 		ServiceID: end.ServiceID, ServiceName: end.ServiceName, UnitName: end.UnitName, ContainerID: e.containers[endpoint],
 	}
 }
-
-func (e linkEnds) endpoint(endpoint link.Endpoint) linkEndJSON {
-	return e.describe(directory.LinkEnd{MachineID: endpoint.MachineID, Key: endpoint.Key})
-}
