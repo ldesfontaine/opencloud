@@ -96,6 +96,10 @@ type Guest struct {
 	// pour le rapprochement ; vides quand l'hôte ne les dit pas. Non gardées :
 	// le rapprochement est fait avant l'écriture du relevé.
 	MACs []string
+	// Ses cartes réseau (MAC, pont, tag VLAN), lues au même endroit : la carte
+	// du réseau en tire la zone de l'invité. Non gardées en base : le service
+	// les tient en mémoire (Service.Networks), un redémarrage les relit.
+	NICs []NIC
 	// La machine enrôlée que le rapprochement lui trouve (MAC, puis nom
 	// d'hôte) ; vide sans rapprochement.
 	LinkedMachineID string

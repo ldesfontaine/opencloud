@@ -27,7 +27,7 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 	if err != nil {
 		return Reading{}, err
 	}
-	if err := c.readGuestMACs(ctx, guests); err != nil {
+	if err := c.readGuestNICs(ctx, guests); err != nil {
 		return Reading{}, err
 	}
 	cluster, err := c.readClusterName(ctx)

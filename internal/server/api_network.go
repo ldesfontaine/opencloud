@@ -45,52 +45,12 @@ type edgeJSON struct {
 	Stale    bool   `json:"stale,omitempty"`
 }
 
-// Un lien stocké entre deux machines : il n'a d'arête dans aucune des deux
-// topologies, la vue d'ensemble le trace d'un cadre à l'autre.
-type overviewLinkJSON struct {
-	ID     string      `json:"id"`
-	Nature string      `json:"nature"`
-	Proof  string      `json:"proof"`
-	Signal string      `json:"signal"`
-	Port   int         `json:"port"`
-	Stale  bool        `json:"stale"`
-	From   linkEndJSON `json:"from"`
-	To     linkEndJSON `json:"to"`
-}
-
-// La vue d'ensemble lit toutes les machines d'un coup, chacune avec sa
-// topologie ; le front en fait un seul dessin, moins détaillé.
-type overviewNetworkResponse struct {
-	Machines []networkResponse  `json:"machines"`
-	Links    []overviewLinkJSON `json:"links"`
-}
-
 func (s *Server) getMachineNetwork(w http.ResponseWriter, r *http.Request) {
 	found, err := s.machines.Get(r.Context(), r.PathValue("id"))
 	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
 	response, err := s.networkOf(r.Context(), found)
-	if s.failed(w, r, err, nil) {
-		return
-	}
-	s.writeAPI(w, http.StatusOK, response)
-}
-
-func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request) {
-	statuses, err := s.machines.List(r.Context())
-	if s.failed(w, r, err, nil) {
-		return
-	}
-	response := overviewNetworkResponse{Machines: make([]networkResponse, 0, len(statuses)), Links: []overviewLinkJSON{}}
-	for _, machineStatus := range statuses {
-		network, err := s.networkOf(r.Context(), machineStatus)
-		if s.failed(w, r, err, nil) {
-			return
-		}
-		response.Machines = append(response.Machines, network)
-	}
-	response.Links, err = s.crossMachineLinks(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -139,32 +99,4 @@ func edgeToJSON(edge container.Edge) edgeJSON {
 		From: edge.From, To: edge.To, Kind: string(edge.Kind), Port: edge.Port, Protocol: edge.Protocol,
 		LinkID: edge.LinkID, Nature: string(edge.Nature), Proof: string(edge.Proof), Signal: string(edge.Signal), Stale: edge.Stale,
 	}
-}
-
-// crossMachineLinks rend les liens stockés dont les deux extrémités sont sur
-// des machines différentes.
-func (s *Server) crossMachineLinks(ctx context.Context) ([]overviewLinkJSON, error) {
-	links := []overviewLinkJSON{}
-	if s.links == nil {
-		return links, nil
-	}
-	stored, err := s.links.List(ctx, "")
-	if err != nil {
-		return nil, err
-	}
-	ends, err := s.linkEnds(ctx)
-	if err != nil {
-		return nil, err
-	}
-	now := s.now()
-	for _, item := range stored {
-		if item.From.MachineID == item.To.MachineID {
-			continue
-		}
-		links = append(links, overviewLinkJSON{
-			ID: item.ID, Nature: string(item.Nature), Proof: string(item.Proof), Signal: string(item.Signal), Port: item.Port,
-			Stale: item.Stale(now), From: ends.endpoint(item.From), To: ends.endpoint(item.To),
-		})
-	}
-	return links, nil
 }

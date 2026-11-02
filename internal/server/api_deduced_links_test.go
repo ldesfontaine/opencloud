@@ -77,10 +77,8 @@ func TestAPI_DeducedLinks_PublicURLAndProxyGiveARouteWrittenNowhere(t *testing.T
 	if err != nil || len(stored) != 0 {
 		t.Errorf("une déduction ne s'écrit pas : %+v %v", stored, err)
 	}
-	var overview overviewNetworkResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/network", nil), &overview)
-	if len(overview.Links) != 0 {
-		t.Errorf("la carte ne trace pas une déduction : %+v", overview.Links)
+	if links := networkMapOf(t, server).Links; len(links) != 1 || links[0].Proof != "deduced" || !links[0].Proposed || links[0].Nature != "route" {
+		t.Errorf("la carte trace la route déduite, à confirmer : %+v", links)
 	}
 }
 
@@ -102,10 +100,8 @@ func TestAPI_DeducedLinks_ConfirmWritesADeclaredRoute(t *testing.T) {
 	if out[0].Proof != "declared" || out[0].Nature != "route" || out[0].Signal != "operator" || !out[0].Removable || out[0].Dismissed {
 		t.Errorf("route confirmée = %+v", out[0])
 	}
-	var overview overviewNetworkResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/network", nil), &overview)
-	if len(overview.Links) != 1 || overview.Links[0].Proof != "declared" {
-		t.Errorf("la carte trace la route confirmée : %+v", overview.Links)
+	if links := networkMapOf(t, server).Links; len(links) != 1 || links[0].Proof != "declared" || links[0].Proposed {
+		t.Errorf("la carte trace la route confirmée : %+v", links)
 	}
 	// L'identifiant déduit n'existe plus : une seconde confirmation n'a rien à confirmer.
 	if got := callAPI(server.Server, http.MethodPost, "/api/directory/links/"+deduced.ID+"/actions/confirm", nil); got.Code != http.StatusNotFound {
@@ -137,10 +133,10 @@ func TestAPI_DeducedLinks_ADismissedRouteNeverComesBackBySurprise(t *testing.T) 
 				t.Errorf("%s : la route écartée reste notée côté %s : %+v", when, id, kept)
 			}
 		}
-		var overview overviewNetworkResponse
-		decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/network", nil), &overview)
-		if len(overview.Links) != 0 {
-			t.Errorf("%s : la carte trace une route écartée : %+v", when, overview.Links)
+		for _, drawn := range networkMapOf(t, server).Links {
+			if drawn.Nature == "route" {
+				t.Errorf("%s : la carte trace une route écartée : %+v", when, drawn)
+			}
 		}
 	}
 	assertStillDismissed("tout de suite")
