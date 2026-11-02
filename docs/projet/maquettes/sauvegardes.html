@@ -4,9 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>openCloud · Sauvegardes (maquette)</title>
-<!-- Maquette de la page Sauvegardes (B1). Données fictives, adresses de
+<!-- Maquette de la page Sauvegardes (B1, mise à jour B2). Données fictives, adresses de
 documentation seulement. Paramètres de l'adresse : ?theme=dark ·
-?etat=vide|erreurs|binaire · ?fenetre=quoi|ou|recap|cible · ?nobar (sans la barre de démo). -->
+?etat=vide|erreurs|binaire|partielle · ?fenetre=quoi|ou|recap|cible · ?quoi=vm|service · ?nobar (sans la barre de démo).
+B2 : un service entier = son dossier + ses volumes + ses bases ; vzdump lancé par openCloud ; la tâche Proxmox « nuit-pi » est observée, à remplacer ;
+supervision (dernière réussite, retard, échec) ; accès aux sauvegardes d'une base ou d'un volume. -->
 <style>
 /* Jetons : docs/projet/21-direction-artistique.md, tels quels. */
 :root{
@@ -125,6 +127,22 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .copyline .on{flex:none;align-self:flex-start;margin-top:3px;height:18px;padding:0 6px;border-radius:5px;background:var(--surface);border:1px solid var(--line-strong);font:500 11px/16px var(--mono);color:var(--ink-2)}
 .src .foot{display:flex;gap:8px;align-items:center;margin-top:auto}
 .src .foot .muted{font-size:12px}
+
+/* Ce que contient une sauvegarde de service (B2) */
+.parts{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line);padding-top:10px}
+.parts .p{display:flex;align-items:center;gap:8px;min-height:28px}
+.parts .p .nm{flex:1;min-width:0;display:flex;flex-direction:column}
+.parts .p .nm b{font-weight:500}
+.parts .p .nm span{color:var(--muted);font-size:12px}
+.parts .p .sz{font:12px var(--mono);color:var(--ink-2)}
+.mark{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;flex:none;font:600 11px var(--sans)}
+.mark.ok{background:var(--ok-wash);color:var(--ok)}.mark.failed{background:var(--danger-wash);color:var(--danger)}
+.mark.skipped,.mark.todo{background:var(--surface-2);color:var(--muted)}
+.parts .head2{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.replace{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:var(--warn-wash);color:var(--ink)}
+.replace>span{flex:1 1 200px}
+.replace .btn{background:var(--surface)}
+.late{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
 /* Cibles */
 .targets{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:12px}
@@ -307,7 +325,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 
     <section class="section" id="sources" aria-labelledby="h-sources">
       <div class="shead">
-        <div><div class="label" id="h-sources">Ce qui est sauvegardé</div><p>Une carte par VM ou par service : où elle part, quand, combien on garde.</p></div>
+        <div><div class="label" id="h-sources">Ce qui est sauvegardé</div><p>Une carte par VM ou par service entier : où elle part, quand (dernière et prochaine), combien on garde.</p></div>
       </div>
       <div id="sources-body"></div>
     </section>
@@ -321,7 +339,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 
     <section class="section" id="acceder" aria-labelledby="h-acceder">
       <div class="shead">
-        <div><div class="label" id="h-acceder">Accéder à mes sauvegardes</div><p>Parcourir, reprendre un fichier, remettre une VM.</p></div>
+        <div><div class="label" id="h-acceder">Accéder à mes sauvegardes</div><p>Parcourir, reprendre un fichier, remettre une base, un volume ou une VM.</p></div>
         <div class="right"><span class="muted">Pour</span>
           <div class="seg" role="group" aria-label="Source" id="pick-src">
             <button aria-pressed="true" data-src="forgejo">forgejo</button>
@@ -350,6 +368,8 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
     <button aria-pressed="false" data-state="vide">Vide</button>
     <button aria-pressed="false" data-state="erreurs">Erreurs</button>
     <button aria-pressed="false" data-state="binaire">Binaire manquant</button>
+    <button aria-pressed="false" data-state="partielle">Une partie échoue</button>
+    <button aria-pressed="false" data-state="retard">En retard</button>
   </div>
   <button class="btn small" data-open="quoi">Sauvegarder…</button>
   <button class="btn small" data-open="cible">Nouvelle cible</button>
@@ -389,34 +409,59 @@ const installRestic = () => installBlock("Installer restic sur vps", "Debian ou 
 
 // kind : vm | service ; origin : proxmox (observée) | restic (openCloud) | none
 const SOURCES = [
-  {id:"nextcloud", name:"nextcloud", kind:"service", sub:"Service · sur vps", origin:"none"},
+  {id:"nextcloud", name:"nextcloud", kind:"service", sub:"Service entier · sur vps", origin:"none",
+   parts:[["folder","Dossier","/srv/nextcloud","23 Gio"],["volume","nextcloud_data","volume Docker","180 Gio"],["database","nextcloud-db-1","PostgreSQL","2,4 Gio"]]},
   {id:"docker1", name:"docker1", kind:"vm", sub:"VM 101 · sur pve", origin:"proxmox", size:"12,4 Gio", copies:25,
    last:["il y a 3 h","cette nuit 03:00"], next:["dans 21 h","demain 03:00"]},
   {id:"immich", name:"immich", kind:"vm", sub:"VM 105 · sur pve", origin:"proxmox", size:"41 Gio", copies:25,
    last:["il y a 3 h","cette nuit 03:04"], next:["dans 21 h","demain 03:00"]},
-  {id:"forgejo", name:"forgejo", kind:"service", sub:"Service · sur docker1", origin:"restic", host:"docker1",
+  {id:"vpn", name:"vpn", kind:"vm", sub:"VM 102 · sur pve", origin:"restic", host:"pve", via:"vzdump",
+   path:"direct", reason:"pi répond, certificat vérifié", size:"3,1 Gio", copies:12, added:"+210 Mio cette nuit",
+   last:["il y a 3 h 50","cette nuit 02:20"], next:["dans 20 h","demain 02:20"]},
+  {id:"forgejo", name:"forgejo", kind:"service", sub:"Service entier · sur docker1", origin:"restic", host:"docker1",
    path:"direct", reason:"pi répond, certificat vérifié", size:"1,8 Gio", copies:31, added:"+42 Mio cette nuit",
-   last:["il y a 3 h 40","cette nuit 02:30"], next:["dans 20 h","demain 02:30"]},
+   last:["il y a 3 h 40","cette nuit 02:30"], next:["dans 20 h","demain 02:30"],
+   parts:[["folder","Dossier","/srv/forgejo","40 Mio","ok"],["volume","forgejo_data","volume Docker","1,7 Gio","ok"],["database","forgejo-db-1","PostgreSQL","58 Mio","ok"]]},
   {id:"base", name:"Base d'openCloud", kind:"db", sub:"Service · sur cloud", origin:"restic", host:"cloud",
    path:"direct", reason:"pi répond, certificat vérifié", size:"38 Mio", copies:31, added:"+1 Mio cette nuit",
    last:["il y a 3 h 35","cette nuit 02:35"], next:["dans 20 h","demain 02:35"]},
-  {id:"vaultwarden", name:"vaultwarden", kind:"service", sub:"Service · sur vps", origin:"restic", host:"vps",
+  {id:"vaultwarden", name:"vaultwarden", kind:"service", sub:"Service entier · sur vps", origin:"restic", host:"vps",
    path:"relay", reason:"vps ne joint pas pi:8000 (TCP)", size:"12 Mio", copies:9, added:"+0,2 Mio cette nuit",
-   last:["il y a 3 h 30","cette nuit 02:40"], next:["dans 20 h","demain 02:40"]}
+   last:["il y a 3 h 30","cette nuit 02:40"], next:["dans 20 h","demain 02:40"],
+   parts:[["volume","vaultwarden_data","volume Docker","12 Mio","ok"]]}
 ];
+
+// État « partielle » : tout part, sauf le dump de la base de forgejo (une partie échoue, les autres sont gardées).
+const PARTIAL = {forgejo:{tone:"warn", stateLabel:"Partielle", why:"Le dump de forgejo-db-1 a échoué dans le conteneur. Le dossier et le volume sont bien gardés.",
+  last:["il y a 3 h 40","cette nuit 02:30"], lastOk:["il y a 1 j 3 h","hier 02:30"], parts:["ok","ok","failed"]}};
 
 // État « erreurs » : pi ne répond plus depuis 02:15, et vps n'a pas le droit de produire.
 const BROKEN = {
-  docker1:{tone:"warn", stateLabel:"En retard", last:["il y a 1 j","hier 03:00"], why:"La tâche nuit-pi a échoué : le stockage pi-sauvegardes ne répond pas."},
-  immich:{tone:"warn", stateLabel:"En retard", last:["il y a 1 j","hier 03:04"], why:"La tâche nuit-pi a échoué : le stockage pi-sauvegardes ne répond pas."},
-  forgejo:{tone:"danger", stateLabel:"Échouée", last:["il y a 1 j","hier 02:30"], why:"pi ne répond pas, ni en direct ni par relais."},
-  base:{tone:"danger", stateLabel:"Échouée", last:["il y a 1 j","hier 02:35"], why:"pi ne répond pas, ni en direct ni par relais."},
-  vaultwarden:{tone:"danger", stateLabel:"Refusée", last:["il y a 1 j","hier 02:40"], why:"vps n'a pas le droit restic.produce.", rights:true}
+  docker1:{tone:"warn", stateLabel:"En retard", last:["il y a 1 j","hier 03:00"], lastOk:["il y a 1 j","hier 03:00"], why:"Attendue avant 04:00, rien reçu : le stockage pi-sauvegardes ne répond pas."},
+  immich:{tone:"warn", stateLabel:"En retard", last:["il y a 1 j","hier 03:04"], lastOk:["il y a 1 j","hier 03:04"], why:"Attendue avant 04:00, rien reçu : le stockage pi-sauvegardes ne répond pas."},
+  vpn:{tone:"danger", stateLabel:"Échouée", last:["il y a 1 j","hier 02:20"], lastOk:["il y a 2 j","avant-hier 02:20"], why:"pi ne répond pas, ni en direct ni par relais."},
+  forgejo:{tone:"danger", stateLabel:"Échouée", last:["il y a 1 j","hier 02:30"], lastOk:["il y a 2 j","avant-hier 02:30"], why:"pi ne répond pas, ni en direct ni par relais."},
+  base:{tone:"danger", stateLabel:"Échouée", last:["il y a 1 j","hier 02:35"], lastOk:["il y a 2 j","avant-hier 02:35"], why:"pi ne répond pas, ni en direct ni par relais."},
+  vaultwarden:{tone:"danger", stateLabel:"Refusée", last:["il y a 1 j","hier 02:40"], lastOk:["il y a 2 j","avant-hier 02:40"], why:"vps n'a pas le droit restic.produce.", rights:true}
 };
 
 let state = "normal";
 
 function kindIcon(kind){ return kind==="vm" ? "vm" : kind==="db" ? "db" : "box"; }
+const PART_ICON = {folder:"folder", volume:"archive", database:"db"};
+const PART_KIND = {folder:"Dossier", volume:"Volume", database:"Base"};
+// Les parties d'un service : ce qui part, et le résultat de chacune quand la sauvegarde existe.
+function partsBlock(s, results){
+  if (!s.parts) return "";
+  const rows = s.parts.map(([kind,name,sub,size,result],i) => {
+    const r = results ? results[i] : result;
+    const mark = r==="failed" ? `<span class="mark failed" title="Échouée">✕</span>` : r==="ok" ? `<span class="mark ok" title="Gardée">✓</span>` : `<span class="mark todo" title="Partira">·</span>`;
+    return `<div class="p">${mark}<span class="badge" style="width:24px;height:24px;border-radius:7px">${ico(PART_ICON[kind])}</span>
+      <span class="nm"><b>${kind==="folder"?name+" · "+sub:name}</b><span>${kind==="folder"?PART_KIND[kind]:PART_KIND[kind]+" · "+sub}</span></span><span class="sz">${size}</span></div>`;
+  }).join("");
+  const said = s.origin==="none" ? "Ce que la sauvegarde contiendra" : "Ce qu'elle contient";
+  return `<div class="parts"><div class="head2 label">${said}</div>${rows}</div>`;
+}
 function tsFact(label, pair){ return `<div class="fact"><span class="k">${label}</span><span class="v">${pair[0]}</span><span class="s">${pair[1]}</span></div>`; }
 
 function flow(s, broken){
@@ -425,30 +470,34 @@ function flow(s, broken){
   const pve = s.origin==="proxmox";
   const tone = broken ? (broken.tone==="danger" ? "danger" : "warn") : pve ? "muted" : s.path==="relay" ? "warn" : "accent";
   const dashed = s.path==="relay" || broken ? " dashed" : "";
-  const label = pve ? "vzdump" : s.path==="relay" ? "relais" : "direct";
+  const label = pve ? "vzdump" : s.path==="relay" ? "relais" : s.via ? "vzdump · direct" : "direct";
   const from = pve ? "pve" : s.host;
   const to = pve ? "pi-sauvegardes" : "rest-server";
   return `<div class="flow" aria-label="${s.name} est envoyée vers pi">
-    <div class="node"><b>${ico(kindIcon(s.kind))}${pve ? s.name : s.host}</b><span>${pve ? "par " + from : "source"}</span></div>
+    <div class="node"><b>${ico(kindIcon(s.kind))}${pve || s.via ? s.name : s.host}</b><span>${pve ? "par " + from : s.via ? "lancée par openCloud sur " + from : "source"}</span></div>
     <div class="wire ${tone}${dashed}"><em>${label}</em></div>
     <div class="node to"><b>${ico("server")}pi</b><span>${to}</span></div></div>`;
 }
 
+// État « retard » : la tâche nuit-pi n'a rien reçu cette nuit (la page le voit à l'heure des archives, sans plan openCloud).
+const LATE = {docker1:{tone:"warn", stateLabel:"En retard", last:["il y a 1 j","hier 03:00"], lastOk:["il y a 1 j","hier 03:00"], why:"Attendue avant 04:00, rien reçu depuis hier."}};
 function sourceCard(s){
-  const broken = state==="erreurs" ? BROKEN[s.id] : null;
+  const partial = state==="partielle" ? PARTIAL[s.id] : null;
+  const broken = state==="erreurs" ? BROKEN[s.id] : partial || (state==="retard" ? LATE[s.id] : null);
   if (s.origin==="none") {
     return `<article class="card src warn">
       <div class="top"><span class="badge">${ico(kindIcon(s.kind))}</span><div><div class="name">${s.name}</div><div class="sub">${s.sub}</div></div>
         <span class="pill sm t-warn">Pas sauvegardé</span></div>
       ${flow(s)}
+      ${partsBlock(s)}
       <div class="facts">
         <div class="fact"><span class="k">Dernière</span><span class="v">Jamais</span><span class="s">aucune copie, nulle part</span></div>
-        <div class="fact"><span class="k">Taille du dossier</span><span class="v mono">23 Gio</span><span class="s">/srv/nextcloud</span></div>
+        <div class="fact"><span class="k">À sauvegarder</span><span class="v mono">205 Gio</span><span class="s">dossier + volume + base</span></div>
         ${state==="binaire"
           ? `<div class="fact wide"><span class="k">Ce qu'il manque</span><span class="v">rest-server sur pi, restic sur vps.</span><span class="s">les commandes sont dans « Sauvegarder… »</span></div>`
           : `<div class="fact wide"><span class="k">Ce qu'il manque</span><span class="v">Une cible : pi est prête.</span><span class="s">vps a le droit restic.produce</span></div>`}
       </div>
-      <div class="foot"><button class="btn primary small" data-open="quoi">${ico("plus")}Sauvegarder</button><span class="muted">Chaque nuit, vers pi</span></div>
+      <div class="foot"><button class="btn primary small" data-open="quoi">${ico("plus")}Sauvegarder le service entier</button><span class="muted">Chaque nuit, vers pi</span></div>
     </article>`;
   }
   const pve = s.origin==="proxmox";
@@ -457,7 +506,8 @@ function sourceCard(s){
   const last = broken ? broken.last : s.last;
   const originPill = pve
     ? `<span class="pill sm nodot t-neutral" title="Faite par l'hôte Proxmox. openCloud la voit, ne la lance pas.">Observée · Proxmox</span><span class="muted">tâche nuit-pi</span>`
-    : `<span class="pill sm nodot t-accent">openCloud · restic</span><span class="muted">${s.kind==="vm"?"VM entière":"dossier du service"}</span>`;
+    : `<span class="pill sm nodot t-accent">openCloud · restic</span><span class="muted">${s.kind==="vm"?"VM entière, vzdump lancé par openCloud":"service entier"}</span>`;
+  const replace = pve ? `<div class="replace">${ico("undo")}<span><b>À remplacer par un plan openCloud.</b> La tâche nuit-pi est faite par Proxmox : openCloud la voit, mais ne la lance pas et ne la surveille que par ses archives.</span><button class="btn small" data-open="quoi" data-what="${s.id}" data-mode="vm">Remplacer par openCloud</button></div>` : "";
   const retention = `<div class="fact wide"><span class="k">Gardées</span><span class="v">${RETAIN}</span><span class="s">${pve ? "appliqué par pve à chaque tâche" : "appliqué par pi chaque nuit"}</span></div>`;
   let path = "";
   if (broken) {
@@ -468,14 +518,18 @@ function sourceCard(s){
     path = `<div class="path"><div class="line"><span class="pill sm ${relay?"t-warn":"t-ok"}">${relay?"Relais":"Direct"}</span><span class="ink2">${s.reason}</span></div>
       ${relay ? copyLine("pour passer en direct : vps doit joindre pi:8000") : ""}</div>`;
   }
+  const lastOk = broken && broken.lastOk ? tsFact("Dernière réussite", broken.lastOk) : "";
   return `<article class="card src${broken && broken.tone==="danger" ? " danger" : ""}">
     <div class="top"><span class="badge">${ico(kindIcon(s.kind))}</span><div><div class="name">${s.name}</div><div class="sub">${s.sub}</div></div>
       <span class="pill sm t-${tone}">${label}</span></div>
     ${flow(s, broken)}
     <div class="origin">${originPill}</div>
+    ${replace}
+    ${partsBlock(s, broken && broken.parts)}
     <div class="facts">
-      ${tsFact("Dernière", last)}
-      ${tsFact("Prochaine", s.next)}
+      ${tsFact(broken ? "Dernier essai" : "Dernière", last)}
+      ${lastOk || tsFact("Prochaine", s.next)}
+      ${lastOk ? tsFact("Prochaine", s.next) : ""}
       <div class="fact"><span class="k">Taille</span><span class="v mono">${s.size}</span><span class="s">${pve ? "dernière archive" : s.added}</span></div>
       <div class="fact"><span class="k">Copies gardées</span><span class="v mono">${s.copies}</span><span class="s">sur pi</span></div>
       ${retention}
@@ -503,10 +557,22 @@ function renderVerdict(){
       <div class="facts"><div class="vfact"><span class="v">2<small>sur 3</small></span><span class="l">protégés</span></div><div class="vfact"><span class="v">600<small>Gio</small></span><span class="l">libres sur pi</span></div></div>`;
     return;
   }
+  if (state==="partielle") {
+    v.className = "card verdict warn";
+    v.innerHTML = `<span class="pill t-warn">1 partie à reprendre</span><div class="say"><b>forgejo : la base n'a pas été sauvegardée cette nuit</b><br><span class="ink2">Son dossier et son volume le sont. Dernière sauvegarde complète : hier 02:30, il y a 1 j.</span></div>
+      <div class="facts"><div class="vfact"><span class="v">6<small>sur 7</small></span><span class="l">protégés</span></div><div class="vfact"><span class="v">600<small>Gio</small></span><span class="l">libres sur pi</span></div></div>`;
+    return;
+  }
+  if (state==="retard") {
+    v.className = "card verdict warn";
+    v.innerHTML = `<span class="pill t-warn">1 en retard</span><div class="say"><b>docker1 : rien reçu depuis hier 03:00</b><br><span class="ink2">La tâche nuit-pi (Proxmox) aurait dû écrire avant 04:00. Plutôt que de l'attendre, remplacez-la par un plan openCloud, que cette page surveille de bout en bout.</span></div>
+      <div class="facts"><div class="vfact"><span class="v">6<small>sur 7</small></span><span class="l">protégés</span></div><div class="vfact"><span class="v">600<small>Gio</small></span><span class="l">libres sur pi</span></div></div>`;
+    return;
+  }
   v.className = "card verdict warn";
-  v.innerHTML = `<span class="pill t-warn">1 à protéger</span><div class="say"><b>5 sur 6 protégés · dernière sauvegarde il y a 3 h</b><br><span class="ink2">nextcloud, sur vps, n'a aucune copie.</span></div>
+  v.innerHTML = `<span class="pill t-warn">1 à protéger</span><div class="say"><b>6 sur 7 protégés · dernière sauvegarde il y a 3 h</b><br><span class="ink2">nextcloud, sur vps, n'a aucune copie. 2 VM sont encore sauvegardées par la tâche Proxmox nuit-pi : à remplacer par un plan openCloud.</span></div>
     <div class="facts">
-      <div class="vfact"><span class="v">5<small>sur 6</small></span><span class="l">protégés</span></div>
+      <div class="vfact"><span class="v">6<small>sur 7</small></span><span class="l">protégés</span></div>
       <div class="vfact"><span class="v">600<small>Gio</small></span><span class="l">libres sur pi</span></div>
       <div class="vfact"><span class="v">20<small>h</small></span><span class="l">avant la prochaine</span></div>
     </div>`;
@@ -562,7 +628,7 @@ function renderTargets(){
       <div class="holds">
         <div class="label">Ce qui s'y trouve</div>
         <div class="groups">
-          <div><div class="ink2">Partage NFS <b class="mono">pi-sauvegardes</b>, écrit par Proxmox</div><div class="chips">${proxmoxChips}</div></div>
+          <div><div class="ink2">Partage NFS <b class="mono">pi-sauvegardes</b>, écrit par la tâche Proxmox nuit-pi <span class="pill sm nodot t-neutral">à remplacer</span></div><div class="chips">${proxmoxChips}</div></div>
           <div><div class="ink2">Dépôts restic, écrits par openCloud</div>${missing
             ? `<div class="muted" style="margin-top:6px">Aucun pour l'instant.</div>`
             : `<div class="chips">${resticChips}</div>`}</div>
@@ -580,9 +646,9 @@ function renderTargets(){
 
 // Accéder : les commandes suivent la source choisie.
 const ACCESS = {
-  forgejo:{host:"docker1", dir:"/srv/forgejo", file:"/srv/forgejo/data/gitea/conf/app.ini"},
-  base:{host:"cloud", dir:"/var/lib/opencloud", file:"/var/lib/opencloud/opencloud.db"},
-  vaultwarden:{host:"vps", dir:"/srv/vaultwarden", file:"/srv/vaultwarden/data/config.json"}
+  forgejo:{host:"docker1", dir:"/srv/forgejo", file:"/srv/forgejo/data/gitea/conf/app.ini", db:"forgejo-db-1", vol:"forgejo_data"},
+  base:{host:"cloud", dir:"/var/lib/opencloud", file:"/var/lib/opencloud/opencloud.db", db:"opencloud", vol:"opencloud"},
+  vaultwarden:{host:"vps", dir:"/srv/vaultwarden", file:"/srv/vaultwarden/data/config.json", db:"vaultwarden", vol:"vaultwarden_data"}
 };
 let accessSrc = "forgejo";
 function step(title, body){ return `<li><div><b>${title}</b>${body||""}</div></li>`; }
@@ -606,6 +672,14 @@ function renderHow(){
       </ol>
     </article>
     <article class="card how">
+      <h3><span class="badge">${ico("db")}</span>Restaurer une base ou un volume</h3>
+      <ol class="steps">
+        ${step("Sortir le dump à côté", copyLine(`restic restore latest --target /tmp/restauration --include /database-${a.db}.sql`))}
+        ${step("Le rejouer dans le conteneur", copyLine(`docker exec -i ${a.db} sh -c 'psql -U "$POSTGRES_USER"' < /tmp/restauration/database-${a.db}.sql`, a.host))}
+        ${step("Un volume ?", `<span class="ink2">Même geste avec <span class="mono">volume-${a.vol}.tar</span>, puis <span class="mono">tar -x</span> dans un volume neuf.</span>`)}
+      </ol>
+    </article>
+    <article class="card how">
       <h3><span class="badge">${ico("vm")}</span>Restaurer une VM</h3>
       <ol class="steps">
         ${step("Sur l'hôte Proxmox, en VM neuve", copyLine("restic dump latest /vzdump-qemu-105.vma | qmrestore - 1105 --storage local-lvm"))}
@@ -625,9 +699,12 @@ const VMS = [
   ["docker1","VM 101 · sur pve","observed"],["immich","VM 105 · sur pve","observed"],
   ["vpn","VM 102 · sur pve","none"],["dns","LXC 104 · sur pve","none"]
 ];
+// [nom, sous-titre, état, parties, grisé (le droit manque)]
 const SERVICES = [
-  ["nextcloud","Service · sur vps","none"],["forgejo","Service · sur docker1","restic"],
-  ["vaultwarden","Service · sur vps","restic"],["paperless","Service · sur docker1","none"]
+  ["nextcloud","Service entier · sur vps","none",[["folder","Dossier","/srv/nextcloud","23 Gio"],["volume","nextcloud_data","volume Docker","180 Gio"],["database","nextcloud-db-1","PostgreSQL","2,4 Gio"]]],
+  ["forgejo","Service entier · sur docker1","restic",[["folder","Dossier","/srv/forgejo","40 Mio"],["volume","forgejo_data","volume Docker","1,7 Gio"],["database","forgejo-db-1","PostgreSQL","58 Mio"]]],
+  ["vaultwarden","Service entier · sur vps","restic",[["volume","vaultwarden_data","volume Docker","12 Mio"]]],
+  ["paperless","Service entier · sur docker1","none",[["folder","Dossier","/srv/paperless","4 Gio"],["database","paperless-db-1","PostgreSQL","310 Mio"]],"restic.docker"]
 ];
 const STATUS = {
   observed:`<span class="pill sm nodot t-neutral">Observée · Proxmox</span>`,
@@ -649,17 +726,23 @@ function frame(title, at, body, foot){
 }
 function stepWhat(){
   const list = PICK.mode==="vm" ? VMS : SERVICES;
-  const opts = list.map(([n,sub,st])=>`<button class="opt" role="radio" aria-checked="${PICK.what===n}" data-what="${n}">
+  const opts = list.map(([n,sub,st,parts,lacks])=> lacks
+    ? `<div class="opt off" aria-disabled="true"><span class="radio"></span><span class="badge">${ico("box")}</span>
+    <span class="who"><b>${n}</b><span>${sub} · docker1 n'a pas le droit <span class="mono">${lacks}</span></span></span><span class="end"><button class="btn small">Ré-enrôler docker1 avec ce droit</button></span></div>`
+    : `<button class="opt" role="radio" aria-checked="${PICK.what===n}" data-what="${n}">
     <span class="radio"></span><span class="badge">${ico(PICK.mode==="vm"?"vm":"box")}</span>
     <span class="who"><b>${n}</b><span>${sub}</span></span><span class="end">${STATUS[st]}</span></button>`).join("");
+  const chosen = PICK.mode==="service" ? SERVICES.find(x=>x[0]===PICK.what) : null;
+  const preview = chosen ? `<div class="card" style="padding:12px 14px"><div class="parts" style="border-top:0;padding-top:0"><div class="head2 label">Ce qui part avec ${chosen[0]}</div>${chosen[3].map(([kind,name,sub,size])=>`<div class="p"><span class="badge" style="width:24px;height:24px;border-radius:7px">${ico(PART_ICON[kind])}</span><span class="nm"><b>${kind==="folder"?name+" · "+sub:name}</b><span>${kind==="folder"?PART_KIND[kind]:PART_KIND[kind]+" · "+sub}</span></span><span class="sz">${size}</span></div>`).join("")}</div></div>` : "";
   const note = PICK.mode==="vm"
-    ? "L'hôte Proxmox lit la VM et l'envoie. Il lui faut le droit restic.produce."
-    : "Le dossier du service part. Les volumes nommés Docker ne sont pas couverts.";
+    ? "openCloud lance vzdump sur l'hôte Proxmox et envoie le flux : plus besoin d'une tâche Datacenter. Il faut les droits restic.produce et backup.produce."
+    : "Le service entier part : son dossier, ses volumes Docker et ses bases (leur dump, fait dans le conteneur). Il faut le droit restic.docker. Un volume copié en marche peut être incohérent : pour une base, c'est son dump qui compte.";
   return frame("Que sauvegarder ?", 0, `
     <div class="seg" role="group" aria-label="Portée" style="align-self:flex-start">
       <button aria-pressed="${PICK.mode==="vm"}" data-mode="vm">VM entière</button><button aria-pressed="${PICK.mode==="service"}" data-mode="service">Service entier</button></div>
     <label class="search">${ico("search")}<input placeholder="${PICK.mode==="vm"?"Chercher une VM…":"Chercher un service…"}" aria-label="Chercher"></label>
     <div class="opts" role="radiogroup" aria-label="Source">${opts}</div>
+    ${preview}
     <div class="note">${ico("folder")}<span>${note}</span></div>`,
     `<button class="btn ghost" data-close>Annuler</button><span class="sp"></span><button class="btn primary" data-go="ou">Suivant</button>`);
 }
@@ -697,7 +780,9 @@ function stepWhere(){
 function stepRecap(){
   const row = (k, v, back) => `<div class="r"><span class="k">${k}</span><div class="v">${v}</div>${back?`<button class="btn small ghost" data-go="${back}">Modifier</button>`:"<span></span>"}</div>`;
   return frame("Récapitulatif", 2, `<div class="recap">
-    ${row("Quoi", `<b>${PICK.what}</b><span class="muted">Service entier · dossier <span class="mono">/srv/${PICK.what}</span> sur vps</span>`, "quoi")}
+    ${row("Quoi", PICK.mode==="vm"
+      ? `<b>${PICK.what}</b><span class="muted">VM entière · vzdump lancé par openCloud sur pve</span>`
+      : `<b>${PICK.what}</b><span class="muted">Service entier · ${SERVICES.find(x=>x[0]===PICK.what)[3].map(p=>p[1]==="Dossier"?"dossier":p[0]==="volume"?"volume "+p[1]:"base "+p[1]).join(" · ")}</span>`, "quoi")}
     ${row("Où", `<b>${PICK.where}</b><span class="muted">rest-server <span class="mono">192.0.2.10:8000</span></span>`, "ou")}
     ${row("Rythme", `<b>Chaque nuit</b><span class="muted">vers 02:30</span>`)}
     ${row("Gardées", `<b>${RETAIN}</b><span class="muted">Appliqué par pi chaque nuit. Plancher de pi : 7 nuits.</span>`)}
@@ -740,10 +825,10 @@ function render(){ document.getElementById("acceder").hidden = state==="vide" ||
 
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button,[data-what],[data-where]"); if (!t) return;
-  if (t.dataset.open) return openModal(t.dataset.open);
+  if (t.dataset.open) { if (t.dataset.mode) { PICK.mode = t.dataset.mode; PICK.what = t.dataset.what; } return openModal(t.dataset.open); }
   if (t.hasAttribute("data-close")) return closeModal();
   if (t.dataset.go) return openModal(t.dataset.go);
-  if (t.dataset.mode) { PICK.mode = t.dataset.mode; PICK.what = (t.dataset.mode==="vm"?VMS:SERVICES)[0][0]; return openModal("quoi"); }
+  if (t.dataset.mode) { PICK.mode = t.dataset.mode; PICK.what = t.dataset.what || (t.dataset.mode==="vm"?VMS:SERVICES)[0][0]; return openModal(t.dataset.open ? t.dataset.open : "quoi"); }
   if (t.dataset.what) { PICK.what = t.dataset.what; return openModal("quoi"); }
   if (t.dataset.where) { PICK.where = t.dataset.where; return openModal("ou"); }
   if (t.dataset.state) { state = t.dataset.state; document.querySelectorAll("#pick-state button").forEach(b=>b.setAttribute("aria-pressed", b===t)); return render(); }
@@ -762,6 +847,7 @@ th.onclick = () => setTheme(document.documentElement.dataset.theme !== "dark");
 const params = new URLSearchParams(location.search);
 if (params.get("theme")==="dark") setTheme(true);
 if (params.has("etat")) state = params.get("etat");
+if (params.get("quoi")==="vm") { PICK.mode = "vm"; PICK.what = VMS[0][0]; }
 document.querySelectorAll("#pick-state button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.state===state));
 if (params.has("nobar")) document.getElementById("demo").hidden = true;
 render();
