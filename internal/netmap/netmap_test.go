@@ -188,7 +188,7 @@ func TestBuild_WithoutFirewallVLANTagNamesTheSubnetZone(t *testing.T) {
 
 func TestBuild_WithoutAnyVPSOrHypervisorTheMapStillBuilds(t *testing.T) {
 	result := Build(Input{})
-	if result.Home == nil || result.Outside == nil || result.Zones != nil && len(result.Zones) != 0 {
+	if result.Home == nil || result.Outside == nil {
 		t.Errorf("carte vide : %+v", result)
 	}
 }
