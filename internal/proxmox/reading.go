@@ -34,6 +34,10 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 	if err != nil {
 		return Reading{}, err
 	}
+	jobs, jobsUnreadable, err := c.BackupJobs(ctx)
+	if err != nil {
+		return Reading{}, err
+	}
 	seen := map[int]archives{}
 	gate := newBackupGate(c)
 	for _, storage := range storages {
@@ -70,7 +74,7 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 	for index := range storages {
 		storages[index].BackupsUnreadable = slices.Contains(gate.blind, storages[index].Name)
 	}
-	return Reading{Version: version, Cluster: cluster, Guests: guests, Storages: storages}, nil
+	return Reading{Version: version, Cluster: cluster, Guests: guests, Storages: storages, Jobs: jobs, JobsUnreadable: jobsUnreadable}, nil
 }
 
 // archives est ce que les stockages gardent d'une VM : la plus récente, le

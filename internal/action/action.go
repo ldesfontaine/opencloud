@@ -146,6 +146,12 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 		return machine.CapabilityProxmoxPower, true
 	case agentwire.KindProxmoxSnapshot, agentwire.KindProxmoxSnapshotDelete:
 		return machine.CapabilityProxmoxSnapshot, true
+	case agentwire.KindResticTargetSetup, agentwire.KindResticUserAdd, agentwire.KindResticUserRemove, agentwire.KindResticRetain, agentwire.KindResticRelay:
+		return machine.CapabilityResticTarget, true
+	// Une sauvegarde d'invité demande aussi backup.produce : l'agent le juge
+	// à l'ordre, avec ses paramètres.
+	case agentwire.KindResticProvision, agentwire.KindResticBackup:
+		return machine.CapabilityResticProduce, true
 	}
 	return "", false
 }

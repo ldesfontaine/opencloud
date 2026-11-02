@@ -57,6 +57,10 @@ const (
 	ObjectBackupPlan        ObjectKind = "backup_plan"
 	// Un pare-feu déclaré, lu en lecture seule.
 	ObjectFirewall ObjectKind = "firewall"
+	// Une cible restic (une machine qui lance rest-server en ajout seul), et
+	// une sauvegarde restic d'une source vers elle.
+	ObjectResticTarget ObjectKind = "restic_target"
+	ObjectResticBackup ObjectKind = "restic_backup"
 	// La demande qu'un jeton dépose pour un verbe à confirmation.
 	ObjectVerb ObjectKind = "verb"
 )
@@ -68,7 +72,7 @@ func ObjectKinds() []ObjectKind {
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectAPIToken, ObjectSecrets, ObjectAction,
 		ObjectBackupKeyring, ObjectBackupDestination, ObjectBackupPlan,
-		ObjectFirewall, ObjectVerb,
+		ObjectFirewall, ObjectVerb, ObjectResticTarget, ObjectResticBackup,
 	}
 }
 
@@ -202,6 +206,17 @@ const (
 	// Une sauvegarde lancée, par l'opérateur ou par la règle de la nuit.
 	BackupPlanRun Action = "backup_plan.run"
 
+	// Une cible restic posée ou retirée : l'adresse, le port et le dossier,
+	// jamais un mot de passe. Une sauvegarde restic déclarée, changée, retirée
+	// ou lancée (par l'opérateur ou la règle de la nuit) : la source, la cible
+	// et ce qui part, jamais l'empreinte du mot de passe REST.
+	ResticTargetSetup  Action = "restic_target.setup"
+	ResticTargetRemove Action = "restic_target.remove"
+	ResticBackupCreate Action = "restic_backup.create"
+	ResticBackupUpdate Action = "restic_backup.update"
+	ResticBackupDelete Action = "restic_backup.delete"
+	ResticBackupRun    Action = "restic_backup.run"
+
 	// Un pare-feu déclaré, redéclaré ou retiré. Ni la clé ni le secret n'y
 	// figurent : seulement l'hôte de l'API et si l'empreinte est épinglée.
 	FirewallCreate Action = "firewall.create"
@@ -242,6 +257,7 @@ func Actions() []Action {
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
 		FirewallCreate, FirewallUpdate, FirewallDelete,
 		VerbRequest, VerbReject, VerbExpire,
+		ResticTargetSetup, ResticTargetRemove, ResticBackupCreate, ResticBackupUpdate, ResticBackupDelete, ResticBackupRun,
 	}
 }
 

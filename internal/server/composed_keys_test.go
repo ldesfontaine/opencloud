@@ -190,9 +190,9 @@ func closedKeyLists() []composedKeys {
 		// Les plans de sauvegarde : d'où ils prennent, et ce qu'un agent sait produire.
 		{prefix: "backup.source_kind_", values: []string{backup.SourceDatabase, backup.SourceAgent}},
 		{prefix: "backup.producer_", values: machine.Producers()},
-		{prefix: "backup.inventory_kind_", values: backup.SourceKinds()},
-		{prefix: "backup.inventory_target_kind_", values: backup.TargetKinds()},
-		{prefix: "backup.run_result_", values: names(backup.Results())},
+		{prefix: "backup.source_sub_", values: append(backup.SourceKinds(), agentwire.ResticScopeService)},
+		{prefix: "backup.target_kind_", values: backup.TargetKinds()},
+		{prefix: "backup.path_reason_", values: agentwire.ResticPathReasons()},
 	}
 }
 

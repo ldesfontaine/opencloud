@@ -149,3 +149,21 @@ func TestRightOf_GuestOrdersNeedTheirOwnRight(t *testing.T) {
 		}
 	}
 }
+
+func TestRightOf_ResticOrdersNeedTheTargetOrTheSourceRight(t *testing.T) {
+	want := map[agentwire.Kind]string{
+		agentwire.KindResticTargetSetup: "restic.target", agentwire.KindResticUserAdd: "restic.target",
+		agentwire.KindResticUserRemove: "restic.target", agentwire.KindResticRetain: "restic.target", agentwire.KindResticRelay: "restic.target",
+		agentwire.KindResticProvision: "restic.produce", agentwire.KindResticBackup: "restic.produce",
+	}
+	for kind, right := range want {
+		if got, ok := RightOf(kind); !ok || got != right {
+			t.Errorf("%s: %q %v", kind, got, ok)
+		}
+	}
+	for _, kind := range agentwire.OrderKinds() {
+		if _, known := RightOf(kind); !known {
+			t.Errorf("order %s has no right", kind)
+		}
+	}
+}

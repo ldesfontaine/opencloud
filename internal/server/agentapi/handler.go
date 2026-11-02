@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
+	"github.com/ldesfontaine/opencloud/internal/restic"
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
@@ -116,6 +117,21 @@ type HostService interface {
 	RecordHost(ctx context.Context, machineID string, report hostinfo.Report) error
 }
 
+// Ce que l'agent attend du composant restic : le signal écrit la section
+// restic, et les résultats des ordres restic.backup (chemin pris, bilan).
+type ResticService interface {
+	RecordReport(ctx context.Context, machineID string, report agentwire.ResticReport) error
+	RecordResults(ctx context.Context, machineID string, results []agentwire.ActionResult) error
+}
+
+// Ce que les routes du relais attendent du courtier (restic.Broker) : la
+// requête de la source, le corps que la cible tire, la réponse qu'elle pousse.
+type RelayBroker interface {
+	Submit(ctx context.Context, proof machine.Proof, targetID string, request restic.RelayRequest) (restic.RelayResponse, error)
+	TakeBody(targetID, id string) (io.Reader, error)
+	Deliver(targetID, id string, head agentwire.ResticRelayHead, body io.Reader) error
+}
+
 type Options struct {
 	Logger     *slog.Logger
 	Machines   MachineService
@@ -130,6 +146,8 @@ type Options struct {
 	HostConnections HostConnectionsService
 	Roles           RolesService
 	Host            HostService
+	Restic          ResticService
+	Relay           RelayBroker
 	// ClientAddress rend l'adresse du client telle que le serveur la résout,
 	// mandataires de confiance compris : la règle vit à la racine.
 	ClientAddress func(r *http.Request) string
@@ -150,10 +168,13 @@ type Handler struct {
 	hostConns     HostConnectionsService
 	roles         RolesService
 	host          HostService
+	restic        ResticService
+	relay         RelayBroker
 	clientAddress func(r *http.Request) string
 	sourceLimit   *ratelimit.BySource
 	signalLimit   *ratelimit.Limiter
 	parcelLimit   *ratelimit.Limiter
+	relayLimit    *ratelimit.BySource
 }
 
 func New(opts Options) *Handler {
@@ -170,10 +191,13 @@ func New(opts Options) *Handler {
 		hostConns:     opts.HostConnections,
 		roles:         opts.Roles,
 		host:          opts.Host,
+		restic:        opts.Restic,
+		relay:         opts.Relay,
 		clientAddress: opts.ClientAddress,
 		sourceLimit:   ratelimit.NewBySource(perSourceRate, perSourceBurst, sourceIdle),
 		signalLimit:   ratelimit.New(signalPerMachineRate, signalPerMachineBurst, signalIdle),
 		parcelLimit:   ratelimit.New(parcelPerMachineRate, parcelPerMachineBurst, parcelIdle),
+		relayLimit:    newRelayLimiter(opts.Clock),
 	}
 	if opts.Clock != nil {
 		handler.sourceLimit.SetClock(opts.Clock)
@@ -192,6 +216,11 @@ func (h *Handler) Routes(add func(method, pattern string, handler http.HandlerFu
 	add("POST", "/agent/logs/{request}", h.logs)
 	add("GET", agentwire.ParcelRoute+"{parcel}/{name}", h.parcel)
 	add("PUT", agentwire.ParcelRoute+"{parcel}/{name}", h.uploadParcel)
+	// Le relais de restic : la source envoie chaque requête (toute méthode,
+	// jugée par restic.Allow), la cible tire le corps et pousse la réponse.
+	add("*", agentwire.ResticRelayRoute+"{target}/", h.relayRest)
+	add("GET", agentwire.ResticRelayBodyRoute+"{id}", h.relayBody)
+	add("POST", agentwire.ResticRelayResponseRoute+"{id}", h.relayResponse)
 	// Tout le reste, dont /agent/challenge du protocole 1 : un agent d'une
 	// autre version lit pourquoi il n'est pas servi.
 	add("*", "/agent/", h.unknown)

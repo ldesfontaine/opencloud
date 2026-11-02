@@ -48,3 +48,14 @@ func (s *Server) AssignProbes(machineID string, assignment probe.Assignment) err
 func (s *Server) AssignImages(machineID string, assignment update.Assignment) error {
 	return s.Command(machineID, agentwire.ImagesCommand(assignment))
 }
+
+// PushResticRelay pousse à l'agent d'une cible une requête de restic que le
+// relais tient ; machine.ErrNotConnected sans flux, machine.ErrBusy file
+// pleine, comme le courtier les attend.
+func (s *Server) PushResticRelay(targetID string, request agentwire.ResticRelayRequest) error {
+	event, data, err := agentwire.ResticRelayCommand(request).Encode()
+	if err != nil {
+		return fmt.Errorf("encode relay request: %w", err)
+	}
+	return s.machines.Push(targetID, machine.StreamEvent{Name: event, Data: data})
+}

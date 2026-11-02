@@ -153,6 +153,10 @@ type SignalRequest struct {
 	// une fois par minute sinon, et à chaque ouverture du flux. Un agent plus
 	// vieux ne l'envoie pas : aucun lien n'est observé.
 	HostConnections *hostconn.Report `json:"host_connections,omitempty"`
+	// La cible ou la source restic de la machine (ResticReport) : le dernier
+	// rapport, envoyé quand il change et à chaque ouverture du flux, par un
+	// agent qui porte restic.target ou restic.produce.
+	Restic *ResticReport `json:"restic,omitempty"`
 }
 
 // Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
@@ -169,11 +173,12 @@ const (
 	SectionHost            = "host"
 	SectionSystemd         = "systemd_units"
 	SectionHostConnections = "host_connections"
+	SectionRestic          = "restic"
 )
 
 // SignalSections rend les sections dans l'ordre où le serveur les écrit.
 func SignalSections() []string {
-	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles, SectionHost, SectionSystemd, SectionHostConnections}
+	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys, SectionRoles, SectionHost, SectionSystemd, SectionHostConnections, SectionRestic}
 }
 
 // SectionRefusal rend la clé d'erreur d'une section refusée.

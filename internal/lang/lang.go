@@ -121,6 +121,7 @@ var placeholders = strings.NewReplacer(
 	"{agent_unit}", brand.AgentUnit,
 	"{agent_account}", brand.AgentAccount,
 	"{agent_binary}", brand.AgentCurrentPath,
+	"{agent_state_dir}", brand.AgentStateDir,
 	"{workspace_marker}", brand.WorkspaceMarker,
 )
 

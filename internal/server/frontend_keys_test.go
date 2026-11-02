@@ -29,6 +29,8 @@ var literalsNotKeys = map[string]string{
 	"backup.receive":   "un droit d'agent (machine.CapabilityBackupReceive), que le front envoie au serveur",
 	"probe.lan":        "un droit d'agent (machine.CapabilityProbeLAN), que le front envoie au serveur",
 	"observe.env":      "un droit d'agent (machine.CapabilityObserveEnv), que le front envoie au serveur",
+	"restic.target":    "un droit d'agent (machine.CapabilityResticTarget), que le front envoie au serveur",
+	"restic.produce":   "un droit d'agent (machine.CapabilityResticProduce), que le front envoie au serveur",
 	"machine.delete":   "un verbe du registre (internal/verb), que le front reconnaît dans une demande à confirmer",
 }
 

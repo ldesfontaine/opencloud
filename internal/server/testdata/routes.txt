@@ -154,7 +154,7 @@ GET /api/audit/forwarding
 GET /api/actions
 GET /api/agents/server-key
 GET /api/backups
-GET /api/backups/inventory
+GET /api/backups/overview
 GET /api/backups/runs
 POST /api/backups/keyring
 POST /api/backups/destinations
@@ -162,6 +162,12 @@ DELETE /api/backups/destinations/{id}
 PUT /api/backups/plans/{subject}
 DELETE /api/backups/plans/{subject}
 POST /api/backups/plans/{subject}/actions/run
+POST /api/machines/{id}/actions/restic-target-setup
+POST /api/machines/{id}/actions/restic-target-remove
+POST /api/machines/{id}/restic-backups
+PUT /api/machines/{id}/restic-backups/{backup}
+DELETE /api/machines/{id}/restic-backups/{backup}
+POST /api/machines/{id}/restic-backups/{backup}/actions/run
 * /api/
 POST /agent/enroll
 GET /agent/stream
@@ -169,6 +175,9 @@ POST /agent/signal
 POST /agent/logs/{request}
 GET /agent/parcels/{parcel}/{name}
 PUT /agent/parcels/{parcel}/{name}
+* /agent/relay/rest/{target}/
+GET /agent/relay/body/{id}
+POST /agent/relay/response/{id}
 * /agent/
 GET /ping/{token}
 POST /ping/{token}

@@ -420,6 +420,9 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	if request.HostConnections != nil {
 		keep(agentwire.SectionHostConnections, h.recordHostConnections(ctx, machineID, *request.HostConnections), hostconn.ErrReportInvalid)
 	}
+	if request.Restic != nil {
+		keep(agentwire.SectionRestic, h.recordRestic(ctx, machineID, *request.Restic), agentwire.ErrResticReportInvalid)
+	}
 	return rejected, failed
 }
 
@@ -430,6 +433,15 @@ func (h *Handler) recordHostConnections(ctx context.Context, machineID string, r
 		return hostconn.ErrReportInvalid
 	}
 	return h.hostConns.Record(ctx, machineID, report)
+}
+
+// recordRestic écrit la section restic ; sans composant, la section est
+// refusée.
+func (h *Handler) recordRestic(ctx context.Context, machineID string, report agentwire.ResticReport) error {
+	if h.restic == nil {
+		return agentwire.ErrResticReportInvalid
+	}
+	return h.restic.RecordReport(ctx, machineID, report)
 }
 
 // recordSystemdUnits écrit le relevé des unités systemd ; sans composant, la
@@ -474,7 +486,15 @@ func (h *Handler) recordActions(ctx context.Context, machineID string, report ag
 	if h.actions == nil {
 		return action.ErrReportInvalid
 	}
-	return h.actions.Record(ctx, machineID, report)
+	if err := h.actions.Record(ctx, machineID, report); err != nil {
+		return err
+	}
+	// Le bilan d'une sauvegarde restic (chemin, raison, octets) va au
+	// composant restic, une fois le rapport jugé par action.
+	if h.restic == nil {
+		return nil
+	}
+	return h.restic.RecordResults(ctx, machineID, report.Results)
 }
 
 // firstRejected rend la clé de la première section refusée, dans l'ordre

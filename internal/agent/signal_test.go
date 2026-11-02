@@ -42,7 +42,7 @@ func answeringServer(t *testing.T, status int, body string) *Client {
 
 // Un tampon avec de quoi remplir chaque section.
 func filledPending() *pending {
-	filled := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: newActionResults(), sshKeys: &sshReports{}, roles: &roleReports{}, host: &hostReports{}, units: &unitReports{}, connections: &connectionReports{}}
+	filled := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: newActionResults(), sshKeys: &sshReports{}, roles: &roleReports{}, host: &hostReports{}, units: &unitReports{}, connections: &connectionReports{}, restic: &resticReports{}}
 	filled.readings.push(sampler.Reading{SampledAt: time.Now(), CPUPercent: 1})
 	filled.reports.Deliver(container.Report{Events: []container.Event{{Action: "start"}}})
 	filled.results.Deliver(probe.Report{Results: []probe.Result{{ProbeID: "p"}}})
@@ -51,6 +51,7 @@ func filledPending() *pending {
 	filled.roles.update(role.Report{Roles: []role.Role{{Name: role.ProxmoxVE, Version: "8.2.4"}}})
 	filled.units.update(systemdunits.Report{Available: true, Units: []systemdunits.Unit{{Name: "forgejo.service", Load: systemdunits.LoadLoaded, Active: systemdunits.ActiveActive, Sub: systemdunits.SubRunning}}})
 	filled.connections.update(hostconn.Report{Available: true, Connections: []hostconn.Connection{{Port: 3000, Origin: hostconn.OriginInternet}}})
+	filled.restic.update(agentwire.ResticReport{Source: &agentwire.ResticSourceReport{Version: "restic 0.18.1"}})
 	return filled
 }
 
@@ -65,6 +66,7 @@ func leftover(left *pending) map[string]bool {
 		agentwire.SectionRoles:           left.roles.take() != nil,
 		agentwire.SectionSystemd:         left.units.take() != nil,
 		agentwire.SectionHostConnections: left.connections.take() != nil,
+		agentwire.SectionRestic:          left.restic.take() != nil,
 	}
 }
 
@@ -87,7 +89,7 @@ func TestSignal_OlderServerRefusesASection_OnlyWhatFollowsIsReplayed(t *testing.
 	if err := signal(context.Background(), client, "session", left, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{agentwire.SectionReadings: false, agentwire.SectionServices: false, agentwire.SectionProbes: true, agentwire.SectionImages: true, agentwire.SectionSSHKeys: true, agentwire.SectionRoles: true, agentwire.SectionSystemd: true, agentwire.SectionHostConnections: true}
+	want := map[string]bool{agentwire.SectionReadings: false, agentwire.SectionServices: false, agentwire.SectionProbes: true, agentwire.SectionImages: true, agentwire.SectionSSHKeys: true, agentwire.SectionRoles: true, agentwire.SectionSystemd: true, agentwire.SectionHostConnections: true, agentwire.SectionRestic: true}
 	if got := leftover(left); !maps.Equal(got, want) {
 		t.Fatalf("tampon = %v, attendu %v", got, want)
 	}

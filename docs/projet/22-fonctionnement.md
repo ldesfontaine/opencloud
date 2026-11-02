@@ -349,6 +349,8 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à un ré-enrôlement qui coche le droit (on ne coche rien à la place de l'opérateur) |
 | `observe.env` | — | Que l'agent **lise l'environnement des conteneurs Docker** et en tire les liens entre instances de la machine (« Les liens de l'environnement »). **Refusé par défaut** : décoché dans le formulaire, absent des préréglages de rôle, absent de la ligne de la machine openCloud ; il se coche **machine par machine**, sous « Avancé : droits de l'agent », avec sa note. Comme `probe.lan`, aucun ordre ne l'exige : c'est une borne de l'observation, lue **une fois** au démarrage de l'agent. Un agent enrôlé avant ne l'a pas : la carte **Liens** de la fiche d'un service dit que l'environnement n'est pas lu et porte le bouton **Ré-enrôler avec « Lire l'environnement… »** (fenêtre déjà cochée, geste de U1) |
 | `agent.update` | — | Les ordres `agent.update` (mettre à jour l'agent depuis le serveur) et `agent.rollback` (revenir à la version précédente) (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire, et ne le fait que sous le lanceur stable |
+| `restic.target` | Un dossier | Recevoir des sauvegardes restic : l'agent lance et surveille `rest-server` en écriture seule sur ce dossier (« Comment restic sauvegarde »). **Refusé par défaut**, coché par machine |
+| `restic.produce` | — | Lancer restic sur la machine pour sauvegarder un service ou une VM vers une cible. **Refusé par défaut**, coché par machine. Une VM demande aussi `backup.produce` |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
@@ -1411,8 +1413,10 @@ au plus, `agentwire.MaxSecretBytes`) mais **jamais écrit** : ni dans
 `action_runs.params`, ni dans le journal d'audit, ni dans un journal `slog`.
 `action.SendWithSecret(…, secret, label)` l'envoie ; l'audit `action.order`
 porte seulement `<label>: sent` (le `.env` d'un déploiement : `env:
-sent`). L'agent le garde dans le corps jugé et le passe à l'exécuteur du genre,
-rien d'autre. Seuls `docker.deploy` et `docker.update` le lisent.
+sent` ; les mots de passe d'un lien restic : `passwords: sent`). L'agent le
+garde dans le corps jugé et le passe à l'exécuteur du genre, rien d'autre.
+Seuls `docker.deploy`, `docker.update`, `restic.provision`, `restic.user.add`
+et `restic.retain` le lisent (« Comment restic sauvegarde »).
 
 **La clé du serveur.** `server.key` (Ed25519) naît au premier démarrage de
 `serve`, à côté de `secret.key`, sous les mêmes règles (« Ce qui est stocké,
@@ -1764,6 +1768,107 @@ démon qui ne liste pas les volumes ne fait pas perdre l'inventaire : la liste
 n'est pas dite complète et `serve` garde celle qu'il avait. Compatibilité : un
 agent plus ancien n'envoie pas de volumes (la machine n'en montre aucun jusqu'à sa
 mise à jour) ; un serveur plus ancien ignore le champ (`installation.md`).
+
+## Comment restic sauvegarde
+
+Un autre chemin que les archives `age` : la source garde ses sauvegardes
+**dans un dépôt restic** sur une machine **cible**. Écran : Sauvegardes.
+
+| Acteur | Rôle | Droit |
+| --- | --- | --- |
+| La source | Son agent lance `restic backup` (un service : son dossier sous la racine de l'agent ; une VM : `vzdump` en flux). Il reçoit du serveur les deux mots de passe du lien (`restic.provision`) et les garde en `0600` | `restic.produce` (+ `backup.produce` pour une VM) |
+| La cible | Son agent lance et surveille **une seule instance** `rest-server --append-only --private-repos --tls` (certificat auto-signé, un an, épinglé par la source, refait si ses noms changent). Il reçoit le mot de passe REST (`restic.user.add`) et en calcule l'empreinte bcrypt ; il applique la rétention chez lui (`restic.retain`), jamais sous son plancher | `restic.target` |
+| Le serveur | Tire, scelle et distribue les mots de passe de chaque lien ; garde les sauvegardes déclarées, leur historique, ce que les agents rapportent ; envoie `restic.target.setup`, `restic.provision`, `restic.user.add`, `restic.user.remove`, `restic.backup`, `restic.retain` ; porte le relais | — |
+
+### Les mots de passe d'un lien
+
+Un lien est une source vers une cible : un dépôt, partagé par toutes les
+sauvegardes de cette source vers cette cible.
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| Première sauvegarde du lien | Le serveur tire deux mots de passe (`crypto/rand`, 32 octets, base64url : 43 caractères) : celui de REST et celui du dépôt. Il les **scelle** avec `secret.key` (`internal/seal`, liés à `restic_links`, à leur colonne et à leur ligne) |
+| Distribution | Dans le **secret signé** d'un ordre (`action.SendWithSecret`), jamais dans ses paramètres : `restic.provision` à la source (les deux), `restic.user.add` à la cible (REST seul), `restic.retain` à la cible (dépôt seul, le temps de la purge) |
+| Sauvegarde suivante du même lien | Les mêmes mots de passe, relus en base |
+| Certificat, adresse ou port de la cible changés | `restic.provision` repart à chaque source liée, mêmes mots de passe |
+| Utilisateur d'un lien absent du rapport de la cible | `restic.user.add` repart ; un utilisateur sans lien est fermé (`restic.user.remove`) |
+| Lien absent du rapport de la source | `restic.provision` repart (état de l'agent refait) |
+| Dernière sauvegarde du lien supprimée | `restic.user.remove` à la cible (sans secret) : l'accès est coupé. Le lien est **retiré** (`restic_links.retired_at`) : ni sauvegarde, ni rétention, invisible dans l'API et l'aperçu, mais ses deux mots de passe **restent scellés**. Les données restent sur la cible |
+| Même couple source → cible redéclaré | Le lien retiré se remet en service : `restic.provision` et `restic.user.add` repartent avec **les mêmes mots de passe**, le dépôt existant se rouvre |
+
+**Ce que ça coûte, accepté par Lucas le 30/10 :** le serveur détient les clés
+des dépôts. Une compromission du serveur (sa base **et** `secret.key`) ouvre
+toutes les sauvegardes restic. Ce que ça rapporte : la purge tourne sans
+saisie, et une source perdue ne rend pas son dépôt illisible. Une copie de la
+base seule ne livre rien : les mots de passe y sont scellés.
+
+### Le chemin se choisit seul, à chaque exécution
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| 1 | L'agent source teste la cible : TCP, puis TLS avec le certificat épinglé |
+| 2 | Joignable : **direct**, restic parle à `rest-server` sans passer par le serveur |
+| 3 | Injoignable : **relais** par le serveur (flux SSE de la cible), sans erreur. Raison fermée : `tcp_unreachable`, `tls_failed`, `target_not_provisioned` |
+| 4 | Le chemin pris et sa raison sont gardés avec l'exécution. Pour un relais, l'écran dit « pour passer en direct : *source* doit joindre *cible*:*port* » |
+
+Jamais de tunnel entre agents. Aucun module n'ouvre de règle de pare-feu : il
+dit ce qu'il faut ouvrir. Le relais est pour de petits volumes : chaque octet
+traverse le serveur deux fois (essai #367, limite 9). L'exécuteur du relais
+écrit dans **le même `rest-server`**, sous l'utilisateur du producteur (son
+mot de passe REST, reçu par `restic.user.add`) : `--private-repos` le borne à
+son dépôt.
+
+### La rétention, appliquée par la cible
+
+| Fait | Comment |
+| --- | --- |
+| Quand | Après les sauvegardes de la nuit, pour chaque dépôt qui a reçu un instantané. **Une seule à la fois**, et jamais pendant une sauvegarde du même dépôt (le verrou par dépôt du serveur ; une sauvegarde lancée pendant ce temps : `restic.backup_running`) |
+| Quoi | `restic forget --prune --group-by host,paths`, local à la cible, avec le mot de passe du dépôt écrit le temps de la commande. Plusieurs sauvegardes sur un dépôt : chaque compte prend **le plus large** d'entre elles |
+| Défaut | 14 nuits, 8 semaines, 3 mois. Une rétention toute à zéro est refusée (`restic.retention_invalid`) |
+| Plancher | Tenu par la cible (`retention-floor.json`), sept nuits par défaut, relevé par `restic.target.setup` (`retention_floor`), **jamais abaissé par un ordre** : l'effacer sur la machine. Rapporté dans le signal de la cible |
+| Sous le plancher | Refusé à la saisie (`restic.retention_below_floor`) ; la nuit ne l'envoie pas et le note refusé (`retention_below_floor`). La cible reste juge : son propre refus est le résultat gardé |
+| Résultat | Sur le lien (`restic_links.retain_*`) ; l'aperçu le montre sous `retention.last_forget` |
+
+Ce que ça rapporte : un serveur compromis ne vide pas un dépôt par une
+rétention vide ; il garde au moins le plancher.
+
+### Ce qui est chiffré, ce qui est stocké
+
+| Fait | Où |
+| --- | --- |
+| Mots de passe REST et du dépôt | Base, **scellés** (`restic_links`, `secret.key`) ; la source en `0600` ; la cible garde le REST (`0600`, pour le relais) et son empreinte bcrypt. Jamais dans un paramètre d'ordre, un run, l'audit, un journal, une réponse d'API, un événement vers un autre agent. Banc de non-fuite dans les tests de l'agent et du serveur |
+| Certificat public de la cible | Rapporté par la cible, envoyé aux sources |
+| Clé privée du certificat | Sur la cible, jamais rapportée |
+| Plancher de rétention | Sur la cible ; rapporté, gardé en base pour juger la saisie |
+| Cibles, liens (retirés compris), sauvegardes, 60 dernières exécutions par sauvegarde, dernière rétention par dépôt, tâches vzdump observées | Base, migration `032_restic` |
+| Suppression | Impossible depuis la source : `--append-only`, et le relais n'accepte `DELETE` que sur `locks/` (deux barrières de plus : courtier et exécuteur de la cible). Aucune route ni aucun verbe ne lance `restic.retain` : seule la nuit du serveur, vers une machine qui tient `restic.target` |
+| Clé perdue (`opencloud secrets forget`) | Les mots de passe des liens sont vidés : les sources sauvegardent encore avec les leurs, la cible ne purge plus ces dépôts (`restic.link_secret_lost`) |
+
+### Installer restic et rest-server
+
+L'agent **ne télécharge ni restic ni rest-server** : aucune somme vérifiable
+sans réseau. Il les cherche dans le `PATH` ou aux chemins `-restic` /
+`-rest-server`, et dit ce qui manque : `restic_missing` (droit `restic.produce`
+indisponible), `rest_server_missing` (droit `restic.target` indisponible), et
+l'état `error`/`binary_missing` de la cible. L'aperçu donne, par machine, son
+système et son architecture enrôlés (`os`, `arch`) et `restic_available` :
+l'écran dit quoi installer. La création d'une sauvegarde est refusée tant
+qu'il manque (`restic.restic_missing`, `restic.rest_server_missing`).
+
+### Risques connus, acceptés
+
+| Risque | Pourquoi on l'accepte |
+| --- | --- |
+| Événement de relais non signé par le serveur | Comme les observations. Le serveur détient déjà les clés des dépôts : signer cet événement n'ôterait rien à un serveur compromis. La cible rejuge la requête, et `rest-server` en ajout seul décide en dernier |
+| Un lien retiré garde ses mots de passe | Décision de Lucas (02/11) : c'est ce qui rouvre le dépôt, toujours sur la cible sous le même utilisateur, si le couple est redéclaré. Coût : des secrets restent scellés en base pour un dépôt que plus personne ne sauvegarde. Ils suivent `opencloud secrets rotate` et la vérification au démarrage ; l'opérateur peut les oublier avec `opencloud secrets forget` (le dépôt ne se rouvrira plus depuis openCloud) |
+| Volumes nommés Docker | Non couverts : l'écran le dit |
+
+### Les sauvegardes que Proxmox fait déjà
+
+Le serveur lit `/cluster/backup` (tâches vzdump) avec le jeton en lecture seule
+de l'hôte, comme les stockages. Chaque invité couvert affiche, **sans plan
+openCloud**, sa prochaine sauvegarde, son stockage et sa rétention
+(`prune-backups`). Un refus (403) se lit « inconnu », pas « aucune ».
 
 ## Comment un service se déploie
 
