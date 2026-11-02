@@ -75,6 +75,9 @@ DELETE /api/directory/projects/{id}
 GET /api/directory/projects/{id}/delete-plan
 POST /api/directory/links
 DELETE /api/directory/links/{id}
+POST /api/directory/links/{id}/actions/confirm
+POST /api/directory/links/{id}/actions/dismiss
+POST /api/directory/links/{id}/actions/restore
 GET /api/directory/gaps
 GET /api/directory/proposal
 POST /api/directory/ignored

@@ -60,3 +60,22 @@ func TestLink_FreshnessAndRemovability(t *testing.T) {
 		t.Error("pile 7 jours n'est pas encore ancien")
 	}
 }
+
+func TestLink_ADeducedRowIsTheTraceOfADismissal(t *testing.T) {
+	dismissed := Link{Proof: ProofDeduced, Signal: SignalOperator, Nature: NatureRoute}
+	confirmed := Link{Proof: ProofDeclared, Signal: SignalOperator, Nature: NatureRoute}
+	if !dismissed.Dismissed() || dismissed.Removable() {
+		t.Error("une route écartée se rétablit, elle ne se retire pas")
+	}
+	if confirmed.Dismissed() || !confirmed.Removable() {
+		t.Error("une route confirmée est un lien de l'opérateur")
+	}
+}
+
+func TestDeducedID_IsTheSameForTheSamePairOnly(t *testing.T) {
+	a := Endpoint{MachineID: "m1", Key: ContainerKey("caddy")}
+	b := Endpoint{MachineID: "m2", Key: ContainerKey("blog")}
+	if DeducedID(a, b, NatureRoute) != DeducedID(a, b, NatureRoute) || DeducedID(a, b, NatureRoute) == DeducedID(b, a, NatureRoute) {
+		t.Error("l'identifiant se refait de la paire, dans son sens")
+	}
+}

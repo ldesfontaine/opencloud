@@ -145,7 +145,7 @@ func closedKeyLists() []composedKeys {
 		{prefix: "link.", values: []string{"outgoing", "incoming"}},
 		{prefix: "link.nature_", values: []string{string(link.NatureOrder), string(link.NatureConfig), string(link.NatureRoute), string(link.NatureTraffic)}},
 		{prefix: "link.proof_", values: []string{string(link.ProofDeclared), string(link.ProofDeduced), string(link.ProofObserved)}},
-		{prefix: "link.signal_", values: []string{string(link.SignalDependsOn), string(link.SignalContainerLink), string(link.SignalOperator)}},
+		{prefix: "link.signal_", values: []string{string(link.SignalDependsOn), string(link.SignalContainerLink), string(link.SignalOperator), string(link.SignalPublicURL)}},
 		{prefix: "gap.state_", values: names(directory.GapStates())},
 		{prefix: "gap.reason_", values: names(directory.GapReasons())},
 		{prefix: "gap.level_", values: names(container.MatchLevels())},

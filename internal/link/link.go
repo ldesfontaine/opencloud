@@ -1,6 +1,8 @@
 package link
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"time"
 
@@ -16,9 +18,10 @@ const (
 	// NatureConfig : A est configuré pour joindre B. L'opérateur qui écrit un
 	// lien à la main dit cela.
 	NatureConfig Nature = "config"
-	// NatureRoute et NatureTraffic : réservées aux routes publiques et aux
-	// connexions vues, qui n'ont pas encore de source.
-	NatureRoute   Nature = "route"
+	// NatureRoute : le proxy envoie vers le service ce qui arrive à son adresse
+	// publique. Déduite (SignalPublicURL), puis confirmée par l'opérateur.
+	NatureRoute Nature = "route"
+	// NatureTraffic : réservée aux connexions vues, qui n'ont pas de source.
 	NatureTraffic Nature = "traffic"
 )
 
@@ -28,7 +31,9 @@ type Proof string
 const (
 	// ProofDeclared : écrit, par l'opérateur ou par la configuration d'un outil.
 	ProofDeclared Proof = "declared"
-	// ProofDeduced : calculé à partir d'un autre fait. Pas encore écrit.
+	// ProofDeduced : calculé à partir d'un autre fait, à chaque lecture. Un lien
+	// déduit ne s'écrit pas ; la seule ligne « déduit » qui existe en base est
+	// la trace d'un lien que l'opérateur a écarté (Link.Dismissed).
 	ProofDeduced Proof = "deduced"
 	// ProofObserved : une connexion ou un état lu. Pas encore écrit.
 	ProofObserved Proof = "observed"
@@ -41,6 +46,9 @@ const (
 	SignalDependsOn     Signal = "depends_on"
 	SignalContainerLink Signal = "container_link"
 	SignalOperator      Signal = "operator"
+	// SignalPublicURL : le service a une adresse publique et un service fournit
+	// la capacité proxy. Jamais écrit : la table n'en connaît pas la valeur.
+	SignalPublicURL Signal = "public_url"
 )
 
 // StaleAfter : un lien déclaré par un outil et non revu depuis ce délai est
@@ -124,7 +132,14 @@ func (l Link) Stale(now time.Time) bool {
 // Removable : seul l'opérateur retire ce qu'il a écrit. Un lien tiré de
 // depends_on se retire du fichier Compose, sinon il revient au rapport suivant.
 func (l Link) Removable() bool {
-	return l.Signal == SignalOperator
+	return l.Signal == SignalOperator && !l.Dismissed()
+}
+
+// Dismissed : la trace d'un lien déduit que l'opérateur a écarté. Il ne
+// revient pas tant que l'opérateur ne le rétablit pas, même si la déduction
+// qui l'avait fait naître change.
+func (l Link) Dismissed() bool {
+	return l.Proof == ProofDeduced
 }
 
 // Touches dit si une extrémité du lien est sur la machine.
@@ -138,6 +153,16 @@ type Definition struct {
 	To   Endpoint
 	Port int
 }
+
+// DeducedID : l'identifiant d'un lien déduit. Il n'a pas de ligne en base : il
+// se refait de la paire, donc il est le même à chaque lecture.
+func DeducedID(from, to Endpoint, nature Nature) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{from.MachineID, from.Key, to.MachineID, to.Key, string(nature)}, "\x00")))
+	return DeducedPrefix + hex.EncodeToString(sum[:8])
+}
+
+// DeducedPrefix précède l'identifiant d'un lien déduit.
+const DeducedPrefix = "ded_"
 
 // Order : un lien d'ordre lu dans la configuration d'une machine. Les deux
 // extrémités sont sur elle.

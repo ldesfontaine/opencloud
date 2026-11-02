@@ -23,7 +23,13 @@ type Linker interface {
 	Declare(ctx context.Context, definition link.Definition) (link.Link, error)
 	Remove(ctx context.Context, id string) error
 	List(ctx context.Context, machineID string) ([]link.Link, error)
+	ConfirmRoute(ctx context.Context, definition link.Definition) (link.Link, error)
+	DismissRoute(ctx context.Context, definition link.Definition) (link.Link, error)
+	Restore(ctx context.Context, id string) error
+	ListDismissed(ctx context.Context, machineID string) ([]link.Link, error)
 }
+
+var errNoLinker = errors.New("links are not wired")
 
 // SetLinker branche les liens : sans lui, aucun service n'a de lien.
 func (d *Directory) SetLinker(linker Linker) {
@@ -64,12 +70,14 @@ type LinkEnd struct {
 }
 
 // ServiceLink est un lien lu depuis un service : de son côté (Self) vers
-// l'autre (Peer). Outgoing dit si le service est la source.
+// l'autre (Peer). Outgoing dit si le service est la source. Dismissed : une
+// route déduite que l'opérateur a écartée, gardée pour pouvoir la rétablir.
 type ServiceLink struct {
-	Link     link.Link
-	Outgoing bool
-	Self     LinkEnd
-	Peer     LinkEnd
+	Link      link.Link
+	Outgoing  bool
+	Dismissed bool
+	Self      LinkEnd
+	Peer      LinkEnd
 }
 
 // LinkDefinition : ce que l'opérateur donne. Chaque extrémité est un service
@@ -85,7 +93,7 @@ type LinkDefinition struct {
 // DeclareLink écrit le lien que l'opérateur décrit entre deux unités.
 func (d *Directory) DeclareLink(ctx context.Context, definition LinkDefinition) (link.Link, error) {
 	if d.linker == nil {
-		return link.Link{}, errors.New("links are not wired")
+		return link.Link{}, errNoLinker
 	}
 	from, err := d.linkEndpoint(ctx, definition.FromServiceID, definition.FromUnitID)
 	if err != nil {
@@ -131,15 +139,17 @@ func (d *Directory) linkEndpoint(ctx context.Context, serviceID, unitID string) 
 // RemoveLink retire un lien que l'opérateur a écrit.
 func (d *Directory) RemoveLink(ctx context.Context, id string) error {
 	if d.linker == nil {
-		return errors.New("links are not wired")
+		return errNoLinker
 	}
 	return d.linker.Remove(ctx, id)
 }
 
 // ServiceLinks rend les liens des instances d'un service, entrants et
 // sortants, chaque extrémité nommée par le service déclaré qui la porte
-// quand il y en a un. Un lien d'une unité du service vers une autre unité du
-// même service est rendu une fois, sortant.
+// quand il y en a un. Viennent d'abord les liens écrits, puis les routes
+// déduites à confirmer, puis celles que l'opérateur a écartées. Un lien d'une
+// unité du service vers une autre unité du même service est rendu une fois,
+// sortant.
 func (d *Directory) ServiceLinks(ctx context.Context, serviceID string) ([]ServiceLink, error) {
 	owner, err := d.store.GetDeclaredService(ctx, serviceID)
 	if err != nil {
@@ -152,7 +162,15 @@ func (d *Directory) ServiceLinks(ctx context.Context, serviceID string) ([]Servi
 	if err != nil {
 		return nil, err
 	}
+	dismissed, err := d.linker.ListDismissed(ctx, owner.MachineID)
+	if err != nil {
+		return nil, err
+	}
 	declared, err := d.store.ListDeclaredServices(ctx, Filter{})
+	if err != nil {
+		return nil, err
+	}
+	deduced, err := d.deducedRoutes(ctx, declared)
 	if err != nil {
 		return nil, err
 	}
@@ -164,13 +182,22 @@ func (d *Directory) ServiceLinks(ctx context.Context, serviceID string) ([]Servi
 		}
 	}
 	links := []ServiceLink{}
-	for _, found := range stored {
+	place := func(found link.Link, isDismissed bool) {
 		switch {
 		case own[found.From]:
-			links = append(links, ServiceLink{Link: found, Outgoing: true, Self: ends.of(found.From), Peer: ends.of(found.To)})
+			links = append(links, ServiceLink{Link: found, Outgoing: true, Dismissed: isDismissed, Self: ends.of(found.From), Peer: ends.of(found.To)})
 		case own[found.To]:
-			links = append(links, ServiceLink{Link: found, Self: ends.of(found.To), Peer: ends.of(found.From)})
+			links = append(links, ServiceLink{Link: found, Dismissed: isDismissed, Self: ends.of(found.To), Peer: ends.of(found.From)})
 		}
+	}
+	for _, found := range stored {
+		place(found, false)
+	}
+	for _, found := range deduced {
+		place(found, false)
+	}
+	for _, found := range dismissed {
+		place(found, true)
 	}
 	return links, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
@@ -71,6 +72,25 @@ func (s *Service) changed() {
 // Declare écrit le lien que l'opérateur décrit : preuve « déclaré », signal
 // « opérateur », nature « configuré pour joindre ».
 func (s *Service) Declare(ctx context.Context, definition Definition) (Link, error) {
+	return s.write(ctx, definition, NatureConfig, ProofDeclared, audit.LinkCreate)
+}
+
+// ConfirmRoute écrit en lien déclaré la route que l'opérateur a reconnue juste
+// dans les liens déduits : elle devient sienne, et ne se recalcule plus.
+func (s *Service) ConfirmRoute(ctx context.Context, definition Definition) (Link, error) {
+	return s.write(ctx, definition, NatureRoute, ProofDeclared, audit.LinkConfirm)
+}
+
+// DismissRoute garde la trace d'une route déduite que l'opérateur écarte :
+// tant qu'elle est là, la déduction ne la propose plus.
+func (s *Service) DismissRoute(ctx context.Context, definition Definition) (Link, error) {
+	return s.write(ctx, definition, NatureRoute, ProofDeduced, audit.LinkDismiss)
+}
+
+// write valide une définition, vérifie ses machines, puis l'écrit avec la
+// nature et la preuve demandées. Le signal est toujours « opérateur » : c'est
+// un geste de l'opérateur.
+func (s *Service) write(ctx context.Context, definition Definition, nature Nature, proof Proof, action audit.Action) (Link, error) {
 	if err := definition.Validate(); err != nil {
 		return Link{}, err
 	}
@@ -90,15 +110,32 @@ func (s *Service) Declare(ctx context.Context, definition Definition) (Link, err
 	now := s.now().UTC()
 	written := Link{
 		ID: ServicePrefix + id, From: definition.From, To: definition.To,
-		Nature: NatureConfig, Proof: ProofDeclared, Signal: SignalOperator, Port: definition.Port,
+		Nature: nature, Proof: proof, Signal: SignalOperator, Port: definition.Port,
 		FirstSeen: now, LastSeen: now,
 	}
 	if err := s.store.InsertLink(ctx, written); err != nil {
 		return Link{}, err
 	}
-	s.auditor.Record(ctx, event(audit.LinkCreate, written))
+	s.auditor.Record(ctx, event(action, written))
 	s.changed()
 	return written, nil
+}
+
+// Restore rend à la déduction une route écartée : elle se propose de nouveau.
+func (s *Service) Restore(ctx context.Context, id string) error {
+	found, err := s.store.GetLink(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !found.Dismissed() {
+		return ErrNotFound
+	}
+	if err := s.store.DeleteLink(ctx, id); err != nil {
+		return err
+	}
+	s.auditor.Record(ctx, event(audit.LinkRestore, found))
+	s.changed()
+	return nil
 }
 
 // Remove retire un lien que l'opérateur a écrit. Un lien tiré d'une
@@ -107,6 +144,9 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 	found, err := s.store.GetLink(ctx, id)
 	if err != nil {
 		return err
+	}
+	if found.Dismissed() {
+		return ErrNotFound
 	}
 	if !found.Removable() {
 		return ErrNotRemovable
@@ -120,9 +160,23 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 }
 
 // List rend les liens dont une extrémité est sur la machine, tous si
-// machineID est vide.
+// machineID est vide. Les routes écartées n'y sont pas : ce ne sont pas des
+// liens, seulement la mémoire d'un refus (ListDismissed).
 func (s *Service) List(ctx context.Context, machineID string) ([]Link, error) {
-	return s.store.ListLinks(ctx, machineID)
+	return s.filtered(ctx, machineID, func(found Link) bool { return !found.Dismissed() })
+}
+
+// ListDismissed rend les routes que l'opérateur a écartées.
+func (s *Service) ListDismissed(ctx context.Context, machineID string) ([]Link, error) {
+	return s.filtered(ctx, machineID, Link.Dismissed)
+}
+
+func (s *Service) filtered(ctx context.Context, machineID string, keep func(Link) bool) ([]Link, error) {
+	stored, err := s.store.ListLinks(ctx, machineID)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(stored, func(found Link) bool { return !keep(found) }), nil
 }
 
 // RecordOrders écrit les liens d'ordre que la configuration des conteneurs
