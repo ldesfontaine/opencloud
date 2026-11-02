@@ -150,6 +150,8 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 		return machine.CapabilityResticTarget, true
 	case agentwire.KindResticVerify:
 		return machine.CapabilityResticVerify, true
+	case agentwire.KindResticBrowse:
+		return machine.CapabilityResticBrowse, true
 	// Une sauvegarde d'invité demande aussi backup.produce : l'agent le juge
 	// à l'ordre, avec ses paramètres.
 	case agentwire.KindResticProvision, agentwire.KindResticBackup:

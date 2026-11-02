@@ -97,6 +97,7 @@ export const writes = [
   "DELETE /api/machines/{id}/restic-backups/{backup}",
   "POST /api/machines/{id}/restic-backups/{backup}/actions/run",
   "POST /api/machines/{id}/restic-backups/{backup}/actions/verify",
+  "POST /api/machines/{id}/restic-backups/{backup}/actions/browse",
   "POST /api/verb-requests/{id}/actions/confirm",
   "POST /api/verb-requests/{id}/actions/reject",
 ] as const;

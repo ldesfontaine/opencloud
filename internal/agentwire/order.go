@@ -264,6 +264,9 @@ type ActionResult struct {
 	// Les comptes d'une vérification restic.verify réussie ; absent pour les
 	// autres ordres.
 	Verify *ResticVerifyReport `json:"verify,omitempty"`
+	// Ce qu'un parcours restic.browse a lu : des noms, jamais un contenu ;
+	// absent pour les autres ordres.
+	Browse *ResticBrowseReport `json:"browse,omitempty"`
 }
 
 // OutputLine est une ligne de la sortie d'un ordre ; stream vaut « stdout »

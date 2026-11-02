@@ -53,6 +53,12 @@ const (
 	// le mot de passe du dépôt pour la rétention, mais ce droit le dit en
 	// clair. Demande restic.target. Refusé par défaut, coché par machine.
 	CapabilityResticVerify = "restic.verify"
+	// Parcourir les dépôts reçus : la cible lit les NOMS, tailles et dates des
+	// fichiers d'un instantané et les rend à l'écran qui les demande (l'explorateur
+	// de la page Sauvegardes). Rien du contenu, rien n'est écrit ni restauré ;
+	// le serveur ne garde pas les noms. Demande restic.target. Refusé par
+	// défaut, coché par machine : les noms de fichiers sont déjà une donnée.
+	CapabilityResticBrowse = "restic.browse"
 )
 
 // CapabilityNames rend la liste fermée, dans l'ordre où elle s'affiche :
@@ -62,7 +68,7 @@ func CapabilityNames() []string {
 		CapabilityObserve, CapabilityProbeLAN, CapabilityObserveEnv, CapabilityAgentUpdate, CapabilityDockerDeploy,
 		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite,
 		CapabilityProxmoxPower, CapabilityProxmoxSnapshot, CapabilityResticTarget, CapabilityResticProduce, CapabilityResticDocker,
-		CapabilityResticVerify,
+		CapabilityResticVerify, CapabilityResticBrowse,
 	}
 }
 

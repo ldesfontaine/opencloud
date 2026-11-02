@@ -219,6 +219,9 @@ const (
 	// Le dépôt d'une sauvegarde vérifié par sa cible (restic.verify), à la
 	// main ou par la règle de la nuit : jamais le mot de passe du dépôt.
 	ResticBackupVerify Action = "restic_backup.verify"
+	// Les sauvegardes parcourues dans l'explorateur : l'instantané et le
+	// dossier lus, jamais un nom de fichier ni le mot de passe du dépôt.
+	ResticBackupBrowse Action = "restic_backup.browse"
 
 	// Un pare-feu déclaré, redéclaré ou retiré. Ni la clé ni le secret n'y
 	// figurent : seulement l'hôte de l'API et si l'empreinte est épinglée.
@@ -260,7 +263,7 @@ func Actions() []Action {
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
 		FirewallCreate, FirewallUpdate, FirewallDelete,
 		VerbRequest, VerbReject, VerbExpire,
-		ResticTargetSetup, ResticTargetRemove, ResticBackupCreate, ResticBackupUpdate, ResticBackupDelete, ResticBackupRun, ResticBackupVerify,
+		ResticTargetSetup, ResticTargetRemove, ResticBackupCreate, ResticBackupUpdate, ResticBackupDelete, ResticBackupRun, ResticBackupVerify, ResticBackupBrowse,
 	}
 }
 

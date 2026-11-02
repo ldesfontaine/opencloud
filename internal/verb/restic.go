@@ -39,4 +39,10 @@ func init() {
 		Params: []string{"id", "backup"}, Body: []string{}, Target: TargetMachine,
 		Label: "api_token.verb_restic_backup_verify", Summary: "api_token.verb_restic_backup_verify_text", Reverse: "restic.backup.verify",
 	})
+	// Parcourir un dépôt n'écrit ni n'efface rien : il est son propre inverse.
+	Default.MustRegister(Verb{
+		ID: "restic.backup.browse", Route: "POST /api/machines/{id}/restic-backups/{backup}/actions/browse",
+		Params: []string{"id", "backup"}, Body: []string{"snapshot", "path"}, Target: TargetMachine,
+		Label: "api_token.verb_restic_backup_browse", Summary: "api_token.verb_restic_backup_browse_text", Reverse: "restic.backup.browse",
+	})
 }

@@ -374,6 +374,7 @@ type ResticService interface {
 	DeleteBackup(ctx context.Context, sourceID, id string) error
 	RunNow(ctx context.Context, sourceID, id string) (action.Run, error)
 	VerifyNow(ctx context.Context, sourceID, id string) (action.Run, error)
+	Browse(ctx context.Context, sourceID, id string, request restic.BrowseRequest) (agentwire.ResticBrowseReport, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.

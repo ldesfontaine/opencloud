@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -448,7 +449,7 @@ const (
 // part sans réponse.
 func seedE2ERestic(t *testing.T, ts *testServer) {
 	t.Helper()
-	pi := e2eConnect(t, ts, "pi", e2ePiID, "observe,restic.target=/srv/restic,restic.verify")
+	pi := e2eConnect(t, ts, "pi", e2ePiID, "observe,restic.target=/srv/restic,restic.verify,restic.browse")
 	docker := e2eConnect(t, ts, "docker1", e2eDockerID, "observe,restic.produce,restic.docker")
 	north := e2eConnect(t, ts, "pve-nord", e2eNorthID, "observe,restic.produce")
 	pve := e2eConnect(t, ts, "pve", e2ePveID, "observe,restic.produce,backup.produce=proxmox-vzdump")
@@ -492,9 +493,10 @@ func seedE2ERestic(t *testing.T, ts *testServer) {
 			t.Fatal(err)
 		}
 	}
-	for _, session := range []*machine.Session{pi, docker, north, pve, nas} {
+	for _, session := range []*machine.Session{docker, north, pve, nas} {
 		go e2eIgnoreOrders(session)
 	}
+	go e2eServeBrowse(t, ts, pi)
 	seedE2EMissingBinaries(t, ts)
 }
 
@@ -853,4 +855,48 @@ func e2eBackupID(t *testing.T, ts *testServer, name string) string {
 	}
 	t.Fatalf("no restic backup named %s", name)
 	return ""
+}
+
+// e2eServeBrowse fait répondre pi aux parcours de l'explorateur (B5) avec un
+// même arbre fictif, quel que soit le dépôt : trois instantanés, des dossiers
+// et quelques fichiers. Les autres ordres sont lus et laissés sans réponse.
+func e2eServeBrowse(t *testing.T, ts *testServer, pi *machine.Session) {
+	snapshots := []agentwire.BrowseSnapshot{
+		{ID: strings.Repeat("c", 64), Time: "2026-09-12T02:30:00Z", Paths: []string{"/srv/appli"}},
+		{ID: strings.Repeat("d", 64), Time: "2026-09-11T02:30:00Z", Paths: []string{"/srv/appli"}},
+		{ID: strings.Repeat("e", 64), Time: "2026-09-05T02:30:00Z", Paths: []string{"/srv/appli"}},
+	}
+	tree := map[string][]agentwire.BrowseEntry{
+		"/":                 {{Name: "srv", Kind: "dir", ModTime: "2026-09-12T02:30:00Z"}},
+		"/srv":              {{Name: "appli", Kind: "dir", ModTime: "2026-09-12T02:30:00Z"}},
+		"/srv/appli":        {{Name: "config", Kind: "dir", ModTime: "2026-07-01T10:00:00Z"}, {Name: "data", Kind: "dir", ModTime: "2026-09-12T02:30:00Z"}, {Name: "docker-compose.yml", Kind: "file", Size: 1229, ModTime: "2026-07-01T10:00:00Z"}, {Name: "app.ini", Kind: "file", Size: 3481, ModTime: "2026-07-01T10:05:00Z"}},
+		"/srv/appli/config": {{Name: "app.ini", Kind: "file", Size: 3481, ModTime: "2026-07-01T10:05:00Z"}, {Name: "custom.css", Kind: "file", Size: 812, ModTime: "2026-05-02T08:00:00Z"}},
+	}
+	for event := range pi.Events() {
+		if event.Name != agentwire.EventOrder {
+			continue
+		}
+		signed, err := agentwire.DecodeSignedOrder(event.Data)
+		if err != nil {
+			continue
+		}
+		var body agentwire.OrderBody
+		if json.Unmarshal(signed.Body, &body) != nil || body.Kind != agentwire.KindResticBrowse {
+			continue
+		}
+		var params agentwire.ResticBrowseParams
+		if json.Unmarshal(body.Params, &params) != nil {
+			continue
+		}
+		report := agentwire.ResticBrowseReport{}
+		if params.Snapshot == "" {
+			report.Snapshots = snapshots
+		} else {
+			report.Entries = tree[params.Path]
+		}
+		result := agentwire.ActionReport{Results: []agentwire.ActionResult{{RunID: body.RunID, State: agentwire.ActionSucceeded, Browse: &report}}}
+		if got := signalAnnouncingSections(ts, pi.Token, agentwire.SignalRequest{Actions: &result}); got.Code != http.StatusNoContent {
+			t.Errorf("browse report: %d %s", got.Code, got.Body.String())
+		}
+	}
 }

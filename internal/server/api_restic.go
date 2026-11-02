@@ -146,3 +146,33 @@ func (s *Server) verifyResticBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 }
+
+// browseResticBackup fait lire le dépôt de la sauvegarde par sa cible : les
+// instantanés (corps vide), ou le contenu d'un dossier d'un instantané. La
+// requête attend la cible ; rien n'est gardé.
+func (s *Server) browseResticBackup(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Snapshot string `json:"snapshot"`
+		Path     string `json:"path"`
+	}
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	report, err := s.restic.Browse(r.Context(), r.PathValue("id"), r.PathValue("backup"), restic.BrowseRequest{Snapshot: request.Snapshot, Path: request.Path})
+	if s.failed(w, r, err, restic.ErrBackupNotFound) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, browseReportToJSON(report))
+}
+
+// browseReportToJSON : des listes toujours présentes, jamais null.
+func browseReportToJSON(report agentwire.ResticBrowseReport) map[string]any {
+	snapshots, entries := report.Snapshots, report.Entries
+	if snapshots == nil {
+		snapshots = []agentwire.BrowseSnapshot{}
+	}
+	if entries == nil {
+		entries = []agentwire.BrowseEntry{}
+	}
+	return map[string]any{"snapshots": snapshots, "entries": entries, "truncated": report.Truncated}
+}

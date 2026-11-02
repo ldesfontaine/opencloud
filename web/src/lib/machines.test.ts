@@ -118,7 +118,7 @@ test("les droits Proxmox suivent files.write, sans chemin, et ne se proposent qu
 });
 
 test("les droits restic ferment la liste : la cible porte son seul dossier, la source aucun", () => {
-  expect(capabilityNames.slice(-4)).toEqual(["restic.target", "restic.produce", "restic.docker", "restic.verify"]);
+  expect(capabilityNames.slice(-5)).toEqual(["restic.target", "restic.produce", "restic.docker", "restic.verify", "restic.browse"]);
   expect(capabilitiesOf({ rights: ["restic.produce", "restic.target"], backupPath: "", writePaths: "", resticPath: " /srv/restic " })).toEqual([
     { name: "restic.target", paths: ["/srv/restic"] },
     { name: "restic.produce", paths: [] },

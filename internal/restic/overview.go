@@ -679,6 +679,7 @@ func fitsOf(inputs overviewInputs) []MachineFit {
 				produce,
 				RightOf(status, machine.CapabilityResticDocker),
 				RightOf(status, machine.CapabilityResticVerify),
+				RightOf(status, machine.CapabilityResticBrowse),
 				RightOf(status, machine.CapabilityBackupProduce),
 			},
 		})

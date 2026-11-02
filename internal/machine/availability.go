@@ -89,7 +89,7 @@ func JudgedCapabilities() []string {
 	return []string{
 		CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive,
 		CapabilityBackupProduce, CapabilityFilesWrite, CapabilityProxmoxPower, CapabilityProxmoxSnapshot,
-		CapabilityResticTarget, CapabilityResticProduce, CapabilityResticDocker, CapabilityResticVerify,
+		CapabilityResticTarget, CapabilityResticProduce, CapabilityResticDocker, CapabilityResticVerify, CapabilityResticBrowse,
 	}
 }
 
