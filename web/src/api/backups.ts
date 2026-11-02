@@ -97,8 +97,9 @@ export interface PlanRequest {
 // fermés ; l'écran compose ses phrases. Sujets du direct : voir topicsOf.
 
 // database : la base de la machine openCloud ; vm, lxc : un invité Proxmox ;
-// service : un service Compose déclaré ; docker_volume : un volume nommé.
-type OverviewSourceKind = "database" | "vm" | "lxc" | "service" | "docker_volume";
+// service : un service Compose déclaré ; docker_volume : un volume nommé ;
+// firewall : la configuration d'un pare-feu déclaré, lue par le serveur.
+type OverviewSourceKind = "database" | "vm" | "lxc" | "service" | "docker_volume" | "firewall";
 
 // observed : une tâche vzdump que Proxmox mène de lui-même ; archive : un plan
 // d'archives chiffrées d'openCloud ; restic : une sauvegarde restic d'openCloud.

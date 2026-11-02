@@ -23,7 +23,21 @@ const (
 	DnsmasqLeasesPath = "/api/dnsmasq/leases/search"
 	KeaLeasesPath     = "/api/kea/leases4/search"
 	ISCLeasesPath     = "/api/dhcpv4/leases/searchLease"
+	ExportPath        = "/api/core/backup/download/this"
 )
+
+// ConfigurationSecret est une valeur secrète semée dans le config.xml du
+// faux : les bancs de non-fuite la cherchent dans toute sortie du serveur.
+const ConfigurationSecret = "seeded-opnsense-config-secret-9f3a" // #nosec G101 -- faux secret de test, gitleaks:allow
+
+// Configuration est le config.xml que le faux livre sur ExportPath.
+const Configuration = `<?xml version="1.0"?>
+<opnsense>
+  <system><hostname>fw</hostname><domain>example.lan</domain>
+    <user><name>root</name><password>` + ConfigurationSecret + `</password></user>
+  </system>
+</opnsense>
+`
 
 // Server est le faux OPNsense. Il garde la méthode et le chemin de chaque
 // requête, et refuse toute autre paire de clés que Key et Secret.
@@ -96,6 +110,7 @@ func (fake *Server) Pin() string {
 // les contrôleurs d'OPNsense rendent (grilles « rows », « items » des
 // passerelles, « versions » du tableau de bord).
 var RealisticAnswers = map[string]string{
+	ExportPath:  Configuration,
 	VersionPath: `{"name":"fw.example.lan","versions":["OPNsense 25.1.6-amd64","FreeBSD 14.2-RELEASE-p3","OpenSSL 3.0.16 11 Feb 2025"],"updates":"Click to check for updates."}`,
 	InterfacesPath: `{"total":3,"rowCount":3,"current":1,"rows":[
 		{"identifier":"wan","device":"igb0","description":"WAN","status":"up","enabled":true,"link_type":"dhcp","addr4":"203.0.113.2/24","addr6":"","gateways":["WAN_DHCP"]},

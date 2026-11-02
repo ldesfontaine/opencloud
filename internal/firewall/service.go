@@ -41,6 +41,7 @@ type Store interface {
 	// n'y en avait pas.
 	DeleteFirewall(ctx context.Context, id string) error
 	ListFirewallIDs(ctx context.Context) ([]string, error)
+	ListFirewalls(ctx context.Context) ([]Summary, error)
 	// ReplaceFirewallSnapshot remplace en une transaction ce que le pare-feu
 	// avait ; ErrNotFound s'il a été retiré entre-temps.
 	ReplaceFirewallSnapshot(ctx context.Context, id string, snapshot Snapshot, at time.Time) error

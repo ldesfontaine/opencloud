@@ -27,7 +27,7 @@ const (
 
 // SourceKinds rend la liste fermée des genres de source.
 func SourceKinds() []string {
-	return []string{KindDatabase, KindVM, KindLXC, KindVolume}
+	return []string{KindDatabase, KindVM, KindLXC, KindVolume, KindFirewall}
 }
 
 // TargetKinds rend la liste fermée des genres de cible.
@@ -209,6 +209,11 @@ func (s *Service) Inventory(ctx context.Context) (Inventory, error) {
 	for _, volume := range volumes {
 		sources = append(sources, volumeSource(volume))
 	}
+	firewallSources, err := s.firewallSources(ctx)
+	if err != nil {
+		return Inventory{}, err
+	}
+	sources = append(sources, firewallSources...)
 	for index := range sources {
 		source := &sources[index]
 		source.CoveredBy = coverageOf(*source, plans, destinationsByID, now)
@@ -247,6 +252,30 @@ func (s *Service) databaseSource(ctx context.Context) Source {
 		source.MachineName = local.Name
 	}
 	return source
+}
+
+// firewallSources : un pare-feu déclaré est une source, lue par le serveur sur
+// la machine openCloud.
+func (s *Service) firewallSources(ctx context.Context) ([]Source, error) {
+	if s.firewalls == nil {
+		return nil, nil
+	}
+	declared, err := s.firewalls.Declared(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list declared firewalls: %w", err)
+	}
+	machineName := ""
+	if local, err := s.machines.Get(ctx, machine.LocalID); err == nil {
+		machineName = local.Name
+	}
+	sources := make([]Source, 0, len(declared))
+	for _, firewall := range declared {
+		sources = append(sources, Source{
+			Key: FirewallSourceKey(firewall.ID), Kind: KindFirewall, Name: firewall.Name, ID: firewall.ID,
+			MachineID: machine.LocalID, MachineName: machineName,
+		})
+	}
+	return sources, nil
 }
 
 func guestSource(guest ObservedGuest) Source {
@@ -293,6 +322,8 @@ func planCovers(plan Plan, source Source) bool {
 	switch {
 	case plan.SourceKind == SourceDatabase:
 		return source.Kind == KindDatabase
+	case plan.IsFirewallExport():
+		return source.Kind == KindFirewall && source.ID == plan.Selector
 	case plan.SourceKind == SourceAgent && plan.Producer == machine.ProducerProxmoxVzdump:
 		if source.Kind != KindVM && source.Kind != KindLXC || source.MachineID != plan.SourceMachineID {
 			return false

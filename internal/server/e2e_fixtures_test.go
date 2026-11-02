@@ -146,6 +146,22 @@ func seedE2EFirewall(t *testing.T, ts *testServer) {
 	fake.Answer(opnsensetest.RulesPath, http.StatusOK, e2eFirewallRules())
 	fake.Answer(opnsensetest.DnsmasqLeasesPath, http.StatusOK, e2eFirewallLeases)
 	declareFirewallThroughAPI(t, ts, fake)
+	seedE2EFirewallWithoutExport(t, ts)
+}
+
+// seedE2EFirewallWithoutExport déclare « Secours » : sa clé répond aux
+// relevés, mais l'export de la configuration lui est refusé (il manque le
+// privilège « Diagnostics: Configuration History »). Le parcours de B3 y vérifie
+// que l'assistant dit le libellé exact.
+func seedE2EFirewallWithoutExport(t *testing.T, ts *testServer) {
+	t.Helper()
+	fake := opnsensetest.New(t)
+	fake.Answer(opnsensetest.ExportPath, http.StatusForbidden, `{"status":403,"message":"Forbidden"}`)
+	request := firewallRequestFor(fake, opnsensetest.Secret)
+	request.Name = "Secours"
+	if got := callAPI(ts.Server, http.MethodPost, "/api/firewalls", request); got.Code != http.StatusCreated {
+		t.Fatalf("declare Secours: %d %s", got.Code, got.Body.String())
+	}
 }
 
 // e2eFirewallInterfaces : quatre zones, dont une sans lien, pour que la fiche

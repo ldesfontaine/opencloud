@@ -188,7 +188,7 @@ func closedKeyLists() []composedKeys {
 		// Pourquoi un droit coché n'est pas exerçable : une phrase par raison.
 		{prefix: "machine.capability_unavailable_", values: machine.UnavailableReasons()},
 		// Les plans de sauvegarde : d'où ils prennent, et ce qu'un agent sait produire.
-		{prefix: "backup.source_kind_", values: []string{backup.SourceDatabase, backup.SourceAgent}},
+		{prefix: "backup.source_kind_", values: []string{backup.SourceDatabase, backup.SourceAgent, backup.KindFirewall}},
 		{prefix: "backup.producer_", values: machine.Producers()},
 		{prefix: "backup.source_sub_", values: append(backup.SourceKinds(), agentwire.ResticScopeService)},
 		{prefix: "backup.target_kind_", values: backup.TargetKinds()},

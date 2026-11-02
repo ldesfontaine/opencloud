@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BackupPlan, Backups } from "../api/backups";
 import type { Translate } from "../i18n/context";
-import { backupsPath, editPlanPath, emptyPlanForm, isBackedUp, lastErrorRight, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
+import { backupsPath, editPlanPath, emptyPlanForm, firewallIdOf, isBackedUp, kindPatch, isFirewallPlan, newFirewallPlanPath, lastErrorRight, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -162,8 +162,8 @@ describe("subjectProblem", () => {
 
 describe("sourceKindsFor", () => {
   it("offers the database to a new plan only while it has none", () => {
-    expect(sourceKindsFor(false)).toEqual(["database", "agent"]);
-    expect(sourceKindsFor(true)).toEqual(["agent"]);
+    expect(sourceKindsFor(false)).toEqual(["database", "agent", "firewall"]);
+    expect(sourceKindsFor(true)).toEqual(["agent", "firewall"]);
   });
 });
 
@@ -255,4 +255,45 @@ it("lastErrorRight : le droit derrière une erreur de plan, et la machine dont l
   expect(lastErrorRight(plan("autre erreur"), destination)).toBeNull();
   expect(lastErrorRight(plan(""), undefined)).toBeNull();
   expect(lastErrorRight(plan("backup.right_missing"), undefined)).toBeNull();
+});
+
+describe("l'export d'un pare-feu", () => {
+  const firewallPlan: BackupPlan = { ...agentPlan, subject: "bordure", name: "", source_machine_id: "local", source_machine_name: "opencloud", producer: "opnsense-config", selector: "fw1" };
+
+  it("se reconnaît à son producteur et se lit dans le formulaire comme une troisième source", () => {
+    expect(isFirewallPlan(firewallPlan)).toBe(true);
+    expect(isFirewallPlan(agentPlan)).toBe(false);
+    expect(planFormOf(firewallPlan)).toMatchObject({ kind: "firewall", selector: "fw1", subject: "bordure" });
+    expect(sourceLabel(t, firewallPlan)).toBe("backup.source_firewall:opencloud");
+  });
+
+  it("part en requête « agent » sans machine : le serveur pose la machine openCloud", () => {
+    const values = { ...emptyPlanForm(false, { id: "fw1", name: "Pare-feu Bordure" }), destination: "bkd_1" };
+    expect(values).toMatchObject({ kind: "firewall", subject: "pare-feu-bordure", selector: "fw1" });
+    expect(planRequestOf(values, "bkd_1")).toEqual({
+      subject: "pare-feu-bordure",
+      request: { name: "", source_kind: "agent", source_machine_id: "", producer: "opnsense-config", selector: "fw1", destination_id: "bkd_1", keep: 14 },
+    });
+  });
+
+  it("propose un sujet valide même pour un nom accentué ou réservé", () => {
+    expect(emptyPlanForm(true, { id: "a", name: "Épine ñ !" }).subject).toBe("epine-n");
+    expect(emptyPlanForm(true, { id: "a", name: "database" }).subject).toBe("pare-feu");
+    expect(emptyPlanForm(true, { id: "a", name: "***" }).subject).toBe("pare-feu");
+  });
+
+  it("garde un sujet saisi comme une source agent, la base mise à part", () => {
+    expect(subjectProblem({ ...emptyPlanForm(true, { id: "a", name: "x" }), subject: "Mal" })).toBe("backup.plan_invalid");
+  });
+
+  it("réinitialise le sélecteur en changeant de source : « all » n'est pas un pare-feu", () => {
+    expect(kindPatch("firewall")).toEqual({ kind: "firewall", selector: "" });
+    expect(kindPatch("agent")).toEqual({ kind: "agent", selector: "all" });
+    expect(kindPatch("database")).toEqual({ kind: "database", selector: "" });
+  });
+
+  it("lit l'identifiant du pare-feu dans la clé de sa source", () => {
+    expect(firewallIdOf("firewall:fw1")).toBe("fw1");
+    expect(newFirewallPlanPath("fw 1")).toBe("/sauvegardes/plans/nouveau?firewall=fw%201");
+  });
 });

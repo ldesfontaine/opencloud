@@ -30,6 +30,10 @@ const (
 	// Chaque texte que l'API rend est borné avant d'entrer en base et à
 	// l'écran : un texte plus long ne dit rien de plus.
 	maxTextBytes = 256
+
+	// Le fichier de configuration d'un gros pare-feu (alias, certificats,
+	// baux) pèse quelques mégaoctets ; au-delà, ce n'est plus lui.
+	maxConfigurationBytes = 64 << 20
 )
 
 // errPinMismatch : le certificat présenté n'est pas celui dont l'opérateur a
@@ -114,38 +118,47 @@ func (e httpStatusError) Error() string { return fmt.Sprintf("status %d", e.stat
 // code 404 ou 403 reste reconnaissable par isStatus pour les sources
 // facultatives.
 func (c *Client) get(ctx context.Context, path string, query url.Values, into any) error {
+	body, err := c.fetch(ctx, path, query, "application/json", maxResponseBytes)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, into); err != nil {
+		return fmt.Errorf("%w: decode answer: %w", firewall.ErrBadResponse, err)
+	}
+	return nil
+}
+
+// fetch émet le GET et rend le corps, borné à limit octets.
+func (c *Client) fetch(ctx context.Context, path string, query url.Values, accept string, limit int64) ([]byte, error) {
 	target := c.baseURL + path
 	if len(query) > 0 {
 		target += "?" + query.Encode()
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return fmt.Errorf("%w: build request: %w", firewall.ErrBadResponse, err)
+		return nil, fmt.Errorf("%w: build request: %w", firewall.ErrBadResponse, err)
 	}
 	request.SetBasicAuth(c.apiKey, c.secret)
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", accept)
 	response, err := c.http.Do(request)
 	if err != nil {
-		return transportRefusal(err)
+		return nil, transportRefusal(err)
 	}
 	defer response.Body.Close()
 	switch {
 	case response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden:
-		return fmt.Errorf("%w: %w", firewall.ErrUnauthorized, httpStatusError{response.StatusCode})
+		return nil, fmt.Errorf("%w: %w", firewall.ErrUnauthorized, httpStatusError{response.StatusCode})
 	case response.StatusCode != http.StatusOK:
-		return fmt.Errorf("%w: %w", firewall.ErrBadResponse, httpStatusError{response.StatusCode})
+		return nil, fmt.Errorf("%w: %w", firewall.ErrBadResponse, httpStatusError{response.StatusCode})
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
-		return transportRefusal(err)
+		return nil, transportRefusal(err)
 	}
-	if len(body) > maxResponseBytes {
-		return fmt.Errorf("%w: answer over %d bytes", firewall.ErrBadResponse, maxResponseBytes)
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("%w: answer over %d bytes", firewall.ErrBadResponse, limit)
 	}
-	if err := json.Unmarshal(body, into); err != nil {
-		return fmt.Errorf("%w: decode answer: %w", firewall.ErrBadResponse, err)
-	}
-	return nil
+	return body, nil
 }
 
 // isStatus dit si l'échec est une réponse de ce code.

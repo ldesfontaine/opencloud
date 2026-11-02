@@ -45,8 +45,31 @@ export function passphraseProblem(first: string, second: string): string | null 
 // Le sujet de la base, et ce qu'un agent sait produire (la liste du serveur,
 // machine.Producers).
 const databaseSubject = "database";
-export const sourceKinds: readonly BackupSourceKind[] = ["database", "agent"];
 export const producers = ["proxmox-vzdump"] as const;
+
+// Le producteur que le serveur joue lui-même (backup.ProducerOPNsense) : la
+// configuration d'un pare-feu déclaré. Le formulaire en fait une troisième
+// source ; la requête reste « agent », sur la machine openCloud.
+const firewallProducer = "opnsense-config";
+const firewallSourcePrefix = "firewall:";
+
+// Les sources du formulaire : la requête n'en connaît que deux (database, agent).
+export type PlanFormKind = BackupSourceKind | "firewall";
+export const sourceKinds: readonly PlanFormKind[] = ["database", "agent", "firewall"];
+
+export function isFirewallPlan(plan: Pick<BackupPlan, "source_kind" | "producer">): boolean {
+  return plan.source_kind === "agent" && plan.producer === firewallProducer;
+}
+
+// L'identifiant du pare-feu d'une source de l'aperçu (« firewall:<id> »).
+export function firewallIdOf(sourceKey: string): string {
+  return sourceKey.slice(firewallSourcePrefix.length);
+}
+
+// Un plan neuf d'un pare-feu : l'assistant s'ouvre sur lui.
+export function newFirewallPlanPath(firewallID: string): string {
+  return `${newPlanPath}?firewall=${encodeURIComponent(firewallID)}`;
+}
 
 // Le sujet d'un plan : le mot qui préfixe ses fichiers sur la destination.
 // Le serveur le juge de même ; ici, pour dire pourquoi avant d'envoyer.
@@ -74,6 +97,9 @@ export function planTitle(plan: BackupPlan, databaseLabel: string): string {
 export function sourceLabel(t: Translate, plan: BackupPlan): string {
   if (plan.source_kind === "database") {
     return t("backup.source_kind_database");
+  }
+  if (isFirewallPlan(plan)) {
+    return t("backup.source_firewall", plan.source_machine_name);
   }
   const selector = plan.selector === "all" ? t("backup.selector_all") : t("backup.selector_some", plan.selector);
   return t("backup.source_agent", plan.source_machine_name, t(`backup.producer_${plan.producer}`), selector);
@@ -154,7 +180,7 @@ export function toggleSelectorId(selector: string, vmid: number, checked: boolea
 export interface PlanFormValues {
   subject: string;
   name: string;
-  kind: BackupSourceKind;
+  kind: PlanFormKind;
   machine: string;
   producer: string;
   selector: string;
@@ -162,9 +188,19 @@ export interface PlanFormValues {
   keep: string;
 }
 
+// Ce que le sélecteur vaut en changeant de source : « all » pour des invités,
+// aucun pare-feu choisi d'avance, rien pour la base. Un sélecteur d'une source
+// ne vaut rien pour une autre (« all » n'est pas un pare-feu).
+export function kindPatch(kind: PlanFormKind): Pick<PlanFormValues, "kind" | "selector"> {
+  return { kind, selector: kind === "agent" ? "all" : "" };
+}
+
 // Un plan neuf : la base d'abord tant qu'elle n'a pas son plan, ensuite une
 // source agent (la base n'en a qu'un).
-export function emptyPlanForm(hasDatabasePlan: boolean): PlanFormValues {
+export function emptyPlanForm(hasDatabasePlan: boolean, firewall?: { id: string; name: string }): PlanFormValues {
+  if (firewall !== undefined) {
+    return { ...emptyPlanForm(hasDatabasePlan), kind: "firewall", subject: subjectOfName(firewall.name), selector: firewall.id };
+  }
   return {
     subject: "",
     name: "",
@@ -177,13 +213,27 @@ export function emptyPlanForm(hasDatabasePlan: boolean): PlanFormValues {
   };
 }
 
+// Le sujet que l'assistant propose pour un pare-feu : son nom en minuscules,
+// chiffres et tirets (le plan se nomme comme lui par défaut).
+function subjectOfName(name: string): string {
+  const slug = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
+  return slug === "" || slug === databaseSubject ? "pare-feu" : slug;
+}
+
 export function planFormOf(plan: BackupPlan): PlanFormValues {
   return {
     subject: plan.subject,
     name: plan.name,
-    kind: plan.source_kind,
+    kind: isFirewallPlan(plan) ? "firewall" : plan.source_kind,
     machine: plan.source_machine_id,
-    producer: plan.producer === "" ? producers[0] : plan.producer,
+    producer: plan.producer === "" || plan.producer === firewallProducer ? producers[0] : plan.producer,
     selector: plan.selector === "" ? "all" : plan.selector,
     destination: plan.destination_id,
     keep: String(plan.keep),
@@ -191,8 +241,8 @@ export function planFormOf(plan: BackupPlan): PlanFormValues {
 }
 
 // Les sources qu'un plan neuf peut prendre : la base n'a qu'un plan.
-export function sourceKindsFor(hasDatabasePlan: boolean): readonly BackupSourceKind[] {
-  return hasDatabasePlan ? ["agent"] : sourceKinds;
+export function sourceKindsFor(hasDatabasePlan: boolean): readonly PlanFormKind[] {
+  return hasDatabasePlan ? ["agent", "firewall"] : sourceKinds;
 }
 
 // Pourquoi le sujet ne passe pas, en clé du catalogue ; null s'il passe. La
@@ -201,7 +251,7 @@ export function sourceKindsFor(hasDatabasePlan: boolean): readonly BackupSourceK
 // porte déjà ce sujet).
 export function subjectProblem(values: PlanFormValues, taken: readonly string[] = []): string | null {
   const subject = values.kind === "database" ? databaseSubject : values.subject;
-  if (values.kind === "agent" && (!subjectPattern.test(subject) || subject === databaseSubject)) {
+  if (values.kind !== "database" && (!subjectPattern.test(subject) || subject === databaseSubject)) {
     return "backup.plan_invalid";
   }
   return taken.includes(subject) ? "backup.plan_subject_taken" : null;
@@ -209,16 +259,18 @@ export function subjectProblem(values: PlanFormValues, taken: readonly string[] 
 
 // Le sujet et le corps de l'écriture. Une base n'a ni machine, ni
 // producteur, ni sélecteur : le serveur les refuse s'ils sont là.
+// Un pare-feu part de la machine openCloud : le serveur la pose (source_machine_id vide).
 export function planRequestOf(values: PlanFormValues, destination: string): { subject: string; request: PlanRequest } {
-  const isAgent = values.kind === "agent";
+  const isDatabase = values.kind === "database";
+  const isFirewall = values.kind === "firewall";
   return {
-    subject: isAgent ? values.subject : databaseSubject,
+    subject: isDatabase ? databaseSubject : values.subject,
     request: {
       name: values.name.trim(),
-      source_kind: values.kind,
-      source_machine_id: isAgent ? values.machine : "",
-      producer: isAgent ? values.producer : "",
-      selector: isAgent ? values.selector.trim() : "",
+      source_kind: isDatabase ? "database" : "agent",
+      source_machine_id: values.kind === "agent" ? values.machine : "",
+      producer: isDatabase ? "" : isFirewall ? firewallProducer : values.producer,
+      selector: isDatabase ? "" : values.selector.trim(),
       destination_id: destination,
       keep: Number(values.keep),
     },
