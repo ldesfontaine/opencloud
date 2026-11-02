@@ -43,6 +43,9 @@ const (
 	maxRelayQueryBytes    = 32
 	// Un compte de rétention, comme la règle du serveur : 0 à 1000.
 	maxResticKeep = 1000
+	// Au plus ce nombre de volumes, de bases ou de parties rapportées par
+	// sauvegarde d'un service.
+	maxResticParts = 32
 )
 
 // Le chemin d'une sauvegarde : la source joint la cible, ou passe par le
@@ -386,6 +389,32 @@ type ResticBackupParams struct {
 	GuestType  string `json:"guest_type,omitempty"`
 	Service    string `json:"service,omitempty"`
 	ForceRelay bool   `json:"force_relay,omitempty"`
+	// Portée service : ce que le service a en plus de son dossier. Les
+	// volumes nommés (leur nom Docker) et les conteneurs de base de données
+	// (leur nom), que le serveur a lus dans l'inventaire de la machine ;
+	// l'agent les relit chez lui avant d'y toucher (restic.docker).
+	Volumes   []string `json:"volumes,omitempty"`
+	Databases []string `json:"databases,omitempty"`
+}
+
+// validateService juge ce qu'un service sauvegarde : son dossier (facultatif),
+// ses volumes et ses bases. Un service sans rien n'a rien à sauvegarder.
+func (p ResticBackupParams) validateService() error {
+	if p.Service != "" && (len(p.Service) > maxServiceNameBytes || !serviceNamePattern.MatchString(p.Service)) {
+		return errResticScope
+	}
+	if len(p.Volumes) > maxResticParts || len(p.Databases) > maxResticParts {
+		return errResticTooMany
+	}
+	for _, name := range append(slices.Clone(p.Volumes), p.Databases...) {
+		if !IsDockerName(name) {
+			return errResticScope
+		}
+	}
+	if p.Service == "" && len(p.Volumes) == 0 && len(p.Databases) == 0 {
+		return errResticScope
+	}
+	return nil
 }
 
 // serviceNamePattern : un seul segment de chemin, sans point de tête.
@@ -398,11 +427,11 @@ func (p ResticBackupParams) Validate() error {
 	switch p.Scope {
 	case ResticScopeVM:
 		guest := ProxmoxGuestParams{VMID: p.VMID, Type: p.GuestType}
-		if guest.Validate(KindProxmoxSnapshot) != nil || p.Service != "" {
+		if guest.Validate(KindProxmoxSnapshot) != nil || p.Service != "" || len(p.Volumes) > 0 || len(p.Databases) > 0 {
 			return errResticScope
 		}
 	case ResticScopeService:
-		if len(p.Service) > maxServiceNameBytes || !serviceNamePattern.MatchString(p.Service) || p.VMID != 0 || p.GuestType != "" {
+		if p.VMID != 0 || p.GuestType != "" || p.validateService() != nil {
 			return errResticScope
 		}
 	default:
@@ -610,6 +639,8 @@ type ResticRunReport struct {
 	SnapshotID      string `json:"snapshot_id,omitempty"`
 	BytesAdded      int64  `json:"bytes_added"`
 	DurationSeconds int64  `json:"duration_seconds"`
+	// Portée service : ce que chaque partie (dossier, volume, base) a donné.
+	Parts []ResticPartReport `json:"parts,omitempty"`
 }
 
 var snapshotIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -629,6 +660,14 @@ func (r ResticRunReport) Validate() error {
 	}
 	if r.BytesAdded < 0 || r.DurationSeconds < 0 {
 		return errResticNegative
+	}
+	if len(r.Parts) > maxResticParts {
+		return errResticTooMany
+	}
+	for _, part := range r.Parts {
+		if err := part.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

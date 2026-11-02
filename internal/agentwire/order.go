@@ -188,6 +188,14 @@ const (
 	ReasonResticNotProvisioned = "restic_not_provisioned"
 	ReasonRetentionInvalid     = "retention_invalid"
 	ReasonRetentionBelowFloor  = "retention_below_floor"
+	// Les raisons d'une partie d'un service (restic.docker) : le conteneur ou
+	// le volume n'est plus sur la machine ; le volume n'est monté par aucun
+	// conteneur (rien d'où le lire sans root) ; l'image n'est pas une base prise
+	// en charge ; l'outil de dump a échoué dans le conteneur.
+	ReasonContainerMissing  = "container_missing"
+	ReasonVolumeUnmounted   = "volume_unmounted"
+	ReasonEngineUnsupported = "engine_unsupported"
+	ReasonDumpFailed        = "dump_failed"
 )
 
 // RightMissing rend la raison d'un ordre refusé faute du droit nommé.
@@ -217,6 +225,7 @@ func RefusalReasons() []string {
 		ReasonProxmoxSnapshotNotOurs, ReasonProxmoxSnapshotMissing, ReasonProxmoxTaskFailed, ReasonProxmoxTaskTimeout,
 		ReasonRestServerMissing, ReasonResticMissing, ReasonResticFailed,
 		ReasonResticNotProvisioned, ReasonRetentionInvalid, ReasonRetentionBelowFloor,
+		ReasonContainerMissing, ReasonVolumeUnmounted, ReasonEngineUnsupported, ReasonDumpFailed,
 	}
 }
 
