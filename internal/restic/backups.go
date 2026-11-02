@@ -69,8 +69,6 @@ type Backup struct {
 	GuestType         string
 	ServiceID         string
 	ServiceName       string
-	// Le dossier du service sous la racine de l'agent : son projet Compose.
-	ServiceDir        string
 	TargetMachineID   string
 	TargetMachineName string
 	RepoUser          string
@@ -111,12 +109,16 @@ var (
 	ErrSourceUnknown       = refusal.Invalid("restic.source_unknown", "the source machine does not exist")
 	ErrGuestUnknown        = refusal.Invalid("restic.guest_unknown", "the Proxmox host of the source has not reported this guest")
 	ErrServiceUnknown      = refusal.Invalid("restic.service_unknown", "the service does not exist on the source machine")
-	ErrServiceNoFolder     = refusal.Invalid("restic.service_no_folder", "only a Compose service has a folder under the agent root")
-	ErrTargetNotReady      = refusal.Conflict("restic.target_not_ready", "rest-server of this target has not reported its address and certificate yet")
+	// Ni dossier Compose, ni volume nommé, ni base détectée.
+	ErrServiceNothingToSave = refusal.Invalid("restic.service_nothing_to_save", "the service has no Compose folder, no named volume and no detected database")
+	ErrTargetNotReady       = refusal.Conflict("restic.target_not_ready", "rest-server of this target has not reported its address and certificate yet")
 	// La source n'a pas le droit : l'écran propose de la ré-enrôler avec.
 	ErrSourceRightMissing     = refusal.Conflict("restic.source_right_missing", "the agent of the source may not run restic: re-enroll it with restic.produce")
 	ErrSourceRightUnavailable = refusal.Conflict("restic.source_right_unavailable", "the agent of the source holds restic.produce but cannot exercise it on this machine")
 	ErrSourceVMRightMissing   = refusal.Conflict("restic.source_vm_right_missing", "a guest backup also needs backup.produce for proxmox-vzdump on the source")
+	// Les volumes et les bases d'un service passent par restic.docker.
+	ErrSourceDockerRightMissing     = refusal.Conflict("restic.source_docker_right_missing", "the volumes and databases of a service also need restic.docker on the source")
+	ErrSourceDockerRightUnavailable = refusal.Conflict("restic.source_docker_right_unavailable", "the agent of the source holds restic.docker but cannot exercise it on this machine")
 	// restic manque sur la source : l'écran dit quoi installer.
 	ErrResticMissing = refusal.Conflict("restic.restic_missing", "restic is not installed on the source: install it, then restart its agent")
 	ErrBackupRunning = refusal.Conflict("restic.backup_running", "a backup or a retention runs on the same repository")
@@ -243,8 +245,9 @@ func (s *Service) readyTarget(ctx context.Context, machineID string) (TargetReco
 }
 
 // resolveSource vérifie la source et ses droits, puis ce qu'elle sauvegarde :
-// un invité que son hôte Proxmox a relevé, ou un service Compose déclaré sur
-// elle. Il rend la sauvegarde à écrire, sans identifiant ni cible.
+// un invité que son hôte Proxmox a relevé, ou un service déclaré sur elle
+// qui a quelque chose à sauvegarder. Il rend la sauvegarde à écrire, sans
+// identifiant ni cible.
 func (s *Service) resolveSource(ctx context.Context, definition Definition) (Backup, error) {
 	source, err := s.machines.Get(ctx, definition.SourceMachineID)
 	if errors.Is(err, machine.ErrNotFound) {
@@ -282,11 +285,27 @@ func (s *Service) resolveSource(ctx context.Context, definition Definition) (Bac
 	if err != nil {
 		return Backup{}, fmt.Errorf("get declared service: %w", err)
 	}
-	if !isServiceFolder(service.Project) {
-		return Backup{}, ErrServiceNoFolder
+	if _, err := s.judgedContent(ctx, service, source); err != nil {
+		return Backup{}, err
 	}
-	resolved.ServiceID, resolved.ServiceName, resolved.ServiceDir = service.ID, service.Name, service.Project
+	resolved.ServiceID, resolved.ServiceName = service.ID, service.Name
 	return resolved, nil
+}
+
+// judgedContent rend le contenu du service s'il y a quelque chose à
+// sauvegarder et que la source a le droit de le prendre.
+func (s *Service) judgedContent(ctx context.Context, service ServiceRef, source machine.Status) (ServiceContent, error) {
+	content, err := s.serviceContent(ctx, service)
+	if err != nil {
+		return ServiceContent{}, err
+	}
+	if content.IsEmpty() {
+		return ServiceContent{}, ErrServiceNothingToSave
+	}
+	if err := judgeDockerRight(source, content); err != nil {
+		return ServiceContent{}, err
+	}
+	return content, nil
 }
 
 // ErrServiceNotFound : la base n'a pas ce service déclaré.
@@ -312,6 +331,21 @@ func judgeSourceRights(source machine.Status, scope string) error {
 	}
 	if scope == agentwire.ResticScopeVM && RightOf(source, machine.CapabilityBackupProduce).State == RightMissing {
 		return ErrSourceVMRightMissing
+	}
+	return nil
+}
+
+// judgeDockerRight : un volume ou une base demande restic.docker. Tant que
+// l'agent n'a rien rapporté, il jugera lui-même.
+func judgeDockerRight(source machine.Status, content ServiceContent) error {
+	if !content.NeedsDocker() {
+		return nil
+	}
+	switch RightOf(source, machine.CapabilityResticDocker).State {
+	case RightMissing:
+		return ErrSourceDockerRightMissing
+	case RightUnavailable:
+		return ErrSourceDockerRightUnavailable
 	}
 	return nil
 }

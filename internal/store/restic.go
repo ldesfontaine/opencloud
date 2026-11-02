@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -120,11 +121,11 @@ func (db *DB) RecordResticTargetReport(ctx context.Context, machineID string, re
 }
 
 const resticBackupColumns = `b.id, b.name, b.source_machine_id, sm.name, b.scope, b.vmid, b.guest_type,
-	COALESCE(b.service_id, ''), COALESCE(ds.name, ''), COALESCE(ds.compose_project, ''), b.target_machine_id, tm.name,
+	COALESCE(b.service_id, ''), COALESCE(ds.name, ''), b.target_machine_id, tm.name,
 	b.repo_user, b.schedule, b.keep_last, b.keep_daily, b.keep_weekly, b.keep_monthly,
 	b.keep_yearly, b.created_at, b.last_attempt_at, b.last_run_id, b.last_state, b.last_reason, b.last_path,
 	b.last_path_reason, b.last_target_host, b.last_target_port, b.last_snapshot, b.last_bytes_added, b.last_duration,
-	b.last_finished_at, b.last_success_at`
+	b.last_parts, b.last_finished_at, b.last_success_at`
 
 const resticBackupFrom = `
 	FROM restic_backups b
@@ -136,20 +137,45 @@ func scanResticBackup(row scanner) (restic.Backup, error) {
 	var found restic.Backup
 	var createdAt int64
 	var lastAttempt, lastFinished, lastSuccess sql.NullInt64
+	var lastParts string
 	retention := &found.Retention
 	report := &found.Last.Report
 	err := row.Scan(&found.ID, &found.Name, &found.SourceMachineID, &found.SourceMachineName, &found.Scope, &found.VMID,
-		&found.GuestType, &found.ServiceID, &found.ServiceName, &found.ServiceDir, &found.TargetMachineID, &found.TargetMachineName,
+		&found.GuestType, &found.ServiceID, &found.ServiceName, &found.TargetMachineID, &found.TargetMachineName,
 		&found.RepoUser, &found.Schedule, &retention.Last, &retention.Daily, &retention.Weekly,
 		&retention.Monthly, &retention.Yearly, &createdAt, &lastAttempt, &found.LastRunID, &found.Last.State, &found.Last.Reason,
 		&report.Path, &report.Reason, &report.TargetHost, &report.TargetPort, &report.SnapshotID, &report.BytesAdded,
-		&report.DurationSeconds, &lastFinished, &lastSuccess)
+		&report.DurationSeconds, &lastParts, &lastFinished, &lastSuccess)
+	if err != nil {
+		return found, err
+	}
+	if report.Parts, err = decodeResticParts(lastParts); err != nil {
+		return found, err
+	}
 	found.CreatedAt = time.Unix(createdAt, 0)
 	found.LastAttemptAt = timeOf(lastAttempt)
 	found.Last.RunID = found.LastRunID
 	found.Last.FinishedAt = timeOf(lastFinished)
 	found.LastSuccessAt = timeOf(lastSuccess)
-	return found, err
+	return found, nil
+}
+
+// encodeResticParts écrit les parties d'un rapport déjà rejugé (Validate) ;
+// aucune : « [] ».
+func encodeResticParts(parts []agentwire.ResticPartReport) (string, error) {
+	encoded, err := encodeList(parts)
+	if err != nil {
+		return "", fmt.Errorf("encode restic parts: %w", err)
+	}
+	return encoded, nil
+}
+
+func decodeResticParts(encoded string) ([]agentwire.ResticPartReport, error) {
+	parts := []agentwire.ResticPartReport{}
+	if err := json.Unmarshal([]byte(encoded), &parts); err != nil {
+		return nil, fmt.Errorf("decode restic parts: %w", err)
+	}
+	return parts, nil
 }
 
 func (db *DB) GetResticBackup(ctx context.Context, id string) (restic.Backup, error) {
@@ -250,14 +276,18 @@ func (db *DB) RecordResticOutcome(ctx context.Context, id string, outcome restic
 			return nil
 		}
 		report := outcome.Report
+		parts, err := encodeResticParts(report.Parts)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO restic_runs (backup_id, run_id, finished_at, state, reason, path, path_reason, bytes_added, duration_seconds)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			INSERT INTO restic_runs (backup_id, run_id, finished_at, state, reason, path, path_reason, bytes_added, duration_seconds, parts)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id, outcome.RunID, outcome.FinishedAt.Unix(), outcome.State, outcome.Reason, report.Path, report.Reason,
-			report.BytesAdded, report.DurationSeconds); err != nil {
+			report.BytesAdded, report.DurationSeconds, parts); err != nil {
 			return fmt.Errorf("insert restic run: %w", err)
 		}
-		_, err := tx.ExecContext(ctx, `
+		_, err = tx.ExecContext(ctx, `
 			DELETE FROM restic_runs WHERE backup_id = ? AND id NOT IN (
 				SELECT id FROM restic_runs WHERE backup_id = ? ORDER BY id DESC LIMIT ?)`, id, id, MaxResticRunsPerBackup)
 		if err != nil {
@@ -282,13 +312,17 @@ func updateResticLast(ctx context.Context, tx *sql.Tx, id string, outcome restic
 	if outcome.State == restic.StateSucceeded {
 		success = nullableTime(outcome.FinishedAt)
 	}
+	parts, err := encodeResticParts(report.Parts)
+	if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE restic_backups SET last_state = ?, last_reason = ?, last_path = ?, last_path_reason = ?, last_target_host = ?,
-			last_target_port = ?, last_snapshot = ?, last_bytes_added = ?, last_duration = ?,
+			last_target_port = ?, last_snapshot = ?, last_bytes_added = ?, last_duration = ?, last_parts = ?,
 			last_finished_at = COALESCE(?, last_finished_at), last_success_at = COALESCE(?, last_success_at)
 		WHERE id = ?`,
 		outcome.State, outcome.Reason, report.Path, report.Reason, report.TargetHost, report.TargetPort, report.SnapshotID,
-		report.BytesAdded, report.DurationSeconds, nullableTime(outcome.FinishedAt), success, id)
+		report.BytesAdded, report.DurationSeconds, parts, nullableTime(outcome.FinishedAt), success, id)
 	if err != nil {
 		return fmt.Errorf("update restic backup outcome: %w", err)
 	}
@@ -299,7 +333,7 @@ func updateResticLast(ctx context.Context, tx *sql.Tx, id string, outcome restic
 // plus récentes d'abord, en une requête.
 func (db *DB) ListRecentResticRuns(ctx context.Context, perBackup int) (map[string][]restic.RunRecord, error) {
 	rows, err := db.sql.QueryContext(ctx, `
-		SELECT backup_id, run_id, finished_at, state, reason, path, path_reason, bytes_added, duration_seconds
+		SELECT backup_id, run_id, finished_at, state, reason, path, path_reason, bytes_added, duration_seconds, parts
 		FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY backup_id ORDER BY id DESC) AS position FROM restic_runs)
 		WHERE position <= ? ORDER BY backup_id, id DESC`, perBackup)
 	if err != nil {
@@ -312,10 +346,16 @@ func (db *DB) ListRecentResticRuns(ctx context.Context, perBackup int) (map[stri
 	records, err := collect(rows, func(row scanner) (owned, error) {
 		var entry owned
 		var finishedAt int64
+		var parts string
 		record := &entry.record
 		err := row.Scan(&entry.backupID, &record.RunID, &finishedAt, &record.State, &record.Reason, &record.Path,
-			&record.PathReason, &record.BytesAdded, &record.DurationSeconds)
+			&record.PathReason, &record.BytesAdded, &record.DurationSeconds, &parts)
+		if err != nil {
+			return entry, err
+		}
 		record.FinishedAt = time.Unix(finishedAt, 0)
+		reports, err := decodeResticParts(parts)
+		record.Parts = restic.PartResults(reports)
 		return entry, err
 	})
 	if err != nil {
@@ -360,7 +400,9 @@ func (db *DB) ResticGuest(ctx context.Context, hostID string, vmid int) (proxmox
 	return guest, nil
 }
 
-const resticServiceColumns = `s.id, s.name, s.machine_id, m.name, s.compose_project
+// resticServiceColumns : le dossier n'existe que pour un service Compose
+// (Project vide sinon).
+const resticServiceColumns = `s.id, s.name, s.machine_id, m.name, CASE WHEN s.origin = ? THEN s.compose_project ELSE '' END
 	FROM declared_services s JOIN machines m ON m.id = s.machine_id`
 
 func scanResticService(row scanner) (restic.ServiceRef, error) {
@@ -369,12 +411,10 @@ func scanResticService(row scanner) (restic.ServiceRef, error) {
 	return service, err
 }
 
-// ResticService rend un service déclaré ; son dossier n'existe que pour un
-// service Compose (Project vide sinon).
+// ResticService rend un service déclaré.
 func (db *DB) ResticService(ctx context.Context, serviceID string) (restic.ServiceRef, error) {
 	service, err := scanResticService(db.sql.QueryRowContext(ctx, `
-		SELECT s.id, s.name, s.machine_id, m.name, CASE WHEN s.origin = ? THEN s.compose_project ELSE '' END
-		FROM declared_services s JOIN machines m ON m.id = s.machine_id WHERE s.id = ?`, string(directory.OriginCompose), serviceID))
+		SELECT `+resticServiceColumns+` WHERE s.id = ?`, string(directory.OriginCompose), serviceID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return restic.ServiceRef{}, restic.ErrServiceNotFound
 	}
@@ -384,11 +424,11 @@ func (db *DB) ResticService(ctx context.Context, serviceID string) (restic.Servi
 	return service, nil
 }
 
-// ListResticServices rend les services Compose déclarés : ceux qu'une
-// sauvegarde restic sait prendre, leur dossier sous la racine de l'agent.
+// ListResticServices rend les services déclarés, par machine puis par nom :
+// le composant garde ceux qui ont quelque chose à sauvegarder.
 func (db *DB) ListResticServices(ctx context.Context) ([]restic.ServiceRef, error) {
 	rows, err := db.sql.QueryContext(ctx, `SELECT `+resticServiceColumns+`
-		WHERE s.origin = ? AND s.compose_project <> '' ORDER BY m.name, s.name`, string(directory.OriginCompose))
+		ORDER BY m.name, s.name, s.id`, string(directory.OriginCompose))
 	if err != nil {
 		return nil, fmt.Errorf("list declared services: %w", err)
 	}

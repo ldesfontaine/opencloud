@@ -71,7 +71,27 @@ type Source struct {
 	// Vrai quand l'hôte n'a pas pu lister des archives faute de droit, ou ses
 	// tâches : « rien vu » ne dit pas « rien ».
 	ObservedUnknown bool
-	Protections     []Protection
+	// Portée service : ce que « le service entier » prendra ; vide sinon.
+	Parts       []SourcePart
+	Protections []Protection
+}
+
+// SourcePart est une partie d'un service : son dossier (Name vide), un volume
+// nommé (son nom), une base (le nom de son conteneur, et son moteur).
+type SourcePart struct {
+	Kind   string
+	Name   string
+	Engine string
+}
+
+// PartResult est ce qu'une partie a donné au dernier passage restic : ok,
+// failed ou skipped, une raison fermée, les octets ajoutés.
+type PartResult struct {
+	Kind       string
+	Name       string
+	State      string
+	Reason     string
+	BytesAdded int64
 }
 
 // Protection est une façon dont la source est sauvegardée.
@@ -92,7 +112,10 @@ type Protection struct {
 	State          string
 	Reason         string
 	LastAt         time.Time
-	NextAt         time.Time
+	// La dernière réussite, même quand le dernier essai a échoué ; zéro
+	// avant la première.
+	LastSuccessAt time.Time
+	NextAt        time.Time
 	// Le rythme : « daily », ou l'horaire de la tâche vzdump tel que Proxmox
 	// l'écrit.
 	Schedule   string
@@ -103,6 +126,8 @@ type Protection struct {
 	// Restic : le chemin de la dernière exécution ; nil avant la première.
 	Path *PathView
 	Runs []RunRecord
+	// Restic, portée service : les parties du dernier passage.
+	Parts []PartResult
 }
 
 // RetentionView est la rétention en clair : Known faux, on ne la connaît
@@ -193,6 +218,7 @@ type overviewInputs struct {
 	runs       map[string][]RunRecord
 	targets    []TargetRecord
 	services   []ServiceRef
+	docker     map[string]ServiceDocker
 	jobs       map[string][]proxmox.BackupJob
 	jobsBlind  map[string]bool
 	links      map[repoKey]Link
@@ -232,6 +258,9 @@ func (s *Service) readOverviewInputs(ctx context.Context) (overviewInputs, error
 	if inputs.services, err = s.store.ListResticServices(ctx); err != nil {
 		return inputs, fmt.Errorf("list services: %w", err)
 	}
+	if inputs.docker, err = s.store.ListResticServiceDocker(ctx); err != nil {
+		return inputs, fmt.Errorf("list services docker inventory: %w", err)
+	}
 	if inputs.jobs, err = s.store.ProxmoxBackupJobsByHost(ctx); err != nil {
 		return inputs, fmt.Errorf("list proxmox backup jobs: %w", err)
 	}
@@ -257,8 +286,9 @@ func (s *Service) readOverviewInputs(ctx context.Context) (overviewInputs, error
 }
 
 // sourcesOf : celles de l'inventaire (base, invités, volumes), puis les
-// services déclarés, puis les sauvegardes restic d'un invité que l'hôte ne
-// montre plus. Chaque sauvegarde restic se pose sur sa source.
+// services déclarés qui ont de quoi être sauvegardés (ou une sauvegarde),
+// puis les sauvegardes restic d'une source que la base ne montre plus.
+// Chaque sauvegarde restic se pose sur sa source.
 func sourcesOf(inputs overviewInputs, now time.Time) []Source {
 	sources := []Source{}
 	used := map[string]bool{}
@@ -270,9 +300,15 @@ func sourcesOf(inputs overviewInputs, now time.Time) []Source {
 		sources = append(sources, source)
 	}
 	for _, service := range inputs.services {
+		content, _ := deriveContent(service, inputs.docker[service.ID])
+		isBackedUp := slices.ContainsFunc(inputs.backups, func(candidate Backup) bool { return candidate.ServiceID == service.ID })
+		if content.IsEmpty() && !isBackedUp {
+			continue
+		}
 		source := Source{
 			Key: "service:" + service.ID, Kind: agentwire.ResticScopeService, Name: service.Name,
 			MachineID: service.MachineID, MachineName: service.MachineName, ServiceID: service.ID, UsedBy: []string{},
+			Parts: sourcePartsOf(content),
 		}
 		source.Protections = resticProtections(inputs, now, used, func(candidate Backup) bool { return candidate.ServiceID == service.ID })
 		sources = append(sources, source)
@@ -284,6 +320,7 @@ func sourcesOf(inputs overviewInputs, now time.Time) []Source {
 		source := Source{
 			Key: backup.GuestSourceKey(orphan.SourceMachineID, orphan.VMID), Kind: backup.KindVM, Name: orphan.Name,
 			MachineID: orphan.SourceMachineID, MachineName: orphan.SourceMachineName, VMID: orphan.VMID, UsedBy: []string{},
+			Parts: []SourcePart{},
 		}
 		switch {
 		case orphan.Scope == agentwire.ResticScopeService:
@@ -297,12 +334,28 @@ func sourcesOf(inputs overviewInputs, now time.Time) []Source {
 	return sources
 }
 
+// sourcePartsOf : le dossier d'abord, puis les volumes, puis les bases.
+func sourcePartsOf(content ServiceContent) []SourcePart {
+	parts := []SourcePart{}
+	if content.Folder != "" {
+		parts = append(parts, SourcePart{Kind: agentwire.ResticPartFolder})
+	}
+	for _, volume := range content.Volumes {
+		parts = append(parts, SourcePart{Kind: agentwire.ResticPartVolume, Name: volume})
+	}
+	for _, database := range content.Databases {
+		parts = append(parts, SourcePart{Kind: agentwire.ResticPartDatabase, Name: database.Container, Engine: database.Engine})
+	}
+	return parts
+}
+
 // inventorySource reprend une source de l'inventaire avec ce qui la couvre
 // déjà : les plans par archives et la tâche vzdump de son hôte.
 func inventorySource(item backup.Source, inputs overviewInputs, now time.Time) Source {
 	source := Source{
 		Key: item.Key, Kind: item.Kind, Name: item.Name, MachineID: item.MachineID, MachineName: item.MachineName,
-		Driver: item.Driver, UsedBy: orEmpty(item.UsedBy), ObservedUnknown: item.ObservedUnknown, Protections: []Protection{},
+		Driver: item.Driver, UsedBy: orEmpty(item.UsedBy), ObservedUnknown: item.ObservedUnknown, Parts: []SourcePart{},
+		Protections: []Protection{},
 	}
 	if vmid, err := strconv.Atoi(item.ID); err == nil {
 		source.VMID = vmid
@@ -325,7 +378,7 @@ func archiveProtection(coverage backup.Coverage, item backup.Source, now time.Ti
 	protection := Protection{
 		Origin: OriginArchive, ID: coverage.Subject, Name: coverage.PlanName, TargetMachineID: coverage.DestinationMachineID,
 		TargetMachineName: coverage.DestinationMachineName, Storage: coverage.DestinationName, State: ProtectionNever,
-		NextAt: coverage.NextAt, Schedule: ScheduleDaily, Runs: []RunRecord{},
+		NextAt: coverage.NextAt, Schedule: ScheduleDaily, Runs: []RunRecord{}, Parts: []PartResult{},
 		Retention: RetentionView{Known: true, Applied: true, Last: coverage.Keep},
 	}
 	if item.LastRun != nil && item.LastRun.Subject == coverage.Subject {
@@ -335,6 +388,7 @@ func archiveProtection(coverage backup.Coverage, item backup.Source, now time.Ti
 	}
 	if item.LastOK != nil && item.LastOK.Subject == coverage.Subject {
 		protection.SizeBytes = item.LastOK.SizeBytes
+		protection.LastSuccessAt = item.LastOK.FinishedAt
 	}
 	return protection
 }
@@ -368,7 +422,7 @@ func observedProtection(item backup.Source, vmid int, inputs overviewInputs, now
 	}
 	protection := Protection{
 		Origin: OriginObserved, TargetMachineID: item.MachineID, TargetMachineName: item.MachineName,
-		State: ProtectionNever, Runs: []RunRecord{},
+		State: ProtectionNever, Runs: []RunRecord{}, Parts: []PartResult{},
 	}
 	if hasJob {
 		protection.ID, protection.Name, protection.Storage = job.ID, job.ID, job.Storage
@@ -378,7 +432,8 @@ func observedProtection(item backup.Source, vmid int, inputs overviewInputs, now
 	if archives := item.Observed; archives != nil {
 		size, copies := archives.LastBytes, archives.Count
 		protection.SizeBytes, protection.Copies = &size, &copies
-		protection.LastAt = archives.LastAt
+		// Une archive vue est une réussite : Proxmox ne garde pas les ratées.
+		protection.LastAt, protection.LastSuccessAt = archives.LastAt, archives.LastAt
 		protection.State = freshness(archives.LastAt, now)
 		protection.ArchiveStorage = archives.Storage
 		if protection.Storage == "" {
@@ -423,7 +478,8 @@ func resticProtection(current Backup, runs []RunRecord, now time.Time) Protectio
 		Origin: OriginRestic, ID: current.ID, Name: current.Name, Scope: current.Scope,
 		TargetMachineID: current.TargetMachineID, TargetMachineName: current.TargetMachineName,
 		State: resticState(current, now), Reason: current.Last.Reason, LastAt: current.Last.FinishedAt,
-		NextAt: nextRun(now, current.LastAttemptAt), Schedule: current.Schedule, Runs: orEmpty(runs),
+		LastSuccessAt: current.LastSuccessAt, NextAt: nextRun(now, current.LastAttemptAt), Schedule: current.Schedule,
+		Runs: orEmpty(runs), Parts: PartResults(current.Last.Report.Parts),
 		Retention: RetentionView{
 			Known: true, Applied: true, KeepAll: retention == Retention{}, Last: retention.Last, Daily: retention.Daily,
 			Weekly: retention.Weekly, Monthly: retention.Monthly, Yearly: retention.Yearly,
@@ -439,6 +495,17 @@ func resticProtection(current Backup, runs []RunRecord, now time.Time) Protectio
 		}
 	}
 	return protection
+}
+
+// PartResults lit les parties d'un rapport d'agent déjà rejugé.
+func PartResults(reports []agentwire.ResticPartReport) []PartResult {
+	results := []PartResult{}
+	for _, report := range reports {
+		results = append(results, PartResult{
+			Kind: report.Kind, Name: report.Name, State: report.State, Reason: report.Reason, BytesAdded: report.BytesAdded,
+		})
+	}
+	return results
 }
 
 // resticState : l'ordre en cours, son échec ou son refus, sinon l'âge de la
@@ -533,8 +600,9 @@ func pendingState(target machine.Status) (string, string) {
 	return targetPending, ""
 }
 
-// fitsOf : pour chaque machine, les droits de restic et backup.produce tels
-// que son agent les tient.
+// fitsOf : pour chaque machine, les droits de restic (dont restic.docker,
+// pour les volumes et les bases d'un service) et backup.produce tels que son
+// agent les tient.
 func fitsOf(inputs overviewInputs) []MachineFit {
 	isTarget := map[string]bool{}
 	for _, record := range inputs.targets {
@@ -551,6 +619,7 @@ func fitsOf(inputs overviewInputs) []MachineFit {
 			Rights: []RightFit{
 				RightOf(status, machine.CapabilityResticTarget),
 				produce,
+				RightOf(status, machine.CapabilityResticDocker),
 				RightOf(status, machine.CapabilityBackupProduce),
 			},
 		})

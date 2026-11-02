@@ -68,6 +68,10 @@ type Store interface {
 	ResticGuest(ctx context.Context, hostID string, vmid int) (proxmox.Guest, error)
 	ResticService(ctx context.Context, serviceID string) (ServiceRef, error)
 	ListResticServices(ctx context.Context) ([]ServiceRef, error)
+	// ResticServiceDocker rend les conteneurs rattachés au service et les
+	// volumes de sa machine ; ListResticServiceDocker, ceux de chaque service.
+	ResticServiceDocker(ctx context.Context, serviceID string) (ServiceDocker, error)
+	ListResticServiceDocker(ctx context.Context) (map[string]ServiceDocker, error)
 	ProxmoxBackupJobsByHost(ctx context.Context) (map[string][]proxmox.BackupJob, error)
 	ProxmoxJobsUnreadable(ctx context.Context) (map[string]bool, error)
 }
