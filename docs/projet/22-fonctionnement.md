@@ -139,6 +139,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les unités systemd que chaque agent relève (migration `029_systemd_units.sql`) : `systemd_reports` (une ligne par machine : systemd lu ou non, raison, relevé tronqué ou non, instant) et `systemd_units` (machine, **nom** de l'unité de service, état de chargement, état d'activité, sous-état : trois mots de listes fermées). **Jamais** la description, le fichier de l'unité, ses `Environment=`, son processus ni son groupe de contrôle | Remplacé en entier à chaque relevé retenu, dans une transaction : une unité que la machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « unités systemd relevées » |
+| Machine openCloud, **mémoire du processus `serve`** | aucun fichier | Qui a joint quels ports de l'hôte de chaque machine (`hostconn.Service`) : **une vue = un port, une source (compte, adresse du réseau local ou Internet), première et dernière vue**. Aucune migration. Au plus 2 000 vues par machine (les plus anciennes partent) | Perdu à l'arrêt de `serve` : chaque agent redit son rapport à l'ouverture de son flux, les vues repartent de zéro. Jamais dans la base, ni dans une sauvegarde, ni dans le journal d'audit |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les liens entre instances (migration `030_links.sql`) : la table `links`, une ligne par lien : l'instance de départ et celle d'arrivée (**machine et clé stable**, `compose:projet/service`, `container:nom` ou `systemd:unité.service`, jamais un identifiant Docker), la nature (`order`, `config`), la **preuve** (`declared`), le **signal** (`depends_on`, `container_link`, `operator`), un port facultatif, la première et la dernière vue. Aucune valeur de configuration, aucun environnement | Jamais effacé parce qu'on ne le revoit plus : la dernière vue vieillit, l'écran dit « Ancien » après 7 jours. Un lien d'outil se rafraîchit au rapport suivant ; un lien de l'opérateur ne se retire que par lui (`DELETE /api/directory/links/{id}`). Au plus 2 000 liens par machine. La machine retirée emporte les siens (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille ; depuis la migration `020`, le stockage de la plus récente, le nombre d'archives vzdump vues et leur taille totale) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif ; depuis la migration `035`, si le jeton lit les archives du stockage). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les rôles que l'agent reconnaît sur sa machine (migration `014_machine_roles.sql`) : `machine_roles` (machine, rôle de la liste fermée `proxmox_ve`, version trouvée ; aujourd'hui le seul rôle). **Aucun secret, aucun droit** : un rôle se montre, il n'ouvre rien | Un reflet du dernier rapport, remplacé en entier à chaque rapport retenu : un rôle que l'agent ne voit plus disparaît. Pas d'historique, pas de purge d'âge. La machine retirée l'emporte (`ON DELETE CASCADE`) |
@@ -2335,6 +2336,7 @@ machine suit toujours le flux, pas cette règle.
 | `GET /containers/{id}/stats?one-shot` | mesure | compteurs processeur, mémoire, limite |
 | `GET /containers/{id}/logs` | journal multiplexé | lignes horodatées, stdout et stderr |
 | `GET /containers/{id}/json` (2ᵉ appel, **seulement avec `observe.env`**) | inspect, champ `Config.Env` | des **noms d'hôtes candidats**, jamais le nom d'une variable ni une valeur, et ensuite seulement les conteneurs de la machine qu'ils désignent (« Les liens de l'environnement ») |
+| `/proc/net/tcp`, `/proc/net/tcp6` (**fichiers de l'hôte, pas de Docker**) | la table des connexions TCP de l'espace de noms réseau de l'agent, **sans droit élevé** | seulement : le **port** de l'hôte joint, et **qui** le joint (le nom du compte, l'adresse d'une machine du réseau local, ou « Internet »). Jamais l'inode, le processus, le port d'origine, une adresse publique ni un octet de la connexion (« Les connexions de l'hôte ») |
 | `GET /images/{nom}/json` | inspect d'une image | `RepoDigests` : l'empreinte que la machine a tirée, pour les mises à jour |
 
 Les labels de Compose sont lus : le projet, le service, le dossier et le
@@ -5003,9 +5005,9 @@ stockage : plus aucun écran ne recalcule les dépendances de son côté.
 
 | Champ | Valeurs | Sens |
 | --- | --- | --- |
-| Preuve | `declared`, `deduced`, `observed` | écrit par l'opérateur ou par la configuration d'un outil ; déduit ; vu. **`declared` est écrite ; `deduced` est une route calculée à chaque lecture** (« Les liens déduits »), **ou** un lien lu dans l'environnement d'un conteneur, écrit à chaque inventaire (« Les liens de l'environnement ») ; `observed` vient avec L6 |
-| Signal | `depends_on`, `container_link`, `operator`, `public_url`, `environment` | d'où vient la preuve : le `depends_on` de Compose, le `--link` de Docker, la main de l'opérateur, l'adresse publique d'un service avec un proxy (jamais écrit : la table ne le connaît pas), l'environnement d'un conteneur (migration `031` ; « Les liens de l'environnement ») |
-| Nature | `order`, `config`, `route` | « démarre après » (les deux premiers signaux) ; « est configuré pour joindre » (l'opérateur) ; « route publique » (le proxy envoie vers le service). `traffic` est réservée (L6) |
+| Preuve | `declared`, `deduced`, `observed` | écrit par l'opérateur ou par la configuration d'un outil ; déduit ; vu. **`declared` est écrite ; `deduced` est une route calculée à chaque lecture** (« Les liens déduits »), **ou** un lien lu dans l'environnement d'un conteneur, écrit à chaque inventaire (« Les liens de l'environnement ») ; **`observed` est une connexion vue sur l'hôte, gardée en mémoire seulement** (« Les connexions de l'hôte ») |
+| Signal | `depends_on`, `container_link`, `operator`, `public_url`, `environment` | d'où vient la preuve : le `depends_on` de Compose, le `--link` de Docker, la main de l'opérateur, l'adresse publique d'un service avec un proxy (jamais écrit : la table ne le connaît pas), l'environnement d'un conteneur (migration `031` ; « Les liens de l'environnement »), `host_connection` (jamais écrit : la table ne le connaît pas ; « Les connexions de l'hôte ») |
+| Nature | `order`, `config`, `route` | « démarre après » (les deux premiers signaux) ; « est configuré pour joindre » (l'opérateur) ; « route publique » (le proxy envoie vers le service). `traffic` : une connexion vue (« Les connexions de l'hôte ») |
 | Fraîcheur | première et dernière vue | un lien d'outil non revu depuis 7 jours est **ancien** ; un lien de l'opérateur ne vieillit pas (personne ne le « revoit ») |
 
 **Ce qui écrit.**
@@ -5028,7 +5030,7 @@ service ou machine disparus, service à plusieurs unités sans l'unité nommée.
 depuis l'inventaire de Docker depuis la v0.5 (point 1 de « Comment le réseau
 des services se lit »). L3 ne lit **aucun champ nouveau**, n'ajoute **aucun
 droit** à l'agent et ne demande aucun ré-enrôlement. Ni variable
-d'environnement (L5, droit `observe.env`), ni label Traefik (L7), ni connexion (L6).
+d'environnement (L5, droit `observe.env`), ni label Traefik (L7), ni connexion (L6, « Les connexions de l'hôte »).
 
 **Ce que l'écran en fait.**
 
@@ -5060,7 +5062,7 @@ formes de l'API, rien n'a été relu côté mcp-maison).
 | Audit : objet `link`, actions `link.create`, `link.delete` | `GET /api/audit` | Les connaître dans les filtres et les libellés |
 
 **Ce que L3 ne fait pas.** Pas de variable d'environnement (L5), pas de
-connexion vue (L6), pas de route Traefik (L7). Les liens de joignabilité (réseau
+connexion vue (L6, sans écriture), pas de route Traefik (L7). Les liens de joignabilité (réseau
 partagé) ne sont pas des liens.
 
 ## Les liens déduits
@@ -5214,6 +5216,117 @@ formes de l'API).
 | Clés de catalogue `machine.capability_observe_env`, `machine.capability_observe_env_note`, `link.signal_environment`, `link.from_environment_help`, `link.environment_off`, `link.not_removable` (texte changé) | `GET /api/catalog/{lang}` | Clés nouvelles, fr et en |
 | Aucune route, aucun verbe, aucun champ de requête | | Rien : **la parité UI / MCP ne bouge** |
 
+## Les connexions de l'hôte
+
+Un binaire de l'hôte (Forgejo, un reverse proxy installé sur la machine) ou un
+conteneur qui **publie un port** est joint par quelqu'un. Le noyau le dit, à tout
+compte, dans la table des connexions de l'**espace de noms réseau de l'agent**.
+L'agent la lit et le serveur en fait des liens **observés** sur la fiche du
+service. Étude : `services-modele.md` §2.3 (signal 9), décision 5.
+
+**Sans droit élevé, et sans eBPF.** `/proc/net/tcp` et `/proc/net/tcp6` se lisent
+sans droit (mesuré sur la machine de l'étude, compte non root). Aucun droit
+d'agent nouveau, aucun ré-enrôlement. Ni `CAP_SYS_PTRACE`, ni `CAP_NET_ADMIN`, ni
+conntrack, ni capture de paquets.
+
+**Ce que la table donne, et ce qu'elle ne donne pas.**
+
+| Se voit | Ne se voit pas |
+| --- | --- |
+| Un client **de la machine** (un compte, un binaire) qui joint un port d'écoute de la machine, y compris un port publié par Docker | Le **processus** : la table ne l'attribue qu'aux sockets du compte de l'agent. La source est donc un **compte**, jamais un service |
+| Une machine du **réseau local** qui joint un port d'écoute de la machine | Les connexions **entre conteneurs** : un conteneur a son propre espace de noms réseau, y entrer demande `CAP_SYS_PTRACE` (décision 5). Ces liens restent déclarés ou déduits |
+| Une adresse **publique** qui joint un port d'écoute, réduite à « Internet » | Un client externe dont le paquet est **redirigé (DNAT)** vers un conteneur sans passer par un socket de l'hôte : **non mesuré avec Docker** (aucun démon ici) ; si l'hôte n'a pas de socket, la table n'a pas de ligne |
+| | Les connexions qui durent moins que la période de relevé (15 s) : un instantané manque les liens rares |
+
+**Ce que l'agent envoie** (section `host_connections` du signal, liste blanche
+par type : `hostconn.Connection`). Une ligne par **port** de l'hôte et par
+**source** :
+
+| Champ | Valeurs | Règle |
+| --- | --- | --- |
+| `port` | 1 à 65 535 | le port **de l'hôte** joint |
+| `origin` | `account`, `address`, `internet` | liste fermée |
+| `name` | compte ; adresse ; vide | `account` : un nom d'utilisateur Unix (`^[a-z_][a-z0-9_-]{0,31}$?`), le seul champ de la fiche du compte qui sorte de `os/user` (jamais le nom complet ni le dossier) ; `uid-N` si le compte est inconnu. `address` : une adresse **privée, de lien local ou de l'espace partagé 100.64.0.0/10**, forme canonique. `internet` : **jamais d'adresse** — celle d'un visiteur ne quitte pas la machine |
+
+Une connexion de la machine **à elle-même** a deux lignes dans la table : seule
+celle du client (le port distant écoute) est gardée, sous le compte du client.
+Sinon elle serait comptée deux fois, sous le compte du serveur. Une connexion
+**sortante** vers une autre machine ne joint aucun port de celle-ci : elle n'est
+pas gardée. Au plus **512** lignes, `truncated` si la machine en a davantage.
+
+**Les bornes, côté serveur.** Un agent n'est pas une preuve : `hostconn.Report.Validate`
+refuse **en bloc** (section `host_connections`, clé `bad_host_connections`, les
+autres sections sont écrites) une origine inconnue, un nom de compte qui n'en est
+pas un, une adresse publique présentée comme locale, une adresse avec zone ou en
+forme mappée, une adresse donnée à `internet`, un doublon, un port hors bornes,
+plus de 512 lignes.
+
+**Ce qui est gardé : rien en base.** La liste fermée des signaux de `links` est un
+`CHECK` ; y ajouter `host_connection` demanderait une migration, et l'étude ne
+l'attribue pas à L6 (« aucune »). `hostconn.Service` garde donc les vues **en
+mémoire** (voir « Ce qui est stocké »). Chaque rapport avance la **dernière vue**
+de ce qu'il porte ; ce qu'il ne porte plus vieillit (« Ancien » après 7 jours) et
+reste : l'absence d'observation n'est pas l'absence de lien. Le coût : un
+redémarrage de `serve` efface les vues jusqu'au rapport suivant de chaque agent
+(à l'ouverture de son flux), et il n'y a ni « Confirmer » ni « Écarter » pour un
+lien observé (il faudrait une table).
+
+**Le rapprochement port → instance se fait à la lecture, pas à l'écriture.**
+`directory.observedLinks` cherche, pour chaque service lu, les ports TCP de
+l'hôte que ses unités publient : ceux que ses conteneurs publient **aujourd'hui**
+(l'inventaire de l'agent) et ceux que l'opérateur a **déclarés** (`8080:80` pour
+un conteneur ; `443` seul pour un binaire, qui écoute sur l'hôte ; un port seul
+d'un conteneur n'est **pas** publié ; l'UDP n'est pas dans la table lue). Une vue
+sur un port que personne ne publie ne donne aucun lien. Un conteneur recréé ou un
+port déclaré après coup rattache les mêmes vues.
+
+**Le lien.** Nature `traffic`, preuve `observed`, signal `host_connection`, du côté
+**entrant** du service. La source est une clé `account:nom`, `address:adresse` ou
+`internet:public` (`link.KindOf`) ; ce ne sont **pas des instances**, l'opérateur
+ne les écrit pas (`validKey` les refuse). L'identifiant est `obs_…`, refait de la
+paire et du port.
+
+**Ce que l'écran en fait.** Carte **Liens** de la fiche d'un service : « Utilisé
+par », « Connexion vue », preuve « Observé » (au survol, ce que la table montre et
+ne montre pas), signal « Connexion vue sur l'hôte », source « Compte backup »,
+« Machine 192.168.1.20 » ou « Internet » (ni lien vers une fiche, ni pastille
+« Non déclaré »), port, « Vu il y a… ». Aucun geste : le tiret dit que la
+connexion est vue, pas écrite.
+
+**Banc de non-fuite** (valeurs semées : mot de passe, jeton, adresse de visiteur,
+nom de processus, ligne de commande, dossier de compte) :
+
+| Banc | Ce qu'il prouve |
+| --- | --- |
+| `hostconn` · `TestRead_NoSeededValueLeavesTheAgent` | la table du noyau (colonnes en trop, adresse publique) et la fiche d'un compte (nom complet, dossier) ne laissent rien dans le rapport |
+| `hostconn` · `TestReport_Validate` | tout rapport forgé est refusé en bloc |
+| `server` · `TestAPI_HostConnections_SeededValuesAreInNoOutput` | de bout en bout (flux, signal, API) : un agent hostile glisse processus, ligne de commande, environnement, adresse d'un visiteur ; ni la base (copie `VACUUM INTO`), ni **les réponses de l'API** (routes d'écran et d'audit, lectures ouvertes aux jetons du MCP) n'en portent une |
+| `server` · `TestAPI_HostConnections_ForgedReportIsRefused` | cinq rapports forgés : 400 `bad_host_connections`, aucun lien |
+
+**Mesure.** `hostconn.TestRead_RealLoopbackConnection` ouvre une vraie connexion de
+bouclage et la retrouve dans la vraie table de la machine de test (elle saute hors
+Linux). L'ordre des octets des adresses suppose une machine **little-endian** (x86,
+arm), comme le noyau les écrit.
+
+**Audit.** Aucun : une lecture de l'agent, comme ses mesures.
+
+**Ce que L6 ne fait pas.** Pas de connexion entre conteneurs (décision 5), pas de
+processus attribué ni de rapprochement d'un compte à une unité systemd (étude
+§2.3 : seulement si l'opérateur le confirme), pas de connexion sortante, pas
+d'UDP, pas d'écriture en base, pas de « Confirmer » ni « Écarter », pas de vue sur
+la carte Réseau de la machine (les liens observés n'y sont pas dessinés).
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| Valeurs nouvelles `nature: "traffic"`, `proof: "observed"`, `signal: "host_connection"` | `links[]` de `GET /api/directory/services/{id}/links` (opérateur seul, **hors liste des jetons**) | Rien aujourd'hui ; si la route est ouverte un jour : ces liens ont des `id` en `obs_…`, ne sont ni `removable` ni `proposed`, et peuvent être `stale` |
+| Champ `kind` sur chaque extrémité (`self`, `peer`, `from`, `to`) : `compose`, `container`, `systemd`, `account`, `address`, `internet` | la même route, `GET /api/machines/{id}/network` (jeton ouvert), `GET /api/network` | Champ ajouté : l'ignorer est sans danger. `account`, `address` et `internet` ne sont **pas des instances** : `service_id` vide, `key` en `account:…`, `address:…`, `internet:public` |
+| Section `host_connections` du signal d'agent (`ProtocolVersion` inchangée) ; clé de refus `bad_host_connections` | `/agent/signal` | Aucun : réservé aux agents |
+| Clés de catalogue `link.signal_host_connection`, `link.source_account`, `link.source_address`, `link.source_internet`, `link.observed_help`, `link.from_host_help` | `GET /api/catalog/{lang}` | Clés nouvelles, fr et en |
+| Aucune route, aucun verbe, aucun champ de requête, aucun droit d'agent | | Rien : **la parité UI / MCP ne bouge** |
+
 ## Comment les unités systemd se relèvent
 
 L'agent relève les **unités de service systemd** de sa machine, en lecture
@@ -5309,7 +5422,7 @@ lit la route des unités (la liste fermée de « Comment un agent IA lit
 openCloud » ne change pas).
 
 **Ce que L2 ne fait pas** (chantiers suivants de `services-modele.md`) : pas de
-connexions de l'hôte (L6), pas de port
+connexions de l'hôte (L6, voir « Les connexions de l'hôte »), pas de port
 déduit d'un processus. Un service systemd d'**un autre utilisateur** (unités
 `--user`) n'est pas vu : `systemctl` interroge le gestionnaire du système.
 
@@ -5991,4 +6104,5 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Type de machine, puce MCP, assistant OPNsense (v0.5.2 U4, #456) | `machine.IsPublicAddress` et `Placement.Address` (une VM sans hôte n'est un VPS que sur une adresse publique), la puce MCP retirée (`useAgentHint` : une infobulle, `action.agent_hint`), `internal/tlsinspect` et `POST /api/certificate/inspect`, `credential.Mask` (`api_key_hint`, `token_id_hint`), les libellés OPNsense dans les catalogues (`firewall.menu_*`, `firewall.label_*`), les privilèges DHCP réduits à Dnsmasq ou Kea. Aucune migration |
 | Fiche pare-feu visuelle (v0.5.2 U5, #458) | `internal/policy` (zones, objets, règles « de → vers : quoi, pourquoi », `Model.Grid`), `opnsense.Policy`, `firewall.Translator` et `Service.Policy`, `firewall.MatchMachine`, `GET /api/firewalls/{id}/flows` (ouverte aux jetons en lecture), `machine` dans chaque bail, `source_not` et `destination_not` lus par le connecteur (marque `!` dans `Rule.Source` et `Destination`, sans colonne de plus), l'onglet « Qui parle à qui », la maquette `docs/projet/maquettes/pare-feu-fiche.html`, les composants `Choice` (segment partagé) et `useScrollToHash`. Aucune migration, aucune dépendance, aucun champ d'agent |
 | Instances systemd (v0.5.2 L2, #451) | Le paquet `internal/systemdunits` (relevé par liste blanche, `Exec` à environnement vide, bornes), la section `systemd_units` du signal, la migration `029_systemd_units.sql` (`systemd_reports`, `systemd_units`), `directory.ObserveUnits` / `ApplyUnitObservations` / `ProposeUnit`, la route `GET /api/machines/{id}/systemd-units`, `?machine=&unit=` sur la proposition, le module `systemd_units` (onglet de la machine), la colonne « État de l'unité » et « Port à déclarer » de la fiche du service, le port d'un binaire hors du pli « Avancé » |
+| Connexions de l'hôte (v0.5.2 L6, #455) | Le paquet `internal/hostconn` (lecture de `/proc/net/tcp{,6}`, bornes, `Service` en mémoire), la section `host_connections` du signal, `link.Sighting`, `SignalHostConnection`, `KindOf` et les clés `account:` / `address:` / `internet:`, `directory.observedLinks` (rapprochement port → instance), `kind` sur les extrémités des liens, la boucle `connectionsLoop` de l'agent et le patron `latestReport[T]` (`internal/agent/keeper.go`), les sources d'une connexion sur la carte Liens. **Aucune migration, aucune route, aucun droit** |
 | Fiche Proxmox visuelle et dernière sauvegarde réelle (v0.5.2 P1, #459) | `internal/proxmox/backup_access.go` (droits du jeton lus par `GET /access/permissions`, `GrantFor`), `Reading.BlindStorages`, `Guest.BackupUnknown`, `proxmox_storages.backups_unreadable` (migration 035), `POST /api/machines/{id}/actions/refresh-proxmox`, champs `backup_blind_storages`, `backup_grant`, `backup_unknown`, `last_backup_storage`, `backup_blind`, `observed_unknown`, la maquette `docs/projet/maquettes/hyperviseur.html`, `EntityCard` partagé par les VM et les stockages. Migration `035`, aucune dépendance, aucun champ d'agent |
