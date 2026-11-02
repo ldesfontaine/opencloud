@@ -7,7 +7,7 @@ import { ModalForm } from "../../components/ModalForm";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT } from "../../i18n/context";
-import { backupsPath } from "../../lib/backups";
+import { backupsPath, canSaveRetention, lowersRetention } from "../../lib/backups";
 import { isFormModified } from "../../lib/modal";
 import { RetentionFields } from "./RetentionFields";
 
@@ -44,12 +44,15 @@ function ResticEditDialog({ source, protection, target }: { source: BackupSource
   const form = useForm(initial);
   const { values, change } = form;
   const action = useAction();
+  const [typedName, setTypedName] = useState("");
+  const lowered = lowersRetention(initial, values);
 
   const close = () => void navigate(backupsPath, { replace: true });
   const save = () => {
     const request = {
       name: values.name.trim(),
       retention: { keep_last: retention.keep_last, keep_daily: Number(values.keep_daily), keep_weekly: Number(values.keep_weekly), keep_monthly: Number(values.keep_monthly), keep_yearly: retention.keep_yearly },
+      ...(lowered ? { confirm_name: typedName } : {}),
     };
     action.run(() => updateResticBackup(source.machine_id, protection.id, request), { topic: "backups", onDone: close });
   };
@@ -63,12 +66,18 @@ function ResticEditDialog({ source, protection, target }: { source: BackupSource
       submitLabel={t("backup.plan_save")}
       submitIcon="check"
       busy={action.busy}
+      canSubmit={canSaveRetention(lowered, protection.name, typedName)}
       error={action.error}
     >
       <Field label={t("backup.restic_name")} htmlFor="restic-name" help={t("backup.restic_name_help")}>
         <Input id="restic-name" type="text" autoComplete="off" maxLength={80} value={values.name} onChange={(event) => change("name", event.target.value)} required />
       </Field>
       <RetentionFields values={values} onChange={change} target={target ?? { name: protection.target_machine_name, retention_floor: null }} />
+      {lowered && (
+        <Field label={t("backup.restic_lower_label", protection.name)} htmlFor="restic-confirm-name" help={t("backup.restic_lower_help")}>
+          <Input id="restic-confirm-name" type="text" autoComplete="off" value={typedName} onChange={(event) => setTypedName(event.target.value)} />
+        </Field>
+      )}
     </ModalForm>
   );
 }

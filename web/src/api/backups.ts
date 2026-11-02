@@ -395,7 +395,7 @@ export async function createResticBackup(machineID: string, request: ResticBacku
   return api.send<{ id: string }>(route("POST /api/machines/{id}/restic-backups", { id: machineID }), request);
 }
 
-export async function updateResticBackup(machineID: string, backupID: string, request: { name: string; retention: ResticRetentionRequest }): Promise<void> {
+export async function updateResticBackup(machineID: string, backupID: string, request: { name: string; retention: ResticRetentionRequest; confirm_name?: string }): Promise<void> {
   return api.send(route("PUT /api/machines/{id}/restic-backups/{backup}", { id: machineID, backup: backupID }), request);
 }
 

@@ -286,3 +286,22 @@ export function unfitDestination(t: Translate, destination: Pick<BackupDestinati
 export function browsePath(machineID: string, backupID: string): string {
   return `${backupsPath}/parcourir/${encodeURIComponent(machineID)}/${encodeURIComponent(backupID)}`;
 }
+
+// Les trois nombres que la fenêtre « Modifier » règle (nuits, semaines, mois).
+export interface RetentionCounts {
+  keep_daily: string;
+  keep_weekly: string;
+  keep_monthly: string;
+}
+
+// Baisser une rétention fait purger davantage : l'écran demande alors le nom
+// de la sauvegarde, et le serveur le redemande (restic.retention_confirm_name).
+// Une hausse ou un simple renommage ne demande rien.
+export function lowersRetention(before: RetentionCounts, after: RetentionCounts): boolean {
+  return (["keep_daily", "keep_weekly", "keep_monthly"] as const).some((key) => Number(after[key]) < Number(before[key]));
+}
+
+// Le nom est tapé tel quel, comme pour effacer une machine.
+export function canSaveRetention(lowered: boolean, backupName: string, typedName: string): boolean {
+  return !lowered || typedName === backupName;
+}

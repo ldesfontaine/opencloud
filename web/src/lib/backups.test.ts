@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BackupPlan } from "../api/backups";
 import type { Translate } from "../i18n/context";
-import { backupsPath, editPlanPath, emptyPlanForm, firewallIdOf, kindPatch, isFirewallPlan, newFirewallPlanPath, lastErrorRight, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
+import { backupsPath, editPlanPath, emptyPlanForm, firewallIdOf, kindPatch, isFirewallPlan, newFirewallPlanPath, lastErrorRight, lastErrorText, lowersRetention, canSaveRetention, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -275,5 +275,21 @@ describe("l'export d'un pare-feu", () => {
   it("lit l'identifiant du pare-feu dans la clé de sa source", () => {
     expect(firewallIdOf("firewall:fw1")).toBe("fw1");
     expect(newFirewallPlanPath("fw 1")).toBe("/sauvegardes/plans/nouveau?firewall=fw%201");
+  });
+});
+
+describe("baisser une rétention", () => {
+  const before = { keep_daily: "14", keep_weekly: "8", keep_monthly: "3" };
+  it("ne demande le nom que si un compte baisse", () => {
+    expect(lowersRetention(before, before)).toBe(false);
+    expect(lowersRetention(before, { ...before, keep_daily: "30" })).toBe(false);
+    expect(lowersRetention(before, { ...before, keep_monthly: "2" })).toBe(true);
+    expect(lowersRetention(before, { keep_daily: "30", keep_weekly: "1", keep_monthly: "3" })).toBe(true);
+  });
+  it("attend le nom tel quel", () => {
+    expect(canSaveRetention(false, "paperless", "")).toBe(true);
+    expect(canSaveRetention(true, "paperless", "")).toBe(false);
+    expect(canSaveRetention(true, "paperless", "Paperless")).toBe(false);
+    expect(canSaveRetention(true, "paperless", "paperless")).toBe(true);
   });
 });
