@@ -201,13 +201,6 @@ func TestFindingsOf_ATargetThatKeepsNothingIsNotWatched(t *testing.T) {
 	}
 }
 
-// Les kinds du constat sont ceux des alertes : le moteur les convertit tels quels.
-func TestFindingKinds_AreFiveClosedWords(t *testing.T) {
-	if len(FindingKinds()) != 5 {
-		t.Fatalf("kinds %v", FindingKinds())
-	}
-}
-
 func TestVerifyDue(t *testing.T) {
 	cases := map[string]struct {
 		verify VerifyOutcome

@@ -2,6 +2,7 @@ package alert_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -9,6 +10,18 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/restic"
 )
+
+// Les types du constat sont ceux des alertes : le moteur les convertit tels
+// quels, et chacun est au catalogue.
+func TestBackups_FindingKindsAreAlertKinds(t *testing.T) {
+	for _, kind := range []restic.FindingKind{
+		restic.FindingStale, restic.FindingRestoreStale, restic.FindingSourceUnprotected, restic.FindingTargetFull, restic.FindingTargetUnreachable,
+	} {
+		if !slices.Contains(alert.Kinds(), alert.Kind(kind)) {
+			t.Errorf("%s is not an alert kind", kind)
+		}
+	}
+}
 
 func staleFinding(machineID string, since time.Time, danger bool) restic.Finding {
 	return restic.Finding{

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Agent, Capability, Machine } from "../api/machines";
-import { heldRights, lacksSudo, reenrollPath, rightOfRefusal, unfitFor, wantedRightOf, withWantedRight } from "./rights";
+import { heldRights, holderOfRefusal, lacksSudo, reenrollPath, rightOfRefusal, unfitFor, wantedRightOf, withWantedRight } from "./rights";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join("|");
 
@@ -89,4 +89,13 @@ test("lacksSudo : un hôte Proxmox, ou un agent qui dit que sudo manque", () => 
   expect(lacksSudo({ ...base, roles: [{ name: "proxmox_ve", version: "8.2" }] })).toBe(true);
   expect(lacksSudo({ ...base, agent: agentWith([], [{ name: "backup.produce", unavailable: "sudo_missing" }]) })).toBe(true);
   expect(lacksSudo({ ...base, agent: null })).toBe(false);
+});
+
+test("holderOfRefusal : un droit de la cible se corrige sur la cible, les autres sur la source", () => {
+  const machines = { source: "docker1", target: "pi" };
+  expect(holderOfRefusal("restic.target_right_missing", machines)).toBe("pi");
+  expect(holderOfRefusal("restic.target_verify_right_missing", machines)).toBe("pi");
+  expect(holderOfRefusal("restic.source_right_missing", machines)).toBe("docker1");
+  expect(holderOfRefusal("restic.source_docker_right_missing", machines)).toBe("docker1");
+  expect(holderOfRefusal("action.right_missing", machines)).toBe("docker1");
 });

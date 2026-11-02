@@ -37,11 +37,6 @@ const (
 	FindingTargetUnreachable FindingKind = "target_unreachable"
 )
 
-// FindingKinds rend les constats, dans l'ordre des écrans.
-func FindingKinds() []FindingKind {
-	return []FindingKind{FindingStale, FindingRestoreStale, FindingSourceUnprotected, FindingTargetFull, FindingTargetUnreachable}
-}
-
 // Les raisons d'un constat, une liste fermée que les catalogues traduisent.
 const (
 	ReasonTargetOffline = "offline"

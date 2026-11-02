@@ -102,20 +102,16 @@ func describe(catalog lang.Catalog, alert Alert, now time.Time, escape func(stri
 	return Text{Fact: string(alert.Kind), Cause: object}
 }
 
-// describeRestoreTestStale : le dernier test réussi, ou le dépôt jamais testé ;
-// le geste dépend de ce qui retient la vérification (le droit de la cible, ou
+// describeRestoreTestStale : depuis quand aucun test n'a réussi ; le geste dépend de ce qui retient la vérification (le droit de la cible, ou
 // rien : la nuit la rejoue).
 func describeRestoreTestStale(catalog lang.Catalog, object, machine string, details Details, age string) Text {
-	cause, action := "alert.cause_restore_test_stale", "alert.action_restore_test_stale"
-	if details.Reason == restic.ReasonNeverVerified {
-		cause = "alert.cause_restore_test_stale_never"
-	}
+	action := "alert.action_restore_test_stale"
 	if details.Reason == restic.ReasonVerifyRightMissing || details.Reason == restic.ReasonVerifyRightUnavailable {
 		action = "alert.action_restore_test_stale_right"
 	}
 	return Text{
 		Fact:   catalog.Format("alert.fact_restore_test_stale", age),
-		Cause:  catalog.Format(cause, object, machine, age),
+		Cause:  catalog.Format("alert.cause_restore_test_stale", object, machine, age),
 		Action: catalog.Get(action),
 	}
 }

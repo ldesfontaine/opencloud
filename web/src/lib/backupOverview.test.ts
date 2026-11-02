@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackupMachine, BackupOverview, BackupPath, BackupProtection, BackupRetention, BackupSource, BackupTarget } from "../api/backups";
+import type { BackupMachine, BackupOverview, BackupPath, BackupProtection, BackupRetention, BackupSource, BackupTarget, BackupVerify } from "../api/backups";
 import type { Translate } from "../i18n/context";
 import {
   candidatesFor,
@@ -30,6 +30,8 @@ import {
   targetFloorText,
   targetSetupUnfit,
   verdictOf,
+  verifyBlockedBy,
+  verifyView,
 } from "./backupOverview";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -69,6 +71,7 @@ const protection = (overrides: Partial<BackupProtection> = {}): BackupProtection
   path: null,
   parts: [],
   runs: [],
+  verify: null,
   ...overrides,
 });
 
@@ -331,4 +334,55 @@ it("un service avec un volume ou une base demande restic.docker, un dossier seul
   expect(rightsWanted(source({ parts: [{ kind: "folder", name: "", engine: "" }] }))).toEqual(["restic.produce"]);
   expect(rightsWanted(source({ parts: [{ kind: "database", name: "db-1", engine: "postgres" }] }))).toEqual(["restic.produce", "restic.docker"]);
   expect(rightsWanted(source({ kind: "vm" }))).toEqual(["restic.produce", "backup.produce"]);
+});
+
+describe("verifyView", () => {
+  const now = Date.parse("2026-11-02T12:00:00Z");
+  const verify = (overrides: Partial<BackupVerify> = {}): BackupVerify => ({
+    state: "",
+    reason: "",
+    at: null,
+    success_at: null,
+    snapshots: 0,
+    files: 0,
+    bytes: 0,
+    right: "ok",
+    right_reason: "",
+    stale: false,
+    ...overrides,
+  });
+  const decode = (reason: string) => `décodé ${reason}`;
+
+  it("jamais testé : neutre, la nuit s'en charge ; périmé, il avertit", () => {
+    expect(verifyView(t, verify(), now, decode)).toEqual({ text: "backup.verify_never", sub: "backup.verify_never_sub", tone: "neutral" });
+    expect(verifyView(t, verify({ stale: true }), now, decode).tone).toBe("warn");
+  });
+
+  it("en cours : la cible vérifie", () => {
+    expect(verifyView(t, verify({ state: "sent", at: "2026-11-02T11:59:00Z" }), now, decode)).toMatchObject({ text: "backup.verify_sent", tone: "neutral" });
+  });
+
+  it("réussi : ce qui a été relu, en comptes ; périmé, la phrase le dit et le ton avertit", () => {
+    const done = verify({ state: "succeeded", at: "2026-11-01T12:00:00Z", success_at: "2026-11-01T12:00:00Z", snapshots: 2, files: 4 });
+    const fresh = verifyView(t, done, now, decode);
+    expect(fresh.tone).toBe("ok");
+    expect(fresh.sub).toBe("backup.verify_read:backup.verify_files:4:backup.verify_snapshots:2");
+    const old = verifyView(t, { ...done, stale: true }, now, decode);
+    expect(old.tone).toBe("warn");
+    expect(old.sub).toContain("backup.verify_stale");
+  });
+
+  it("échoué : la raison, et la dernière réussite à côté", () => {
+    const failed = verifyView(t, verify({ state: "failed", reason: "check_failed", at: "2026-11-02T02:00:00Z", success_at: "2026-10-26T02:00:00Z" }), now, decode);
+    expect(failed.tone).toBe("warn");
+    expect(failed.sub).toContain("décodé check_failed");
+    expect(failed.sub).toContain("backup.verify_last_good");
+  });
+
+  it("le droit restic.verify manquant ou inexerçable de la cible se lit à part", () => {
+    expect(verifyBlockedBy(verify({ right: "missing" }))).toBe("missing");
+    expect(verifyBlockedBy(verify({ right: "unavailable" }))).toBe("unavailable");
+    expect(verifyBlockedBy(verify({ right: "unknown" }))).toBeNull();
+    expect(verifyBlockedBy(verify())).toBeNull();
+  });
 });

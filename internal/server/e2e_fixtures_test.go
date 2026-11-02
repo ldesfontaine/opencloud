@@ -798,14 +798,14 @@ func seedE2ESupervision(t *testing.T, ts *testServer, docker, pi *machine.Sessio
 
 const e2eBureauID = "bbbbbbbb-cccc-4ddd-8eee-aaaaaaaaaaaa"
 
-// seedE2EQuietRepository : wiki (bureau → pi), un dépôt que le parcours des
+// seedE2EQuietRepository : intranet (bureau → pi), un dépôt que le parcours des
 // autres écrans ne touche pas, pour que « Vérifier maintenant » y parte sans
 // trouver le dépôt occupé par une sauvegarde lancée à la main plus tôt.
 func seedE2EQuietRepository(t *testing.T, ts *testServer, pi *machine.Session) {
 	t.Helper()
 	bureau := e2eConnect(t, ts, "bureau", e2eBureauID, "observe,restic.produce")
-	wiki := e2eComposeService(t, ts, e2eBureauID, "wiki")
-	e2eResticBackup(t, ts, bureau, pi, e2eBureauID, "wiki", wiki, agentwire.ResticRunReport{
+	intranet := e2eComposeService(t, ts, e2eBureauID, "intranet")
+	e2eResticBackup(t, ts, bureau, pi, e2eBureauID, "intranet", intranet, agentwire.ResticRunReport{
 		Path: agentwire.ResticPathDirect, Reason: agentwire.ResticReachable, TargetHost: e2ePiHost, TargetPort: e2ePiPort,
 		SnapshotID: strings.Repeat("f", 64), BytesAdded: 1 << 20, DurationSeconds: 8,
 	})
