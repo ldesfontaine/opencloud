@@ -121,6 +121,11 @@ export function topicsOf(path: string): readonly Topic[] {
   if (path.includes("/probes")) {
     return ["probes"];
   }
+  // La carte du réseau croise les machines (leur hôte, leur type), l'annuaire
+  // (services et liens), les conteneurs et les pare-feu (les zones).
+  if (path === "/api/network") {
+    return ["machines", "containers", "directory", "firewalls"];
+  }
   if (path.includes("/containers") || path.includes("/network")) {
     return ["containers"];
   }

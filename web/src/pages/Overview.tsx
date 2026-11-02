@@ -8,7 +8,7 @@ import { useCurrentResources } from "../api/resources";
 import { ActionButton } from "../components/ActionButton";
 import { EmptyCard, Stat } from "../components/Card";
 import { Failure } from "../components/Failure";
-import { NetworkOverview } from "../components/NetworkOverview";
+import { NetworkMap } from "../components/netmap/NetworkMap";
 import { PageHead } from "../components/PageHead";
 import { TodoCard } from "../components/TodoCard";
 import { VerbRequestsCard } from "../components/VerbRequestsCard";
@@ -193,7 +193,7 @@ export function Overview() {
               <span className="card-t">{t("tab.network")}</span>
               {list.length === 1 && list[0] !== undefined && <Link to={`/machines/${list[0].id}/reseau`}>{t("network.overview_detail")}</Link>}
             </div>
-            <NetworkOverview />
+            <NetworkMap />
           </div>
           <div className="overview-block">
             <div className="overview-head">

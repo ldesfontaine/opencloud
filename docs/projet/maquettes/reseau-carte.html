@@ -1,0 +1,879 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openCloud · Carte Réseau de la vue d'ensemble (maquette)</title>
+<!-- Maquette de la carte « Réseau » de la vue d'ensemble (R1). Données
+fictives (adresses de documentation et 10.20.x.x seulement). Paramètres de
+l'adresse : ?v=A|B|C (variante) · ?theme=light|dark · ?fold=all|none.
+
+Notes pour l'implémentation
+- Mise en page : boîtes en HTML/CSS (grille, flex), un calque SVG absolu
+  au-dessus pour les traits. Rien n'est placé en coordonnées à la main.
+- Colonnes (≥ 860 px) : Dehors 232 px · bande Internet 104 px · Maison
+  (pare-feu 240 px, couloir de 72 px, hôtes et zones 1fr). Sans VPS, la
+  colonne Dehors disparaît ; sans pare-feu, la Maison n'a que les hôtes.
+- Teinte de zone : un indice 0 à 7 donné par le serveur à la création de la
+  zone (jamais recalculé à l'affichage). La couleur se dérive de l'accent :
+  oklch(from var(--accent) l c calc(h + indice × 45)). Une variable locale du
+  composant (--hue, --zone), aucun jeton ajouté ; clair et sombre suivent
+  l'accent du thème. Elle ne sert qu'au liseré, aux pastilles et aux
+  connecteurs : le texte reste en --ink / --ink-2, le nom de zone est écrit.
+- Ancres : chaque puce, ligne d'interface, en-tête d'hôte et pastille de la
+  bande porte data-node ; on mesure getBoundingClientRect() moins celui de
+  la carte. Une extrémité dans un hôte replié se rabat sur l'en-tête de
+  l'hôte ; deux liens qui tombent alors sur les mêmes ancres n'en font qu'un
+  (« 2 liens » dans l'info-bulle). Retracé au ResizeObserver de la carte et
+  à chaque repli.
+- Tracés : lien entre services = courbe de Bézier entre les côtés qui se
+  font face ; connecteurs du pare-feu = traits orthogonaux arrondis dans le
+  couloir, un rail par trait, le plus haut à droite (pas de croisement). Un
+  trait qui traverse le pare-feu passe par la ligne de son interface : WAN
+  pour une entrée Internet, wg0 pour ce qui emprunte le tunnel.
+- Repli : replié par défaut quand la carte compte plus de 12 boîtes de
+  machine, sauf l'hôte qui porte une puce en échec ou absente. Replié,
+  l'en-tête dit « 12 machines · 18 services », ses zones, et une pastille
+  pour ce qui est dégradé, en échec ou absent.
+- Une machine sans service et sans invité n'a pas de boîte : une ligne par
+  conteneur, « 3 machines sans service : a · b · c », chaque nom un lien.
+  Elle ne compte pas dans la règle des 12.
+- Sous 860 px : Dehors, puis la bande Internet en largeur, puis la Maison ;
+  le calque SVG disparaît et les liens passent dans la liste « Liens » sous
+  la carte, ouverte. -->
+<style>
+/* Jetons : web/src/styles/_tokens.scss, tels quels. */
+:root{
+  color-scheme:light;
+  --bg:#f6f6f8;--surface:#fff;--surface-2:#f1f2f5;--line:#e5e7ec;--line-strong:#d3d6de;
+  --ink:#101216;--ink-2:#4b5160;--muted:#7a8194;--accent:#5b5be6;--accent-ink:#fff;--accent-wash:#eeeefc;--accent-line:#c9c9f7;
+  --ok:#1f9d57;--ok-wash:#e4f6ec;--warn:#d78d0c;--warn-wash:#fdf2dc;--danger:#de4350;--danger-wash:#fde9eb;
+  --primary:#101216;--primary-ink:#fff;--primary-hover:#2a2e38;
+  --shadow-2:0 1px 2px rgba(16,18,22,.05),0 8px 24px rgba(16,18,22,.08);
+  --sans:"Geist","Segoe UI",system-ui,-apple-system,sans-serif;--mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  color-scheme:dark;
+  --bg:#0d0e12;--surface:#15171c;--surface-2:#1c1f26;--line:#262a33;--line-strong:#353a47;
+  --ink:#eef0f4;--ink-2:#b3b8c4;--muted:#7d8494;--accent:#7c7cf0;--accent-ink:#fff;--accent-wash:#1f2040;--accent-line:#3a3a7a;
+  --ok:#3ac776;--ok-wash:#12301f;--warn:#f0a92a;--warn-wash:#33260d;--danger:#f06470;--danger-wash:#3a1a1e;
+  --primary:#eef0f4;--primary-ink:#101216;--primary-hover:#d5d9e2;
+  --shadow-2:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.5);
+}}
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --bg:#0d0e12;--surface:#15171c;--surface-2:#1c1f26;--line:#262a33;--line-strong:#353a47;
+  --ink:#eef0f4;--ink-2:#b3b8c4;--muted:#7d8494;--accent:#7c7cf0;--accent-ink:#fff;--accent-wash:#1f2040;--accent-line:#3a3a7a;
+  --ok:#3ac776;--ok-wash:#12301f;--warn:#f0a92a;--warn-wash:#33260d;--danger:#f06470;--danger-wash:#3a1a1e;
+  --primary:#eef0f4;--primary-ink:#101216;--primary-hover:#d5d9e2;
+  --shadow-2:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:400 13px/1.45 var(--sans)}
+button{font:inherit;color:inherit}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--mono);font-size:12px}.muted{color:var(--muted)}
+.ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.label{color:var(--muted);font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase}
+.main{padding:28px 32px;max-width:1440px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.btn{height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line-strong);background:var(--surface);display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;box-shadow:0 1px 2px rgba(16,18,22,.05)}
+.pill{display:inline-flex;align-items:center;gap:5px;height:17px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:500;white-space:nowrap}
+.pill:before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.pill.nodot:before{display:none}
+.t-ok{background:var(--ok-wash);color:var(--ok)}.t-warn{background:var(--warn-wash);color:var(--warn)}
+.t-danger{background:var(--danger-wash);color:var(--danger)}.t-neutral{background:var(--surface-2);color:var(--ink-2)}
+.t-line{background:transparent;color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--line-strong)}
+
+/* Barre de la maquette (pas dans le produit) */
+.mock{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.mock h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+.tabs a{padding:8px 10px;color:var(--ink-2);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs a[aria-current]{color:var(--ink);border-bottom-color:var(--ink);font-weight:500}
+.tabs a:hover{text-decoration:none;color:var(--ink)}
+.mock .push{margin-left:auto}
+.vnote{color:var(--ink-2);margin:0}
+
+/* La carte */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.card-h{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--line)}
+.card-t{font-weight:600;font-size:14px}
+.card-h .count{color:var(--muted)}
+.legend{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;color:var(--ink-2);font-size:12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend svg{width:26px;height:8px;overflow:visible}
+.legend .qbadge,.qbadge{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--warn-wash);box-shadow:inset 0 0 0 1px var(--warn);color:var(--ink);font-size:11px;font-weight:600}
+.legend line{stroke:var(--ink-2);stroke-width:1.5}
+
+.map{position:relative;display:grid;grid-template-columns:232px 104px minmax(0,1fr);column-gap:20px;padding:20px;align-items:stretch}
+.map.no-out{grid-template-columns:104px minmax(0,1fr)}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.home-grid{display:grid;grid-template-columns:240px minmax(0,1fr);column-gap:72px;align-items:start}
+.home-grid.no-fw{grid-template-columns:minmax(0,1fr)}
+.stack{display:flex;flex-direction:column;gap:14px;min-width:0}
+
+/* Bande Internet */
+.band{position:relative;border:1px dashed var(--line-strong);border-radius:12px;background:var(--surface-2);min-height:200px}
+.band-h{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0 0;color:var(--ink);font-weight:600}
+.band-h .ico{width:18px;height:18px;color:var(--ink-2)}
+.bp{position:absolute;left:6px;right:6px;display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 6px;border-radius:8px;background:var(--surface);border:1px solid var(--line-strong);font:11px/1.3 var(--mono);color:var(--ink);text-align:center;z-index:4}
+.bp .to{display:none}
+.bp .seen{color:var(--muted);font-family:var(--sans)}
+.bp.tunnel{font-family:var(--sans);border-color:var(--ink-2);border-width:1.5px}
+.bp.tunnel b{display:inline-flex;align-items:center;gap:4px;font-weight:600}
+.bp.tunnel .ico{width:12px;height:12px}
+
+/* Machines */
+.mach{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px 10px;min-width:0}
+.mach-h{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}
+.mach-h .nm{font-weight:600;font-size:13px;color:var(--ink)}
+.mach-h .ip{margin-left:auto;font:11.5px var(--mono);color:var(--muted)}
+.mach-s{color:var(--muted);font-size:12px;margin:-4px 0 7px}
+.chips{display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.svc{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 7px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);color:var(--ink);font-size:12px;white-space:nowrap;position:relative;z-index:4}
+.svc:hover{text-decoration:none;border-color:var(--line-strong)}
+.svc .st{width:6px;height:6px;border-radius:50%;flex:none;background:var(--muted)}
+.svc .k{width:12px;height:12px;color:var(--muted);stroke-width:1.8}
+.svc .x{font:11px var(--mono);color:var(--muted)}
+.svc .w{font-size:11px;color:var(--ink-2)}
+.svc.ok .st{background:var(--ok)}
+.svc.warn{background:var(--warn-wash);border-color:transparent}.svc.warn .st{background:var(--warn)}
+.svc.danger{background:var(--danger-wash);border-color:transparent}.svc.danger .st{background:var(--danger)}
+.svc.stopped .st{background:transparent;box-shadow:inset 0 0 0 1.5px var(--muted)}
+.svc.missing{background:transparent;border:1px dashed var(--muted);color:var(--ink-2)}.svc.missing .st{background:transparent;box-shadow:inset 0 0 0 1.5px var(--muted)}
+.svc.unknown .st{background:var(--line-strong)}
+.svc.hot{border-color:var(--accent);border-style:solid}
+
+/* Zones : la teinte se dérive de l'accent, variable locale au composant */
+.hue{--zone:oklch(from var(--accent) l c calc(h + var(--hue,0) * 45))}
+.zone{border:1px dashed var(--line-strong);border-left:3px solid var(--zone);border-radius:10px;padding:8px 10px 10px;min-width:0}
+.zone-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.zdot{width:8px;height:8px;border-radius:50%;background:var(--zone);flex:none}
+.zone-h b{font-weight:600;font-size:12.5px}
+.zone-h .cidr{font:11.5px var(--mono);color:var(--muted)}
+.zone-h .why{font-size:11.5px;color:var(--muted);margin-left:auto}
+.guests{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:8px}
+.bare{display:flex;flex-wrap:wrap;gap:2px 6px;align-items:baseline;color:var(--muted);font-size:12px}
+.guests+.bare{margin-top:8px}
+.bare a{font-weight:500}
+
+/* Hôtes */
+.host{border:1px solid var(--line-strong);border-radius:12px;background:var(--surface-2);min-width:0}
+.host-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-radius:12px}
+.host-h .nm{font-weight:600;font-size:14px}
+.host-h .pill.t-neutral{background:var(--surface)}
+.host-h .ip{font:11.5px var(--mono);color:var(--muted)}
+.fold{width:26px;height:26px;border-radius:7px;border:1px solid var(--line-strong);background:var(--surface);display:grid;place-items:center;cursor:pointer;padding:0;flex:none}
+.fold .ico{width:14px;height:14px;transition:transform .15s}
+.host.folded .fold .ico{transform:rotate(-90deg)}
+.host-h .sum{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding-left:34px;color:var(--ink-2);font-size:12px}
+.host-h .sum .zones{display:none;gap:4px 12px;flex-wrap:wrap;margin-left:8px}
+.host.folded .host-h .sum .zones{display:flex}
+.host-body{display:flex;flex-direction:column;gap:10px;padding:0 12px 12px}
+.host.folded .host-body{display:none}
+.host-h .zones span{display:inline-flex;align-items:center;gap:5px}
+.host-h .zones .zdot{width:7px;height:7px}
+
+/* Pare-feu */
+.fw{border:1px solid var(--line-strong);border-radius:12px;background:var(--surface);position:relative;z-index:1}
+.fw-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--line)}
+.fw-h .nm{font-weight:600;font-size:14px}
+.fw-h .ip{font:11.5px var(--mono);color:var(--muted);flex-basis:100%;padding-left:24px;margin-top:-4px}
+.ifc{display:grid;grid-template-columns:12px minmax(0,1fr) auto;column-gap:8px;row-gap:1px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--line)}
+.ifc:last-child{border-bottom:0}
+.ifc .mark{width:12px;height:12px;display:grid;place-items:center}
+.ifc .mark .ico{width:12px;height:12px;color:var(--ink-2);stroke-width:2}
+.ifc .n{font-weight:500}
+.ifc .d{grid-column:2/4;display:flex;gap:8px;font:11.5px var(--mono);color:var(--muted)}
+.ifc .d span:first-child{color:var(--ink-2)}
+
+/* Calque des traits */
+.wires{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;z-index:3}
+.wires .w{fill:none;stroke:var(--muted);stroke-width:1.4}
+.wires .declared{stroke-dasharray:none}
+.wires .inferred{stroke-dasharray:3 3}
+.wires .observed{stroke-dasharray:9 5}
+.wires .stale{opacity:.35}
+.wires .zc{stroke:var(--zone);stroke-width:2}
+.wires .wan{stroke:var(--line-strong);stroke-width:2}
+.wires .entry{stroke:var(--ink-2);stroke-width:1.5}
+.wires .tube{stroke:var(--ink-2);stroke-width:6;stroke-linecap:round}
+.wires .tube-in{stroke:var(--surface);stroke-width:2;stroke-linecap:round}
+.wires .hit{fill:none;stroke:transparent;stroke-width:12;pointer-events:stroke;cursor:help}
+.wires .arrow{fill:var(--muted)}
+.wires .pulse{fill:var(--ink-2)}
+.wires .badge rect{fill:var(--warn-wash);stroke:var(--warn);stroke-width:1}
+.wires .badge text{fill:var(--ink);font:600 11px var(--sans)}
+.wires .lk:focus{outline:none}
+.wires .lk.hot .w,.wires .lk:focus .w{stroke:var(--accent);stroke-width:2.2;opacity:1}
+.wires .lk.hot .tube{stroke:var(--accent)}
+.tip{position:absolute;z-index:5;max-width:320px;padding:6px 10px;border-radius:8px;background:var(--ink);color:var(--bg);font-size:12px;line-height:1.4;box-shadow:var(--shadow-2);pointer-events:none}
+.tip b{font-weight:600}
+
+/* Liste des liens (sous la carte ; ouverte sous 860 px) */
+.linklist{border-top:1px solid var(--line)}
+.linklist>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:12px 20px;cursor:pointer}
+.linklist>summary::-webkit-details-marker{display:none}
+.linklist>summary .ico{color:var(--muted);transition:transform .15s}
+.linklist[open]>summary .ico{transform:rotate(180deg)}
+.linklist ul{list-style:none;margin:0;padding:0 20px 16px;display:flex;flex-direction:column;gap:6px}
+.linklist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.linklist li .ends{font-weight:500}
+.linklist li .ev{color:var(--ink-2)}
+.linklist li.stale{opacity:.6}
+.note{margin:0;padding:12px 20px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+
+@media (max-width:860px){
+  .main{padding:20px 16px}
+  .map{display:flex;flex-direction:column;gap:14px;padding:16px}
+  .band{min-height:0;display:flex;flex-wrap:wrap;gap:6px;padding:10px;align-items:center}
+  .band-h{flex-direction:row;padding:0;margin-right:4px}
+  .bp{position:static;flex-direction:row;flex-wrap:wrap;gap:4px;left:auto;right:auto}
+  .bp .to{display:inline;font-family:var(--sans);font-weight:500}
+  .home-grid{display:flex;flex-direction:column;gap:14px}
+  .wires,.tip{display:none}
+  .legend{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){.wires .pulse{display:none}}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+ <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+ <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+ <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/></symbol>
+ <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+ <symbol id="i-compose" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+ <symbol id="i-container" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9 5v14M15 5v14"/></symbol>
+ <symbol id="i-systemd" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></symbol>
+</svg>
+
+<div class="main">
+  <div class="mock">
+    <h1>Carte Réseau</h1>
+    <nav class="tabs" aria-label="Variantes">
+      <a href="?v=A" data-v="A">A · Complet</a>
+      <a href="?v=B" data-v="B">B · Sans Proxmox ni pare-feu</a>
+      <a href="?v=C" data-v="C">C · 40 machines</a>
+    </nav>
+    <button class="btn push" id="theme" type="button">Thème sombre</button>
+  </div>
+  <p class="vnote" id="vnote"></p>
+  <section class="card" id="card"></section>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const theme = params.get("theme");
+if (theme === "dark" || theme === "light") document.documentElement.dataset.theme = theme;
+const variant = ["A", "B", "C"].includes(params.get("v")) ? params.get("v") : "A";
+
+// ——— Données fictives ———
+const S = (id, name, type, state = "running", replicas = 0) => ({ id, name, type, state, replicas });
+const VM = (name, vmid, ip, services) => ({ name, kind: "VM", vmid, ip, services });
+const LXC = (name, vmid, ip, services) => ({ name, kind: "LXC", vmid, ip, services });
+const HW = (name, ip, services) => ({ name, kind: "Matériel", ip, services });
+const VPS = (name, ip, note, services) => ({ name, kind: "VPS", ip, note, services });
+
+const zonesHome = {
+  admin: { name: "admin", cidr: "10.20.11.0/24", vlan: 11, hue: 0 },
+  services: { name: "services", cidr: "10.20.50.0/24", vlan: 50, hue: 1 },
+  dmz: { name: "dmz", cidr: "10.20.60.0/24", vlan: 60, hue: 2 },
+  ia: { name: "ia", cidr: "10.20.80.0/24", vlan: 80, hue: 3 },
+  users: { name: "utilisateurs", cidr: "10.20.20.0/24", vlan: 20, hue: 4 },
+  backup: { name: "sauvegarde", cidr: "10.20.90.0/24", vlan: 90, hue: 5 },
+};
+const firewall = {
+  name: "pare-feu", ip: "10.20.11.1",
+  rows: [
+    { role: "wan", dev: "igb0", cidr: "198.51.100.7/24" },
+    { role: "tunnel", dev: "wg0", cidr: "10.20.99.2/30" },
+    { zone: "admin", dev: "igb1.11", cidr: "10.20.11.1/24" },
+    { zone: "services", dev: "igb1.50", cidr: "10.20.50.1/24" },
+    { zone: "dmz", dev: "igb1.60", cidr: "10.20.60.1/24" },
+    { zone: "ia", dev: "igb1.80", cidr: "10.20.80.1/24" },
+    { zone: "users", dev: "igb1.20", cidr: "10.20.20.1/24" },
+    { zone: "backup", dev: "igb1.90", cidr: "10.20.90.1/24" },
+  ],
+};
+const vpsEdge = VPS("vps-edge", "203.0.113.10", "chez un hébergeur · 2 vCPU", [
+  S("caddy", "caddy", "compose"), S("wg", "wireguard", "systemd"), S("vf2b", "fail2ban", "systemd")]);
+const pi = HW("pi", "10.20.90.2", [S("restic-srv", "restic-serveur", "systemd"), S("nodeexp", "node-exporter", "systemd", "missing"), S("smartd", "smartd", "systemd", "unknown")]);
+const proxy = VM("proxy", 6010, "10.20.60.10", [S("haproxy", "haproxy", "compose", "running", 2), S("keycloak", "keycloak", "compose"), S("f2b", "fail2ban", "systemd", "failed")]);
+const forge = LXC("forge", 5011, "10.20.50.11", [S("gitea", "gitea", "compose"), S("postgres", "postgres", "container")]);
+const vault = VM("vault", 5010, "10.20.50.10", [S("passbolt", "passbolt", "compose")]);
+const pilote = VM("pilote", 5014, "10.20.50.14", [S("opencloud", "opencloud", "systemd"), S("restic", "restic", "systemd", "degraded")]);
+const consoleVm = VM("console", 5001, "10.20.11.20", [S("sshd", "sshd", "systemd")]);
+
+const variants = {
+  A: {
+    note: "Sans VPS, la colonne Dehors disparaît et la bande Internet passe au bord gauche de la carte : c'est le cas de B.",
+    zones: zonesHome, firewall, out: [vpsEdge],
+    home: [
+      { host: "pve", ip: "10.20.11.2", zones: [
+        { zone: "admin", machines: [consoleVm] },
+        { zone: "services", machines: [vault, forge, pilote] },
+        { zone: "dmz", machines: [proxy] },
+        { zone: "ia", machines: [VM("notes", 8010, "10.20.80.10", [S("hedgedoc", "hedgedoc", "compose"), S("ollama", "ollama", "container", "stopped")])], bare: ["vm-test-1", "vm-test-2"] },
+      ] },
+      { zone: "users", machines: [], bare: ["switch", "borne-wifi", "imprimante"] },
+      { zone: "backup", machines: [pi] },
+    ],
+    tunnel: { from: "wg", row: "tunnel" },
+    entries: [{ to: "caddy", ports: "443, 80", seen: true }],
+    links: [
+      { from: "caddy", to: "haproxy", ev: "observed", how: "connexion vue", port: "443", seen: "il y a 2 min", via: "tunnel" },
+      { from: "haproxy", to: "keycloak", ev: "declared", how: "route haproxy", port: "8080" },
+      { from: "haproxy", to: "passbolt", ev: "inferred", how: "route pass.exemple.fr", port: "443", confirm: true },
+      { from: "haproxy", to: "gitea", ev: "inferred", how: "même nom d'hôte", port: "3000", seen: "il y a 4 h" },
+      { from: "gitea", to: "postgres", ev: "declared", how: "depends_on", port: "5432", seen: "il y a 3 h" },
+      { from: "restic", to: "restic-srv", ev: "observed", how: "connexion vue", port: "8000", seen: "il y a 6 h" },
+      { from: "hedgedoc", to: "keycloak", ev: "observed", how: "connexion vue", port: "8080", seen: "il y a 9 j", stale: true },
+    ],
+  },
+  B: {
+    note: "Pas d'hyperviseur, pas de pare-feu déclaré : les machines sont à plat, rangées par zone déduite du sous-réseau (le nom est le CIDR). Pas de VPS : la colonne Dehors n'existe pas.",
+    zones: {
+      z1: { name: "10.20.1.0/24", deduced: true, hue: 0 },
+      z2: { name: "10.20.2.0/24", deduced: true, hue: 1 },
+    },
+    firewall: null, out: [],
+    home: [
+      { zone: "z1", machines: [
+        HW("media", "10.20.1.11", [S("caddy", "caddy", "compose"), S("photos", "photos", "compose", "degraded"), S("redis", "redis", "container")]),
+        HW("nas", "10.20.1.10", [S("samba", "samba", "systemd"), S("syncthing", "syncthing", "container"), S("jellyfin", "jellyfin", "compose")]),
+        HW("pi", "10.20.1.5", [S("adguard", "adguard", "container")]),
+      ], bare: ["imprimante", "tv-salon"] },
+      { zone: "z2", machines: [
+        HW("atelier", "10.20.2.20", [S("hass", "home-assistant", "compose"), S("mosquitto", "mosquitto", "container", "stopped"), S("z2m", "zigbee2mqtt", "compose", "failed")]),
+      ], bare: ["camera-01"] },
+    ],
+    tunnel: null,
+    entries: [{ to: "caddy", ports: "443, 80", seen: true }, { to: "hass", ports: "8123", seen: false }],
+    links: [
+      { from: "caddy", to: "jellyfin", ev: "inferred", how: "route media.exemple.fr", port: "8096", confirm: true },
+      { from: "caddy", to: "photos", ev: "declared", how: "Caddyfile", port: "2283" },
+      { from: "photos", to: "redis", ev: "declared", how: "depends_on", port: "6379", seen: "il y a 2 min" },
+      { from: "photos", to: "samba", ev: "observed", how: "connexion vue", port: "445", seen: "il y a 12 j", stale: true },
+      { from: "hass", to: "mosquitto", ev: "declared", how: "depends_on", port: "1883" },
+      { from: "z2m", to: "mosquitto", ev: "declared", how: "depends_on", port: "1883" },
+    ],
+  },
+};
+
+// C : 40 machines, deux hôtes repliés par la règle.
+function generatedGuests(prefix, firstId, specs) {
+  return specs.map(([zone, count, first]) => ({ zone, machines: Array.from({ length: count }, (_, i) => {
+    const n = String(first + i).padStart(2, "0");
+    const services = [S(`${prefix}${n}-web`, "web", "compose")];
+    if (i % 2 === 0) services.push(S(`${prefix}${n}-worker`, "worker", "container"));
+    return VM(`${prefix}-${n}`, firstId + first + i, `10.20.${zonesHome[zone].vlan}.${100 + first + i}`, services);
+  }) }));
+}
+const pve2 = generatedGuests("app", 7000, [["services", 6, 1], ["ia", 6, 7]]);
+pve2[1].machines[2].services[0].state = "degraded";
+const pve3 = generatedGuests("lab", 9000, [["ia", 4, 1], ["admin", 3, 5]]);
+variants.C = {
+  note: "Plus de 12 boîtes de machine : les hôtes sont repliés par défaut, sauf pve-1 qui porte une puce en échec. Les liens vers un hôte replié aboutissent à son en-tête.",
+  zones: zonesHome, firewall,
+  out: [vpsEdge, VPS("vps-relais", "203.0.113.25", "chez un hébergeur · 1 vCPU", [S("smtp", "smtp-relais", "compose"), S("statut", "statut", "compose")])],
+  home: [
+    { host: "pve-1", ip: "10.20.11.2", zones: [
+      { zone: "admin", machines: [consoleVm, LXC("dns", 5002, "10.20.11.21", [S("unbound", "unbound", "systemd")])] },
+      { zone: "services", machines: [vault, forge, pilote, LXC("wiki", 5015, "10.20.50.15", [S("bookstack", "bookstack", "compose")]), VM("mail", 5016, "10.20.50.16", [S("postfix", "postfix", "systemd"), S("dovecot", "dovecot", "systemd")])] },
+      { zone: "dmz", machines: [proxy, LXC("waf", 6011, "10.20.60.11", [S("modsec", "modsecurity", "container")])] },
+    ] },
+    { host: "pve-2", ip: "10.20.11.3", zones: pve2 },
+    { host: "pve-3", ip: "10.20.11.4", zones: pve3 },
+    { zone: "users", machines: [], bare: ["switch", "borne-wifi", "imprimante", "tv-salon"] },
+    { zone: "backup", machines: [pi, HW("nas", "10.20.90.3", [S("minio", "minio", "compose")])] },
+  ],
+  tunnel: { from: "wg", row: "tunnel" },
+  entries: [{ to: "caddy", ports: "443, 80", seen: true }, { to: "postfix", ports: "25", seen: true }, { to: "smtp", ports: "587", seen: false }],
+  links: [
+    { from: "caddy", to: "haproxy", ev: "observed", how: "connexion vue", port: "443", seen: "il y a 2 min", via: "tunnel" },
+    { from: "smtp", to: "postfix", ev: "declared", how: "relais déclaré", port: "25", via: "tunnel" },
+    { from: "haproxy", to: "keycloak", ev: "declared", how: "route haproxy", port: "8080" },
+    { from: "haproxy", to: "bookstack", ev: "inferred", how: "route wiki.exemple.fr", port: "80", confirm: true },
+    { from: "gitea", to: "postgres", ev: "declared", how: "depends_on", port: "5432", seen: "il y a 3 h" },
+    { from: "app02-web", to: "postgres", ev: "declared", how: "variable DATABASE_URL", port: "5432" },
+    { from: "app04-web", to: "keycloak", ev: "observed", how: "connexion vue", port: "8080", seen: "il y a 1 h" },
+    { from: "app08-web", to: "keycloak", ev: "observed", how: "connexion vue", port: "8080", seen: "il y a 5 min" },
+    { from: "lab03-web", to: "restic-srv", ev: "observed", how: "connexion vue", port: "8000", seen: "il y a 6 h" },
+  ],
+};
+const data = variants[variant];
+
+// ——— Vocabulaire ———
+const stateWord = { running: "", degraded: "dégradé", failed: "en échec", stopped: "arrêté", missing: "absent", unknown: "inconnu" };
+const stateLabel = { running: "en marche", degraded: "dégradé", failed: "en échec", stopped: "arrêté", missing: "absent", unknown: "état inconnu" };
+const stateTone = { running: "ok", degraded: "warn", failed: "danger", stopped: "stopped", missing: "missing", unknown: "unknown" };
+const typeLabel = { compose: "Compose", container: "conteneur", systemd: "systemd" };
+const evidenceWord = { declared: "déclaré", inferred: "déduit", observed: "observé" };
+const ico = (n, cls = "ico") => `<svg class="${cls}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
+
+// ——— Comptes ———
+function machinesOf(item) {
+  if (item.host) return item.zones.flatMap((z) => z.machines);
+  return item.machines;
+}
+function bareOf(item) {
+  if (item.host) return item.zones.flatMap((z) => z.bare || []);
+  return item.bare || [];
+}
+const allBoxes = [...data.out, ...data.home.flatMap(machinesOf)];
+const serviceIndex = new Map(allBoxes.flatMap((m) => m.services.map((s) => [s.id, s])));
+const machineTotal = allBoxes.length + data.home.flatMap(bareOf).length + data.home.filter((i) => i.host).length + (data.firewall ? 1 : 0);
+const serviceTotal = allBoxes.reduce((sum, m) => sum + m.services.length, 0);
+// Le repli par défaut : plus de 12 boîtes, sauf un hôte qui porte une puce en échec ou absente.
+const foldByDefault = allBoxes.length > 12;
+const forcesOpen = (host) => machinesOf(host).some((m) => m.services.some((s) => s.state === "failed" || s.state === "missing"));
+
+// ——— Rendu HTML ———
+function chip(s) {
+  const word = stateWord[s.state];
+  const aria = `${s.name}, ${stateLabel[s.state]}, ${typeLabel[s.type]}${s.replicas ? `, ${s.replicas} répliques` : ""}`;
+  return `<a class="svc ${stateTone[s.state]}" href="#service-${s.id}" data-node="svc:${s.id}" aria-label="${aria}" title="${aria}">
+    <span class="st"></span>${ico(s.type, "ico k")}<span>${s.name}</span>${s.replicas ? `<span class="x">×${s.replicas}</span>` : ""}${word ? `<span class="w">${word}</span>` : ""}</a>`;
+}
+function kindPill(m) {
+  return `<span class="pill nodot t-neutral">${m.kind}${m.vmid ? ` <span class="mono" style="font-size:11px">${m.vmid}</span>` : ""}</span>`;
+}
+function machineBox(m) {
+  return `<article class="mach"><div class="mach-h"><a class="nm" href="#machine-${m.name}">${m.name}</a>${kindPill(m)}<span class="ip">${m.ip}</span></div>
+    ${m.note ? `<div class="mach-s">${m.note}</div>` : ""}
+    <div class="chips">${m.services.map(chip).join("")}</div></article>`;
+}
+function bareLine(names) {
+  if (!names || names.length === 0) return "";
+  return `<div class="bare"><span>${plural(names.length, "machine sans service", "machines sans service")} :</span>${names.map((n, i) => `${i ? '<span aria-hidden="true">·</span>' : ""}<a href="#machine-${n}">${n}</a>`).join("")}</div>`;
+}
+function zoneHead(id) {
+  const z = data.zones[id];
+  const facts = z.deduced
+    ? `<b class="mono" style="font-size:12px">${z.name}</b><span class="why">déduite du sous-réseau</span>`
+    : `<b>${z.name}</b><span class="cidr">${z.cidr}</span>${z.vlan ? `<span class="pill nodot t-line">VLAN ${z.vlan}</span>` : ""}`;
+  return `<div class="zone-h"><span class="zdot"></span>${facts}</div>`;
+}
+function zoneFrame(item) {
+  const z = data.zones[item.zone];
+  return `<section class="zone hue" style="--hue:${z.hue}" data-zone="${item.zone}" aria-label="Zone ${z.name}">
+    ${zoneHead(item.zone)}
+    ${item.machines.length ? `<div class="guests">${item.machines.map(machineBox).join("")}</div>` : ""}
+    ${bareLine(item.bare)}</section>`;
+}
+function hostSummary(host) {
+  const machines = machinesOf(host).length + bareOf(host).length;
+  const services = machinesOf(host).flatMap((m) => m.services);
+  const count = (state) => services.filter((s) => s.state === state).length;
+  const alerts = [["failed", "t-danger", "en échec"], ["missing", "t-warn", "absent"], ["degraded", "t-warn", "dégradé"]]
+    .filter(([state]) => count(state) > 0)
+    .map(([state, tone, word]) => `<span class="pill ${tone}">${count(state)} ${word}</span>`).join("");
+  return `<span>${plural(machines, "machine", "machines")} · ${plural(services.length, "service", "services")}</span>${alerts}`;
+}
+function hostBox(host) {
+  const folded = foldParam === "all" || (foldParam !== "none" && foldByDefault && !forcesOpen(host));
+  const zoneTags = host.zones.map((z) => `<span class="hue" style="--hue:${data.zones[z.zone].hue}"><span class="zdot"></span>${data.zones[z.zone].name}</span>`).join("");
+  return `<section class="host ${folded ? "folded" : ""}" data-host="${host.host}">
+    <div class="host-h" data-node="host:${host.host}">
+      <button class="fold" type="button" aria-expanded="${!folded}" aria-label="Replier ou déplier ${host.host}">${ico("chev")}</button>
+      <a class="nm" href="#machine-${host.host}">${host.host}</a><span class="pill nodot t-neutral">Matériel</span><span class="pill nodot t-line">Proxmox</span><span class="ip">${host.ip}</span>
+      <div class="sum">${hostSummary(host)}<span class="zones"><span class="muted">zones</span>${zoneTags}</span></div>
+    </div>
+    <div class="host-body">${host.zones.map(zoneFrame).join("")}</div></section>`;
+}
+function firewallCard(fw) {
+  const rows = fw.rows.map((r) => {
+    if (r.role === "wan") return `<div class="ifc" data-node="if:wan"><span class="mark">${ico("globe")}</span><span class="n">Internet</span><span class="pill nodot t-neutral">WAN</span><div class="d"><span>${r.dev}</span><span>${r.cidr}</span></div></div>`;
+    if (r.role === "tunnel") return `<div class="ifc" data-node="if:tunnel"><span class="mark">${ico("lock")}</span><span class="n">tunnel</span><span class="pill nodot t-line">WireGuard</span><div class="d"><span>${r.dev}</span><span>${r.cidr}</span></div></div>`;
+    const z = data.zones[r.zone];
+    return `<div class="ifc hue" style="--hue:${z.hue}" data-node="if:${r.zone}" data-zone="${r.zone}"><span class="mark"><span class="zdot"></span></span><span class="n">${z.name}</span><span class="pill nodot t-line">VLAN ${z.vlan}</span><div class="d"><span>${r.dev}</span><span>${r.cidr}</span></div></div>`;
+  }).join("");
+  return `<article class="fw"><div class="fw-h">${ico("shield")}<a class="nm" href="#machine-${fw.name}">${fw.name}</a><span class="pill nodot t-neutral">Matériel</span><span class="pill nodot t-line">déclaré</span><span class="ip">${fw.ip}</span></div>${rows}</article>`;
+}
+function bandPills() {
+  const entryPills = data.entries.map((e, i) => {
+    const target = serviceIndex.get(e.to);
+    return `<div class="bp" data-node="bp:entry:${i}" title="Entrée Internet vers ${target.name}"><span class="to">${target.name}</span><span>${e.ports}</span>${e.seen ? '<span class="seen">vu</span>' : ""}</div>`;
+  });
+  const tunnel = data.tunnel ? [`<div class="bp tunnel" data-node="bp:tunnel"><b>${ico("lock")}WireGuard</b><span class="seen">chiffré</span><span class="to">vps-edge ⇄ pare-feu</span></div>`] : [];
+  return [...tunnel, ...entryPills].join("");
+}
+function linkSentence(link) {
+  return [evidenceWord[link.ev], link.how, link.port && `port ${link.port}`, link.seen && `vu ${link.seen}`].filter(Boolean).join(" · ");
+}
+function linkList() {
+  const rows = [];
+  if (data.tunnel) rows.push(`<li><span class="ends">vps-edge ⇄ pare-feu</span><span class="pill nodot t-line">WireGuard · chiffré</span><span class="mono muted">wg0</span></li>`);
+  data.entries.forEach((e) => rows.push(`<li><span class="ends">Internet → ${serviceIndex.get(e.to).name}</span><span class="mono">${e.ports}</span>${e.seen ? '<span class="ev">· vu</span>' : ""}</li>`));
+  data.links.forEach((l) => rows.push(`<li class="${l.stale ? "stale" : ""}"><span class="ends">${serviceIndex.get(l.from).name} → ${serviceIndex.get(l.to).name}</span><span class="ev">${linkSentence(l)}</span>${l.confirm ? '<span class="pill t-warn">à confirmer</span>' : ""}${l.stale ? '<span class="pill nodot t-neutral">ancien</span>' : ""}</li>`));
+  return `<details class="linklist" id="linklist"><summary>${ico("chev")}<b>Liens</b><span class="pill nodot t-neutral">${rows.length}</span><span class="muted">la même chose qu'au survol des traits</span></summary><ul>${rows.join("")}</ul></details>`;
+}
+function legend() {
+  return `<div class="legend" aria-label="Légende des liens">
+    <span><svg aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4"/></svg>déclaré</span>
+    <span><svg aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke-dasharray="3 3"/></svg>déduit</span>
+    <span><svg aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke-dasharray="9 5"/><circle cx="13" cy="4" r="2.5" fill="var(--ink-2)"/></svg>observé</span>
+    <span><span class="qbadge" aria-hidden="true">?</span>à confirmer</span>
+    <span style="opacity:.45"><svg aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4"/></svg>ancien</span>
+    <button class="btn" type="button" id="foldAll"></button></div>`;
+}
+
+const foldParam = params.get("fold");
+function render() {
+  const fw = data.firewall;
+  const home = data.home.map((item) => (item.host ? hostBox(item) : zoneFrame(item))).join("");
+  document.getElementById("card").innerHTML = `
+    <div class="card-h"><span class="card-t">Réseau</span><span class="count">${plural(machineTotal, "machine", "machines")} · ${plural(serviceTotal, "service", "services")}</span>${legend()}</div>
+    <div class="map ${data.out.length ? "" : "no-out"}" id="map">
+      ${data.out.length ? `<div class="col"><span class="label">Dehors</span>${data.out.map(machineBox).join("")}</div>` : ""}
+      <div class="band" id="band" aria-label="Internet"><div class="band-h">${ico("globe")}<span>Internet</span></div>${bandPills()}</div>
+      <div class="col"><span class="label">Maison</span>
+        <div class="home-grid ${fw ? "" : "no-fw"}">${fw ? `<div>${firewallCard(fw)}</div>` : ""}<div class="stack">${home}</div></div></div>
+      <svg class="wires" id="wires" aria-label="Liens entre services"></svg>
+      <div class="tip" id="tip" role="tooltip" hidden></div>
+    </div>
+    ${linkList()}`;
+}
+
+// ——— Tracé des liens ———
+const SVGNS = "http://www.w3.org/2000/svg";
+let map, wires;
+function rectOf(el) {
+  const m = map.getBoundingClientRect(), r = el.getBoundingClientRect();
+  return { left: r.left - m.left, right: r.right - m.left, top: r.top - m.top, bottom: r.bottom - m.top, cx: (r.left + r.right) / 2 - m.left, cy: (r.top + r.bottom) / 2 - m.top, el };
+}
+// Une extrémité dans un hôte replié se rabat sur l'en-tête de l'hôte.
+function anchorOf(node) {
+  const el = map.querySelector(`[data-node="${node}"]`);
+  if (!el) return null;
+  const host = el.closest(".host");
+  if (host && host.classList.contains("folded") && !el.classList.contains("host-h")) return rectOf(host.querySelector(".host-h"));
+  return rectOf(el);
+}
+function el(tag, attrs = {}, parent = wires) {
+  const node = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  parent.appendChild(node);
+  return node;
+}
+function bezier(p, q, k) {
+  return `M${p.x},${p.y} C${p.x + p.nx * k},${p.y + p.ny * k} ${q.x + q.nx * k},${q.y + q.ny * k} ${q.x},${q.y}`;
+}
+// Les côtés qui se font face : on garde la paire la plus courte dont chaque
+// côté regarde l'autre extrémité. Un en-tête d'hôte s'accroche près de son nom.
+function sidesOf(r) {
+  const isHeader = r.el.classList.contains("host-h");
+  const cx = isHeader ? r.left + 80 : r.cx;
+  return [
+    { x: r.left, y: r.cy, nx: -1, ny: 0 }, { x: r.right, y: r.cy, nx: 1, ny: 0 },
+    { x: cx, y: r.top, nx: 0, ny: -1 }, { x: cx, y: r.bottom, nx: 0, ny: 1 },
+  ];
+}
+function facingPair(a, b) {
+  let best = null;
+  for (const p of sidesOf(a)) for (const q of sidesOf(b)) {
+    const dx = q.x - p.x, dy = q.y - p.y;
+    let cost = Math.hypot(dx, dy);
+    if (dx * p.nx + dy * p.ny <= 0) cost += 400;
+    if (-dx * q.nx - dy * q.ny <= 0) cost += 400;
+    if (!best || cost < best.cost) best = { p, q, cost };
+  }
+  return best;
+}
+function curveBetween(a, b) {
+  // Deux puces d'une même machine : une accolade à droite, pas une boucle.
+  const box = a.el.closest(".mach");
+  if (box && box === b.el.closest(".mach")) {
+    // Départ sous le milieu, arrivée au-dessus : deux accolades qui se suivent ne se touchent pas.
+    const dir = Math.sign(b.cy - a.cy) || 1, y1 = a.cy + 4 * dir, y2 = b.cy - 4 * dir;
+    const x = Math.max(a.right, b.right) + 10 + Math.abs(b.cy - a.cy) * 0.15;
+    return `M${a.right},${y1} C${x},${y1} ${x},${y2} ${b.right},${y2}`;
+  }
+  const { p, q } = facingPair(a, b);
+  const k = Math.max(20, Math.min(80, Math.hypot(q.x - p.x, q.y - p.y) * 0.4));
+  return bezier(p, q, k);
+}
+function horizontalCurve(x1, y1, x2, y2) {
+  const k = Math.max(16, Math.abs(x2 - x1) * 0.5);
+  const dir = x2 > x1 ? 1 : -1;
+  return `M${x1},${y1} C${x1 + dir * k},${y1} ${x2 - dir * k},${y2} ${x2},${y2}`;
+}
+// Trait orthogonal aux angles arrondis, par une suite de points.
+function roundedPath(points, radius = 6) {
+  const pts = points.filter((p, i) => i === 0 || Math.hypot(p[0] - points[i - 1][0], p[1] - points[i - 1][1]) > 0.5);
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [px, py] = pts[i - 1], [x, y] = pts[i], [nx, ny] = pts[i + 1];
+    const l1 = Math.hypot(x - px, y - py), l2 = Math.hypot(nx - x, ny - y);
+    const r = Math.min(radius, l1 / 2, l2 / 2);
+    d += ` L${x - ((x - px) / l1) * r},${y - ((y - py) / l1) * r} Q${x},${y} ${x + ((nx - x) / l2) * r},${y + ((ny - y) / l2) * r}`;
+  }
+  const last = pts[pts.length - 1];
+  return `${d} L${last[0]},${last[1]}`;
+}
+// L'arrivée d'un trait venu du couloir : droit sur la puce quand sa machine
+// est dans la première colonne de la zone, sinon par l'interstice au-dessus
+// de la machine, pour ne pas traverser ses voisines.
+function approachTo(target) {
+  const straight = { y: target.cy, tail: [[target.left, target.cy]] };
+  const box = target.el.closest(".mach");
+  if (!box) return straight;
+  const b = rectOf(box), zone = rectOf(box.closest(".zone"));
+  if (b.left - zone.left < 30) return straight;
+  const gap = b.top - 4, x = target.left + 14;
+  return { y: gap, tail: [[x, gap], [x, target.top]] };
+}
+function linkGroup(className, tip, ends) {
+  const g = el("g", { class: `lk ${className}`, tabindex: "0", role: "img", "aria-label": tip.replace(/<[^>]+>/g, "") });
+  g.dataset.tip = tip;
+  g.dataset.ends = ends.join(" ");
+  return g;
+}
+function stroke(g, d, cls, marker) {
+  const attrs = { d, class: `w ${cls}` };
+  if (marker) attrs["marker-end"] = "url(#arrow)";
+  el("path", attrs, g);
+  el("path", { d, class: "hit" }, g);
+}
+function pulse(g, d) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const dot = el("circle", { r: "2.6", class: "pulse" }, g);
+  el("animateMotion", { dur: "2.6s", repeatCount: "indefinite", path: d }, dot);
+}
+function badge(g, d, text) {
+  const probe = el("path", { d, fill: "none" }, g);
+  // Aux trois quarts, côté cible : le milieu tombe souvent sur un en-tête de zone.
+  const mid = probe.getPointAtLength(probe.getTotalLength() * 0.72);
+  probe.remove();
+  const b = el("g", { class: "badge" }, g);
+  // Un « ? » de 16 px : le mot est dans la légende, l'info-bulle et la liste des liens.
+  el("rect", { x: mid.x - 8, y: mid.y - 8, width: 16, height: 16, rx: 8 }, b);
+  const t = el("text", { x: mid.x, y: mid.y + 3.5, "text-anchor": "middle" }, b);
+  t.textContent = text;
+}
+
+// Place les pastilles de la bande à la hauteur de ce qu'elles relient, sans chevauchement.
+function placeBandPills(fwRows) {
+  const band = rectOf(map.querySelector("#band"));
+  const head = rectOf(map.querySelector(".band-h"));
+  const pills = [];
+  if (data.tunnel) pills.push({ node: "bp:tunnel", y: fwRows.tunnel ? fwRows.tunnel.cy : anchorOf(`svc:${data.tunnel.from}`).cy });
+  data.entries.forEach((e, i) => {
+    const target = anchorOf(`svc:${e.to}`);
+    const outside = data.out.some((m) => m.services.some((s) => s.id === e.to));
+    pills.push({ node: `bp:entry:${i}`, y: !outside && fwRows.wan ? fwRows.wan.cy : target.cy });
+  });
+  pills.sort((a, b) => a.y - b.y);
+  let floor = head.bottom - band.top + 10;
+  for (const p of pills) {
+    const node = map.querySelector(`[data-node="${p.node}"]`);
+    const h = node.offsetHeight;
+    const top = Math.max(p.y - band.top - h / 2, floor);
+    node.style.top = `${top}px`;
+    floor = top + h + 8;
+  }
+}
+
+function draw() {
+  map = document.getElementById("map");
+  wires = document.getElementById("wires");
+  wires.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M1 1 9 5 1 9z"/></marker></defs>`;
+  if (matchMedia("(max-width: 860px)").matches) {
+    map.querySelectorAll(".bp").forEach((p) => (p.style.top = ""));
+    return;
+  }
+  wires.setAttribute("width", map.scrollWidth);
+  wires.setAttribute("height", map.scrollHeight);
+  const band = rectOf(map.querySelector("#band"));
+  const fwEl = map.querySelector(".fw");
+  const fw = fwEl ? rectOf(fwEl) : null;
+  const fwRows = {};
+  map.querySelectorAll(".ifc").forEach((row) => (fwRows[row.dataset.node.slice(3)] = rectOf(row)));
+  placeBandPills(fwRows);
+  const bp = (node) => anchorOf(node);
+  const isOutside = (id) => data.out.some((m) => m.services.some((s) => s.id === id));
+
+  // Rails du couloir entre le pare-feu et les hôtes : le plus haut à droite.
+  const railJobs = [];
+  if (fw) {
+    const stackLeft = rectOf(map.querySelector(".stack")).left;
+    map.querySelectorAll(".stack .zone").forEach((zone) => {
+      if (zone.closest(".host.folded")) return;
+      const row = fwRows[zone.dataset.zone];
+      if (!row) return;
+      const head = rectOf(zone.querySelector(".zone-h"));
+      railJobs.push({ y1: row.cy, y2: head.cy, tail: [[rectOf(zone).left, head.cy]], kind: "zone", hue: data.zones[zone.dataset.zone].hue });
+    });
+    railJobs.gutter = [fw.right, stackLeft];
+  }
+
+  // La patte WAN du pare-feu.
+  if (fw && fwRows.wan) {
+    const g = linkGroup("", "<b>pare-feu · WAN</b><br>igb0 · 198.51.100.7/24", ["if:wan"]);
+    stroke(g, horizontalCurve(band.right, fwRows.wan.cy, fwRows.wan.left, fwRows.wan.cy), "wan");
+  }
+
+  // Le tunnel : un tube, cadenas et mots dans la bande.
+  if (data.tunnel) {
+    const from = anchorOf(`svc:${data.tunnel.from}`), pill = bp("bp:tunnel");
+    const g = linkGroup("", "<b>WireGuard · chiffré</b><br>vps-edge ⇄ pare-feu (wg0)", [`svc:${data.tunnel.from}`, "if:tunnel"]);
+    const d1 = horizontalCurve(from.right, from.cy, pill.left, pill.cy);
+    const target = fwRows.tunnel;
+    const d2 = horizontalCurve(pill.right, pill.cy, target.left, target.cy);
+    for (const d of [d1, d2]) { el("path", { d, class: "w tube" }, g); el("path", { d, class: "w tube-in" }, g); el("path", { d, class: "hit" }, g); }
+  }
+
+  // Entrées Internet.
+  data.entries.forEach((e, i) => {
+    const pill = bp(`bp:entry:${i}`), target = anchorOf(`svc:${e.to}`);
+    const name = serviceIndex.get(e.to).name;
+    const g = linkGroup("", `<b>Internet → ${name}</b><br>ports publiés ${e.ports}${e.seen ? " · connexion d'Internet vue" : " · aucune connexion vue"}`, [`svc:${e.to}`]);
+    if (isOutside(e.to)) {
+      stroke(g, horizontalCurve(pill.left, pill.cy, target.right, target.cy), "entry", true);
+    } else if (fw) {
+      stroke(g, horizontalCurve(pill.right, pill.cy, fwRows.wan.left, fwRows.wan.cy), "entry");
+      const a = approachTo(target);
+      railJobs.push({ y1: fwRows.wan.cy, y2: a.y, tail: a.tail, kind: "pass", group: g, cls: "entry" });
+    } else {
+      stroke(g, horizontalCurve(pill.right, pill.cy, target.left, target.cy), "entry", true);
+    }
+  });
+
+  // Liens entre services, fusionnés quand un repli les pose sur les mêmes ancres.
+  const merged = new Map();
+  for (const link of data.links) {
+    const a = anchorOf(`svc:${link.from}`), b = anchorOf(`svc:${link.to}`);
+    if (!a || !b || a.el === b.el) continue;
+    const key = `${a.el.dataset.node}|${b.el.dataset.node}`;
+    if (merged.has(key)) { merged.get(key).links.push(link); continue; }
+    merged.set(key, { a, b, links: [link] });
+  }
+  for (const { a, b, links } of merged.values()) {
+    const link = links[0];
+    const names = `${a.el.classList.contains("host-h") ? a.el.dataset.node.slice(5) + " (replié)" : serviceIndex.get(link.from).name} → ${b.el.classList.contains("host-h") ? b.el.dataset.node.slice(5) + " (replié)" : serviceIndex.get(link.to).name}`;
+    const detail = links.map(linkSentence).join("<br>");
+    const tip = `<b>${names}</b>${links.length > 1 ? ` · ${links.length} liens` : ""}<br>${detail}${link.confirm ? "<br>à confirmer : route déduite" : ""}${link.stale ? "<br>ancien : plus vu depuis 7 jours" : ""}`;
+    const cls = `${link.ev}${link.stale ? " stale" : ""}`;
+    const g = linkGroup(link.stale ? "stale-g" : "", tip, [a.el.dataset.node, b.el.dataset.node]);
+    if (link.via === "tunnel" && fw && isOutside(link.from)) {
+      // Ce qui emprunte le tunnel passe par la ligne wg0 du pare-feu.
+      const row = fwRows.tunnel, y = row.cy + 9;
+      const d = horizontalCurve(a.right, a.cy + 4, row.left, y);
+      stroke(g, d, cls);
+      if (link.ev === "observed") pulse(g, d);
+      const ap = approachTo(b);
+      railJobs.push({ y1: y, y2: ap.y, tail: ap.tail, kind: "pass", group: g, cls, ev: link.ev });
+      continue;
+    }
+    const d = curveBetween(a, b);
+    stroke(g, d, cls, true);
+    if (link.ev === "observed" && !link.stale) pulse(g, d);
+    if (link.confirm) badge(g, d, "?");
+  }
+
+  // Le couloir : un rail par trait.
+  if (fw) {
+    const [gx1, gx2] = railJobs.gutter;
+    const jobs = railJobs.slice().sort((p, q) => p.y1 - q.y1 || q.y2 - p.y2);
+    const step = Math.min(8, (gx2 - gx1 - 20) / Math.max(1, jobs.length - 1));
+    jobs.forEach((job, i) => {
+      const lane = gx2 - 10 - i * step;
+      const d = roundedPath([[fw.right, job.y1], [lane, job.y1], [lane, job.y2], ...job.tail]);
+      if (job.kind === "zone") {
+        const g = el("g", { class: "hue", style: `--hue:${job.hue}` });
+        el("path", { d, class: "w zc" }, g);
+      } else {
+        stroke(job.group, d, job.cls, true);
+        if (job.ev === "observed") pulse(job.group, d);
+      }
+    });
+  }
+}
+
+// ——— Interactions ———
+function bindTips() {
+  const tip = document.getElementById("tip");
+  const show = (g, x, y) => {
+    tip.innerHTML = g.dataset.tip;
+    tip.hidden = false;
+    const w = map.clientWidth;
+    tip.style.left = `${Math.min(x + 14, w - tip.offsetWidth - 8)}px`;
+    tip.style.top = `${y + 14}px`;
+    g.classList.add("hot");
+  };
+  const hide = (g) => { tip.hidden = true; g.classList.remove("hot"); };
+  map.addEventListener("pointermove", (ev) => {
+    const g = ev.target.closest && ev.target.closest(".lk");
+    map.querySelectorAll(".lk.hot").forEach((h) => h !== g && hide(h));
+    if (g) { const m = map.getBoundingClientRect(); show(g, ev.clientX - m.left, ev.clientY - m.top); }
+  });
+  map.addEventListener("pointerleave", () => map.querySelectorAll(".lk.hot").forEach(hide));
+  map.addEventListener("focusin", (ev) => {
+    const g = ev.target.closest(".lk");
+    if (g) { const r = rectOf(g); show(g, r.cx, r.cy); }
+    // Le focus d'une puce allume ses liens.
+    const node = ev.target.closest("[data-node]");
+    if (node && node.classList.contains("svc")) highlight(node.dataset.node, true);
+  });
+  map.addEventListener("focusout", (ev) => {
+    const g = ev.target.closest(".lk");
+    if (g) hide(g);
+    highlight(null, false);
+  });
+  map.addEventListener("pointerover", (ev) => {
+    const node = ev.target.closest && ev.target.closest(".svc");
+    highlight(node ? node.dataset.node : null, !!node);
+  });
+}
+function highlight(node, on) {
+  map.querySelectorAll(".lk.hot, .svc.hot").forEach((h) => h.classList.remove("hot"));
+  if (!on || !node) return;
+  map.querySelector(`[data-node="${node}"]`).classList.add("hot");
+  map.querySelectorAll(".lk").forEach((g) => { if (g.dataset.ends.split(" ").includes(node)) g.classList.add("hot"); });
+}
+function syncFoldAll() {
+  const hosts = [...map.querySelectorAll(".host")];
+  const btn = document.getElementById("foldAll");
+  btn.hidden = hosts.length === 0;
+  const anyOpen = hosts.some((h) => !h.classList.contains("folded"));
+  btn.textContent = anyOpen ? "Tout replier" : "Tout déplier";
+}
+function bindFolds() {
+  map.querySelectorAll(".fold").forEach((b) => (b.onclick = () => {
+    const host = b.closest(".host");
+    host.classList.toggle("folded");
+    b.setAttribute("aria-expanded", String(!host.classList.contains("folded")));
+    syncFoldAll(); draw();
+  }));
+  document.getElementById("foldAll").onclick = () => {
+    const hosts = [...map.querySelectorAll(".host")];
+    const fold = hosts.some((h) => !h.classList.contains("folded"));
+    hosts.forEach((h) => { h.classList.toggle("folded", fold); h.querySelector(".fold").setAttribute("aria-expanded", String(!fold)); });
+    syncFoldAll(); draw();
+  };
+}
+
+render();
+map = document.getElementById("map");
+document.querySelectorAll(".tabs a").forEach((a) => {
+  if (a.dataset.v === variant) a.setAttribute("aria-current", "page");
+  const p = new URLSearchParams(location.search); p.set("v", a.dataset.v); a.href = `?${p}`;
+});
+document.getElementById("vnote").textContent = data.note;
+const themeBtn = document.getElementById("theme");
+const isDark = () => document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+const syncTheme = () => (themeBtn.textContent = isDark() ? "Thème clair" : "Thème sombre");
+themeBtn.onclick = () => { document.documentElement.dataset.theme = isDark() ? "light" : "dark"; syncTheme(); };
+syncTheme();
+if (matchMedia("(max-width: 860px)").matches) document.getElementById("linklist").open = true;
+syncFoldAll(); bindFolds(); bindTips();
+draw();
+new ResizeObserver(() => requestAnimationFrame(draw)).observe(map);
+</script>
+</body>
+</html>

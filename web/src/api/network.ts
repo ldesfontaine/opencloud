@@ -1,7 +1,7 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { segment } from "./client";
 import type { Container, Engine } from "./containers";
-import type { LinkEnd, LinkNature, LinkProof, LinkSignal } from "./links";
+import type { LinkNature, LinkProof, LinkSignal } from "./links";
 
 // La topologie des conteneurs : réseaux, ports publiés, dépendances. Sujet
 // du direct : « containers », que topicsOf devine du chemin.
@@ -32,19 +32,6 @@ export interface Edge {
   stale?: boolean;
 }
 
-// Un lien stocké entre deux machines : la vue d'ensemble le trace d'un cadre
-// à l'autre.
-export interface OverviewLink {
-  id: string;
-  nature: LinkNature;
-  proof: LinkProof;
-  signal: LinkSignal;
-  port: number;
-  stale: boolean;
-  from: LinkEnd;
-  to: LinkEnd;
-}
-
 export interface NetworkResponse {
   machine_id: string;
   machine_name: string;
@@ -55,14 +42,122 @@ export interface NetworkResponse {
   edges: Edge[];
 }
 
-// Toutes les machines, chacune avec sa topologie, pour la vue d'ensemble.
-export interface OverviewNetworkResponse {
-  machines: NetworkResponse[];
-  links: OverviewLink[];
+// Le type d'une machine de la carte : celui que la fiche retient.
+export type MapKind = "physical" | "vm" | "lxc" | "vps" | "unknown";
+
+// D'où le nom d'une zone vient : le pare-feu, un tag VLAN, ou le sous-réseau.
+export type ZoneSource = "firewall" | "vlan" | "subnet";
+
+// Ce que dit la pastille d'un service ; « missing » : déclaré, la machine ne le
+// montre pas.
+export type ServiceState = "running" | "degraded" | "stopped" | "failed" | "missing" | "unknown";
+
+export interface MapZone {
+  id: string;
+  name: string;
+  source: ZoneSource;
+  cidr: string;
+  vlan: number;
+  // La teinte stable, de 0 à 7.
+  tone: number;
 }
 
-export function useNetworkOverview(): Resource<OverviewNetworkResponse> {
-  return useResource<OverviewNetworkResponse>("/api/network");
+// Une puce : un service dans sa machine. Elle mène au service déclaré s'il y
+// en a un, sinon au conteneur.
+export interface MapService {
+  id: string;
+  label: string;
+  kind: "compose" | "container" | "systemd";
+  state: ServiceState;
+  replicas: number;
+  container_id: string;
+  service_id: string;
+}
+
+// Une machine. managed : un agent la lit ; faux pour un invité que seul son
+// hôte connaît. groups : les invités d'un hôte, rangés par zone.
+export interface MapBox {
+  id: string;
+  machine_id: string;
+  name: string;
+  kind: MapKind;
+  vmid: number;
+  node: string;
+  managed: boolean;
+  online: boolean;
+  guest_status: string;
+  address: string;
+  zone_id: string;
+  services: MapService[];
+  groups: MapGroup[];
+}
+
+export interface MapGroup {
+  zone_id: string;
+  guests: MapBox[];
+}
+
+export interface MapInterface {
+  name: string;
+  device: string;
+  role: string;
+  cidr: string;
+  up: boolean;
+  zone_id: string;
+  wan: boolean;
+  tunnel: boolean;
+}
+
+export interface MapFirewall {
+  id: string;
+  name: string;
+  interfaces: MapInterface[];
+}
+
+export interface MapTunnel {
+  id: string;
+  label: string;
+  proof: LinkProof;
+  outside: string;
+  service: string;
+  firewall: string;
+  interface: string;
+}
+
+export interface MapEntry {
+  to: string;
+  ports: number[];
+  observed: boolean;
+}
+
+export interface MapLink {
+  id: string;
+  from: string;
+  to: string;
+  nature: LinkNature;
+  proof: LinkProof;
+  signal: LinkSignal;
+  port: number;
+  stale: boolean;
+  // Une route déduite que l'opérateur n'a pas encore décidée.
+  proposed: boolean;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+// La carte de la vue d'ensemble : le dehors, la maison, ce qui les relie.
+export interface NetworkMap {
+  zones: MapZone[];
+  outside: MapBox[];
+  home: MapBox[];
+  firewalls: MapFirewall[];
+  tunnels: MapTunnel[];
+  entries: MapEntry[];
+  links: MapLink[];
+}
+
+export function useNetworkMap(): Resource<NetworkMap> {
+  return useResource<NetworkMap>("/api/network");
 }
 
 export function useMachineNetwork(machineID: string): Resource<NetworkResponse> {
