@@ -1539,9 +1539,9 @@ fiche**, sans y entrer. Le serveur n'envoie que **sa propre version**, signée :
 ```sh
 # Sur le serveur : télécharger la version (Télécharger, ci-dessus), la vérifier,
 # puis l'importer dans la bibliothèque de versions du serveur
-# Le dossier doit être lisible par le compte opencloud (/tmp/v0.5.1, pas /root/…)
+# Le dossier doit être lisible par le compte opencloud (/tmp/v0.6.0, pas /root/…)
 opencloud release verify opencloud-linux-amd64          # dans le dossier de la version
-runuser -u opencloud -- opencloud release import /tmp/v0.5.1
+runuser -u opencloud -- opencloud release import /tmp/v0.6.0
 ```
 
 Il faut un binaire qui embarque la clé de version (la première version
@@ -1643,7 +1643,7 @@ variante, avec `sudo`, reste au choix. Les lignes, avec `sudo` (en root, retirez
 ```sh
 # Sur la machine : le binaire de cette version, vérifié, dans /tmp/opencloud
 (cd "$(mktemp -d)" &&
-base=https://github.com/ldesfontaine/opencloud/releases/download/v0.5.1 &&
+base=https://github.com/ldesfontaine/opencloud/releases/download/v0.6.0 &&
 arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') &&
 curl -fLO "$base/opencloud-linux-$arch" -fLO "$base/SHA256SUMS" &&
 sha256sum -c --ignore-missing SHA256SUMS &&
