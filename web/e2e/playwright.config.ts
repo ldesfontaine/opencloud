@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { defineConfig } from "@playwright/test";
 
+import { actionTimeout, pageLoadTimeout } from "./support/timeouts";
+
 // Un port par copie du dépôt : plusieurs copies de travail (une par chantier)
 // lancent le parcours sur la même machine, et un port commun les faisait
 // s'arrêter les unes les autres (le serveur de l'une recevait l'arrêt de l'autre,
@@ -34,8 +36,8 @@ export default defineConfig({
     locale: "fr-FR",
     colorScheme: "light",
     // Sans limite, un élément absent bloquerait le parcours jusqu'à la fin du test.
-    actionTimeout: 4000,
-    navigationTimeout: 10_000,
+    actionTimeout,
+    navigationTimeout: pageLoadTimeout,
   },
   webServer: {
     command: "./.fixture.test -test.run TestE2EFixtureServer -test.timeout 0",

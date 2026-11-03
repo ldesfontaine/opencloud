@@ -1,9 +1,10 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Request } from "@playwright/test";
 
 import { label } from "./catalog";
 import { exploreDialog, exerciseTips } from "./dialogs";
 import type { Findings } from "./findings";
 import { exerciseSelects } from "./selects";
+import { pageLoadTimeout } from "./timeouts";
 
 // Ce qu'un clic peut déclencher : un bouton de la page, ou un choix du menu
 // « … » d'un bouton.
@@ -44,7 +45,7 @@ async function discoverActions(page: Page): Promise<Action[]> {
   }
   const openers = menuOpeners(page);
   for (let opener = 0; opener < Math.min(await openers.count(), 12); opener++) {
-    await openers.nth(opener).click({ timeout: 2000 });
+    await openers.nth(opener).click();
     const items = page.locator("[role=menu] [role=menuitem]:not([aria-disabled=true])");
     const owner = await nameOf(openers.nth(opener));
     for (let item = 0; item < (await items.count()); item++) {
@@ -77,18 +78,53 @@ async function perform(page: Page, action: Action): Promise<void> {
     if (target === null) {
       return;
     }
-    await target.click({ timeout: 2000 });
+    await target.click();
     return;
   }
-  await menuOpeners(page).nth(action.opener).click({ timeout: 2000 });
-  await page.locator("[role=menu] [role=menuitem]:not([aria-disabled=true])").nth(action.item).click({ timeout: 2000 });
+  await menuOpeners(page).nth(action.opener).click();
+  await page.locator("[role=menu] [role=menuitem]:not([aria-disabled=true])").nth(action.item).click();
+}
+
+// Les lectures de l'API en vol par page. Un flux (EventSource) ne s'achève
+// jamais : il ne compte pas.
+const requestsInFlight = new WeakMap<Page, Set<Request>>();
+
+function watchRequests(page: Page): Set<Request> {
+  const known = requestsInFlight.get(page);
+  if (known !== undefined) {
+    return known;
+  }
+  const inFlight = new Set<Request>();
+  const isRead = (request: Request) => request.resourceType() !== "eventsource" && new URL(request.url()).pathname.startsWith("/api/");
+  page.on("request", (request) => isRead(request) && inFlight.add(request));
+  page.on("requestfinished", (request) => inFlight.delete(request));
+  page.on("requestfailed", (request) => inFlight.delete(request));
+  requestsInFlight.set(page, inFlight);
+  return inFlight;
+}
+
+// La page est posée quand ses lectures sont revenues et qu'aucune n'en a
+// déclenché d'autre : une fenêtre d'adresse (/sauvegardes/cibles/nouvelle)
+// ne s'ouvre qu'une fois ses données là, bien après que « main » se voit.
+async function waitForSettledPage(page: Page, inFlight: Set<Request>): Promise<void> {
+  const deadline = Date.now() + pageLoadTimeout;
+  do {
+    while (inFlight.size > 0) {
+      if (Date.now() > deadline) {
+        throw new Error(`la page ne se pose pas : ${inFlight.size} lecture(s) en cours`);
+      }
+      await page.waitForTimeout(50);
+    }
+    // Le rendu qui suit une réponse peut en déclencher une autre.
+    await page.waitForTimeout(150);
+  } while (inFlight.size > 0);
 }
 
 async function openPage(page: Page, path: string): Promise<void> {
-  await page.goto(path);
-  await page.locator("main").waitFor({ state: "visible" });
-  // Les lectures de l'écran arrivent par rafales : on laisse la page se poser.
-  await page.waitForTimeout(150);
+  const inFlight = watchRequests(page);
+  await page.goto(path, { timeout: pageLoadTimeout });
+  await page.locator("main").waitFor({ state: "visible", timeout: pageLoadTimeout });
+  await waitForSettledPage(page, inFlight);
 }
 
 // Un geste qui exige l'agent est, machine hors ligne, désactivé avec sa

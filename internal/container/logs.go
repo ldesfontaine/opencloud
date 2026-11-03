@@ -137,10 +137,16 @@ func (r *Relay) Deliver(ctx context.Context, machineID, requestID string, batch 
 		return err
 	}
 	clipLongLines(batch)
+	isLast := batch.Done || batch.Error != ""
+	if isLast {
+		// Retirer avant d'envoyer : le lecteur écrit « end » à la réception
+		// du dernier lot, un lot tardif doit déjà être refusé à ce moment.
+		r.forget(requestID)
+	}
 	if !pending.send(ctx, batch) {
 		return ErrLogRequestUnknown
 	}
-	if batch.Done || batch.Error != "" {
+	if isLast {
 		pending.markDone()
 	}
 	return nil
