@@ -707,7 +707,7 @@ func newFakeVzdump(t *testing.T, wrapperBody string) fakeVzdump {
 	sudo := "#!/bin/sh\nfor argument in \"$@\"; do printf '%s\\n' \"$argument\" >> " + fake.record + "; done\nshift\nexec \"$@\"\n"
 	wrapper := "#!/bin/sh\n/usr/bin/env > " + fake.environment + "\n" + wrapperBody + "\n"
 	for path, body := range map[string]string{fake.sudo: sudo, fake.wrapper: wrapper} {
-		if err := os.WriteFile(path, []byte(body), 0o700); err != nil { // #nosec G306 -- un faux programme exécutable dans un dossier de test.
+		if err := writeProgram(path, []byte(body), 0o700); err != nil { // #nosec G306 -- un faux programme exécutable dans un dossier de test.
 			t.Fatal(err)
 		}
 	}

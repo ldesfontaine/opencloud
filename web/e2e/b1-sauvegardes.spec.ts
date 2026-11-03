@@ -147,14 +147,52 @@ test("menu d'une sauvegarde restic : la lancer maintenant, puis modifier sa rét
   await expect(page).toHaveURL(/\/sauvegardes\/restic\/[^/]+\/[^/]+\/modifier$/);
   const dialog = page.locator("dialog[open]");
   await expect(dialog).toContainText(filled("backup.retention_floor_of", "pi", filled("backup.retention_daily", 7)));
-  // Sous le plancher de pi : le serveur refuse, en le disant.
+  // Sans baisse, aucune saisie du nom : un renommage seul s'enregistre.
+  await expect(dialog.locator("#restic-confirm-name")).toHaveCount(0);
+  // Baisser : le nom de la sauvegarde est exigé, « Enregistrer » attend.
+  const save = dialog.getByRole("button", { name: label("backup.plan_save") });
   await dialog.locator("#restic-keep_daily").fill("3");
-  await dialog.getByRole("button", { name: label("backup.plan_save") }).click();
+  await expect(dialog.locator("#restic-confirm-name")).toBeVisible();
+  await expect(save).toBeDisabled();
+  await dialog.locator("#restic-confirm-name").fill("Paperless");
+  await expect(save).toBeDisabled();
+  await dialog.locator("#restic-confirm-name").fill("paperless");
+  await expect(save).toBeEnabled();
+  // Sous le plancher de pi : le serveur refuse, en le disant.
+  await save.click();
   await expect(dialog).toContainText(label("restic.retention_below_floor"));
   await dialog.locator("#restic-keep_daily").fill("7");
-  await dialog.getByRole("button", { name: label("backup.plan_save") }).click();
+  await save.click();
   await expect(dialog).toHaveCount(0);
   await expect(card(page, "paperless")).toContainText(filled("backup.retention_daily", 7));
+  expect(findings.unknown()).toEqual([]);
+});
+
+test("une hausse ne demande pas le nom ; la baisse faite ici est au journal", async ({ page, findings }) => {
+  findings.where = "/sauvegardes › vaultwarden › journal";
+  await openBackups(page);
+  const editRetention = async () => {
+    await card(page, "vaultwarden").getByRole("button", { name: filled("entity.more", "vaultwarden") }).click();
+    await page.getByRole("menuitem", { name: label("backup.restic_edit") }).click();
+    return page.locator("dialog[open]");
+  };
+
+  // Une hausse : pas de saisie du nom, « Enregistrer » est tout de suite prêt.
+  let dialog = await editRetention();
+  await dialog.locator("#restic-keep_monthly").fill("24");
+  await expect(dialog.locator("#restic-confirm-name")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: label("backup.plan_save") })).toBeEnabled();
+  await dialog.getByRole("button", { name: label("backup.plan_save") }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // Une baisse, faite par ce test : le nom est exigé, puis la ligne est au journal.
+  dialog = await editRetention();
+  await dialog.locator("#restic-keep_monthly").fill("12");
+  await dialog.locator("#restic-confirm-name").fill("vaultwarden");
+  await dialog.getByRole("button", { name: label("backup.plan_save") }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.goto("/journal");
+  await expect(page.locator("tbody tr", { hasText: label("audit.verb_retention_lower") }).filter({ hasText: "vaultwarden" }).first()).toBeVisible();
   expect(findings.unknown()).toEqual([]);
 });
 

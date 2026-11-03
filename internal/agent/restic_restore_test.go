@@ -156,6 +156,28 @@ func TestResticRestore_RefusesADestinationThatExists(t *testing.T) {
 	}
 }
 
+// Un dossier déjà là, ou un lien pendant (qui ne mène nulle part, mais
+// qu'écrire suivrait), ne reçoit jamais la copie : refusé sans rien lancer.
+func TestResticRestore_RefusesAnExistingFolderAndADanglingLink(t *testing.T) {
+	b := restoreBenchFor(t, "contenu restauré")
+	original := b.original(t, "app.ini", "contenu actuel")
+	destination := original + ".restaure-" + restoreStamp
+	if err := os.Mkdir(destination, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	expectResult(t, b.restore(t, original), agentwire.ActionRefused, agentwire.ReasonPathExists)
+	if err := os.Remove(destination); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(b.area, "n-existe-pas"), destination); err != nil {
+		t.Fatal(err)
+	}
+	expectResult(t, b.restore(t, original), agentwire.ActionRefused, agentwire.ReasonPathExists)
+	if len(b.restic.callsMade()) != 0 || readText(t, original) != "contenu actuel" {
+		t.Fatal("a refused restore ran restic or touched the original")
+	}
+}
+
 // Hors du droit (files.write), par un lien symbolique ou hors forme : refusé
 // avant toute écriture.
 func TestResticRestore_RefusesAPathOutsideWhatTheAgentMayWrite(t *testing.T) {

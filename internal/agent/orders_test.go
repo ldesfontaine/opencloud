@@ -260,3 +260,37 @@ func TestOrderRunner_PinsTheNewServerKey(t *testing.T) {
 		t.Fatalf("the new key does not sign: %+v", result)
 	}
 }
+
+// Les ordres forgés qui viseraient à effacer un dépôt restic. Une signature
+// d'une autre clé est refusée pour tous les genres de restic, y compris la
+// rétention ; une clé valide ne rend pas un genre inventé exécutable : il
+// n'y a ni restic.forget, ni restic.prune, ni restic.delete, et le refus ne
+// lance rien.
+func TestOrderRunner_ForgedResticOrdersAreRefused(t *testing.T) {
+	_, stranger, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []agentwire.Kind{agentwire.KindResticRetain, agentwire.KindResticBackup, agentwire.KindResticRestore, agentwire.KindResticUserRemove} {
+		t.Run("signed by another key "+string(kind), func(t *testing.T) {
+			b := newOrderBench(t)
+			body := order(1)
+			body.Kind = kind
+			result := b.send(t, body, stranger)
+			if result.State != agentwire.ActionRefused || result.Reason != agentwire.ReasonBadSignature {
+				t.Fatalf("result %+v", result)
+			}
+		})
+	}
+	for _, kind := range []agentwire.Kind{"restic.forget", "restic.prune", "restic.delete", "restic.unlock", "restic.rest.delete", "restic.retain ", "RESTIC.RETAIN", "restic.retain/../x"} {
+		t.Run("signed but invented "+string(kind), func(t *testing.T) {
+			b := newOrderBench(t)
+			body := order(1)
+			body.Kind = kind
+			result := b.send(t, body, b.private)
+			if result.State != agentwire.ActionRefused || result.Reason != agentwire.ReasonUnknownKind {
+				t.Fatalf("result %+v", result)
+			}
+		})
+	}
+}

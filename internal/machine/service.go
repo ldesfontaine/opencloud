@@ -486,12 +486,32 @@ func (s *Service) Connect(ctx context.Context, authenticated Machine, address, a
 	if err != nil {
 		return nil, fmt.Errorf("open session: %w", err)
 	}
+	// Une révocation (ou un retrait) arrivée entre l'authentification et
+	// l'ouverture n'a trouvé aucune session à fermer : relire l'agent une fois
+	// la session ouverte, pour qu'une révocation ne laisse jamais un flux vivant.
+	if err := s.refuseIfRevoked(ctx, authenticated); err != nil {
+		return nil, err
+	}
 	s.logger.Info("machine connected", "machine_id", machineID, "address", address)
 	if s.alerter != nil {
 		s.alerter.MachineBack(ctx, machineID)
 	}
 	s.changed(machineID)
 	return session, nil
+}
+
+// refuseIfRevoked ferme la session qui vient de s'ouvrir si son agent n'est
+// plus celui de la machine, ou a été révoqué depuis son authentification.
+func (s *Service) refuseIfRevoked(ctx context.Context, authenticated Machine) error {
+	current, err := s.store.GetMachine(ctx, authenticated.ID)
+	if err == nil && current.Agent.Exists() && !current.Agent.IsRevoked() && current.Agent.ID == authenticated.Agent.ID {
+		return nil
+	}
+	s.sessions.Close(authenticated.ID)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("reread machine: %w", err)
+	}
+	return ErrAgentRevoked
 }
 
 // readAgentAccount lit le compte et les droits indisponibles que l'agent dit.

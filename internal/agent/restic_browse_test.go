@@ -44,7 +44,7 @@ esac
 exit 2
 `
 	binary := filepath.Join(dir, "restic")
-	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+	if err := writeProgram(binary, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return binary, dir

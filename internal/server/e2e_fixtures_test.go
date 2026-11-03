@@ -600,6 +600,10 @@ func e2eRunAgain(t *testing.T, ts *testServer, source *machine.Session, sourceID
 	if got := signalAnnouncingSections(ts, source.Token, agentwire.SignalRequest{Actions: &result}); got.Code != http.StatusNoContent {
 		t.Fatalf("run report: %d %s", got.Code, got.Body.String())
 	}
+	// Le dépôt reste réservé jusqu'à la fin du suivi, qui lit le résultat un
+	// instant après : sans cette attente, l'étape suivante sur le même dépôt
+	// (une vérification) pouvait recevoir restic.backup_running, au gré de la charge.
+	ts.restic.WaitBackground()
 }
 
 // Deux machines à qui il manque un binaire : coffre (arm64) est une cible
@@ -753,6 +757,10 @@ func e2eRunResticBackup(t *testing.T, ts *testServer, source *machine.Session, s
 	if got := signalAnnouncingSections(ts, source.Token, agentwire.SignalRequest{Actions: &result}); got.Code != http.StatusNoContent {
 		t.Fatalf("run report: %d %s", got.Code, got.Body.String())
 	}
+	// Le dépôt reste réservé jusqu'à la fin du suivi, qui lit le résultat un
+	// instant après : sans cette attente, l'étape suivante sur le même dépôt
+	// (une vérification) pouvait recevoir restic.backup_running, au gré de la charge.
+	ts.restic.WaitBackground()
 }
 
 // e2eIgnoreOrders lit les ordres d'une machine sans y répondre : un agent
@@ -794,6 +802,7 @@ func seedE2ESupervision(t *testing.T, ts *testServer, docker, pi *machine.Sessio
 	if got := signalAnnouncingSections(ts, pi.Token, agentwire.SignalRequest{Actions: &verified}); got.Code != http.StatusNoContent {
 		t.Fatalf("verify report: %d %s", got.Code, got.Body.String())
 	}
+	ts.restic.WaitBackground()
 	seedE2EBlindTarget(t, ts, docker)
 	seedE2EQuietRepository(t, ts, pi)
 	ts.restic.Supervise(context.Background())

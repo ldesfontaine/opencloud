@@ -367,3 +367,19 @@ func TestResticSecrets_HaveAFormAndNeverPrint(t *testing.T) {
 		t.Error("a provision without the repository password passed")
 	}
 }
+
+// Aucun ordre restic ne s'appelle forget, prune ou delete : la purge n'est
+// que restic.retain, que la cible joue chez elle et que seule la nuit du
+// serveur envoie (restic/nodelete_test.go).
+func TestOrderKinds_ResticHasNoOrderToDelete(t *testing.T) {
+	for _, kind := range OrderKinds() {
+		if !strings.HasPrefix(string(kind), "restic.") {
+			continue
+		}
+		for _, word := range []string{"forget", "prune", "delete", "remove-all", "unlock"} {
+			if strings.Contains(string(kind), word) {
+				t.Errorf("l'ordre %s ressemble à une suppression", kind)
+			}
+		}
+	}
+}

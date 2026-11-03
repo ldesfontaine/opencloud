@@ -107,7 +107,7 @@ func TestConfirm_OnlyOneOfTwoSimultaneousConfirmationsWins(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_, err := b.Confirm(ctx, request.ID)
+			_, err := b.Confirm(ctx, request.ID, offeredAll)
 			switch {
 			case err == nil:
 				wins.Add(1)
@@ -132,13 +132,13 @@ func TestConfirm_RefusesAnExpiredAndAnUnknownRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	*b.now = start.Add(verbrequest.TTL)
-	if _, err := b.Confirm(ctx, request.ID); !errors.Is(err, verbrequest.ErrExpired) {
+	if _, err := b.Confirm(ctx, request.ID, offeredAll); !errors.Is(err, verbrequest.ErrExpired) {
 		t.Fatalf("échue : %v", err)
 	}
 	if _, err := b.Reject(ctx, request.ID); !errors.Is(err, verbrequest.ErrExpired) {
 		t.Fatalf("échue, refus : %v", err)
 	}
-	if _, err := b.Confirm(ctx, "inconnue"); !errors.Is(err, verbrequest.ErrNotFound) {
+	if _, err := b.Confirm(ctx, "inconnue", offeredAll); !errors.Is(err, verbrequest.ErrNotFound) {
 		t.Fatalf("inconnue : %v", err)
 	}
 }
@@ -155,5 +155,29 @@ func TestSubmit_AnExpiredRequestFreesTheCeiling(t *testing.T) {
 	*b.now = start.Add(verbrequest.TTL + time.Second)
 	if _, err := b.Submit(ctx, b.submission("neuve")); err != nil {
 		t.Fatalf("après échéance : %v", err)
+	}
+}
+
+func offeredAll(string) bool { return true }
+
+// Un verbe retiré du registre depuis le dépôt de la demande : la confirmation
+// la refuse (elle ne reste pas en attente), rien n'est rejoué, et une seconde
+// tentative la voit décidée.
+func TestConfirm_ARequestOfARemovedVerbIsRefusedNotReplayed(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	request, err := b.Submit(ctx, b.submission("m1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	offeredNothing := func(string) bool { return false }
+	if _, err := b.Confirm(ctx, request.ID, offeredNothing); !errors.Is(err, verbrequest.ErrVerbRemoved) {
+		t.Fatalf("verbe retiré : %v", err)
+	}
+	if pending, _ := b.ListPending(ctx); len(pending) != 0 {
+		t.Fatalf("la demande reste en attente : %+v", pending)
+	}
+	if _, err := b.Confirm(ctx, request.ID, offeredAll); !errors.Is(err, verbrequest.ErrDecided) {
+		t.Fatalf("seconde confirmation : %v", err)
 	}
 }

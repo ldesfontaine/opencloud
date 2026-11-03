@@ -213,3 +213,36 @@ func TestCompleteAgentUpdates_OnlyThisAgentAndVersion(t *testing.T) {
 		t.Fatalf("a second reconnection completes nothing: %+v %v", again, err)
 	}
 }
+
+// Des ordres demandés à la même seconde se listent du dernier au premier,
+// dans l'ordre où ils ont été écrits : le tri ne se fait pas sur leur
+// identifiant, tiré au hasard. Sinon le dernier ordre d'une rafale tombait
+// hors d'une liste bornée, au gré de son identifiant (et la page d'une
+// restauration le lisait « Envoyé » à jamais).
+func TestListActionRuns_SameSecondRunsComeNewestFirstWhateverTheirIDs(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	found, err := db.GetMachine(ctx, enrolledMachine(t, db, "vps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(1_800_000_000, 0)
+	// Des identifiants à contre-sens de l'ordre d'écriture : le dernier écrit a le plus petit.
+	ids := []string{"f", "e", "d", "c", "b", "a"}
+	for _, id := range ids {
+		if _, err := db.InsertRun(ctx, pendingRun(id, found, at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listed, err := db.ListActionRuns(ctx, action.Query{MachineID: found.ID, Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, run := range listed {
+		got = append(got, run.ID)
+	}
+	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Fatalf("listed %v, want the three last written, newest first", got)
+	}
+}

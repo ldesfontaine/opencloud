@@ -468,7 +468,7 @@ func TestSelfCheck_RunsTheBinaryWithAReplacedEnvironment(t *testing.T) {
 	t.Setenv("OPENCLOUD_CANARY", "from the agent")
 	write := func(name, script string) string {
 		path := filepath.Join(t.TempDir(), name)
-		if err := os.WriteFile(path, []byte(script), 0o755); err != nil { // #nosec G306 -- un script de test, exécutable
+		if err := writeProgram(path, []byte(script), 0o755); err != nil { // #nosec G306 -- un script de test, exécutable
 			t.Fatal(err)
 		}
 		return path

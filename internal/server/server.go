@@ -370,7 +370,7 @@ type ResticService interface {
 	SetupTarget(ctx context.Context, machineID string, setup restic.TargetSetup) (restic.TargetRecord, error)
 	RemoveTarget(ctx context.Context, machineID string) error
 	CreateBackup(ctx context.Context, definition restic.Definition) (restic.Backup, error)
-	UpdateBackup(ctx context.Context, sourceID, id, name string, retention restic.Retention) (restic.Backup, error)
+	UpdateBackup(ctx context.Context, sourceID, id, name string, retention restic.Retention, confirmName string) (restic.Backup, error)
 	DeleteBackup(ctx context.Context, sourceID, id string) error
 	RunNow(ctx context.Context, sourceID, id string) (action.Run, error)
 	VerifyNow(ctx context.Context, sourceID, id string) (action.Run, error)
