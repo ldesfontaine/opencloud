@@ -1,0 +1,14 @@
+# R1 : code mort avant / après (#457)
+
+Avant = dev à 7200f5c (L6 fusionnée), après = fin de la branche orca/v052-r1.
+
+deadcode ./... (sans -test) : 81 avant, 81 après, liste identique (numéros de ligne mis à part). `linkEnds.endpoint` (api_links.go), devenu inutile quand la carte a cessé de lire les liens entre machines, a été retiré avant le rapport.
+knip@5.88.1 : mêmes 4 fichiers inutilisés (public/theme.js, src/statut/*), mêmes exports et types ; seuls diffèrent les fichiers de dist/ (build). Les exports neufs sans appelant (`hostOfGuest`, `zoneOf`) ont été supprimés, les autres rendus privés.
+
+Supprimé dans ce chantier
+- `web/src/components/NetworkOverview.tsx` et `.scss` : l'ancien dessin de la vue d'ensemble (cadres de machines, nœuds compacts, mise à l'échelle).
+- `web/src/lib/network.ts` : `layoutOverview`, `fitOverview`, `overviewScale`, les constantes `compact*`, `overview*`, `PlacedMachine`, `OverviewLayout`, `curve`, `orthogonal`, `placeMachine` (≈ 260 lignes) et leurs 17 tests.
+- `web/src/api/network.ts` : `OverviewLink`, `OverviewNetworkResponse`, `useNetworkOverview` ; remplacés par `NetworkMap` et `useNetworkMap`.
+- `internal/server/api_network.go` : `overviewNetworkResponse`, `overviewLinkJSON`, `crossMachineLinks` ; `api_links.go` : `linkEnds.endpoint`.
+- `internal/proxmox` : `GuestMACs`, `macsOfNIC`, `readGuestMACs` (devenus `GuestNICs`, `nicOf`, `readGuestNICs`, qui lisent aussi pont et tag).
+- Clé de catalogue `network.machine_empty` (« aucun conteneur »), fr et en ; `network.overview_empty` réécrite.

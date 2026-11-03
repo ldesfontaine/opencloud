@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 
 import type { Write } from "../api/routes";
+import { useAgentHint } from "../hooks/useAgentHint";
 import { Button } from "./Button";
 import type { IconName } from "./Icon";
-import { McpChip } from "./McpChip";
 
 // Le bouton principal d'une page : un seul par en-tête (doc 25, « Les
 // actions »). Il dit la route d'API que son geste finit par appeler ; si cette
@@ -26,10 +26,10 @@ export function ActionButton({
   disabled?: boolean;
   children: ReactNode;
 }) {
+  const agentHint = useAgentHint()(route);
   return (
-    <Button variant="primary" {...(icon !== undefined && { icon })} {...(to !== undefined && { to })} {...(onClick !== undefined && { onClick })} disabled={disabled}>
+    <Button variant="primary" title={agentHint} {...(icon !== undefined && { icon })} {...(to !== undefined && { to })} {...(onClick !== undefined && { onClick })} disabled={disabled}>
       {children}
-      <McpChip route={route} />
     </Button>
   );
 }

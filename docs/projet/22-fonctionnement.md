@@ -17,7 +17,7 @@
 | L'opérateur | L'opérateur, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche. Tant qu'aucun compte n'existe, l'écran de première configuration à la place de l'interface : il crée le compte, puis l'interface s'ouvre |
 | La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base. **Et son agent, `opencloud agent`, comme toute machine** : `serve` n'observe rien de sa propre machine. La ligne qui l'installe s'affiche dès la première configuration (« La machine openCloud ») |
 | La commande locale | `opencloud export` et `opencloud apply`, lancées sur la machine openCloud, sous le compte du service ou en root | Rien de son côté : elles parlent au `serve` qui tourne par la socket `state_dir/control.sock`. `export` écrit ce qu'il répond ; `apply` lit un fichier, montre le plan que le serveur en tire, demande confirmation, puis lui demande de l'écrire. Elles n'ouvrent pas la base |
-| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker, **sous un compte dédié (`opencloud-agent`), root sur demande**. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `backup.produce` (lance un producteur sur la machine, chiffre ce qu'il écrit et le téléverse au serveur), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
+| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker, **sous un compte dédié (`opencloud-agent`), root sur demande**. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `backup.produce` (lance un producteur sur la machine, chiffre ce qu'il écrit et le téléverse au serveur), `restic.verify` (vérifie un dépôt reçu), `restic.browse` (lit les noms d'un dépôt reçu, pour l'explorateur), `restic.restore` (restaure un chemin à côté de l'original, sur la source), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
 | Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : pour observer, l'agent le lit par sa socket, en lecture seule. Il ne lui écrit que par `docker compose up`, pour déployer un service déclaré, avec le droit `docker.deploy` ou `docker.update` (« Comment un service se déploie ») |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
@@ -104,7 +104,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
 | Alerte Matrix | openCloud → le serveur d'accueil | TLS : le serveur d'accueil est exigé en `https://` | openCloud écrit au nom du bot par `Authorization: Bearer <jeton>`, le jeton du canal ; qui a ce jeton parle au nom du bot partout où il est invité. Le serveur d'accueil prouve qui il est par son certificat. Le message dit ce que dit le corps d'un webhook, et le salon le garde |
-| Hyperviseur | openCloud → l'API de Proxmox (`https://hôte:8006`), en lecture, toutes les cinq minutes | TLS : le certificat se juge par le magasin du système, ou par l'**empreinte SHA-256** que l'opérateur a épinglée (un Proxmox livre un certificat auto-signé) ; pas de redirection suivie | Un jeton d'API Proxmox en lecture seule (rôle `PVEAuditor`), dans `Authorization: PVEAPIToken=…` ; le jeton ne voyage nulle part ailleurs. Voir « Comment un hôte Proxmox se lit » |
+| Hyperviseur | openCloud → l'API de Proxmox (`https://hôte:8006`), en lecture, toutes les cinq minutes | TLS : le certificat se juge par le magasin du système, ou par l'**empreinte SHA-256** que l'opérateur a épinglée (un Proxmox livre un certificat auto-signé) ; pas de redirection suivie | Un jeton d'API Proxmox en lecture seule (rôle `PVEAuditor`, plus un droit sur le stockage des sauvegardes : « Lire les sauvegardes »), dans `Authorization: PVEAPIToken=…` ; le jeton ne voyage nulle part ailleurs. Voir « Comment un hôte Proxmox se lit » |
 | Alerte | openCloud → le canal | Celui de l'URL : TLS si elle est en `https://`, rien sinon, et l'interface le dit | openCloud prouve au récepteur que c'est lui, par `OpenCloud-Signature`, HMAC-SHA256 du corps avec le secret du canal, quand il y en a un. Le récepteur ne prouve rien : un 2xx suffit. Le corps dit le nom de l'objet, de la machine, la cible d'une sonde, le point de montage : ce qu'un canal reçoit, son service le garde |
 
 Donc non, rien ne passe en clair sur le LAN de l'infra : le seul clair est sur
@@ -135,10 +135,13 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le journal d'audit : la table `audit_events`, une ligne par geste réussi qui écrit un objet déclaré ou une autorité : `at`, `actor_kind`, `actor_name` et `actor_label` (le nom que portait l'acteur à l'instant du geste, nullable : migration `017_audit_actor_label.sql`), `action`, `object_kind`, `object_id`, `object_name` recopié, `details` (JSON plat de textes) et `apply_id` quand un apply l'a écrit. **Aucun secret** : ni mot de passe, ni jeton, ni secret, ni URL de webhook (« Le journal d'audit ») | Ajout seul : un déclencheur refuse toute modification d'une ligne, hors la mise à nul du lien `apply_id` (`ON DELETE SET NULL`). Pas de clé étrangère vers l'objet : la ligne lui survit. Purgé après **un an** (`audit.Retention`), avec les alertes, au démarrage puis une fois par jour |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'envoi du journal : la table `audit_deliveries`, une ligne par (événement, canal qui reçoit le journal) : `status` (`pending`, `delivered`, `failed`), `attempts`, `reason` et `code` du dernier essai, `next_attempt_at`. Réservée dans la transaction de l'événement. **Aucun contenu** : le message se refait de l'événement, relu à l'envoi (« Le journal d'audit › Envoi aux canaux ») | Part avec son événement (la purge à un an) et avec son canal (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ordres envoyés aux agents : `action_runs` (identifiant, genre `action`, paramètres sans secret `params`, machine et agent en `set null` avec `machine_name` recopié, état, `refusal_reason`, `not_after`, rang `seq` unique par agent, `requested_by` recopié de l'acteur, `requested_at`, `finished_at`) et leur sortie, `run_logs` (rang, instant, flux, ligne ; 64 lignes au plus par run), partie avec son run (`cascade`). Écrit **avant** que l'ordre ne parte (« Comment un ordre part et revient ») | Un run survit à sa machine et à son agent : c'est une trace. Purgé à 90 jours (`action.Retention`) avec sa sortie, par la boucle des ordres. La sortie est ce que l'agent a écrit : rien n'y est masqué |
-| Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_service` — valeur `projet/service` —, `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
-| Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille ; depuis la migration `020`, le stockage de la plus récente, le nombre d'archives vzdump vues et leur taille totale) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les unités systemd que chaque agent relève (migration `029_systemd_units.sql`) : `systemd_reports` (une ligne par machine : systemd lu ou non, raison, relevé tronqué ou non, instant) et `systemd_units` (machine, **nom** de l'unité de service, état de chargement, état d'activité, sous-état : trois mots de listes fermées). **Jamais** la description, le fichier de l'unité, ses `Environment=`, son processus ni son groupe de contrôle | Remplacé en entier à chaque relevé retenu, dans une transaction : une unité que la machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « unités systemd relevées » |
+| Machine openCloud, **mémoire du processus `serve`** | aucun fichier | Qui a joint quels ports de l'hôte de chaque machine (`hostconn.Service`) : **une vue = un port, une source (compte, adresse du réseau local ou Internet), première et dernière vue**. Aucune migration. Au plus 2 000 vues par machine (les plus anciennes partent) | Perdu à l'arrêt de `serve` : chaque agent redit son rapport à l'ouverture de son flux, les vues repartent de zéro. Jamais dans la base, ni dans une sauvegarde, ni dans le journal d'audit |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les liens entre instances (migration `030_links.sql`) : la table `links`, une ligne par lien : l'instance de départ et celle d'arrivée (**machine et clé stable**, `compose:projet/service`, `container:nom` ou `systemd:unité.service`, jamais un identifiant Docker), la nature (`order`, `config`), la **preuve** (`declared`), le **signal** (`depends_on`, `container_link`, `operator`), un port facultatif, la première et la dernière vue. Aucune valeur de configuration, aucun environnement | Jamais effacé parce qu'on ne le revoit plus : la dernière vue vieillit, l'écran dit « Ancien » après 7 jours. Un lien d'outil se rafraîchit au rapport suivant ; un lien de l'opérateur ne se retire que par lui (`DELETE /api/directory/links/{id}`). Au plus 2 000 liens par machine. La machine retirée emporte les siens (`ON DELETE CASCADE`) |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille ; depuis la migration `020`, le stockage de la plus récente, le nombre d'archives vzdump vues et leur taille totale) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif ; depuis la migration `035`, si le jeton lit les archives du stockage). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les rôles que l'agent reconnaît sur sa machine (migration `014_machine_roles.sql`) : `machine_roles` (machine, rôle de la liste fermée `proxmox_ve`, version trouvée ; aujourd'hui le seul rôle). **Aucun secret, aucun droit** : un rôle se montre, il n'ouvre rien | Un reflet du dernier rapport, remplacé en entier à chaque rapport retenu : un rôle que l'agent ne voit plus disparaît. Pas d'historique, pas de purge d'âge. La machine retirée l'emporte (`ON DELETE CASCADE`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le retour arrière des agents (migration `018_agent_rollback.sql`) : `agents.rollback_version` (la version du retour arrière que l'agent a dite à l'ouverture de son flux, 0 tant qu'il ne la dit pas) et `machines.update_last` (« à mettre à jour en dernier », 0 par défaut) | Aucun secret. `rollback_version` se réécrit à chaque ouverture de flux ; `update_last` ne change que par l'opérateur |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pare-feu que l'opérateur déclare et ce que leur API en a dit (migration `015_firewalls.sql`) : `firewalls` (nom unique sans casse, connecteur `opnsense`, adresse de l'API, clé d'API, **secret d'API chiffré**, empreinte épinglée, version, instants de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `firewall_interfaces`, `firewall_rules` (dans l'ordre où le pare-feu les rend), `firewall_leases` et `firewall_gateways`. **Jamais le trafic, jamais un journal de filtrage** | Le secret est chiffré comme les autres (« Ce que le chiffrement couvre »), lié à sa ligne ; il ne sort jamais de l'API ni des journaux. Les quatre tables de relevé sont remplacées en entier à chaque relevé réussi, dans une transaction ; un relevé qui échoue garde le précédent. Une autre adresse d'API ou un autre connecteur à la redéclaration efface le relevé (il décrivait un autre appareil). Pas d'historique, pas de purge d'âge. Le pare-feu retiré emporte son relevé (`ON DELETE CASCADE`). Un pare-feu n'appartient à aucune machine : le plan de suppression d'une machine n'en compte aucun. Au plus 20 pare-feu |
@@ -195,9 +198,31 @@ qu'à l'écran qui le montre une fois, puis chez le client qui le garde
    d'un agent », plus bas). openCloud tire un jeton, en garde
    l'empreinte et les droits demandés, affiche le clair une seule fois avec la
    commande à coller.
-2. Sur la machine, en deux temps. D'abord la **préparation**, que le serveur
-   fabrique (`installPreparation`) et rend avec le jeton (`preparation`), à
-   jouer une fois en root : le compte `opencloud-agent` (`useradd --system`, sans
+2. Sur la machine, en **étapes** : le serveur rend avec le jeton la liste
+   `steps` (`installSteps`, `internal/server/install_steps.go`), un bloc à coller
+   par étape, que la page montre en cases numérotées (`InstallSteps`), chacune
+   avec son bouton « Copier » ; **le jeton n'est que dans le bloc `enroll`**
+   (un test le garde). Dans l'ordre : `stop` (un ré-enrôlement seulement :
+   arrêter l'unité, supprimer `identity.json`) ; `binary` (sauf sur la machine
+   openCloud : `machine.ReleaseDownloadLines`, le binaire de la version du
+   serveur téléchargé de la publication, `SHA256SUMS` vérifié, posé dans
+   `/tmp/opencloud` ; il s'arrête au premier échec. Le serveur n'offre pas son
+   binaire par HTTP : une version non publiée y échoue, 404) ; `prepare` ;
+   `enroll` ; `unit` (l'unité `opencloud-agent.service` écrite par un heredoc
+   entre apostrophes, puis `daemon-reload` et `enable --now` ; son contenu,
+   `machine.AgentUnitLines`, est celui de `docs/installation/opencloud-agent.service`
+   sans les commentaires, un test échoue s'ils diffèrent) ; `rights` (le drop-in
+   `droits.conf` : `ReadWritePaths=` de la racine des services et des dossiers de
+   `backup.receive`, seulement quand un de ces droits est coché, puis `restart`).
+   Aucun renvoi à la documentation sur la page. **Aucun bloc ne nomme `sudo`** :
+   tous se jouent en root (`su -`), l'enrôlement prend le compte par
+   `runuser -u opencloud-agent --`. La migration de l'agent (fiche › Agent,
+   `GET /api/agent-migration`, réservée à l'opérateur) rend deux blocs :
+   `commands` avec `sudo`, `root_commands` en root ; l'écran propose le second
+   d'office pour un hôte Proxmox ou quand l'agent dit `sudo_missing`
+   (`lacksSudo`), l'autre reste au choix. Chacun commence par le
+   téléchargement vérifié.
+   La **préparation** (`installPreparation`) se joue une fois en root : le compte `opencloud-agent` (`useradd --system`, sans
    shell, son dossier personnel est l'état de l'agent), le groupe `docker` s'il
    existe, l'état à ce compte, puis **sous le compte** (`runuser`) `bin/` et le
    binaire (`/tmp/opencloud` copié par l'opérateur, `/usr/local/bin/opencloud`
@@ -322,7 +347,14 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
 | `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à un ré-enrôlement qui coche le droit (on ne coche rien à la place de l'opérateur) |
+| `observe.env` | — | Que l'agent **lise l'environnement des conteneurs Docker** et en tire les liens entre instances de la machine (« Les liens de l'environnement »). **Refusé par défaut** : décoché dans le formulaire, absent des préréglages de rôle, absent de la ligne de la machine openCloud ; il se coche **machine par machine**, sous « Avancé : droits de l'agent », avec sa note. Comme `probe.lan`, aucun ordre ne l'exige : c'est une borne de l'observation, lue **une fois** au démarrage de l'agent. Un agent enrôlé avant ne l'a pas : la carte **Liens** de la fiche d'un service dit que l'environnement n'est pas lu et porte le bouton **Ré-enrôler avec « Lire l'environnement… »** (fenêtre déjà cochée, geste de U1) |
 | `agent.update` | — | Les ordres `agent.update` (mettre à jour l'agent depuis le serveur) et `agent.rollback` (revenir à la version précédente) (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire, et ne le fait que sous le lanceur stable |
+| `restic.target` | Un dossier | Recevoir des sauvegardes restic : l'agent lance et surveille `rest-server` en écriture seule sur ce dossier (« Comment restic sauvegarde »). **Refusé par défaut**, coché par machine |
+| `restic.produce` | — | Lancer restic sur la machine pour sauvegarder un service ou une VM vers une cible. **Refusé par défaut**, coché par machine. Une VM demande aussi `backup.produce` |
+| `restic.docker` | — | Sauvegarder les **volumes nommés** et les **bases** Docker d'un service entier : l'agent lit un volume par le conteneur qui le monte (`docker cp`) et lance l'outil de dump d'une base **dans son conteneur** (`docker exec`). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Équivaut à la socket Docker que l'agent a déjà. Demandé **en plus** de `restic.produce` dès qu'un service porte un volume ou une base ; sans lui, l'ordre est refusé (`right_missing:restic.docker`) |
+| `restic.verify` | — | Vérifier les dépôts que la machine reçoit : `restic check`, puis la relecture **en mémoire** de fichiers du dernier instantané (« Comment restic se vérifie »). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Demandé **en plus** de `restic.target` ; sans lui, l'ordre est refusé (`right_missing:restic.verify`) et l'écran propose « Ré-enrôler avec ce droit ». Coût : l'agent déchiffre du contenu (rien n'est écrit sur son disque, rien n'est rapporté) ; il détient déjà le mot de passe du dépôt pour la rétention, le droit le dit en clair |
+| `restic.browse` | — | Parcourir les dépôts que la machine reçoit, pour l'explorateur de la page Sauvegardes (« Comment on parcourt une sauvegarde ») : elle lit les **noms, tailles et dates** des fichiers d'un instantané et les rend à openCloud, qui ne les garde pas. **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Demandé **en plus** de `restic.target` ; sans lui, l'ordre est refusé (`restic.target_browse_right_missing`) et l'écran propose « Ré-enrôler avec ce droit ». Coût : un nom de fichier est déjà une donnée, et il transite par le serveur le temps de la requête (contenu jamais lu). Ce droit est distinct de `restic.verify` : vérifier ne montre aucun nom |
+| `restic.restore` | — | Restaurer sur la **machine source** un fichier ou un dossier d'un instantané, **à côté de l'original** (« Comment on restaure »). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Sans chemin propre : la destination doit être sous un dossier de `files.write` (liens résolus), donc sous les `ReadWritePaths` de l'unité. Sans le droit, l'ordre est refusé (`restic.source_restore_right_missing`) et l'écran propose « Ré-enrôler avec ce droit ». Coût : l'agent écrit sur sa machine (jamais par-dessus, jamais de suppression) ; deux droits à cocher (`restic.restore` et `files.write`) |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
@@ -343,7 +375,10 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   s'ajoute toujours ; les droits se rangent dans l'ordre du tableau, les
   chemins triés, sans doublon (`machine.NormalizeCapabilities`).
 - **À l'émission** : `POST /api/machines/tokens` reçoit `{name,
-  capabilities: [{name, paths}]}` ; un droit inconnu, un chemin faux ou une
+  capabilities: [{name, paths}]}` et répond `{name, token, steps: [{id,
+  command}], proxmox_commands, expires_at, url_local, url_suggestion}` (`command` et
+  `preparation` d'avant #447 sont remplacés par `steps` ; route réservée à
+  l'opérateur, `grantsAuthority`, comme `local-enrollment` et `reenroll`) ; un droit inconnu, un chemin faux ou une
   portée fausse se refusent en 422 (`machine.capability_unknown`,
   `machine.capability_path`, `machine.capability_scope`,
   `machine.capability_producer` : un producteur hors liste). Le jeton garde la
@@ -481,6 +516,23 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   rapporté ses droits sans celui-là est refusé tout de suite,
   `409 action.right_missing`, sans run ni journal. Tant que l'agent n'a rien
   rapporté, l'ordre part et l'agent juge.
+- **Un refus de droit porte son geste** (#447) : partout où l'interface dit qu'un
+  droit manque, elle montre « Ré-enrôler avec « <droit> » », qui ouvre la fenêtre
+  Ré-enrôler avec ce droit déjà coché (`reenrollPath`, `lib/rights.ts`). La cause
+  est corrigée au composant partagé : `Failure` reçoit la machine (`gesture`) et
+  lit le droit dans le refus (`deploy.right_missing`, `backup.right_missing`,
+  `backup.source_right_missing`) ou chez l'écran qui sait quel ordre il a envoyé ;
+  `MissingRight` dit un manque connu d'avance (déployer, mettre à jour un service,
+  mettre à jour l'agent, sondes vers le réseau local, destination, plan, ordres
+  refusés). Un droit coché d'avance reste un geste de l'opérateur : rien ne se
+  coche seul, le jeton neuf reste à créer.
+- **Un sélecteur de machine n'offre que celles qui conviennent** (#447) : la liste
+  garde toutes les machines, celles qui ne conviennent pas sont grisées avec la
+  raison et un lien (`unfitFor`, `MachineSelect`, option `disabled` de `Select`) :
+  destination (`backup.receive`), machine qui produit (`backup.produce`), machine
+  qui sonde (un agent actif), destinations d'un plan (`unfitDestination`).
+  Services, tâches, filtres et navigation entre machines ne demandent rien de la
+  machine : ils les offrent toutes.
 - **Les changer, c'est ré-enrôler** (décision 10, prise le 21 octobre 2026) :
   fiche › **Ré-enrôler**, dont la première étape montre les droits cochés du
   jeton courant ; « Créer le jeton » émet un jeton de ré-enrôlement avec les
@@ -495,7 +547,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 ### Supprimer une machine
 
 `DELETE /api/machines/{id}`, bouton **Supprimer la machine** de la fiche (un seul
-geste, avec la puce `MCP` : c'est le verbe `machine.delete`, à confirmation).
+geste, c'est le verbe `machine.delete`, à confirmation ; une infobulle dit en une phrase qu'un agent IA peut aussi le faire, il n'y a plus de puce).
 Corps `{keep_history}` ; vide, `keep_history` vaut faux. La fenêtre
 (`DeleteMachineDialog`) propose **Garder l'historique**, coché d'avance, parce
 que c'est ce qui se défait.
@@ -536,7 +588,7 @@ toujours eue : c'est par lui qu'elle garde son historique.
 | Étape | Ce qui se passe |
 | --- | --- |
 | Premier démarrage | Tant que la machine openCloud n'a **jamais** eu d'agent (pas de ligne `local`, ou une ligne sans agent), `serve` émet le jeton de son agent (`OfferLocalEnrollment`) : `observe` et `probe.lan` (ses sondes visent d'abord ses propres services), nommé d'après le nom d'hôte (sans le domaine ; un nom d'hôte qui ne fait pas un nom de machine laisse `opencloud`), un jeton de ré-enrôlement si la ligne existe. Le clair ne vit qu'en mémoire. Le journal dit, en `INFO` et dans la langue de l'interface, qu'un jeton attend pour cette machine et où trouver la ligne ; **jamais le jeton** |
-| Première configuration | Le compte créé, l'écran montre la ligne d'installation de l'agent de cette machine (`POST /api/machines/local-enrollment` : le jeton déjà émis s'il attend encore, un neuf sinon), avec la préparation de la machine au-dessus d'elle (le compte `opencloud-agent`, son état, le binaire pris de `/usr/local/bin/opencloud`, sans lien dans `/usr/local/bin`) et le rappel d'activer `opencloud-agent.service` : la même installation que les autres machines. « Ouvrir l'interface » passe à la suite. Si la ligne ne s'obtient pas, l'interface s'ouvre directement |
+| Première configuration | Le compte créé, l'écran montre les étapes d'installation de l'agent de cette machine (`POST /api/machines/local-enrollment` : le jeton déjà émis s'il attend encore, un neuf sinon) : préparation (le compte `opencloud-agent`, son état, le binaire pris de `/usr/local/bin/opencloud`, sans lien dans `/usr/local/bin`), enrôlement, unité : la même installation que les autres machines, sans l'étape du binaire. « Ouvrir l'interface » passe à la suite. Si la ligne ne s'obtient pas, l'interface s'ouvre directement |
 | Ensuite | `409 machine.local_enrolled` dès que la machine a, ou a eu, un agent : un agent révoqué ne se réinstalle pas de lui-même. La ligne se redonne par la fiche › **Ré-enrôler**, ou par Ajouter une machine, jouée sur elle (l'empreinte la rattache à `local`) |
 | À chaque démarrage | Le jeton est émis de nouveau tant que la machine n'a jamais eu d'agent : celui d'avant, dont le clair est perdu, expire seul dans l'heure |
 | Hors ligne | Sans le flux de son agent, la machine openCloud est hors ligne, comme les autres ; tant qu'elle n'a pas d'agent actif, elle n'est jamais déclarée **perdue** |
@@ -550,10 +602,10 @@ lisent un registre de modules.
 
 | Pièce | Rôle | Où |
 | --- | --- | --- |
-| Liste fermée | `module.ID` (`containers`, `hypervisor`, `guest`, `ssh_keys`, `probes`, `firewall`, `backups`, `jobs`) et sa portée (`machine`, `installation` ; les sondes vivent dans les deux) ; `probes` est le module **Disponibilité** : les sondes et les pages publiques des projets. Libellé et phrase : clés `module.<id>` et `module.<id>_text` des catalogues | `internal/module` |
+| Liste fermée | `module.ID` (`containers`, `hypervisor`, `guest`, `ssh_keys`, `systemd_units`, `probes`, `firewall`, `backups`, `jobs`) et sa portée (`machine`, `installation` ; les sondes vivent dans les deux) ; `probes` est le module **Disponibilité** : les sondes et les pages publiques des projets. Libellé et phrase : clés `module.<id>` et `module.<id>_text` des catalogues | `internal/module` |
 | Rôle d'une machine | `machines.role`, liste fermée `machine.Roles()` : `generic`, `docker`, `proxmox`. **Choisi à l'ajout** : le jeton d'enrôlement le porte (`enrollment_tokens.role`), l'enrôlement l'inscrit sur la machine, un ré-enrôlement garde celui de la machine. Il se change sur la fiche (`PUT /api/machines/{id}/role`, carte « Rôle de la machine ») ; l'opérateur seul, aucun jeton d'API ; journal `machine.role` (rôle, rôle d'avant) | `internal/machine/role.go`, migration `024_machine_role.sql` |
 | Préréglage des droits | `machine.RolePreset(rôle)` : `generic` coche `probe.lan` ; `docker` y ajoute `docker.deploy` et `docker.update` ; `proxmox` y ajoute `proxmox.power` et `proxmox.snapshot`. Écrit **une fois**, en Go, et servi par `GET /api/session` (`roles: [{id, capabilities}]`) : l'ajout d'une machine coche ces droits d'avance, l'opérateur les ajuste sous « Avancé ». Le serveur n'ajoute rien de lui-même à ce que la demande porte | `internal/machine/role.go`, `api_session.go` |
-| Présence d'un module de machine | Une règle SQL par module, lue pour toutes les machines à la fois : `containers` = rôle `docker` **ou** un conteneur observé ; `hypervisor` = rôle `proxmox` **ou** un hôte Proxmox déclaré (un hôte déclaré ne perd jamais son onglet) ; `guest` = un invité d'hôte lui est lié ; `ssh_keys` = l'agent a rapporté ses clés ; `probes` = une sonde la vise. Rendue par `GET /api/machines` et `/{id}` (`role`, `modules`) | `internal/store/modules.go` (`MachineModules`) |
+| Présence d'un module de machine | Une règle SQL par module, lue pour toutes les machines à la fois : `containers` = rôle `docker` **ou** un conteneur observé ; `hypervisor` = rôle `proxmox` **ou** un hôte Proxmox déclaré (un hôte déclaré ne perd jamais son onglet) ; `guest` = un invité d'hôte lui est lié ; `ssh_keys` = l'agent a rapporté ses clés ; `systemd_units` = l'agent a **lu** systemd (un relevé « illisible » ne porte pas le module) ; `probes` = une sonde la vise. Rendue par `GET /api/machines` et `/{id}` (`role`, `modules`) | `internal/store/modules.go` (`MachineModules`) |
 | Configuré (module de l'installation) | Au moins un objet du module existe : un pare-feu, un trousseau ou un plan de sauvegarde, une tâche, une sonde ou un projet publié (Disponibilité). Rendu par `GET /api/counts` (`modules: [{id, configured}]`), **pas** par la session : la session se lit une fois, et le menu doit suivre le premier objet créé (le compteur est relu sur les sujets `machines`, `jobs`, `probes`, `status`, `alerts`, `directory`, `firewalls`, `backups`) | `internal/store/modules.go` (`InstallationModules`) |
 
 Ce que l'écran en fait (`web/src/lib/modules.ts`, le seul lieu qui sait qu'un
@@ -562,20 +614,27 @@ module a une entrée de menu, un onglet ou un premier geste) :
 - **Le menu** : Vue d'ensemble, Machines, Pare-feu, Sauvegardes, Services,
   Disponibilité (sondes, pages publiques et incidents, sous un seul onglet de
   trois), Tâches planifiées, Alertes, Journal ; en bas,
-  Paramètres, la langue et le thème. Un module de l'installation n'y est que
-  **configuré**. Plus de section « Administration ». Avant la première lecture
-  des compteurs, seules les entrées fixes s'affichent, sans chiffre inventé.
+  Paramètres, la langue et le thème. **Les quatre modules de l'installation
+  (Pare-feu, Sauvegardes, Disponibilité, Tâches planifiées) sont au menu dès le
+  premier lancement** (décision de Lucas, 01/11/2026) ; un **point** signale
+  celui qui n'a encore aucun objet (`MenuEntry.toConfigure`), il s'efface au
+  premier objet. Plus de section « Administration ». Avant la première lecture
+  des compteurs, ni point ni chiffre ne sont inventés.
 - **Les onglets d'une fiche** : Résumé, Réseau, Journaux, Agent (la carte de
   l'agent et ses ordres), et ceux des modules que la machine porte (Conteneurs,
-  Disponibilité, Clés SSH, Hyperviseur). L'adresse d'un onglet reste servie sans
+  Disponibilité, Accès SSH, Hyperviseur). L'adresse d'un onglet reste servie sans
   son module : un lien gardé ne tombe pas sur une page introuvable.
 - **Les onglets de Machines** : la liste, puis la vue globale de chaque module que
   l'une des machines porte (aujourd'hui « Accès SSH », `/machines/acces-ssh`).
   `/cles-ssh` y mène.
 - **Paramètres › Modules** (`/parametres#modules`) : les modules de
   l'installation, configuré ou « à configurer », avec un bouton vers leur page
-  ou vers leur premier geste. C'est ici qu'un module sans objet se configure :
-  il n'a pas d'entrée de menu avant son premier objet.
+  ou vers leur premier geste. Même rôle que le point du menu, avec la phrase
+  du module.
+- **Les tuiles de la vue d'ensemble** (Machines, Conteneurs, Disponibilité,
+  Tâches planifiées, Alertes) sont toutes des liens vers leur liste
+  (`Stat`, propriété `to`) : `/machines`, `/services`, `/disponibilite`,
+  `/taches`, `/alertes`.
 - **La carte « À configurer »** de la vue d'ensemble : les modules de
   l'installation sans objet, et l'hôte Proxmox d'une machine au rôle Proxmox
   tant qu'il n'est pas déclaré. Sans rien à faire, elle n'est pas là.
@@ -603,7 +662,7 @@ a un hôte, et un hôte fait parfois partie d'une grappe. Rien de cela n'est sai
 | Fait | Décidé par | Stocké | Où |
 | --- | --- | --- | --- |
 | Le **type** rapporté (`physical`, `vm`, `lxc`, `unknown`) | L'agent : réponse de `systemd-detect-virt`, traduite par `machine.KindOfVirt`. Absent (Alpine, hors systemd, agent ancien) : `unknown`, jamais deviné | `machines.kind` | `internal/hostinfo`, `internal/machine/kind.go` |
-| Le **type retenu**, rendu à l'écran (`kind`) | Dans l'ordre : la correction de l'opérateur, puis le type de l'invité que l'hôte rapproche (`qemu` = VM, `lxc` = LXC), puis le type rapporté. Une machine rapportée `vm` **sans hôte connu** est un `vps` : on ne peut pas savoir mieux | calculé à la lecture, jamais stocké | `machine.EffectiveKind` |
+| Le **type retenu**, rendu à l'écran (`kind`) | Dans l'ordre : la correction de l'opérateur, puis le type de l'invité que l'hôte rapproche (`qemu` = VM, `lxc` = LXC), puis le type rapporté. Une machine rapportée `vm` **sans hôte connu** est un `vps` si l'adresse par laquelle elle se présente est **publique** (hors RFC 1918, RFC 6598, ULA, boucle, lien-local), sinon une `vm` : une VM chez soi n'est pas un VPS. Le VPS d'une adresse privée (VPN) se corrige à la main. `unknown` reste pour l'agent qui ne rapporte rien | calculé à la lecture, jamais stocké | `machine.EffectiveKind` |
 | La **correction** du type et de l'hôte | L'opérateur seul : `PUT /api/machines/{id}/placement` (`kind_override`, `host_override`), aucun jeton d'API, journal `machine.placement`. Un hôte désigné est une autre machine, jamais elle-même ni une machine qu'elle porte (`machine.host_invalid`). L'agent ne la défait pas : son rapport ne touche que `machines.kind` | `machines.kind_override`, `machines.host_override` | `Service.SetPlacement` |
 | Les **cartes réseau** de l'agent | L'agent : `/sys/class/net/*/address`, lisible sans root. Les cartes que la machine fabrique (loopback, `docker0`, `veth*`, `br-*`, `virbr*`, `tap*`, `fw*`…) sont écartées : leur adresse change à chaque conteneur | `machine_interfaces` | `hostinfo.Detect` |
 | Les **disques physiques** et les **pools** | L'agent : `/sys/block` (nom, modèle, taille, nature `nvme`/`ssd`/`hdd`/`virtual`/`unknown`, amovible) ; pools = grappes RAID du noyau (`md*`), groupes LVM (taille = disques ou partitions qui les portent) et pools ZFS (état seul). **Aucun relevé SMART** : il viendra comme un droit à part de l'agent (`disks.smart`, `sudo` limité à `smartctl`) | `machine_block_devices`, `machine_storage_pools` ; lus par `GET /api/machines/{id}/storage` | `internal/hostinfo/storage.go` |
@@ -657,6 +716,7 @@ côté navigateur avec cela (`web/src/lib/machineTree.ts`), sans route de plus.
 | Fiche, résumé | Le bloc **À faire** en tête (agent absent ; agent en retard sur le serveur ; droits cochés que le compte ne peut pas exercer ; système en fin de support ; type inconnu hors agent en retard, dont le geste est déjà celui de l'agent ; hôte Proxmox à déclarer ou dont le relevé échoue), un bouton chacun ; sans rien à faire, il n'est pas là. Une machine archivée n'a rien à faire. Puis les tuiles et l'historique, la carte **Stockage** | `lib/machineTodo.ts`, `components/MachineTodoCard.tsx` |
 | Fiche, carte Stockage | Les volumes montés, les **disques physiques** (nom, modèle, nature, taille, amovible), les **pools** (genre, niveau, état, disques, taille ; « — » quand le noyau ne la dit pas), et, pour un hôte, le disque que chaque invité se fait allouer. **Aucun relevé SMART** | `components/MachineStorage.tsx`, `GET /api/machines/{id}/storage` |
 | Fiche, onglet Agent | La carte de l'agent et ses ordres, qui étaient dans le résumé | `pages/Machine.tsx` |
+| Fiche, onglet Hyperviseur (v0.5.2 P1, #459) | L'hôte en bande de faits ; si le jeton ne lit pas les archives, la carte « Les sauvegardes ne sont pas lisibles avec ce jeton » (deux commandes `pveum`, « Relire maintenant ») ; les **stockages** en cartes à jauge ; les **VM et conteneurs** en cartes (état, type, ressources allouées en jauges relatives à la plus grosse VM, machine liée, dernière sauvegarde en pastille : récente / ancienne / perdue de vue au-delà de 48 h et 7 j, « Aucune », « Inconnue »), les arrêtées repliées, les modèles à part ; les gestes au menu « … » de chaque carte. Le bloc « À faire » de la machine ajoute « jeton qui ne lit pas les sauvegardes » | `components/MachineHypervisor.tsx`, `EntityCard` (`to` facultatif, `children`, fait `wide`), `lib/proxmox.ts` (`groupGuests`, `allocationShares`, `backupTone`) ; maquette `docs/projet/maquettes/hyperviseur.html` |
 
 **Migration `026`** (`machine_placement`) : les colonnes `kind`, `kind_override`,
 `host_override`, les tables `machine_interfaces`, `machine_block_devices`,
@@ -693,7 +753,61 @@ d'agir ou d'alerter viendra, s'il vient, d'une décision à part.
 | `/cluster/resources?type=storage` | Chaque stockage, un par nœud pour un stockage local : type, taille, utilisé, libre, contenus acceptés, actif ou non |
 | `/cluster/status` | Le nom de la grappe (entrée de type `cluster`) ; un nœud seul n'en a pas. Un refus n'arrête pas le relevé |
 | `/nodes/{nœud}/{qemu\|lxc}/{vmid}/config` | Les adresses MAC des cartes de l'invité, pour le rapprochement (« Comment openCloud sait où tourne une machine »). Un invité illisible garde ses adresses vides ; un refus arrête ces lectures |
-| `/nodes/{nœud}/storage/{stockage}/content?content=backup` | Les archives de sauvegarde, pour chaque stockage **actif qui accepte les sauvegardes** ; on retient, par VM, la plus récente et sa taille. Le nœud et le stockage viennent de l'API : ils sont échappés avant d'entrer dans le chemin |
+| `/access/permissions?path=/storage/{stockage}` (et `path=/vms` si besoin) | Les privilèges **du jeton lui-même**, avant de croire une liste d'archives (ouvert à tout jeton pour ses propres droits). Une panne de cette lecture fait échouer le relevé |
+| `/nodes/{nœud}/storage/{stockage}/content?content=backup` | Les archives de sauvegarde, pour chaque stockage **actif qui accepte les sauvegardes et que le jeton sait lister** ; on retient, par VM, la plus récente et sa taille. Le nœud et le stockage viennent de l'API : ils sont échappés avant d'entrer dans le chemin |
+
+**Lire les sauvegardes** (chantier P1, v0.5.2). Avec `PVEAuditor`, Proxmox
+répond `200` et une **liste vide**, sans erreur : v0.5.1 en tirait « Aucune »
+pour chaque VM. Cause, dans le source de Proxmox (`pve-storage`,
+`src/PVE/API2/Storage/Content.pm`, route « index » ; `src/PVE/Storage.pm`,
+`check_volume_access`) : la route n'exige que `Datastore.Audit` pour répondre,
+puis **retire en silence** chaque archive dont `check_volume_access` refuse
+l'accès. Une archive de sauvegarde d'une VM n'y passe que par
+`Datastore.Allocate` sur `/storage/<id>`, ou par `Datastore.AllocateSpace` sur
+`/storage/<id>` **et** `VM.Backup` sur `/vms/<vmid>`. `PVEAuditor` n'a aucun
+des deux.
+
+| Ce que fait openCloud | Pourquoi |
+| --- | --- |
+| Lit les droits du jeton sur chaque stockage de sauvegardes avant de lister (`internal/proxmox/backup_access.go`) | Une liste vide ne dit pas si elle est vide ou filtrée |
+| Un stockage dont le jeton n'a ni `Datastore.Allocate`, ni `AllocateSpace` + `VM.Backup` sur `/vms` n'est **pas listé** : il est nommé « illisible » | Jamais de « Aucune » faux |
+| Les VM sans archive connue disent **Inconnue** (pastille neutre), pas « Aucune » ; l'écran Sauvegardes dit « Inconnue » à la place de « Aucune sauvegarde » | « Inconnue » n'est ni une alerte ni une absence (DA) |
+| La fiche de l'hôte montre la carte « Les sauvegardes ne sont pas lisibles avec ce jeton », avec deux commandes `pveum` à coller et « Relire maintenant » (`POST /api/machines/{id}/actions/refresh-proxmox`) | Le plus petit droit, sur `/storage/<id>` seulement |
+
+Les commandes écrites par l'écran (jeton et stockages tels que Proxmox les
+nomme, écartés s'ils n'ont pas la forme d'un identifiant) :
+
+```sh
+pveum role add LectureSauvegardes --privs "Datastore.Audit Datastore.Allocate"
+pveum acl modify /storage/<stockage> --roles LectureSauvegardes --tokens '<utilisateur>@<domaine>!<nom>'
+```
+
+**Le coût, dit franchement.** Aucun privilège de pure lecture ne fait lister les
+archives : `Datastore.Allocate` permet aussi de **supprimer** des archives de ce
+stockage (openCloud ne fait que `GET`, mais un jeton volé le pourrait ; le
+secret est chiffré en base). L'autre voie, `Datastore.AllocateSpace` sur le
+stockage et `VM.Backup` sur `/vms`, ne supprime rien mais permet de **lancer**
+des sauvegardes de toutes les VM : ni plus petite, ni sur le stockage seul. Le
+choix est à Lucas ; l'écran propose la première. L'identifiant complet du jeton
+figure dans ces commandes (`backup_grant.commands`) : ce n'est pas un secret, le
+secret ne sort jamais.
+
+**Où l'état est gardé.** Migration `035_proxmox_backups_unreadable.sql` :
+`proxmox_storages.backups_unreadable` (0 ou 1, défaut 0), écrite à chaque relevé
+réussi pour chaque stockage (1 : le jeton ne lit pas ses archives). C'est une
+donnée du stockage, pas de l'hôte : `last_error` reste la seule clé du refus, et
+un relevé qui échoue ne touche pas aux stockages, donc garde l'illisibilité
+connue. Les lignes d'avant la 035 valent 0 (« lisible ») jusqu'au relevé suivant,
+au démarrage de `serve`. Une VM sans archive connue est « inconnue » quand un
+stockage de son hôte est illisible. Le serveur rend `backup_blind_storages` et
+`backup_grant` (fiche de l'hôte), `backup_unknown` (par invité), `backup_blind`
+(résumé de machine), `observed_unknown` (inventaire des sauvegardes).
+
+**Décisions de Lucas (chantier P1).** `Datastore.Allocate` sur `/storage/<id>`
+seul est retenu : c'est la seule voie limitée au stockage, et son coût
+(suppression d'archives possible) est dit à l'écran. L'identifiant du jeton en
+entier figure dans les commandes (pas un secret). La pastille de sauvegarde passe
+du vert à l'orange après 48 h, au rouge après 7 jours.
 
 **Le rythme.** Un premier relevé part dès la déclaration, puis la boucle
 `proxmox` relit chaque hôte au démarrage de `serve` et toutes les cinq minutes
@@ -716,9 +830,9 @@ raison. Un secret que la perte de `secret.key` a vidé est lu comme un jeton
 refusé : l'hôte reste déclaré, l'opérateur ressaisit le jeton.
 
 **Le jeton.** Un jeton d'API Proxmox, créé pour openCloud, **en lecture seule** :
-le rôle `PVEAuditor` sur `/` suffit, soit les privilèges `Sys.Audit`,
-`VM.Audit` et `Datastore.Audit` (ce dernier sert à lister les archives des
-stockages de sauvegarde). Sa création est décrite dans
+le rôle `PVEAuditor` sur `/` (`Sys.Audit`, `VM.Audit`, `Datastore.Audit`) suffit
+pour les VM et les stockages, **pas pour les sauvegardes** : voir « Lire les
+sauvegardes » ci-dessous. Sa création est décrite dans
 `installation.md`, « Déclarer un hôte Proxmox ». Il part dans l'en-tête
 `Authorization: PVEAPIToken=<identifiant>=<secret>` et nulle part ailleurs : ni
 dans l'adresse, ni dans une erreur, ni dans un journal, ni dans l'audit. Son
@@ -735,7 +849,13 @@ cette empreinte, sans quoi rien n'est envoyé à l'hôte, jeton compris. C'est l
 cas d'un Proxmox livré avec son certificat auto-signé. L'empreinte se saisit
 avec ou sans deux-points, avec ou sans `sha256:`, ou en collant la ligne
 d'openssl entière (`sha256 Fingerprint=AA:BB:…`). Aucune redirection n'est
-suivie : une API qui redirige n'est pas celle qu'on a déclarée.
+suivie : une API qui redirige n'est pas celle qu'on a déclarée. **L'assistant
+relève l'empreinte lui-même** : « Tester l'accès » à l'étape de l'adresse, puis,
+à l'étape Certificat, l'empreinte que le serveur voit (`POST
+/api/certificate/inspect`, voir « Comment un pare-feu se lit ») ; l'opérateur la
+compare à celle de Proxmox (*Nœud › Système › Certificats*) et confirme d'un clic.
+La saisie à la main reste en repli. Le fichier du jeton local de l'agent est
+l'exception : l'empreinte s'y écrit à la main, sur la machine.
 
 **Les destinations.** Le client sort par la garde d'`egress` (`DialWith`, réseau
 local ouvert : c'est le cas normal d'un Proxmox ; le lien-local, qui porte les
@@ -964,7 +1084,7 @@ alerte ne naît d'un relevé. Un pare-feu n'est lié à aucune machine.
 | L'opérateur | Déclare, redéclare, retire (assistant en quatre étapes ; retrait par confirmation en ligne). Seul à écrire : les routes d'écriture ne sont pas dans la liste fermée d'un jeton |
 | `firewall.Service` | Vérifie la paire de clés auprès du pare-feu **avant** d'écrire, journalise, relit toutes les cinq minutes (boucle de `serve`) |
 | Le connecteur | Parle à l'API, en `GET` seulement, et rend un `firewall.Snapshot` indépendant du constructeur |
-| Un agent IA | Lit les cinq `GET` par son jeton, sans clé ni empreinte |
+| Un agent IA | Lit les six `GET` par son jeton, sans clé ni empreinte |
 
 **Ce qui est lu (OPNsense).** Points d'accès retenus, tirés de la documentation
 (`docs.opnsense.org/development/api`) et des contrôleurs de `opnsense/core`, tous
@@ -976,7 +1096,7 @@ en `GET`, authentifiés par HTTP Basic (clé et secret de l'utilisateur d'API) :
 | `/api/interfaces/overview/interfacesInfo` | Par interface assignée : identifiant, carte, description (le **rôle** : WAN, LAN…), adresse IPv4 sinon IPv6, état | `Status: Interfaces` |
 | `/api/firewall/filter/searchRule` | Les règles écrites par l'opérateur : interface, action, sens, protocole, source, destination, ports, description, activée | `Firewall: Rules [new]` |
 | `/api/routes/gateway/status` | Par passerelle : nom, adresse, état (`none` = en ligne, `down` = hors ligne, `delay`/`loss` = dégradée), délai, perte ; `~` = non sondée | `System: Gateways` |
-| `/api/dnsmasq/leases/search`, `/api/kea/leases4/search`, `/api/dhcpv4/leases/searchLease` | Les baux DHCP du serveur que le pare-feu fait tourner (dnsmasq, Kea, ou le greffon ISC) : adresse, MAC, nom d'hôte, interface, réservé ou non, échéance | `Services: Dnsmasq DNS/DHCP: Settings`, `Services: DHCP: Kea(v4)` ou `Services: ISC DHCPv4: Leases` |
+| `/api/dnsmasq/leases/search`, `/api/kea/leases4/search`, `/api/dhcpv4/leases/searchLease` | Les baux DHCP du serveur que le pare-feu fait tourner (dnsmasq, Kea, ou le greffon ISC d'un OPNsense plus ancien) : adresse, MAC, nom d'hôte, interface, réservé ou non, échéance | **Un seul**, celui du serveur DHCP : `Services: Dnsmasq DNS/DHCP: Settings` ou `Services: DHCP: Kea(v4)`. L'assistant ne propose pas ISC (voir plus bas) |
 
 Un serveur DHCP absent (`404`) ou non couvert par le privilège (`403`) n'a rien à
 dire ; si aucun ne répond et qu'un a refusé, le relevé est refusé
@@ -984,6 +1104,21 @@ dire ; si aucun ne répond et qu'un a refusé, le relevé est refusé
 d'`add`, `del`, `set`, `toggle`, `apply`, `revert`, `reconfigure`. Un test le garantit
 (`TestSource_HasNoWritingCallToOPNsense`, `TestRead_OnlyEverSendsGETsToTheReadingEndpoints`),
 et l'interface `firewall.Connector` n'a aucune méthode d'écriture.
+
+**L'export de la configuration** (B3, #371) est un neuvième `GET`, hors du
+relevé : il n'entre ni dans `firewall.Snapshot` ni dans `firewall.Connector`, mais
+dans `firewall.Exporter`, que seul un connecteur qui sait l'exporter implémente.
+
+| Appel | Ce qu'on en garde | Privilège demandé (nom OPNsense, en anglais) |
+| --- | --- | --- |
+| `/api/core/backup/download/this` | Le `config.xml` tel que le pare-feu le livre : **la dernière version enregistrée** de sa configuration (celle que Système → Configuration → Sauvegardes télécharge), pas l'état en mémoire. Le corps doit contenir `<opnsense` (sinon `firewall.bad_response`) ; 64 Mio au plus | `Diagnostics: Configuration History` (`page-diagnostics-configurationhistory`, motif `api/core/backup/*`) |
+
+Un `403` sur cet appel, alors que les relevés passent, est le privilège
+manquant : `firewall.export_forbidden`, dont le texte nomme le libellé exact. Un
+`401` reste `firewall.unauthorized` (la paire est fausse). Le fichier contient
+des secrets (empreintes de mots de passe, clés VPN, certificats) : il ne se
+journalise ni ne s'affiche, il n'existe qu'en mémoire du serveur avant d'être
+chiffré (« Une configuration de pare-feu », sous « Comment une sauvegarde se fait »).
 
 **Le coût, dit franchement.** OPNsense n'a **pas de privilège en lecture seule**
 pour ces pages : celui qui ouvre `searchRule` ouvre aussi l'ajout et la
@@ -995,22 +1130,54 @@ française** (ils ne sont pas dans son catalogue de traduction). **Non vérifié
 un OPNsense réel** : les formes de réponse viennent de la documentation et des
 sources ; les tests jouent un faux serveur.
 
-**Les gestes dans OPNsense, et d'où viennent leurs chemins.** L'assistant
+**Les gestes dans OPNsense, et d'où viennent leurs libellés.** L'assistant
 construit chaque lien depuis l'origine de l'adresse saisie (hôte et port ; ni
 chemin ni identifiants) et ouvre la page dans un autre onglet. Tout est relevé
-dans les sources d'OPNsense (`opnsense/core`, étiquette `26.1`) :
+dans les sources d'OPNsense (`opnsense/core`, étiquettes `26.1` et `26.7`) :
 
-| Geste | Page | Source |
+| Quoi | Où | Source |
 | --- | --- | --- |
-| Créer l'utilisateur, lui donner ses privilèges (champs `Username`, `Password`, `Privileges`), générer la clé | `/ui/auth/user` (menu `System ‣ Access ‣ Users`) | `Core/Menu/Menu.xml` ; `Auth/forms/dialogUser.xml` |
-| Générer la clé | Sur la ligne de l'utilisateur, bouton « Create and download API key for this user », puis `Yes` ; le fichier téléchargé s'appelle `<hôte>_<utilisateur>_apikey.txt` et porte `key=` et `secret=` | `views/OPNsense/Auth/user.volt` |
-| Les privilèges | `Lobby: Dashboard`, `Status: Interfaces`, `System: Gateways` | `Core/ACL/ACL.xml` |
-| | `Firewall: Rules [new]` | `Firewall/ACL/ACL.xml` |
-| | `Services: Dnsmasq DNS/DHCP: Settings`, `Services: DHCP: Kea(v4)` | `Dnsmasq/ACL/ACL.xml`, `Kea/ACL/ACL.xml` |
-| | `Services: ISC DHCPv4: Leases` (greffon, menu « ISC DHCPv4 [legacy] ») | dépôt `opnsense/plugins`, `net/isc-dhcp`, branche `master` |
+| Le chemin de la page des utilisateurs, `/ui/auth/user` | Menu *System › Access › Users* | `Core/Menu/Menu.xml` |
+| Les **libellés de menu et de champ** | **Dans la langue de l'interface openCloud** (français ou anglais) : `Système : Accès : Utilisateurs`, `Système : Gestion des certificats : Certificats`, champs `Nom d'utilisateur`, `Mot de passe`, `Privilèges`, onglet `Clés Api`, bouton `Créer et télécharger la clé API pour cet utilisateur`, puis `Oui`. Catalogues : `firewall.menu_*`, `firewall.label_*` | Traductions officielles d'OPNsense : dépôt `opnsense/lang`, `fr_FR.po` (étiquette `26.1`, msgid `Users`, `Access`, `Trust`, `Certificates`, `Privileges`, `Username`, `Password`, `ApiKeys`, `Create and download API key for this user`, `Yes`) ; vues `views/OPNsense/Auth/user.volt` |
+| La clé | Sur la ligne de l'utilisateur, bouton « Create and download API key for this user », puis confirmation ; le fichier téléchargé s'appelle `<hôte>_<utilisateur>_apikey.txt` et porte `key=` et `secret=` ; les clés créées se listent dans l'onglet `ApiKeys` | `views/OPNsense/Auth/user.volt` |
+| Les **noms de privilèges** : `Lobby: Dashboard`, `Status: Interfaces`, `System: Gateways` | **En anglais, tels que le champ « Privilèges » les affiche** : `PrivField` rend le `<name>` de chaque `ACL.xml` sans le traduire, et aucun n'est dans `fr_FR.po` | `Core/ACL/ACL.xml` ; `Auth/FieldTypes/PrivField.php` |
+| `Firewall: Rules [new]` | Idem. Existe en `26.1` et `26.7` (en `25.7`, la même page s'appelait `Firewall: Automation: Filter`) | `Firewall/ACL/ACL.xml` |
+| `Services: Dnsmasq DNS/DHCP: Settings` (couvre `api/dnsmasq/*`, donc les baux), `Services: DHCP: Kea(v4)` (couvre `api/kea/leases4/*`) | Idem. **Un seul des deux**, selon le serveur DHCP : Dnsmasq par défaut dans la configuration d'un OPNsense neuf (`config.xml.sample`, section `dnsmasq` avec `dhcp_ranges`, depuis `25.7`), sinon Kea | `Dnsmasq/ACL/ACL.xml`, `Kea/ACL/ACL.xml` ; `config.xml.sample` |
+| **`Services: ISC DHCPv4: Leases` n'est plus proposé** | ISC DHCP n'est plus dans le cœur depuis `26.1` : `api/dhcpv4/leases/*` et « Status: DHCP leases » ont disparu de `opnsense/core`. Le privilège n'existe que si le greffon `os-isc-dhcp` est installé ; sans lui, OPNsense ne l'offre pas dans la liste, d'où « No results matched ». Le connecteur lit encore ce point d'accès en repli, pour un OPNsense plus ancien | `opnsense/plugins`, `net/isc-dhcp/…/DHCPv4/ACL/ACL.xml` ; `opnsense/core` `25.7` (`DHCPv4/Api/LeasesController.php`), absent en `26.1` |
 
-La page des utilisateurs est la seule que les trois gestes demandent : il n'y a
-pas de lien plus précis, la source ne donne pas d'ancre vers l'onglet des clés.
+L'assistant dit aussi que l'utilisateur est **dédié** à openCloud (jamais un
+compte existant) et que l'adresse est **celle par laquelle la machine openCloud
+joint** OPNsense. Les menus suivent la langue de l'interface openCloud, pas
+celle du compte OPNsense : un OPNsense réglé dans l'autre langue montre d'autres
+mots. Les pages ne s'ouvrent que si l'adresse saisie est celle que le
+navigateur de l'opérateur atteint aussi.
+
+**Tester l'accès, et l'empreinte du certificat.** `POST /api/certificate/inspect`
+(`{url}`, composant `internal/tlsinspect`, réservé à l'opérateur : pas dans la
+liste d'un jeton) joint l'adresse **depuis le serveur, sans clé** : un handshake
+TLS, aucune requête HTTP. Joignable ou non, la réponse est un `200` ; une adresse
+mal formée est refusée (`certificate.url_invalid`).
+
+| `outcome` | Sens | Ce que l'assistant dit |
+| --- | --- | --- |
+| `trusted` | Le magasin du système reconnaît le certificat pour cet hôte | « L'adresse répond et son certificat est reconnu » ; rien à confirmer |
+| `untrusted` | Joint, certificat non reconnu (auto-signé, autorité inconnue, autre nom) | L'empreinte SHA-256 relevée (`fingerprint`, hexadécimal), affichée par paires ; l'opérateur la compare à celle d'OPNsense (ou de Proxmox), puis **confirme d'un clic** : elle devient l'empreinte épinglée. La saisie à la main reste en repli |
+| `unreachable` + `cause` | `timeout` (filtrage : règle de pare-feu manquante, mauvaise interface), `refused` (rien n'écoute sur ce port), `unresolved`, `no_route`, `forbidden` (lien-local), `not_tls` (port http) | Une phrase par cause |
+
+**Le coût, dit franchement.** Relever l'empreinte par le réseau, c'est faire
+confiance à ce que l'adresse présente *à cet instant* : seule la comparaison par
+l'opérateur avec l'empreinte affichée dans OPNsense prouve que c'est le bon
+appareil. Le même traitement vaut pour l'hôte Proxmox (étape Certificat de
+« Déclarer l'hôte Proxmox ») ; l'empreinte du fichier du jeton de l'agent
+Proxmox local reste une saisie hors de l'application (fichier sur la machine).
+
+**Clés et jetons relus.** Le serveur ne rend jamais une clé ou un identifiant
+de jeton en entier : `api_key_hint` (pare-feu) et `token_id_hint` (hôte Proxmox)
+portent leurs **quatre premiers caractères** (`AbCd…`, `credential.Mask`).
+Le récapitulatif de l'assistant et les fiches font de même. Une modification
+redemande donc la clé (ou l'identifiant) **avec** son secret : le champ est vide,
+le début enregistré est rappelé sous le champ. Un jeton d'API ne voit même pas ce
+début pour un pare-feu.
 
 **Le transport.** HTTPS seulement. Sans empreinte, le magasin du système juge le
 certificat ; avec une empreinte SHA-256 (la ligne d'openssl se colle telle
@@ -1033,12 +1200,50 @@ fiche dit pourquoi. Refus à clé : `firewall.name_invalid`, `name_taken` (409),
 pas celle de l'API, plus de 8 Mio).
 
 **Lire.** `GET /api/firewalls` (liste et compteurs), `/{id}` (la fiche et ses
-passerelles), `/{id}/rules`, `/{id}/interfaces`, `/{id}/leases`. Chaque relevé
+passerelles), `/{id}/rules`, `/{id}/interfaces`, `/{id}/leases`, `/{id}/flows`
+(la grille « qui parle à qui », voir plus bas). Chaque relevé
 rappelle `last_read_at` et `last_error`. Un relevé qui échoue **ne remplace
 rien** : la fiche garde le dernier relevé réussi et dit la raison (`last_error`) ;
 le suivant, réussi, l'efface. Un secret vidé par la perte de `secret.key`
 (`opencloud secrets forget`) est lu comme une paire refusée : le pare-feu reste
 déclaré, l'opérateur ressaisit le secret. Le direct publie le sujet `firewalls`.
+
+**La fiche.** Deux onglets, `/pare-feu/{id}` (Résumé) et `/pare-feu/{id}/flux`
+(Qui parle à qui). Le Résumé, de haut en bas :
+
+| Bloc | Ce qu'il montre | D'où ça vient |
+| --- | --- | --- |
+| Quatre tuiles | Version et adresse de l'API ; dernier relevé et son état ; passerelles (en ligne sur le total, coupées, à surveiller) ; règles actives (passantes, bloquantes, éteintes). Chaque tuile mène à son bloc (`#connexion`, `#passerelles`, `#regles`) | `GET /{id}`, `/rules` |
+| Passerelles | Une pastille par passerelle : état, adresse, délai et perte (« non sondée » sinon) | `GET /{id}` |
+| Interfaces | Une carte par zone : nom, réseau, état (le trait de gauche), nombre de règles et de bloquantes. Un clic ouvre le groupe de règles de la zone | `GET /{id}/interfaces`, `/rules` |
+| Règles | Groupées par interface, **repliées**. Recherche (description, adresses, ports, protocole) et filtres Toutes / Passantes / Bloquantes / Désactivées, chacun avec son compte ; chercher ou filtrer ouvre les groupes qui répondent. Les règles sans interface (flottantes) ont leur groupe | `GET /{id}/rules` |
+| Baux DHCP | Un bail dont **la carte réseau (MAC) ou l'adresse** est celle d'une machine d'openCloud nomme cette machine, avec un lien vers sa fiche ; sinon un tiret. Deux machines qui se disputent l'adresse : rien n'est dit | `GET /{id}/leases` (`machine: {id, name}` ou `null`), `firewall.MatchMachine` |
+| Connexion | Repliée : connecteur, adresse, version, clé (**quatre premiers caractères**, `api_key_hint`), dernier relevé, certificat. Le secret n'y est jamais | `GET /{id}` |
+
+**Qui parle à qui.** La grille se lit dans un **modèle des échanges** que
+chaque connecteur remplit, indépendant du constructeur (`internal/policy`) :
+des **zones** (une par interface, plus le pare-feu lui-même et Internet), des
+**objets** (`any`, `self`, une zone entière, une adresse, un bloc, un groupe nommé) et des **règles** « de → vers : quoi, pourquoi » (`Rule` : `From`, `To`,
+`What` = protocole et ports, `Why` = la description, `Effect` = `allow` ou
+`deny`). `opnsense.Policy` traduit le relevé vers ce modèle (`firewall.Service.Policy`, choisi par genre) ; `Model.Grid()` bâtit la grille : une ligne par zone de départ,
+une colonne par zone d'arrivée, une case = les règles actives de l'une vers l'autre.
+**Une case sans règle est une case vide : refusé.** Rien n'est stocké : la grille se
+recalcule à chaque lecture depuis les règles du dernier relevé (aucune migration).
+
+| Règle de traduction (OPNsense) | Effet |
+| --- | --- |
+| Une interface = une zone ; celle qui porte une adresse **publique** est la zone Internet (sinon, une zone Internet est ajoutée à part) | Le réseau d'une zone est le bloc de l'adresse de l'interface |
+| `(self)`, `<interface>ip`, l'adresse même de l'interface | Le pare-feu |
+| Le nom d'une interface | Tout son réseau |
+| Une adresse ou un bloc | La zone dont le réseau le contient (le plus précis) ; le pare-feu si c'est son adresse ; Internet si le bloc est public ; **inconnu** si privé et hors zones |
+| `any` en destination | Toutes les zones sauf celle de départ (le trafic d'une zone vers elle-même ne passe pas par le pare-feu) |
+| Une règle sur plusieurs interfaces (`lan,opt1`) | Une règle du modèle par zone de départ |
+| « Tout sauf » (source ou destination niée) | Le connecteur marque la cible `!` (`source_not`, `destination_not` de `searchRule`) ; la destination niée couvre toutes les zones sauf la sienne |
+
+**Ce que la grille ne fait pas.** L'**ordre d'évaluation n'est pas rejoué** : une
+règle de refus placée avant une règle passante est montrée dans la même case (en rouge), sans
+dire laquelle l'emporte. Les règles **éteintes** ne comptent pas (leur nombre est dit). Sont **non placées**, donc à part sous la grille : les règles flottantes (sans interface), les règles sortantes (`direction: out`) et celles qui visent un **alias** (le connecteur ne lit pas les alias : un appel et un privilège de plus, à décider). Lecture seule : l'écriture de règles
+depuis openCloud, plus tard, partira de ces mêmes types (`internal/policy`).
 
 **Audit.** `firewall.create`, `firewall.update`, `firewall.delete` passent au
 journal, avec l'hôte de l'API, le connecteur et « empreinte épinglée oui/non » ;
@@ -1227,8 +1432,10 @@ au plus, `agentwire.MaxSecretBytes`) mais **jamais écrit** : ni dans
 `action_runs.params`, ni dans le journal d'audit, ni dans un journal `slog`.
 `action.SendWithSecret(…, secret, label)` l'envoie ; l'audit `action.order`
 porte seulement `<label>: sent` (le `.env` d'un déploiement : `env:
-sent`). L'agent le garde dans le corps jugé et le passe à l'exécuteur du genre,
-rien d'autre. Seuls `docker.deploy` et `docker.update` le lisent.
+sent` ; les mots de passe d'un lien restic : `passwords: sent`). L'agent le
+garde dans le corps jugé et le passe à l'exécuteur du genre, rien d'autre.
+Seuls `docker.deploy`, `docker.update`, `restic.provision`, `restic.user.add`
+et `restic.retain` le lisent (« Comment restic sauvegarde »).
 
 **La clé du serveur.** `server.key` (Ed25519) naît au premier démarrage de
 `serve`, à côté de `secret.key`, sous les mêmes règles (« Ce qui est stocké,
@@ -1483,6 +1690,30 @@ sauvegardes. Une destination qui perd son disque perd ses sauvegardes : en
 avoir deux est à la charge de l'opérateur (huit au plus ; plusieurs plans
 peuvent viser des destinations différentes).
 
+### Une configuration de pare-feu
+
+Le **producteur `opnsense-config`** sauvegarde le `config.xml` d'un pare-feu
+déclaré (module Pare-feu). **C'est `serve` qui le joue, pas un agent** : la clé
+d'API ne quitte pas la machine openCloud, et le fichier n'en sort que chiffré.
+
+| | |
+| --- | --- |
+| Le plan | Un plan `agent` (aucune migration : `producer` et `selector` sont libres en base). Producteur `opnsense-config`, machine source **la machine openCloud** (posée par le serveur si le formulaire ne la donne pas ; toute autre est refusée, `backup.source_machine_unknown`), sélecteur **l'identifiant du pare-feu** (jamais `all`). L'écran en fait une source à part : « La configuration d'un pare-feu » |
+| À la création | Le pare-feu doit être déclaré (`422 backup.firewall_unknown`) et sa clé doit pouvoir **exporter** : `serve` lit la configuration une fois. Sans le privilège, `422 firewall.export_forbidden` nomme `Diagnostics: Configuration History`, et **rien n'est créé**. Modifier un plan existant ne relit pas le pare-feu |
+| Chaque nuit | `serve` lit le fichier (`firewall.Service.ExportConfiguration`), l'emballe dans un tar d'une entrée `config.xml`, le chiffre age pour la clé publique du trousseau **dans le colis**, dépose la clé scellée à côté, envoie `backup.receive` puis `backup.prune` à la destination, comme pour la base. Le clair n'est jamais écrit sur le disque. Nom : `<sujet>-AAAAMMJJ-HHMMSS.tar.age` ; l'élagage garde `keep` copies du préfixe du plan |
+| Aucun droit d'agent | L'agent de la machine openCloud ne reçoit ni ordre ni fichier ; la destination reçoit de l'age, comme toujours. Aucune nouvelle ligne dans l'enrôlement |
+| Un refus | Pare-feu retiré ou illisible (`backup.firewall_unknown`, `backup.firewall_unreadable`), clé sans le privilège (`firewall.export_forbidden`) : la clé du refus est écrite sur le plan (`last_error`), l'historique garde une ligne `firewall:<id>`, rien ne part |
+| Dans l'inventaire | Chaque pare-feu déclaré est une source (`kind: firewall`, clé `firewall:<id>`) couverte par le plan qui vise son identifiant |
+| Restaurer | Déchiffrer l'archive comme celle de la base (clé scellée à côté, phrase du trousseau), puis Système → Configuration → Sauvegardes → Restaurer sur `config.xml` |
+
+**Ce que ça coûte.** Le serveur lit un fichier qui contient des secrets du
+pare-feu, et le tient en mémoire le temps de le chiffrer. Un pare-feu retiré du
+module laisse son plan en place : il échoue chaque nuit (`backup.firewall_unknown`)
+jusqu'à ce qu'on le supprime. La clé d'API a un privilège de plus, et OPNsense
+n'a toujours pas de privilège en lecture seule pour cet appel (« Le coût, dit
+franchement », plus haut). Les noms et chemins viennent des sources d'OPNsense
+(`opnsense/core`) : **non vérifié sur un OPNsense réel**.
+
 ### L'inventaire et l'historique
 
 Deux lectures, sans geste : ce qui existe à sauvegarder avec où cela peut aller
@@ -1563,9 +1794,9 @@ lecture ; aucune n'accepte d'écriture) :
 
 `GET /api/backups` (la clé publique, les plans) reste fermé aux jetons.
 
-**L'interface** : sur la page Sauvegardes, la section **Inventaire** : un tableau
-des sources (source, genre, machine, couverte par, dernière sauvegarde, taille,
-cible), les moins protégées en tête, puis un tableau des cibles. « Dernière
+**L'interface** : la page Sauvegardes (v0.5.2 B1 à B5) montre une **carte par
+source** ou une **matrice** sources × endroits (bascule « Cartes / Matrice »),
+les moins protégées en tête, puis les cibles. « Dernière
 sauvegarde » est la plus récente entre la dernière exécution réussie d'un plan et
 la plus récente archive vue sur un stockage Proxmox, avec son origine. Un dernier
 essai échoué ou refusé après la dernière réussite s'y lit.
@@ -1580,6 +1811,263 @@ démon qui ne liste pas les volumes ne fait pas perdre l'inventaire : la liste
 n'est pas dite complète et `serve` garde celle qu'il avait. Compatibilité : un
 agent plus ancien n'envoie pas de volumes (la machine n'en montre aucun jusqu'à sa
 mise à jour) ; un serveur plus ancien ignore le champ (`installation.md`).
+
+## Comment restic sauvegarde
+
+Un autre chemin que les archives `age` : la source garde ses sauvegardes
+**dans un dépôt restic** sur une machine **cible**. Écran : Sauvegardes.
+
+| Acteur | Rôle | Droit |
+| --- | --- | --- |
+| La source | Son agent lance `restic backup` (un service : son dossier sous la racine de l'agent ; une VM : `vzdump` en flux). Il reçoit du serveur les deux mots de passe du lien (`restic.provision`) et les garde en `0600` | `restic.produce` (+ `backup.produce` pour une VM) |
+| La cible | Son agent lance et surveille **une seule instance** `rest-server --append-only --private-repos --tls` (certificat auto-signé, un an, épinglé par la source, refait si ses noms changent). Il reçoit le mot de passe REST (`restic.user.add`) et en calcule l'empreinte bcrypt ; il applique la rétention chez lui (`restic.retain`), jamais sous son plancher, et vérifie les dépôts (`restic.verify`) | `restic.target` (+ `restic.verify` pour vérifier) |
+| Le serveur | Tire, scelle et distribue les mots de passe de chaque lien ; garde les sauvegardes déclarées, leur historique, ce que les agents rapportent ; envoie `restic.target.setup`, `restic.provision`, `restic.user.add`, `restic.user.remove`, `restic.backup`, `restic.retain`, `restic.verify` ; juge la supervision et ouvre les alertes ; porte le relais | — |
+
+### Un service entier
+
+Une sauvegarde de portée `service` sauvegarde **tout le service**, relu à
+chaque envoi (un volume ajouté hier part ce soir) : son dossier Compose, ses
+volumes nommés, ses bases détectées. Chaque partie est son **propre instantané**
+restic, dans le dépôt de la source, sous un nom de fichier stable.
+
+| Partie | Détectée par | Comment elle part | Instantané |
+| --- | --- | --- | --- |
+| Dossier | Le projet Compose du service | `restic backup` du dossier sous la racine de l'agent | le dossier |
+| Volume | `machine_volumes` (un conteneur du service le monte) | `docker cp <conteneur>:<point de montage>/. -` en flux : l'agent retrouve **lui-même** le conteneur et le point de montage | `volume-<nom>.tar` |
+| Base | L'image d'un conteneur du service (`postgres`, `mariadb`, `mysql`, `mongo`) | `docker exec <conteneur> sh -c '<script fixe du moteur>'` : le dump se fait **dans** le conteneur, qui lit lui-même ses identifiants | `database-<conteneur>.sql` (`.archive` pour mongo) |
+
+| Règle | Pourquoi |
+| --- | --- |
+| Une partie en échec n'arrête pas les autres ; l'ordre est « Échouée » si une seule a échoué, et l'écran montre laquelle (`parts`) | Un dump qui plante ne doit pas faire perdre le dossier et les volumes |
+| Une partie « ignorée » (conteneur ou volume absent) n'est pas un échec ; tout ignoré est un échec | Un service sans rien à sauvegarder ne doit pas se dire « à jour » |
+| **Aucun secret ne quitte la machine** : l'agent ne lit pas l'environnement des conteneurs pour ça, les scripts de dump sont des constantes du code, le mot de passe d'une base reste dans son conteneur | Banc de non-fuite : une valeur semée dans l'environnement simulé n'apparaît dans aucun argument, sortie, journal, rapport |
+| Le serveur n'apprend que `kind`, `name` (nom d'un volume ou d'un conteneur), `state`, une raison de la liste fermée et `bytes_added` | Liste blanche dans `agentwire` (`ResticPartReport`), rejugée côté serveur |
+| Un volume copié en marche peut être incohérent ; pour une base, c'est le dump qui compte, pas les fichiers de son volume | Coût dit à l'écran (assistant) |
+| Une VM entière : `vzdump` lancé par l'agent de l'hôte Proxmox (`backup.produce`), plus par une tâche Datacenter | Décision de Lucas du 01/11/2026 |
+
+**La supervision se fait sur la page Sauvegardes** : dernière réussite
+(gardée même quand le dernier essai échoue : `last_success_at`), retard
+(plus de 36 h sans réussite : « En retard »), échec et refus avec leur raison.
+Les tâches vzdump que Proxmox mène encore de lui-même (« nuit-pi ») restent
+**observées** : la carte le dit (« À remplacer par un plan openCloud ») et
+porte le bouton **Remplacer par openCloud**. En tête de page, la carte
+**Surveillance** montre les alertes de sauvegarde ouvertes, chacune avec son
+geste (« La supervision des sauvegardes ») ; chaque carte de sauvegarde restic
+porte son **Test de restauration** (réussi, jamais testé, périmé, ou ce qui
+l'empêche, avec « Ré-enrôler avec ce droit » quand la cible n'a pas
+`restic.verify`) et le geste **Vérifier maintenant** au menu « … ».
+
+### Les mots de passe d'un lien
+
+Un lien est une source vers une cible : un dépôt, partagé par toutes les
+sauvegardes de cette source vers cette cible.
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| Première sauvegarde du lien | Le serveur tire deux mots de passe (`crypto/rand`, 32 octets, base64url : 43 caractères) : celui de REST et celui du dépôt. Il les **scelle** avec `secret.key` (`internal/seal`, liés à `restic_links`, à leur colonne et à leur ligne) |
+| Distribution | Dans le **secret signé** d'un ordre (`action.SendWithSecret`), jamais dans ses paramètres : `restic.provision` à la source (les deux), `restic.user.add` à la cible (REST seul), `restic.retain` et `restic.verify` à la cible (dépôt seul, le temps de la commande) |
+| Sauvegarde suivante du même lien | Les mêmes mots de passe, relus en base |
+| Certificat, adresse ou port de la cible changés | `restic.provision` repart à chaque source liée, mêmes mots de passe |
+| Utilisateur d'un lien absent du rapport de la cible | `restic.user.add` repart ; un utilisateur sans lien est fermé (`restic.user.remove`) |
+| Lien absent du rapport de la source | `restic.provision` repart (état de l'agent refait) |
+| Dernière sauvegarde du lien supprimée | `restic.user.remove` à la cible (sans secret) : l'accès est coupé. Le lien est **retiré** (`restic_links.retired_at`) : ni sauvegarde, ni rétention, invisible dans l'API et l'aperçu, mais ses deux mots de passe **restent scellés**. Les données restent sur la cible |
+| Même couple source → cible redéclaré | Le lien retiré se remet en service : `restic.provision` et `restic.user.add` repartent avec **les mêmes mots de passe**, le dépôt existant se rouvre |
+
+**Ce que ça coûte, accepté par Lucas le 30/10 :** le serveur détient les clés
+des dépôts. Une compromission du serveur (sa base **et** `secret.key`) ouvre
+toutes les sauvegardes restic. Ce que ça rapporte : la purge tourne sans
+saisie, et une source perdue ne rend pas son dépôt illisible. Une copie de la
+base seule ne livre rien : les mots de passe y sont scellés.
+
+### Le chemin se choisit seul, à chaque exécution
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| 1 | L'agent source teste la cible : TCP, puis TLS avec le certificat épinglé |
+| 2 | Joignable : **direct**, restic parle à `rest-server` sans passer par le serveur |
+| 3 | Injoignable : **relais** par le serveur (flux SSE de la cible), sans erreur. Raison fermée : `tcp_unreachable`, `tls_failed`, `target_not_provisioned` |
+| 4 | Le chemin pris et sa raison sont gardés avec l'exécution. Pour un relais, l'écran dit « pour passer en direct : *source* doit joindre *cible*:*port* » |
+
+Jamais de tunnel entre agents. Aucun module n'ouvre de règle de pare-feu : il
+dit ce qu'il faut ouvrir. Le relais est pour de petits volumes : chaque octet
+traverse le serveur deux fois (essai #367, limite 9). L'exécuteur du relais
+écrit dans **le même `rest-server`**, sous l'utilisateur du producteur (son
+mot de passe REST, reçu par `restic.user.add`) : `--private-repos` le borne à
+son dépôt.
+
+### La rétention, appliquée par la cible
+
+| Fait | Comment |
+| --- | --- |
+| Quand | Après les sauvegardes de la nuit, pour chaque dépôt qui a reçu un instantané. **Une seule à la fois**, et jamais pendant une sauvegarde du même dépôt (le verrou par dépôt du serveur ; une sauvegarde lancée pendant ce temps : `restic.backup_running`) |
+| Quoi | `restic forget --prune --group-by host,paths`, local à la cible, avec le mot de passe du dépôt écrit le temps de la commande. Plusieurs sauvegardes sur un dépôt : chaque compte prend **le plus large** d'entre elles |
+| Défaut | 14 nuits, 8 semaines, 3 mois. Une rétention toute à zéro est refusée (`restic.retention_invalid`) |
+| Plancher | Tenu par la cible (`retention-floor.json`), sept nuits par défaut, relevé par `restic.target.setup` (`retention_floor`), **jamais abaissé par un ordre** : l'effacer sur la machine. Rapporté dans le signal de la cible |
+| Sous le plancher | Refusé à la saisie (`restic.retention_below_floor`) ; la nuit ne l'envoie pas et le note refusé (`retention_below_floor`). La cible reste juge : son propre refus est le résultat gardé |
+| Baisser une rétention | **Interface seule** (`PUT …/restic-backups/{backup}`, jamais un verbe). Si un compte baisse, la fenêtre exige le **nom de la sauvegarde**, tapé tel quel, et le serveur le redemande (`confirm_name`, sinon `restic.retention_confirm_name`) ; une hausse ou un renommage ne demande rien. La baisse faite écrit une ligne d'audit `restic_backup.retention_lower` (comptes d'avant et d'après). Coût : un champ de plus à taper, pour un geste qui fait effacer plus de nuits à la cible |
+| Résultat | Sur le lien (`restic_links.retain_*`) ; l'aperçu le montre sous `retention.last_forget` |
+
+Ce que ça rapporte : un serveur compromis ne vide pas un dépôt par une
+rétention vide ; il garde au moins le plancher.
+
+### Ce qui est chiffré, ce qui est stocké
+
+| Fait | Où |
+| --- | --- |
+| Mots de passe REST et du dépôt | Base, **scellés** (`restic_links`, `secret.key`) ; la source en `0600` ; la cible garde le REST (`0600`, pour le relais) et son empreinte bcrypt. Jamais dans un paramètre d'ordre, un run, l'audit, un journal, une réponse d'API, un événement vers un autre agent. Banc de non-fuite dans les tests de l'agent et du serveur |
+| Certificat public de la cible | Rapporté par la cible, envoyé aux sources |
+| Clé privée du certificat | Sur la cible, jamais rapportée |
+| Plancher de rétention | Sur la cible ; rapporté, gardé en base pour juger la saisie |
+| Cibles, liens (retirés compris), sauvegardes, 60 dernières exécutions par sauvegarde, dernière rétention par dépôt, tâches vzdump observées | Base, migration `032_restic` |
+| Les parties de la dernière exécution d'un service (`kind`, `name`, `state`, raison fermée, octets), par sauvegarde et par exécution | Base, migration `033_restic_parts` |
+| La dernière vérification de chaque dépôt (ordre, état, raison fermée, instant, **comptes** : instantanés, fichiers, octets) et sa dernière réussite, gardée quand un essai échoue | Base, migration `034_restic_verify` (colonnes `verify_*` de `restic_links`). Jamais un nom de fichier, un chemin ni un contenu |
+| Suppression | Impossible depuis la source : `--append-only`, et le relais n'accepte `DELETE` que sur `locks/` (deux barrières de plus : courtier et exécuteur de la cible). Aucune route ni aucun verbe ne lance `restic.retain` (un test du code le garde) (le verbe `restic.backup.verify` lance `restic.verify`, qui n'écrit ni n'efface rien) : seule la nuit du serveur, vers une machine qui tient `restic.target` |
+| Clé perdue (`opencloud secrets forget`) | Les mots de passe des liens sont vidés : les sources sauvegardent encore avec les leurs, la cible ne purge plus ces dépôts (`restic.link_secret_lost`) |
+
+### Comment restic se vérifie
+
+Un dépôt n'est sûr que s'il se relit. La cible le vérifie **chez elle, sans
+que personne saisisse rien** : le mot de passe du dépôt est celui que le
+serveur détient (même chemin que la rétention).
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| Quand | Chaque dépôt (une source vers une cible) **une fois par semaine**, à la suite de la nuit ; un essai raté est rejoué dès la nuit suivante. À la main : menu « … » de la carte → **Vérifier maintenant** (`POST /api/machines/{id}/restic-backups/{backup}/actions/verify`, verbe `restic.backup.verify`). Une cible sans `restic.verify` est passée sans bruit : l'alerte « test de restauration périmé » dit pourquoi |
+| Verrou | Le dépôt est réservé comme pour une sauvegarde ou une rétention : jamais deux à la fois (`restic.backup_running`) |
+| 1. Structure | `restic check --read-data-subset 5%` : la structure, et une tranche des données relue. Un dépôt abîmé : `check_failed`, avec la fin de la sortie de restic (des noms de paquets) |
+| 2. Relecture | Pour le dernier instantané de chaque ensemble de chemins (8 au plus), le **plus petit** fichier non vide et le **plus gros** sont relus par `restic dump`, jusqu'à 16 Mio chacun, vers une sortie qui compte les octets et les jette. Un fichier qui ne se relit pas en entier : `restore_failed`. Aucun fichier à relire : `repo_empty` |
+| Rapport | La cible rapporte **trois comptes** (`ResticVerifyReport` : instantanés, fichiers, octets), rejugés contre leurs bornes ; hors bornes, la vérification compte pour un échec `unknown` |
+
+| Ce que ça coûte | Ce que ça rapporte |
+| --- | --- |
+| Une relecture en mémoire n'est pas une restauration complète : elle prouve que les blocs se trouvent, se déchiffrent et se reconstituent, pas que l'application relira ses fichiers | Rien n'est écrit sur le disque de la cible : pas de dossier temporaire, pas de clair qui traîne, pas de disque plein |
+| 5 % des données sont relues à chaque passage, pas tout | Un passage dure des secondes à quelques minutes, même pour un dépôt de plusieurs Gio ; une image de VM n'est jamais restaurée en entier |
+| Le droit `restic.verify` s'ajoute à `restic.target` | La cible garde les mots de passe qu'elle avait déjà : le droit rend visible ce qu'elle en fait |
+
+**Aucun secret ne quitte la machine** : le mot de passe est un fichier `0600`
+le temps de l'ordre, jamais un argument ni une variable, effacé quoi qu'il
+arrive et masqué dans toute sortie. Le serveur n'apprend que les comptes, la
+raison fermée et l'état. Banc de non-fuite : `restic_verify_test.go` (agent :
+mot de passe, nom de fichier et contenu semés, absents du résultat et du
+journal) et `api_restic_verify_test.go` (serveur : mot de passe absent de la
+base en clair, de l'API, de l'audit, du journal).
+
+### Comment on parcourt une sauvegarde
+
+La page Sauvegardes ouvre les sauvegardes restic dans un **explorateur de
+fichiers** (fenêtre `/sauvegardes/parcourir/{machine}/{sauvegarde}`, depuis le
+menu « … » de la carte, la matrice ou « Accéder à mes sauvegardes »). Il lit ; son bouton
+**Restaurer** envoie la restauration à la machine source.
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| Ordre | `POST /api/machines/{id}/restic-backups/{backup}/actions/browse` (verbe `restic.backup.browse`), corps `{snapshot, path}`. Sans `snapshot` : la liste des instantanés ; sinon le contenu du dossier `path` de cet instantané. La requête **attend** la cible (45 s au plus) : l'ordre `restic.browse` part à la cible avec le mot de passe du dépôt dans son secret signé |
+| Cible | `restic snapshots --json`, ou `restic ls --json <instantané> <dossier>` ; le mot de passe est un fichier `0600` effacé après. Seuls les **fils directs** du dossier sont gardés, 2 000 au plus (`truncated` sinon) ; l'identifiant et le chemin demandés sont jugés avant tout lancement |
+| Liste blanche | `ResticBrowseReport` : par instantané l'identifiant, l'instant, 8 dossiers au plus ; par fichier le nom (jamais un chemin), la nature (`dir`, `file`, `link`, `other`), la taille, la date. **Rien d'autre** : ni hôte, ni étiquettes, ni propriétaire, ni cible d'un lien, ni contenu, ni sortie brute de restic. Rejugé par le serveur contre ses bornes |
+| Gardé ? | **Non** : les noms vont à l'écran qui les demande, dans un créneau en mémoire le temps de la requête. Ni base, ni journal, ni run (`GET /api/actions` ne montre ni nom ni mot de passe). L'audit note `restic_backup.browse` avec l'instantané et le dossier, jamais un nom de fichier |
+| Sorties | Aujourd'hui une seule : le bouton **Restaurer** (« Comment on restaure »). L'explorateur lui-même ne modifie rien |
+
+L'explorateur est un **composant générique** (`web/src/components/FileExplorer.tsx`) :
+il reçoit une **source** (`loadViews` : les vues, ici les instantanés ; `list(vue,
+dossier)` : le contenu d'un dossier) et des **sorties** (ce qu'on peut faire de
+la sélection). Il ne sait rien de restic. Le futur module **Fichiers** (éditer
+les configurations Traefik ou Authelia d'une machine) lui donnera une source
+« système de fichiers vivant » lue par l'agent, sans réécriture ; cette source,
+l'édition et tout droit d'écriture restent à faire. Clavier : ↑ ↓ bouger, Entrée
+ouvrir, Espace cocher, Retour arrière remonter, Échap fermer.
+
+| Ce que ça coûte | Ce que ça rapporte |
+| --- | --- |
+| Un droit d'agent de plus (`restic.browse`), et des noms de fichiers qui passent par le serveur, même sans y rester | On parcourt ses sauvegardes sans mot de passe ni ligne de commande : « où est mon fichier, dans quelle nuit » se lit à l'écran |
+| Une cible hors ligne ou sans le droit ne répond pas (refus dit, geste « Ré-enrôler avec ce droit ») | Les autres parties de la page ne dépendent pas d'elle |
+| La réponse de la cible suit le débit des signaux d'une machine (0,5 par seconde, rafale de 30) : un parcours très rapide peut attendre quelques secondes | Le serveur n'ouvre aucune voie de plus vers la cible ; la requête abandonne à 45 s (`restic.browse_timeout`) |
+
+Banc de non-fuite : `agent/restic_browse_test.go` (mot de passe, nom d'hôte,
+étiquette, propriétaire, cible de lien semés, absents du résultat et du journal)
+et `server/api_restic_browse_test.go` (mot de passe et nom de fichier absents de
+la base, de l'aperçu, des runs, de l'audit et du journal).
+
+### Comment on restaure
+
+Le bouton **Restaurer** de l'explorateur remet **un fichier ou un dossier** d'un
+instantané **à côté de l'original**, sur la machine source.
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| Écran | Un seul nom coché (ou le dossier ouvert, jamais la racine). **Restaurer** pose la confirmation en ligne, qui dit le **chemin exact** : `<chemin>.restaure-<AAAAMMJJ-HHMMSS>`. L'horodatage est celui du navigateur, montré puis envoyé tel quel |
+| Ordre | `POST /api/machines/{id}/restic-backups/{backup}/actions/restore` (verbe `restic.backup.restore`, **à confirmation** : un jeton dépose une demande que l'opérateur confirme dans l'interface), corps `{snapshot, path, stamp}`. Le serveur juge la forme, le droit `restic.restore` de la **source** et la couverture de `files.write`, puis envoie `restic.restore` à la source et rend l'ordre ; son état et sa raison se lisent sur l'ordre |
+| Agent | Jugé avant d'écrire : forme, droit, restic présent, lien provisionné, destination sous `files.write` après résolution des liens, **destination absente** (`path_exists` sinon : ni écrasement, ni suffixe numéroté). restic restaure (`--no-lock`) dans un dossier temporaire **créé à côté** de la destination, l'agent le déplace à sa place et efface **ce seul dossier temporaire** (le sien). Un chemin absent de l'instantané : `path_not_in_snapshot` |
+| Chemin | Le même que la sauvegarde : direct si la cible répond, par le relais sinon |
+| Mot de passe | **L'ordre n'en porte aucun** : la source relit le mot de passe du dépôt dans le fichier de son lien (`0600`), qu'elle détient déjà pour sauvegarder. Il ne voyage pas, donc ne peut fuir ni d'un ordre, ni de l'audit, ni d'une réponse ; masqué dans toute sortie de restic |
+| Dépôt | Lu seulement : `--no-lock` (aucun verrou posé, donc aucun `DELETE`), et la règle du dépôt refuse de toute façon un `DELETE` sur les données et les instantanés |
+| Audit | `restic_backup.restore` : qui, la sauvegarde, l'instantané, le chemin source, la **destination exacte**, la machine source et la cible. Jamais un mot de passe |
+
+| Ce que ça coûte | Ce que ça rapporte |
+| --- | --- |
+| Un droit d'agent de plus (`restic.restore`), en plus de `files.write` pour dire où | On remet un fichier d'un clic, sans ligne de commande ni mot de passe |
+| L'agent écrit sur sa machine, dans un dossier voisin de l'original | Jamais par-dessus, jamais de suppression : le pire cas est une copie en trop, à effacer à la main (il n'y a pas de verbe qui la défasse) |
+| Une copie déjà présente refuse la suivante tant que l'horodatage ne change pas | Aucun suffixe numéroté en silence : on sait toujours quelle copie est laquelle |
+| Les restaurations de base, de volume et de VM restent des commandes (« Accéder à mes sauvegardes ») | Elles remplacent des choses vivantes : hors de ce droit |
+
+Banc de non-fuite : `agent/restic_restore_test.go` (mot de passe semé absent
+des résultats et du journal ; original intact ; destination existante refusée ;
+chemin hors `files.write`, lien symbolique et `..` refusés ; rien d'écrit en
+cas d'échec) et `server/api_restic_restore_test.go` (aucun secret dans l'ordre,
+la réponse, l'audit, le journal, la base ; droit absent ; audit de la
+destination).
+
+### La supervision des sauvegardes
+
+Décision de Lucas du 01/11/2026 : **elle vit dans ce module**, pas dans
+« Tâches », pas par des webhooks Proxmox. Un passage lit l'aperçu de la page
+Sauvegardes (la même source que l'écran), en tire des **constats**
+(`restic.Finding`) et les donne au moteur des alertes
+(`alert.Engine.BackupsJudged`), qui ouvre, aggrave et reprend. Il tourne à
+chaque tour de la boucle (15 min) et à chaque fin de vérification. Les
+alertes sont celles de la boîte « Alertes » : canaux, silences et acquittement
+y sont les mêmes ; la page Sauvegardes en montre les ouvertes dans sa carte
+**Surveillance**, avec leur geste.
+
+| Alerte | S'ouvre quand | Se résout quand | Gravité |
+| --- | --- | --- | --- |
+| `backup_stale` « Aucune sauvegarde réussie depuis… » | Une sauvegarde restic ou un plan d'archives n'a pas réussi depuis **36 h** (depuis sa création, si elle n'a jamais réussi). Les tâches vzdump que Proxmox mène encore ne sont pas jugées | Une réussite | attention ; danger au-delà de **7 j** |
+| `restore_test_stale` « Test de restauration périmé » | Le dernier test réussi d'un **dépôt** date de plus de **14 j** (depuis la plus ancienne sauvegarde du dépôt, s'il n'a jamais réussi). Une alerte par dépôt, nommé « source → cible » | Une vérification réussie | attention ; danger au-delà de **30 j** |
+| `source_unprotected` « Source sans plan » | Une base, un invité ou un service déclaré n'a aucune protection (ni restic, ni archive, ni tâche Proxmox). Pas un volume (il suit son service), pas une source que l'hôte n'a pas su lire (« inconnue » n'est pas « aucune »). **Seulement quand le module est en service** (au moins une protection existe) : une installation neuve ne sonne pas | La source est couverte | attention |
+| `target_full` « Cible presque pleine » | La cible, en marche, garde des sauvegardes et a moins de place libre que le plus grand de ses ajouts récents ×2 (1 Gio au moins) | Plus de place | attention ; danger sous le plus grand ajout (ou 256 Mio) |
+| `target_unreachable` « Cible injoignable » | La cible garde des sauvegardes et sa machine est hors ligne, ou `rest-server` est arrêté ou en erreur | Elle reçoit de nouveau | danger |
+
+Les seuils sont des constantes du code (`restic/supervise.go`), non réglables :
+le réglage est une décision à prendre (voir le rapport). `target_full` ne
+double pas « Disque presque plein » : celle-ci mesure un volume à 85 %, celle-là
+dit que la prochaine nuit ne tient pas, et nomme les sauvegardes touchées ; les
+deux peuvent sonner pour le même disque. Une alerte part avec sa machine
+(source ou cible) retirée.
+
+### Installer restic et rest-server
+
+L'agent **ne télécharge ni restic ni rest-server** : aucune somme vérifiable
+sans réseau. Il les cherche dans le `PATH` ou aux chemins `-restic` /
+`-rest-server`, et dit ce qui manque : `restic_missing` (droit `restic.produce`
+indisponible), `rest_server_missing` (droit `restic.target` indisponible), et
+l'état `error`/`binary_missing` de la cible. L'aperçu donne, par machine, son
+système et son architecture enrôlés (`os`, `arch`) et `restic_available` :
+l'écran dit quoi installer. La création d'une sauvegarde est refusée tant
+qu'il manque (`restic.restic_missing`, `restic.rest_server_missing`).
+
+### Risques connus, acceptés
+
+| Risque | Pourquoi on l'accepte |
+| --- | --- |
+| Événement de relais non signé par le serveur | Comme les observations. Le serveur détient déjà les clés des dépôts : signer cet événement n'ôterait rien à un serveur compromis. La cible rejuge la requête, et `rest-server` en ajout seul décide en dernier |
+| Un lien retiré garde ses mots de passe | Décision de Lucas (02/11) : c'est ce qui rouvre le dépôt, toujours sur la cible sous le même utilisateur, si le couple est redéclaré. Coût : des secrets restent scellés en base pour un dépôt que plus personne ne sauvegarde. Ils suivent `opencloud secrets rotate` et la vérification au démarrage ; l'opérateur peut les oublier avec `opencloud secrets forget` (le dépôt ne se rouvrira plus depuis openCloud) |
+| Volumes nommés Docker | Non couverts : l'écran le dit |
+
+### Les sauvegardes que Proxmox fait déjà
+
+Le serveur lit `/cluster/backup` (tâches vzdump) avec le jeton en lecture seule
+de l'hôte, comme les stockages. Chaque invité couvert affiche, **sans plan
+openCloud**, sa prochaine sauvegarde, son stockage et sa rétention
+(`prune-backups`). Un refus (403) se lit « inconnu », pas « aucune ».
 
 ## Comment un service se déploie
 
@@ -2151,6 +2639,8 @@ machine suit toujours le flux, pas cette règle.
 | `GET /events?filters=container` | flux | action, id, instant, code de sortie, signal d'un `kill` (pour savoir si un arrêt était demandé) |
 | `GET /containers/{id}/stats?one-shot` | mesure | compteurs processeur, mémoire, limite |
 | `GET /containers/{id}/logs` | journal multiplexé | lignes horodatées, stdout et stderr |
+| `GET /containers/{id}/json` (2ᵉ appel, **seulement avec `observe.env`**) | inspect, champ `Config.Env` | des **noms d'hôtes candidats**, jamais le nom d'une variable ni une valeur, et ensuite seulement les conteneurs de la machine qu'ils désignent (« Les liens de l'environnement ») |
+| `/proc/net/tcp`, `/proc/net/tcp6` (**fichiers de l'hôte, pas de Docker**) | la table des connexions TCP de l'espace de noms réseau de l'agent, **sans droit élevé** | seulement : le **port** de l'hôte joint, et **qui** le joint (le nom du compte, l'adresse d'une machine du réseau local, ou « Internet »). Jamais l'inode, le processus, le port d'origine, une adresse publique ni un octet de la connexion (« Les connexions de l'hôte ») |
 | `GET /images/{nom}/json` | inspect d'une image | `RepoDigests` : l'empreinte que la machine a tirée, pour les mises à jour |
 
 Les labels de Compose sont lus : le projet, le service, le dossier et le
@@ -2191,10 +2681,21 @@ le rapprochement des deux est dit dans la section suivante.
   (`application` ou `infra`), une origine (`compose`, `container` ou `binary`),
   une adresse publique facultative et `declared_by` (`operator`, seule valeur :
   la découverte automatique en ajoutera une).
-- **Le nom est unique par machine**, et le projet Compose l'est aussi
-  (un service par machine et par projet Compose), de même que le nom d'un
-  conteneur et celui d'une unité systemd. Un même nom peut vivre sur deux
-  machines : les regrouper est le rôle du projet.
+- **Le nom est unique par machine**, de même que le service Compose (projet +
+  nom de l'unité), le nom d'un conteneur et celui d'une unité systemd. Un
+  projet Compose, lui, se partage : `edge` porte `traefik`, `authelia` et
+  `crowdsec`, trois services (migration `028`). Un même nom peut vivre sur deux
+  machines : la liste les regroupe (« Un service par service Compose »).
+- **Son type** (`category` : `web`, `sso`, `database`, `security`,
+  `monitoring`, `application`) dit ce que le service est. Vide en base, il se
+  déduit de l'image de la première unité par un petit catalogue
+  (`directory/category.go`, le dernier segment du dépôt : `traefik`, `nginx`,
+  `authelia`, `postgres`, `crowdsec`…) ; l'opérateur le corrige en le posant.
+  `application` ne vient que si l'image est inconnue. L'API rend `category` (la
+  correction, vide si elle se déduit) et `category_deduced` ; `ShownCategory`
+  est la valeur que l'écran affiche. Il est distinct de la nature
+  (`application` ou `infra`), qui seule autorise à fournir `sso`, `proxy`…
+  Coût : deux mots proches ; la nature décide d'un droit, le type d'un libellé.
 - **Ses unités** (une à 32) sont ce qui tourne : un service Compose, un
   conteneur ou un binaire. Le genre de l'unité se déduit de l'origine du
   service (`container` pour Compose comme pour un conteneur seul, `binary`
@@ -2241,8 +2742,8 @@ le rapprochement des deux est dit dans la section suivante.
   /api/directory/projects/{id}`, et le plan de chaque suppression en `GET
   …/{id}/delete-plan`. Les refus sont des clés de catalogue
   (`directory.*`, `project.*`) en 422, 404 si l'objet n'existe pas ; un nom,
-  un projet Compose ou un conteneur déjà déclarés sur la machine
-  (`directory.name_taken`, `compose_project_taken`, `match_key_taken`) sont un
+  un service Compose ou un conteneur déjà déclarés sur la machine
+  (`directory.name_taken`, `compose_service_taken`, `match_key_taken`) sont un
   **409** : c'est un état, la même demande passerait ailleurs. `DELETE
   /api/directory/services/{id}?ignore=true` supprime le service puis ignore ce
   que ses conteneurs laissent (voir « Les propositions »).
@@ -2254,6 +2755,20 @@ le rapprochement des deux est dit dans la section suivante.
   `lib/containers.ts`) et les déplie sous sa ligne ; un conteneur qu'aucun
   service ne porte est dans la section « Propositions ». `/services/conteneurs` mène à
   `/services` ; la fiche d'un conteneur (`/services/conteneurs/{id}`) reste.
+
+**Un service par service Compose** (chantier L1, décisions 1 et 2 de
+`etudes/services-modele.md`). Une ligne de la liste est un service Compose
+(`traefik`, `authelia`, `crowdsec`), rangée sous son **projet Compose**, le
+groupe d'exécution que la machine montre (`edge`), jamais déclaré lui-même.
+
+| Sujet | Règle |
+| --- | --- |
+| Le même service sur plusieurs machines | Deux services déclarés, un par machine, **regroupés à l'écran** par le nom et les images des unités (`lib/serviceGroups.ts`). Une ligne qui dit « n machines » et le pire écart ; dépliée, une ligne par machine. Rien ne s'écrit : renommer un service, ou changer son image sur une machine, le sort du groupe |
+| Les services existants | **Intacts** : la migration `028_service_per_compose_service.sql` lève l'index unique `(machine, projet Compose)` (il devient un index de lecture) et ajoute `category` (vide). Aucune fusion, aucune scission : un service `edge` de trois unités reste un service de trois unités ; son type se déduit de sa première unité (`traefik` : serveur web). Test : `TestMigration028_KeepsEdgeAndLiftsProjectIndex` |
+| Le rattachement | Par (machine, projet, nom du service Compose = nom de l'unité), comme avant ; l'unicité qui l'assure est vérifiée à l'écriture (`directory.compose_service_taken`, 409) au lieu de l'index |
+| Le déploiement | `GET …/deploy-plan` porte `shared_with` : les autres services déclarés de la machine qui ont le même projet Compose. Tant qu'il y en a, déployer, redéployer et passer de version sont refusés (`deploy.project_shared`, 422) : le `compose.yml` écrit ne décrirait que ce service et retirerait les autres. La fiche le dit à la place du bouton |
+| Ce qui est lu sur la machine | **Rien de plus** : l'agent remonte déjà le projet et le service Compose (labels `com.docker.compose.*`). Aucun nouveau champ, aucun nouveau droit, aucune nouvelle classe de donnée |
+| Ce qui est stocké en plus | `declared_services.category` (texte, vide par défaut) ; la clé `ignored_keys.kind = compose_service`. Aucun secret |
 
 **La reprise de l'existant** (l'ancienne migration 024, qui repointait sur
 l'annuaire les sondes, composants et politiques qui visaient un conteneur, et
@@ -2293,8 +2808,10 @@ résultat se garde sur la fiche du conteneur (`containers.unit_id`,
 Les deux derniers niveaux sont choisis par l'origine du service déclaré, donc
 disjoints. Un conteneur qui répond à deux niveaux est rattaché par le plus fort ;
 l'unité « conteneur seul » qui portait son nom paraît alors absente.
-Une unité binaire ne rapproche jamais rien. Plusieurs conteneurs d'une même
-unité sont admis (répliques) et se montrent tous.
+Une unité binaire ne rapproche aucun conteneur : elle se rapproche du **relevé
+systemd** de sa machine, par le nom de l'unité (« Comment les unités systemd se
+relèvent »). Plusieurs conteneurs d'une même unité sont admis (répliques) et se
+montrent tous.
 
 **La priorité du label est sans repli.** Un conteneur qui porte au moins un
 label du produit ne cherche que par label : si l'identifiant ne désigne aucune
@@ -2394,41 +2911,50 @@ sur `latest` avec l'empreinte épinglée lue localement, elle reste « sur
 `latest` ». Un conteneur arrêté **compte comme présent** : l'état de Docker
 reste l'affaire de la pastille et des alertes, pas de l'écart.
 
-Puis **l'unité** : un binaire est « non observé » (aucun agent ne le regarde
-encore) ; une unité sans conteneur vivant est « déclaré, absent » ; sinon
+Puis **l'unité** : un binaire est jugé par le relevé systemd de sa machine
+(trouvée : conforme ; absente d'un relevé lu : « déclaré, absent » ; machine qui
+n'a rien relevé : « non observé ») ; une unité sans conteneur vivant est « déclaré, absent » ; sinon
 le pire verdict de ses conteneurs. **Le service** prend le pire de ses unités,
 du plus grave au moins grave : absent, divergent, non vérifiable, non observé,
 conforme. Le rattachement faible est le « ou » des conteneurs et des unités :
 il se montre à côté de l'état, il ne le change pas.
 
 **Les conteneurs non déclarés** sont les fiches vivantes sans unité, groupées
-par la clé qu'on peut ignorer : le projet Compose (`compose_project`), à défaut
-le nom du conteneur (`container_name`). Un groupe dont le projet Compose est
-déjà déclaré sur la machine porte l'identifiant de ce service.
+par la clé qu'on peut ignorer : le service Compose (`compose_service`, valeur
+`projet/service` : les répliques d'un service ne font qu'un groupe), à défaut le
+projet Compose (`compose_project`, un conteneur Compose sans service), à défaut
+le nom du conteneur (`container_name`). Un groupe porte `project` et
+`compose_service`, vides pour un conteneur seul. Une clé `compose_project` posée
+avant la migration `028` ignore toujours tout son projet ; c'est elle que
+« Ne plus ignorer » retire.
 
 - **La proposition** (`GET /api/directory/proposal?container=<id de fiche>`) : le
-  serveur lit le conteneur et ses voisins du même projet et rend une
-  définition au format du corps de la création. Rien n'est écrit. Projet Compose non déclaré : un service d'origine Compose,
-  une unité par service Compose du projet. Projet déjà déclaré : la réponse
-  porte `service_id` et la définition du service, ses identifiants d'unités
-  compris, plus les unités qui manquent (sans identifiant, comme l'édition
-  l'attend). Conteneur
-  sans projet : un service « conteneur seul ». L'image se propose sans tag ni
+  serveur lit le conteneur et rend une définition au format du corps de la
+  création, **toujours une déclaration neuve** (plus de `service_id`). Rien
+  n'est écrit. Conteneur Compose : un service d'origine Compose d'**une seule
+  unité**, le service Compose du conteneur, nommé comme lui (`traefik`) ; si ce
+  nom est pris sur la machine, le projet le précède (`edge-traefik`). Le projet
+  reste le groupe d'exécution, jamais un service de plus. Conteneur sans
+  projet : un service « conteneur seul ». L'image se propose sans tag ni
   empreinte, la version vient du tag sauf `latest`, les ports de ceux que
-  Docker publie. Au plus 32 unités par proposition, celle du conteneur demandé toujours
-  retenue en tête ; un projet plus gros s'accepte en plusieurs fois. Un
-  service déjà déclaré avec 32 unités ne peut plus rien recevoir : 409
-  `directory.units_full`. 404 `directory.container_not_found` si la fiche a
+  Docker publie. Le type n'est pas proposé : il se déduit. 404 `directory.container_not_found` si la fiche a
   disparu, 409 `directory.container_declared` si elle est déjà rattachée,
   409 `directory.container_ignored` si l'opérateur l'ignore,
   409 `directory.container_labelled` si elle porte un label (orphelin, voir plus haut).
 - **Accepter** : le front relit la proposition à l'instant d'écrire, puis
-  l'envoie telle quelle à `POST /api/directory/services` (déclaration neuve) ou
-  à `PUT /api/directory/services/{id}` (le projet Compose est déjà déclaré :
-  les unités qui manquent s'ajoutent). Il n'y a pas de route d'acceptation :
-  c'est le chemin unique de la déclaration, `declared_by = operator`.
-  **Modifier avant d'accepter** ouvre l'assistant « Déclarer un service »
-  pré-rempli par la même proposition (`/services/annuaire/nouveau?container=`).
+  l'envoie telle quelle à `POST /api/directory/services`. Il n'y a pas de route
+  d'acceptation : c'est le chemin unique de la déclaration,
+  `declared_by = operator`. La proposition ne se relit jamais d'elle-même après
+  l'écriture (le conteneur est alors déclaré : 409). **Modifier avant
+  d'accepter** ouvre l'assistant « Déclarer un service » pré-rempli par la même
+  proposition (`/services/annuaire/nouveau?container=`). Sans `?container=`,
+  l'assistant commence par **« Choisir un conteneur »** : la liste des
+  conteneurs détectés qu'on peut accepter (un par service Compose, ni ignoré ni
+  orphelin), puis les mêmes étapes, remplies ; « Autre chose : saisir à la
+  main » ouvre l'assistant vide (binaire sous systemd, service pas encore
+  vu). Sans rien à choisir, il s'ouvre directement vide. L'étape Projets est
+  facultative et crée un projet sur place (`POST /api/directory/projects`, le
+  nouveau projet est coché).
 - **Ignorer** (`POST /api/directory/ignored`, corps `machine_id`, `kind`,
   `value`) : une ligne de `ignored_keys`, idempotente. Le groupe passe sous
   « Ignorés (n) », replié sous les propositions, et ne compte plus parmi les
@@ -2449,12 +2975,12 @@ ni projet, ni clé ignorée : l'agent ne fait que rapporter des conteneurs).
 
 | Cas | Ce qui se passe |
 | --- | --- |
-| Proposition ignorée | Ne revient pas tant que la clé existe ; la clé suit le projet Compose ou le nom du conteneur, pas l'identifiant Docker : recréer le conteneur n'y change rien |
+| Proposition ignorée | Ne revient pas tant que la clé existe ; la clé suit le service Compose (ou le projet, ou le nom du conteneur), pas l'identifiant Docker : recréer le conteneur n'y change rien. Ignorer `traefik` ne touche pas `authelia` |
 | Accepter une proposition ignorée entre-temps | 409 `directory.container_ignored`, la liste se relit |
-| Accepter deux fois | Le second `POST` reçoit 409 (`directory.name_taken` ou `compose_project_taken`), aucun doublon ; la proposition relue dit 409 `container_declared` |
+| Accepter deux fois | Le second `POST` reçoit 409 (`directory.name_taken` ou `compose_service_taken`), aucun doublon ; la proposition relue dit 409 `container_declared` |
 | `apply` d'un fichier qui ne liste pas une clé ignorée | Sans `--prune`, la clé est gardée et dite « hors fichier ». Avec `--prune`, le **plan nomme** la clé (`delete ignored/…`) et l'application la retire : la proposition revient, nommée avant |
 | `apply` d'un fichier qui ne liste pas un service accepté | Un service comme les autres : gardé sans `--prune`, supprimé avec `--prune` et nommé au plan ; ses conteneurs tournent encore, il redevient une **proposition**, jamais un service |
-| Supprimer un service accepté depuis l'interface | Il redevient une proposition ; **Supprimer et ignorer** (`DELETE …/services/{id}?ignore=true`) le supprime puis ignore sa clé (le projet Compose, ou chaque nom de conteneur ; rien pour un binaire). Le service part d'abord : un refus (des sondes le visent) n'ignore rien |
+| Supprimer un service accepté depuis l'interface | Il redevient une proposition ; **Supprimer et ignorer** (`DELETE …/services/{id}?ignore=true`) le supprime puis ignore sa clé (chaque service Compose de ses unités, ou chaque nom de conteneur ; rien pour un binaire ; les autres services du projet ne sont pas touchés). Le service part d'abord : un refus (des sondes le visent) n'ignore rien |
 | La machine disparaît | Ses clés ignorées partent avec elle (`ON DELETE CASCADE`) |
 
 - **Les sujets du direct** : l'écart croise l'annuaire et les conteneurs ; il se
@@ -2481,11 +3007,10 @@ propositions) sont régénérés, la lecture ne les lit pas.
   l'interface.
 - **Avec propositions.** `opencloud export -propose` (route `?propose=1`) ajoute à la fin du fichier
   ce que les conteneurs non déclarés laissent deviner, avec le calcul de
-  « Accepter » (`directory.ProposeAll`) : un service nouveau par groupe adoptable
-  non ignoré, **sans `id`** et précédé d'un commentaire « Proposé depuis des
-  conteneurs non déclarés : relisez avant apply », et, pour un projet Compose
-  déjà déclaré, les unités qui manquent à la fin de son entrée, chacune
-  commentée. Les propositions sont triées par machine puis par nom, et deux
+  « Accepter » (`directory.ProposeAll`) : un service nouveau par service Compose
+  ou conteneur adoptable non ignoré, **sans `id`** et précédé d'un commentaire
+  « Proposé depuis des conteneurs non déclarés : relisez avant apply ». L'entrée
+  d'un service déjà déclaré n'est jamais touchée. Les propositions sont triées par machine puis par nom, et deux
   groupes ne reçoivent jamais le même nom. Un orphelin de label n'est pas proposé. Rien n'est écrit dans l'annuaire :
   c'est un fichier à relire, que `opencloud apply` plane comme n'importe quel
   autre (`TestExport_ProposedFileGivesAnApplicablePlan` l'exige avec le vrai
@@ -2539,10 +3064,10 @@ propositions) sont régénérés, la lecture ne les lit pas.
 | --- | --- | --- |
 | `machines` | Le nom des machines que le fichier cite ; elles se lisent, jamais ne se créent | Le nom |
 | `projects` | `id`, `name`, `title` | `id`, sinon `name` |
-| `services` | `id`, `machine`, `name`, `title`, `nature`, `origin`, `compose_project`, `public_url`, `provides`, `projects` (les **noms** des projets du service), `units` (`name`, `image`, `version`, `digest`, `container_name`, `systemd_unit`, `ports`, `updates`) | `id`, sinon machine + nom |
+| `services` | `id`, `machine`, `name`, `title`, `nature`, `category` (vide : déduit), `origin`, `compose_project`, `public_url`, `provides`, `projects` (les **noms** des projets du service), `units` (`name`, `image`, `version`, `digest`, `container_name`, `systemd_unit`, `ports`, `updates`) | `id`, sinon machine + nom |
 | `probes` | `id`, `name`, `runner` (la machine qui sonde, toujours écrite), `service` (`machine/nom`), `kind`, `target`, `interval`, `timeout`, les seuils, les attentes HTTP, `tls` | `id`, sinon `name` |
 | `heartbeats` | `id`, `name`, `machine`, `every`, `grace` (toujours écrit, `0s` par défaut), `token: {secret: kept}` | `id`, sinon `name` |
-| `ignored` | `machine`, et `compose_project` ou `container_name` avec sa valeur | La paire |
+| `ignored` | `machine`, et `compose_service` (`projet/service`), `compose_project` ou `container_name` avec sa valeur | La paire |
 
 **La lecture est stricte.** Le fichier est lu en arbre de nœuds, jamais
 décodé d'un coup dans une structure, pour pouvoir citer une ligne. Sont
@@ -2754,10 +3279,10 @@ groupes, les arêtes, les constats ; le navigateur place et trace.
    par le nom à égalité ; ses autres réseaux se lisent dans l'inspecteur.
    Une arête publique va d'Internet à chaque port publié sur toutes les
    interfaces (`0.0.0.0`, `::` ou une adresse vide ; les deux sur le même
-   port n'en font qu'une). Une arête de dépendance va d'un service à
-   celui qu'il déclare : une dépendance Compose se résout dans le même
-   projet, un lien par le nom du conteneur ; ce qui ne se résout pas n'a
-   pas d'arête, la fiche le dit. Ce qu'un réseau partagé laisse deviner
+   port n'en font qu'une). Une arête de dépendance **est un lien stocké** (voir « Comment les
+   liens se stockent ») entre deux conteneurs vivants de la machine ; elle
+   dit sa preuve et, si on ne la revoit plus, qu'elle est ancienne. Ce qui
+   ne se résout pas n'a pas d'arête, la fiche le dit. Ce qu'un réseau partagé laisse deviner
    n'est pas une dépendance : c'est une joignabilité, l'inspecteur
    l'écrit « joint par le réseau X ».
 6. Le navigateur place en trois colonnes : Internet ; ce qu'Internet
@@ -2915,6 +3440,9 @@ leur registre, ce qu'openCloud appelle à l'extérieur sans qu'on le lui ait
 demandé : la carte des Paramètres le dit.
 Elle vaut pour l'image d'un service et pour le système d'une machine. Pour
 le système c'est une information seule : aucune commande n'est proposée.
+Tant que la source n'a pas été lue (« En attente »), l'en-tête de la machine
+se tait sur tous les onglets ; la carte « Support du système » du résumé dit
+seule « Lecture en cours ».
 
 | Ce que ça rapporte | Ce que ça coûte |
 | --- | --- |
@@ -3458,7 +3986,7 @@ canal. Rien n'est recalculé par un moteur qui relirait la base : c'est le
 composant qui sait, lui qui parle.
 
 **L'objet d'une alerte** est une machine, un conteneur (`container`), une
-sonde, une tâche ou un volume (une machine et son point de montage) : un genre
+sonde, une tâche, un volume (une machine et son point de montage) ou une sauvegarde (`backup` : une protection, une source ou une cible de sauvegardes, qui ne porte que sa machine) : un genre
 et un identifiant, le nom recopié, et la clé étrangère de l'objet, mise à NULL
 quand il disparaît (`set null`). Une alerte dit aussi **à quel service déclaré
 elle appartient** (`service_id`, `set null`) : celui de l'unité du conteneur,
@@ -3627,7 +4155,8 @@ liste vit dans `internal/alert`.
 | Certificat non vérifié | `probe` | agrafe « révoqué », nom qui ne correspond pas, ou chaîne refusée d'un certificat pas encore expiré | chaîne et nom valides | attention |
 | Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** par défaut, réglable ; aggravée à **95 %** par défaut, réglable | sous le seuil d'attention **moins 5 points** (80 % par défaut), ou volume disparu | attention → danger |
 | Agent revenu à la version précédente | `action`, au rapport de l'agent | la mise à jour n'a pas été confirmée à temps (`timeout`) ou a planté (`crash`) : l'agent est revenu seul à la précédente ; la remise en état qui échoue à son tour (`failed`) | une mise à jour ou un retour arrière confirmé sur cette machine | attention, danger si la remise en état a échoué |
-| Sauvegarde en échec | aucune | **aucune alerte** : l'échec se lit sur la page Sauvegardes (`last_error` du plan, ou l'état du dernier ordre `backup.receive`), aucun canal n'est prévenu | | |
+| Sauvegarde sans réussite, test de restauration périmé, source sans plan, cible pleine ou injoignable | `restic` (module Sauvegardes), à chaque tour de 15 min et à chaque fin de vérification | voir « La supervision des sauvegardes » : cinq types, un objet « sauvegarde » (`backup`) qui ne porte que sa machine, comme un volume | | |
+| Un plan par archives ou un ordre `backup.receive` en échec | aucune | **aucune alerte** : l'échec se lit sur la page Sauvegardes (`last_error` du plan, ou l'état du dernier ordre `backup.receive`) ; l'absence de réussite depuis 36 h, elle, alerte (`backup_stale`) | | |
 
 **L'anti-rebond des services.** Un conteneur en boucle de redémarrage
 (mémoire épuisée, tué, code d'erreur) n'ouvre et ne résout plus une alerte
@@ -4070,6 +4599,31 @@ l'opérateur (« Les verbes à confirmation »).
 | `proxmox.vm.snapshot` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot` | `proxmox.vm.snapshot_delete` |
 | `proxmox.vm.snapshot_delete` | `POST /api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete` (corps `{"snapshot":"oc-…"}`) | `proxmox.vm.snapshot` |
 | `machine.delete` | `DELETE /api/machines/{id}` | aucun : **à confirmation** |
+| `restic.backup.run` | `POST /api/machines/{id}/restic-backups/{backup}/actions/run` | lui-même (sans purge) |
+| `restic.backup.verify` | `POST /api/machines/{id}/restic-backups/{backup}/actions/verify` | lui-même |
+| `restic.backup.browse` | `POST /api/machines/{id}/restic-backups/{backup}/actions/browse` | lui-même |
+| `restic.backup.restore` | `POST /api/machines/{id}/restic-backups/{backup}/actions/restore` | aucun : **à confirmation** |
+
+**Les verbes restic d'un jeton : quatre, et aucun n'écrit un plan** (cadrage
+#366, ticket #374). Un jeton lance une sauvegarde (sans purge), vérifie un
+dépôt (`restic check`, puis relecture de fichiers : c'est le « test de
+restauration », un seul ordre `restic.verify`, donc un seul verbe), parcourt
+un dépôt, et restaure **à côté de l'original** ; la restauration est à
+confirmation. Aucun verbe ne crée, ne modifie ni ne supprime une cible, une
+sauvegarde ou une rétention : ces routes (`POST` et `DELETE` des
+sauvegardes, `PUT` de leur nom et de leur rétention, pose et retrait d'une
+cible) restent à l'opérateur, dans l'interface, et un jeton y reçoit 403 même
+avec tous les verbes. Les anciens verbes `restic.target.setup`, `.remove`,
+`restic.backup.create` et `.delete` sont retirés du registre : un jeton ne
+peut plus les recevoir. Les identifiants gardent la convention
+`restic.backup.*` du registre (le moteur d'abord : `backup.*` nommait les
+archives chiffrées). Trois couches tiennent la non-suppression, chacune avec
+ses tests hostiles : (1) les routes d'écriture des plans sont fermées aux
+jetons (`api_token_hostile_test.go`, `verb_test.go`) ; (2) le relais refuse
+`DELETE` hors de `locks/` (`policy_test.go`, `relay_test.go`) ; (3)
+`rest-server` est en `--append-only`. La purge n'a aucun chemin d'API : un
+test lit le code et échoue si une route, un verbe ou un autre composant
+atteint `restic.retain` (`restic/nodelete_test.go`).
 
 Les deux verbes d'agent (« Comment un agent se met à jour ») agissent aussi sur des machines : `agent.update` envoie à l'agent la version que le serveur a déjà importée et que la clé de l'opérateur a signée, **une machine à la fois** (`409 action.update_in_progress` pour une seconde), et seulement à un agent qui revient seul en arrière (`409 action.rollback_unavailable`). Ni l'un ni l'autre ne signe ni n'importe de version : `release import` reste une commande de l'opérateur. Coût : un agent IA qui met à jour une machine la redémarre, et une version défectueuse la ramène trois minutes plus tard à l'ancienne, avec une alerte.
 
@@ -4268,6 +4822,7 @@ les verbes ordinaires ; la confirmation remplace l'inverse comme garde-fou.
 | L'échéance | 15 minutes (`verbrequest.TTL`). Le passage de fond (`Watch`, toutes les minutes) échoit les demandes ; toute lecture ou décision échoit d'abord celles dont le délai est passé, la boucle n'est pas la seule garde. Une demande échue ne se confirme plus (`409 verb_request.expired`) ; terminée, la ligne est purgée après 30 jours |
 | La lecture | `GET /api/verb-requests` rend les demandes en attente, les plus anciennes d'abord : `{id, verb, object: {id, name}, token_name, on_behalf_of, body, created_at, expires_at}`. Le nom de l'objet est celui de l'instant de la demande ; `body` est le corps gardé, tel que la confirmation le rejouera (`{}` s'il est vide), pour que l'opérateur voie ce qu'il confirme |
 | La confirmation | `POST /api/verb-requests/{id}/actions/confirm`, **par l'opérateur seulement** : un jeton, même celui qui a déposé la demande, reçoit `403 api_token.route_forbidden`, comme pour la lecture et le refus. La demande passe à `confirmed` d'un seul geste (deux confirmations simultanées : une gagne, l'autre reçoit `409 verb_request.already_decided`), puis la route d'opérateur du verbe est **rejouée** avec les paramètres et le corps gardés : même handler, même code, même réponse que le bouton. Si le geste échoue (409 avec son plan, 404), l'opérateur reçoit cet échec ; la demande reste `confirmed` et ne se rejoue pas, un nouvel appel du jeton en dépose une neuve |
+| Un verbe retiré depuis le dépôt | Le verbe n'est plus au registre (par exemple `restic.backup.create`, retiré par le ticket #374) : la confirmation **refuse** la demande (`409 verb_request.verb_removed`, « Ce geste n'existe plus »), la rejette (audit `verb.reject`) et ne rejoue rien. La demande n'attend pas l'échéance |
 | Le refus | `POST /api/verb-requests/{id}/actions/reject` : rien n'est exécuté, la demande passe à `rejected` |
 | L'écran | La carte « Gestes à confirmer » de la vue d'ensemble (`VerbRequestsCard`), lue sur le sujet du direct `verb_requests`. « Confirmer… » ouvre la même fenêtre que le geste d'écran (`DeleteMachineDialog`), avec le choix de l'historique **fixé** par le corps de la demande : l'opérateur le lit, ne le change pas, et sans historique tape le nom de la machine, « Refuser » écrit le refus |
 | Les états | `awaiting_confirmation`, `confirmed`, `rejected`, `expired` (`verbrequest.States()`, contrainte `CHECK` de la migration) |
@@ -4289,7 +4844,7 @@ les réponses de l'opérateur ne changent pas) :
 | `GET /api/jobs/{id}` | Ni l'URL de ping, qui est le secret de la tâche, ni les extraits de code qui la contiennent |
 | `GET /api/probes`, `GET /api/probes/{id}` | La cible sans son mot de passe (`https://user:…@hôte`), comme dans le plan d'apply et le journal |
 | `GET /api/alerts/channels` | L'adresse réduite à son schéma et son hôte (un webhook Discord porte son jeton dans son chemin), sans destinataire ni salon |
-| `GET /api/firewalls`, `GET /api/firewalls/{id}` | Ni la clé d'API ni l'empreinte du certificat (`api_key` et `pin` vides) ; le secret n'est jamais rendu à personne. `/rules`, `/interfaces` et `/leases` ne portent ni l'un ni l'autre |
+| `GET /api/firewalls`, `GET /api/firewalls/{id}` | Ni la clé d'API ni l'empreinte du certificat (`api_key` et `pin` vides) ; le secret n'est jamais rendu à personne. `/rules`, `/interfaces`, `/leases` et `/flows` ne portent ni l'un ni l'autre |
 | `GET /api/manifest/export` | Le fichier de l'annuaire, le mot de passe d'une cible masqué ; il se lit, il ne se réapplique pas |
 
 Ce qu'un jeton lit n'est pas pour autant sans risque : les **journaux bruts
@@ -4402,8 +4957,8 @@ services, des sondes et des tâches (« Les fenêtres d'une saisie ») :
 
 | Adresse | Fond | Fenêtre |
 | --- | --- | --- |
-| `/machines/nouvelle` | la liste | Ajouter une machine : trois étapes (nommer et choisir le rôle, droits sous « Avancé » ; la commande à coller ; l'attente de l'agent) |
-| `/machines/{id}/reenroller` | la fiche | Ré-enrôler, aussi pour changer les droits : trois étapes (les droits, cochés comme le jeton de l'agent courant les demandait ; la commande ; l'attente du nouvel agent) |
+| `/machines/nouvelle` | la liste | Ajouter une machine : trois étapes (nommer et choisir le rôle, droits sous « Avancé » ; les étapes à coller, une case et un bloc chacune ; l'attente de l'agent) |
+| `/machines/{id}/reenroller` | la fiche | Ré-enrôler, aussi pour changer les droits : trois étapes (les droits, cochés comme le jeton de l'agent courant les demandait ; les étapes à coller, la première arrête l'agent en place ; l'attente du nouvel agent). `?droit=<nom>[&chemin=<dossier>]` coche ce droit d'avance : c'est où mène « Ré-enrôler avec ce droit » |
 | `/machines/{id}/proxmox` | la fiche | Déclarer (ou modifier) l'hôte Proxmox : un `Wizard` dans la fenêtre, deux étapes (l'accès ; le certificat) puis le récapitulatif |
 
 Le jeton vit dans la fenêtre seule, jamais dans l'adresse ni dans l'historique :
@@ -4419,25 +4974,65 @@ brouillon n'est gardé) ; le flou du voile demande un navigateur récent
 (`backdrop-filter`), sans lui le voile reste uni.
 
 **Les fenêtres d'une saisie.** Déclarer un
-service, ajouter une sonde et surveiller une tâche sont des `Wizard` dans une
-`Modal` (`pages/services/ServiceWizard.tsx`, `pages/probes/ProbeWizard.tsx`,
-`pages/jobs/JobWizard.tsx`). En création, l'assistant part de la première
-étape ; en édition, du récapitulatif, d'où « Modifier » mène à l'étape. Les
-réglages techniques sont sous « Avancé » (`Fold`). Ce qu'ils écrivent n'a pas
+service est un `Wizard` dans une `Modal` (`pages/services/ServiceWizard.tsx`) ;
+ajouter une sonde et surveiller une tâche tiennent en **un écran**
+(`pages/probes/ProbeWizard.tsx`, `pages/jobs/JobWizard.tsx`, v0.5.2 U3 : un
+`Wizard` d'une seule étape se rend sans barre ni récapitulatif, voir « Les
+assistants d'un seul écran » plus bas). En création, l'assistant à étapes part de la
+première étape ; en édition, du récapitulatif, d'où « Modifier » mène à
+l'étape. Les réglages techniques sont sous « Avancé » (`Fold`). Ce qu'ils écrivent n'a pas
 changé : le même corps, la même route (`POST` ou `PUT`), les mêmes refus.
 
 | Adresse | Fond | Fenêtre |
 | --- | --- | --- |
-| `/services/annuaire/nouveau` | la liste des services | Déclarer un service : trois étapes (l'identité ; les unités, leurs réglages techniques sous « Avancé » ; les projets). Avec `?container=`, partie de la proposition du serveur pour ce conteneur |
+| `/services/annuaire/nouveau` | la liste des services | Déclarer un service : d'abord le choix d'un conteneur détecté (ou « saisir à la main »), puis trois étapes (l'identité, dont le type ; les unités, leurs réglages techniques sous « Avancé » ; les projets, facultatifs, avec « Créer un projet ici »). Avec `?container=`, partie de la proposition du serveur pour ce conteneur |
 | `/services/annuaire/{id}/modifier` | la fiche du service | Le même assistant, ouvert sur le récapitulatif |
-| `/disponibilite/nouvelle` | la liste des sondes | Ajouter une sonde : deux étapes (la cible ; le rythme, ce qui est propre à HTTP ou à TCP sous « Avancé »). Avec `?service=` et `?container=`, pré-remplie |
-| `/disponibilite/{id}/modifier` | la fiche de la sonde | Le même assistant, ouvert sur le récapitulatif ; une note dit ce qui remet la sonde à « Nouveau » |
-| `/taches/nouvelle` | la liste des tâches | Surveiller une tâche : une étape (nom, machine, intervalle, grâce) puis le récapitulatif |
-| `/taches/{id}/modifier` | la fiche de la tâche | Le même assistant, ouvert sur le récapitulatif |
+| `/disponibilite/nouvelle` | la liste des sondes | Ajouter une sonde : un écran (nom, adresse, Créer) ; type, machine qui sonde, service, rythme, seuils sous « Réglages » (par défaut : HTTP, la première machine qui peut sonder, chaque minute, 3 échecs avant l'alerte), ce qui est propre à HTTP ou à TCP sous « Avancé ». Avec `?service=` et `?container=`, pré-remplie |
+| `/disponibilite/{id}/modifier` | la fiche de la sonde | Le même écran, sur la sonde ; une note dit ce qui remet la sonde à « Nouveau » |
+| `/taches/nouvelle` | la liste des tâches | Surveiller une tâche : un écran (nom, intervalle, Créer) ; machine et grâce sous « Réglages » |
+| `/taches/{id}/modifier` | la fiche de la tâche | Le même écran, sur la tâche |
+
+**Les assistants d'un seul écran** (v0.5.2 U3, #450). Un `Wizard` qui n'a
+qu'une étape se rend en un formulaire (`OneScreen`, `components/Wizard.tsx`) :
+les champs, l'action finale, « Annuler ». Pas de barre, pas de récapitulatif ;
+la validation de l'étape passe avant l'écriture. Les réglages dont les valeurs
+par défaut suffisent sont repliés sous « Réglages » (`SettingsFold`) : le pli
+dit ces valeurs en clair, fermé, et un champ faux dedans l'ouvre. Aucune
+route, aucun corps, aucun refus ne change : seul l'écran perd ses étapes.
+
+| Fenêtre | À l'écran | Sous « Réglages » (valeur par défaut dite) |
+| --- | --- | --- |
+| Ajouter une sonde (`ProbeWizard`) | nom, adresse | type, machine, service, rythme, seuils, requête HTTP (« HTTP depuis vps-lyon, chaque minute, 3 échecs avant l'alerte ») |
+| Surveiller une tâche (`JobWizard`) | nom, intervalle | machine, grâce (« 10 min de grâce, aucune machine ») |
+| Canal de notification (`ChannelWizard`) | nom, format, adresse ou destinataires, secret | gravité minimale, résolutions, journal, activation (« dès Attention, avec les résolutions ») |
+| Faire taire (`MuteWizard`) | objet, durée, annonce publique si l'objet le permet | type d'alerte, début, motif (« tous les types, dès maintenant ») |
+| Projet (`ProjectWizard`) | nom, titre, page publique et ses champs | — |
+| Plan de sauvegarde (`PlanWizard`) | source, destination | nom, nombre gardé (« 14 sauvegardes gardées, chaque nuit ») |
+
+Gardent leurs étapes : le service (identité, unités, projets), le pare-feu (des
+gestes à faire dans OPNsense entre l'identité et la clé, une empreinte à
+confirmer), l'hôte Proxmox (l'empreinte du certificat se voit avant d'être
+approuvée), l'ajout d'une machine (une commande à coller, puis l'attente de
+l'agent). Une période s'écrit partout pareil (`describeEvery` : « chaque
+minute », « toutes les 5 min »), que le champ soit en secondes (sonde) ou en
+minutes (tâche).
+
+**L'adresse d'openCloud jugée locale** (v0.5.2 U3). L'URL de ping d'une tâche et
+la commande d'une machine s'écrivent depuis `public_url`, ou à défaut depuis
+l'adresse de la requête. Si elle paraît locale, `url_local` est vrai ; la
+réponse porte aussi `url_suggestion`, l'adresse de la page **quand celle-ci est
+publique**, vide sinon. L'écran (`PublicUrlNote`) en tire deux notes : un essai
+local (page locale) est une **note neutre** : l'adresse publique réelle
+n'est pas connue, donc la forme attendue n'est qu'un **exemple non copiable**
+(`public_url = "https://opencloud.exemple.fr"`), puis la relance du service
+(`sudo systemctl restart opencloud.service`, qui se copie) ; une page publique
+avec un `public_url` local est **rouge**, et la ligne, à copier, porte
+l'adresse de la page.
 
 **Les derniers formulaires** (refonte UX, C11) : plus aucune page de
-formulaire. Le pare-feu et le plan de sauvegarde sont des `Wizard` dans une
-`Modal` (`pages/firewalls/FirewallWizard.tsx`, `pages/backups/PlanWizard.tsx`) ;
+formulaire. Le pare-feu est un `Wizard` dans une `Modal`
+(`pages/firewalls/FirewallWizard.tsx`), le plan de sauvegarde un écran
+(`pages/backups/PlanWizard.tsx`) ;
 la clé, la destination, le composant et l'incident sont des `ModalForm`, une
 fenêtre à une seule étape dont l'action est dans le pied
 (`pages/backups/KeyringModal.tsx`, `DestinationModal.tsx`,
@@ -4447,12 +5042,13 @@ mêmes corps, mêmes refus.
 
 | Adresse | Fond | Fenêtre |
 | --- | --- | --- |
-| `/pare-feu/nouveau` | la liste des pare-feu | Déclarer un pare-feu : quatre étapes (l'identité et l'adresse ; les gestes à faire dans OPNsense, à cocher, avec leurs liens ; la clé et le secret ; le certificat) puis le récapitulatif |
-| `/pare-feu/{id}/modifier` | la fiche du pare-feu | Le même assistant, ouvert sur le récapitulatif ; le secret se ressaisit |
+| `/pare-feu/nouveau` | la liste des pare-feu | Déclarer un pare-feu : quatre étapes (l'identité et l'adresse, avec « Tester l'accès » ; les gestes à faire dans OPNsense, à cocher, avec leurs liens ; la clé et le secret ; le certificat : empreinte relevée à confirmer) puis le récapitulatif, où la clé n'est jamais en entier |
+| `/pare-feu/{id}/modifier` | la fiche du pare-feu (onglet Résumé) | Le même assistant, ouvert sur le récapitulatif ; le secret se ressaisit |
 | `/sauvegardes/cle` | la page Sauvegardes | Créer ou remplacer la clé : la phrase de passe, deux fois ; remplacer demande confirmation |
 | `/sauvegardes/destinations/nouvelle` | la page Sauvegardes | Ajouter une destination : nom, machine, dossier |
-| `/sauvegardes/plans/nouveau` | la page Sauvegardes | Ajouter un plan : deux étapes (la source ; la destination et le nombre de sauvegardes gardées) |
-| `/sauvegardes/plans/{sujet}/modifier` | la page Sauvegardes | Le même assistant, ouvert sur le récapitulatif ; le sujet et la sorte de source ne changent pas |
+| `/sauvegardes/plans/nouveau` | la page Sauvegardes | Ajouter un plan : un écran (la source, la destination, Ajouter) ; le nom et le nombre de sauvegardes gardées sous « Réglages » |
+| `/sauvegardes/plans/{sujet}/modifier` | la page Sauvegardes | Le même écran ; le sujet et la sorte de source ne changent pas |
+| `/sauvegardes/parcourir/{machine}/{sauvegarde}` | la page Sauvegardes | L'explorateur d'une sauvegarde restic : instantanés à gauche, fil d'Ariane, liste, sélection, bouton Restaurer avec sa confirmation |
 | `/disponibilite/pages/{projet}/composants/nouveau` | la page publique du projet | Ajouter un composant : le projet est celui de l'adresse |
 | `/disponibilite/pages/{projet}/composants/{id}` | la page publique du projet | Modifier ou supprimer un composant (le plan de suppression s'ouvre dans une seconde fenêtre) |
 | `/disponibilite/composants/{id}` | — | Redirige vers la ligne précédente : un lien qui ne connaît que l'identifiant du composant (la fiche d'un service) retrouve son projet |
@@ -4634,7 +5230,8 @@ seau.
 
 C'est la première étape de #152 : **lire**, jamais écrire. L'agent inventorie
 les fichiers `authorized_keys` et `authorized_keys2` de chaque compte de sa
-machine ; openCloud les affiche, par machine (onglet « Clés SSH » de la fiche)
+machine ; openCloud les affiche, par machine (onglet « Accès SSH » de la fiche,
+le même nom que l'onglet de Machines)
 et toutes ensemble (onglet « Accès SSH » de Machines : qui peut se connecter à
 quoi, par clé ou par machine). **Aucune écriture** sur une machine : ni
 fichier, ni dossier, ni ordre. Le droit est `observe`, toujours acquis ; aucun
@@ -4712,10 +5309,563 @@ pas).
 **Une clé est dite faible** quand elle est DSA, ou RSA sous 3072 bits : un mot
 sur la ligne, rien de plus. Sur l'onglet « Accès SSH », une ligne par empreinte
 dit les machines et les comptes qui l'acceptent ; `root` (uid 0) est en rouge.
-Le verdict passe à « À regarder » s'il reste une clé faible ou une machine mal
-lue (pas relevée, tronquée, compte illisible) : sur celle-ci, l'absence d'une clé
-ne prouve rien. Filtres : faibles, accès root, sur une seule machine. La lecture
+Le verdict passe à « À regarder » s'il reste une clé faible ou un fichier que
+l'agent refuse de lire (non sûr, trop gros : l'opérateur peut le corriger).
+Une machine **lue en partie** (compte que l'agent ne lit pas, relevé tronqué,
+pas encore relevée) est l'état normal d'un compte dédié : le verdict reste
+« Rien à signaler », avec une ligne grise « Pour tout lire, gardez l'agent en
+root » ; sur cette machine, l'absence d'une clé ne prouve rien. La fiche de la
+machine suit la même règle (compte illisible : pastille neutre, phrase grise). Filtres : faibles, accès root, sur une seule machine. La lecture
 « Par machine » liste les comptes qui ont une clé ou qu'on n'a pas pu lire.
+
+## Comment les liens se stockent
+
+Un **lien** dit qu'une instance en utilise une autre. Il se **stocke** (table
+`links`, migration `030`) et chaque lecture (la fiche d'un service, l'onglet
+Réseau d'une machine, la carte Réseau de la vue d'ensemble) lit le même
+stockage : plus aucun écran ne recalcule les dépendances de son côté.
+
+**Une extrémité est une instance** : une machine et une clé stable.
+
+| Clé | Pour | Pourquoi pas l'identifiant Docker |
+| --- | --- | --- |
+| `compose:projet/service` | un service Compose, répliques comprises | l'identifiant change à chaque recréation |
+| `container:nom` | un conteneur seul | le nom est ce que l'opérateur déclare |
+| `systemd:unité.service` | un binaire sous systemd | le nom est celui du relevé (L2) |
+
+**Chaque lien porte sa preuve et sa fraîcheur.**
+
+| Champ | Valeurs | Sens |
+| --- | --- | --- |
+| Preuve | `declared`, `deduced`, `observed` | écrit par l'opérateur ou par la configuration d'un outil ; déduit ; vu. **`declared` est écrite ; `deduced` est une route calculée à chaque lecture** (« Les liens déduits »), **ou** un lien lu dans l'environnement d'un conteneur, écrit à chaque inventaire (« Les liens de l'environnement ») ; **`observed` est une connexion vue sur l'hôte, gardée en mémoire seulement** (« Les connexions de l'hôte ») |
+| Signal | `depends_on`, `container_link`, `operator`, `public_url`, `environment` | d'où vient la preuve : le `depends_on` de Compose, le `--link` de Docker, la main de l'opérateur, l'adresse publique d'un service avec un proxy (jamais écrit : la table ne le connaît pas), l'environnement d'un conteneur (migration `031` ; « Les liens de l'environnement »), `host_connection` (jamais écrit : la table ne le connaît pas ; « Les connexions de l'hôte ») |
+| Nature | `order`, `config`, `route` | « démarre après » (les deux premiers signaux) ; « est configuré pour joindre » (l'opérateur) ; « route publique » (le proxy envoie vers le service). `traffic` : une connexion vue (« Les connexions de l'hôte ») |
+| Fraîcheur | première et dernière vue | un lien d'outil non revu depuis 7 jours est **ancien** ; un lien de l'opérateur ne vieillit pas (personne ne le « revoit ») |
+
+**Ce qui écrit.**
+
+| Qui | Quoi | Par où |
+| --- | --- | --- |
+| Le suivi des conteneurs | À chaque rapport d'inventaire, les liens d'ordre des conteneurs vivants de la machine : une dépendance Compose se résout dans le même projet, un `--link` par le nom du conteneur ; ce qui ne se résout pas ne donne pas de lien. Au démarrage du serveur, de même, pour les conteneurs déjà connus | `container.OrderLinks` puis `link.Service.RecordSeen` |
+| Le suivi des conteneurs, avec `observe.env` | À chaque inventaire **complet**, les liens que l'environnement des conteneurs désigne (nature `config`, preuve `deduced`, signal `environment`) | `container.EnvironmentLinks` puis `link.Service.RecordSeen` |
+| L'opérateur | Un lien entre deux services, depuis la fiche de l'un (`POST /api/directory/links`) | `directory.DeclareLink` : il traduit l'unité en clé, le composant `link` valide et écrit |
+
+Un lien connu voit sa dernière vue avancer ; un lien qu'un rapport ne cite plus
+**reste** et vieillit : un instantané manque les liens rares. Rien n'est
+effacé tout seul. L'opérateur ne retire que ce qu'il a écrit : retirer un lien
+tiré de Compose n'aurait aucun sens, il reviendrait au rapport suivant (la
+route répond 409, `link.not_removable`, et l'écran dit de le retirer du fichier
+Compose). Les refus : doublon, lien vers soi-même, port hors de 1 à 65535,
+service ou machine disparus, service à plusieurs unités sans l'unité nommée.
+
+**Ce que l'agent envoie : rien de plus.** `depends_on` et `--link` remontent
+depuis l'inventaire de Docker depuis la v0.5 (point 1 de « Comment le réseau
+des services se lit »). L3 ne lit **aucun champ nouveau**, n'ajoute **aucun
+droit** à l'agent et ne demande aucun ré-enrôlement. Ni variable
+d'environnement (L5, droit `observe.env`), ni label Traefik (L7), ni connexion (L6, « Les connexions de l'hôte »).
+
+**Ce que l'écran en fait.**
+
+| Écran | Ce qu'il lit |
+| --- | --- |
+| Fiche d'un service, carte **Liens** | `GET /api/directory/services/{id}/links` : les liens des instances du service, sortants et entrants, chacun avec le service déclaré en face (ou « Non déclaré »), sa preuve, son signal, sa fraîcheur ; puis les routes **déduites** (Confirmer, Écarter) et, sous le pli « Écartés », celles qu'on a écartées (Rétablir). « Ajouter un lien » ouvre une fenêtre à `/services/annuaire/{id}/liens/nouveau` |
+| Onglet Réseau d'une machine | Les arêtes de dépendance (`edges`) sont les liens stockés entre conteneurs de la machine ; l'inspecteur dit la preuve et « Ancien » |
+| Carte Réseau de la vue d'ensemble | Les liens entre **puces** (`links` de `GET /api/network`), en courbes entre les services, preuve au survol (« La carte Réseau de la vue d'ensemble ») |
+
+**Audit.** L'écriture et le retrait d'un lien par l'opérateur s'écrivent
+(`link.create`, `link.delete`, objet « Lien », sans port ni valeur) ; le
+rafraîchissement par un rapport ne s'écrit pas, comme une mesure.
+
+**Jetons d'API.** Aucune des routes des liens (les trois de L3, les trois gestes de L4) n'est dans la liste fermée de
+« Comment un agent IA lit openCloud » : un jeton ne lit pas les liens
+(décision à prendre, voir `services-modele.md` §4.1).
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API, rien n'a été relu côté mcp-maison).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| `edges[].source` (`compose`, `link`) **disparaît** | `GET /api/machines/{id}/network` (jeton ouvert), `GET /api/network` | Lire `edges[].signal` (`depends_on`, `container_link`, `operator`) ; un client qui lisait `source` ne trouve plus rien |
+| `edges[]` d'une dépendance gagne `link_id`, `nature`, `proof`, `stale` | idem | Afficher la preuve et « ancien » ; champs absents d'une arête publique |
+| `GET /api/network` gagne `links[]` | route d'opérateur seul | *Remplacé par R1 : voir « La carte Réseau de la vue d'ensemble »* |
+| `GET /api/directory/services/{id}/links` | opérateur seul, **hors liste des jetons** | Un outil de lecture des liens d'un service si Lucas le veut : il faut une entrée dans `apiTokenRoutes` |
+| `POST /api/directory/links`, `DELETE /api/directory/links/{id}` | opérateur seul, **aucun verbe** | Aucun geste MCP aujourd'hui ; en faire des verbes (`link.create`, `link.delete`) est une décision, le registre des verbes ne change pas |
+| `links` du détail d'un service (sondes, composants de statut) | inchangé | Rien : même nom, autre sens que la carte Liens ; l'écran l'appelle « Ce qui le lie » |
+| Audit : objet `link`, actions `link.create`, `link.delete` | `GET /api/audit` | Les connaître dans les filtres et les libellés |
+
+**Ce que L3 ne fait pas.** Pas de variable d'environnement (L5), pas de
+connexion vue (L6, sans écriture), pas de route Traefik (L7). Les liens de joignabilité (réseau
+partagé) ne sont pas des liens.
+
+## Les liens déduits
+
+Un service qui a une **adresse publique** (`public_url`) est joint par chaque
+service qui fournit la capacité **proxy**. La route est **déduite** : calculée à
+chaque lecture, **jamais écrite**. C'est un repli faible (décision 4 de
+`services-modele.md` : les routes publiques viendront du module Traefik, L7).
+
+| Règle | Détail |
+| --- | --- |
+| Source | Le service qui fournit `proxy` (n'importe quelle machine). La clé est celle de **sa première unité** qui en a une |
+| Cible | Le service qui a une `public_url`, par **sa première unité**. Un service à plusieurs unités est donc visé par la première : l'opérateur qui veut une autre unité écrit le lien lui-même (`Ajouter un lien`) |
+| Nature, preuve, signal | `route`, `deduced`, `public_url` |
+| Jamais vers soi | Un proxy qui a lui-même une adresse publique n'est pas joint par lui-même |
+| Plusieurs proxys | Une route par proxy : openCloud ne sait pas lequel route quoi, l'opérateur écarte les autres |
+| Ce que la déduction ne lit pas | L'adresse elle-même ne sort pas de l'annuaire : le lien ne porte ni l'adresse ni le port. Rien ne vient de l'agent |
+| Identifiant | `ded_` + empreinte de la paire : le même à chaque lecture, sans ligne en base |
+| Fraîcheur | Aucune : « Calculé à l'instant », jamais « Ancien » |
+
+**Ce que l'opérateur en fait**, depuis la carte **Liens** de la fiche du service
+(l'un ou l'autre bout) :
+
+| Geste | Effet | Route |
+| --- | --- | --- |
+| **Confirmer** | La route devient un lien **déclaré** (`route`, signal `operator`) : elle est à lui, se retire par **Retirer**, apparaît sur la carte Réseau | `POST /api/directory/links/{id}/actions/confirm` |
+| **Écarter** | La paire est **notée** et la déduction ne la propose plus. La route passe sous le pli **Écartés (n)** de la carte | `POST /api/directory/links/{id}/actions/dismiss` |
+| **Rétablir** (sous « Écartés ») | La trace est effacée : la route se propose de nouveau | `POST /api/directory/links/{id}/actions/restore` |
+
+**Un lien écarté ne revient pas par surprise.** La trace tient à la **paire
+d'instances**, pas à l'adresse : un rapport de plus, un service modifié, une
+adresse publique changée ne la ramènent pas. Test :
+`TestAPI_DeducedLinks_ADismissedRouteNeverComesBackBySurprise`. Ce que ça coûte :
+si la clé d'une unité change (service renommé, unité remplacée), la paire est une
+autre, et la route se propose de nouveau. Retirer une route **confirmée** la rend
+aussi à la déduction (on la défait, on ne la refuse pas) : pour la refuser, il
+faut **Écarter** avant de confirmer.
+
+**Où la trace vit, sans migration.** La table `links` (migration `030`) connaît
+déjà la preuve `deduced`. Une route écartée y est une ligne `route` +
+`deduced` + signal `operator` (c'est l'opérateur qui l'a écartée). `link.Link.Dismissed()`
+la reconnaît ; `link.Service.List` ne la rend **pas** (ce n'est pas un lien : ni la
+carte Réseau, ni l'onglet Réseau, ni le suivi des conteneurs ne la voient),
+`ListDismissed` la rend. Contrepartie : une même colonne dit deux choses
+(une ligne `deduced` est une trace de refus, jamais une route stockée) ; depuis
+L5, la table porte aussi des liens `deduced` **vrais** (signal `environment`) : la
+trace d'un refus se reconnaît donc à `deduced` **et** signal `operator`
+(`Link.Dismissed`), et une route proposée à son identifiant `ded_`
+(`Link.Proposed`). Elle compte dans les 2 000 liens de la machine.
+
+**Ce que l'agent envoie : rien.** Aucun champ, aucun droit, aucun ré-enrôlement.
+La déduction lit deux faits de l'annuaire (`public_url`, capacité `proxy`).
+Banc de non-fuite : `TestAPI_DeducedLinks_SeededSecretInThePublicURL_NeverInAnyOutput`
+sème un secret dans l'adresse (identifiant et paramètre) ; il n'est dans aucune
+réponse ni dans la base.
+
+**Audit.** `link.confirm`, `link.dismiss`, `link.restore` (objet « Lien », sans
+adresse ni port).
+
+**L'inspecteur du réseau.** Une route confirmée entre deux conteneurs d'une même
+machine s'y lit sous **Envoie vers**, pas sous « Dépend de » : l'application ne
+dépend pas de son proxy.
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| `links[]` d'un service gagne `dismissed` (booléen) | `GET /api/directory/services/{id}/links` (opérateur seul, hors liste des jetons) | Une ligne `dismissed: true` est une route écartée : ni un lien, ni à compter |
+| Valeurs nouvelles : `nature: "route"`, `proof: "deduced"`, `signal: "public_url"` | idem, `edges[]` et `links[]` de `GET /api/network` (`route` et `declared` après confirmation seulement) | Les connaître ; un lien `deduced` n'a pas d'heure de vue (`first_seen_at` et `last_seen_at` valent `0001-01-01T00:00:00Z`) et `stale` est `false` |
+| `id` d'un lien déduit : `ded_…` | idem | Ce n'est **pas** une ligne en base : il ne sert qu'aux deux verbes `confirm` et `dismiss` ; il change si l'une des deux unités change de clé |
+| Trois routes d'écriture : `POST /api/directory/links/{id}/actions/confirm`, `…/dismiss`, `…/restore` | opérateur seul, **aucun verbe** | Aucun geste MCP aujourd'hui ; en faire des verbes (`link.confirm`, `link.dismiss`, `link.restore`) est une décision de Lucas, le registre des verbes ne change pas. Répondent 204 ; 404 `link.not_found` si le lien n'est plus déduit (adresse retirée, déjà décidé) |
+| `edges[]` : une arête `nature: "route"` | `GET /api/machines/{id}/network`, `GET /api/network` | Ne pas la lire comme « dépend de » : la source envoie vers la cible |
+| Audit : actions `link.confirm`, `link.dismiss`, `link.restore` | `GET /api/audit` | Les connaître dans les filtres et les libellés |
+| `link.signal_public_url`, `link.confirm`, `link.dismiss`, `link.restore`, `link.dismissed_title`, `link.dismissed_text`, `link.dismissed_on`, `link.deduced_help`, `link.deduced_fresh`, `network.field_sends_to`, `audit.verb_confirm`, `audit.verb_dismiss`, `audit.verb_restore` | `GET /api/catalog/{lang}` | Clés de catalogue nouvelles, fr et en |
+
+## Les liens de l'environnement
+
+Une image « douzaine-de-facteurs » dit où est sa base dans son **environnement**
+(`DB_HOST=db`, `REDIS_URL=redis://cache:6379`). Avec le droit **`observe.env`**
+(refusé par défaut, coché machine par machine), l'agent en tire des **liens**
+entre les conteneurs de sa machine. Étude : `services-modele.md` §2.4,
+décision 3.
+
+**Le coût, dit franchement.** `Config.Env` est rendu **en clair par Docker, mots
+de passe compris**. Les valeurs **passent donc par la mémoire de l'agent**, qui a
+déjà la socket Docker (donc, de fait, root sur la machine). Ce que la règle
+apporte : **rien n'est envoyé, rien n'est stocké, rien n'est journalisé**. Elle
+ne promet pas que l'agent ne lit pas.
+
+**La liste blanche, par résolution et non par nom de variable.**
+
+| Règle | Où |
+| --- | --- |
+| **Sans le droit, `Env` n'est pas lu** : le second appel d'inspect n'est pas fait, et `dockerapi.Container` ne déclare pas `Env` | `dockerwatch.readEnvironment` ; `TestInventory_WithoutTheRightTheEnvironmentIsNeverAskedFor` |
+| **Un type qui ne garde que des hôtes** : `dockerapi.EnvHosts` décode la liste entrée par entrée et jette le nom de la variable et la valeur ; il ne se sérialise pas (`MarshalJSON` refuse), ne s'imprime pas, ne se journalise pas | `internal/dockerapi/environment.go` |
+| **Extraction stricte** : `schéma://[infos@]hôte[:port]/…` (infos, chemin, requête écartés **avant** toute comparaison) ou `hôte[:port]` nu ; une valeur de plus de 1 024 octets, ou d'une autre forme, ne donne rien ; au plus 256 candidats par conteneur | `hostOf` |
+| **Résolution contre l'inventaire de la machine** : un hôte n'est gardé que s'il est le nom d'un conteneur ou d'un service Compose de l'inventaire, l'un de ses alias ou l'une de ses adresses, **et** que la cible partage un réseau avec la source. Tout le reste est jeté, y compris tout mot de passe qui ne s'appelle pas comme un conteneur. Un conteneur n'est jamais sa propre cible | `dockerwatch.environmentTargets` |
+| **Ce qui part** : `env_targets` = nom du conteneur visé, son projet Compose, le port (32 au plus). Ni variable, ni valeur. `DB_PASSWORD=db` ne ressort que comme « source → db » : la fuite se limite à un nom déjà public dans l'inventaire | `container.EnvTarget` |
+| **Le serveur borne encore** : un rapport d'un agent sans `observe.env` (droits rapportés à l'ouverture du flux) perd ses `env_targets`, et le serveur les résout une seconde fois contre l'inventaire du **même rapport** (cible inconnue, soi-même : rien) | `agentapi.withinRights`, `container.EnvironmentLinks`, `keepEnvTargets` |
+| **Un lien lu de l'environnement ne remplace jamais celui de l'opérateur** sur la même paire | `store.TouchSeenLinks` |
+
+**Ce qui s'écrit.** Un lien `config` + `deduced` + signal `environment`, entre deux
+clés d'instance de la **même machine**, avec le port nommé (s'il y en a un). Il
+est **revu à chaque inventaire complet** ; un lien qu'on ne revoit plus devient
+**ancien** (7 jours) et **reste** : changer une variable ne supprime pas le lien,
+comme pour `depends_on`. Un lien d'environnement ne se retire pas depuis l'écran
+(409 `link.not_removable`) ; il n'est pas non plus une route à confirmer ou à
+écarter.
+
+**Migration `031`.** La liste fermée des signaux est un `CHECK` : la table `links`
+est refaite avec `environment` en plus, lignes recopiées telles quelles, index
+remis (test sur base existante : `TestMigration031_…`).
+
+**Ce que l'écran en fait.** Carte **Liens** de la fiche d'un service (preuve
+« Déduit », signal « Environnement du conteneur », « Vu il y a… », port). Si le
+service tourne dans des conteneurs et que l'agent de sa machine n'a pas le droit,
+une note le dit (« Les liens de l'environnement des conteneurs ne sont pas lus… »)
+avec le bouton **Ré-enrôler avec « Lire l'environnement… »** : la fenêtre s'ouvre
+sur la machine, droit déjà coché, avec sa note (`GET …/links` rend
+`environment: {machine_id, right}` : `granted`, `missing` ou `unknown` tant que
+l'agent n'a rien rapporté de ses droits ; `null` pour un service sur binaire).
+
+**Banc de non-fuite** (valeurs semées : mot de passe, jeton, `utilisateur:mot de
+passe@`, jeton dans la requête d'une URL ; noms de variables) :
+
+| Banc | Ce qu'il prouve |
+| --- | --- |
+| `dockerapi` · `TestEnvHosts_NeverLeavesThroughAnyOutput` | `EnvHosts` ne ressort par aucun `json`, `%v`, `%+v`, `%#v`, `%s`, ni `slog` (texte, JSON) ; une erreur de décodage ne reprend pas la valeur |
+| `dockerwatch` · `TestInventory_NoSeededSecretNorVariableNameLeavesTheAgent` | le rapport complet de l'agent (JSON), son journal (niveau debug) et ses impressions ne portent ni valeur semée ni nom de variable |
+| `agentapi` · `TestSignal_EnvironmentLinksNeedTheRightAndNothingSecretIsStored` | sans le droit, aucun lien ; avec, un seul ; la base entière (copie `VACUUM INTO`, octet par octet) ne porte aucune valeur ni nom, même glissés dans le signal par un agent hostile |
+| `server` · `TestAPI_Environment_SeededSecretsAreInNoOutput` | idem de bout en bout (flux, signal, API), puis la base et **les réponses de l'API** (seize routes d'écran et d'audit, plus les lectures ouvertes aux jetons du MCP) |
+
+**Audit.** Aucun : le rafraîchissement par un rapport ne s'écrit pas (comme une
+mesure) ; le droit se lit dans les droits de l'agent, qui sont déjà montrés.
+
+**Ce que L5 ne fait pas.** Pas de valeur lue ailleurs que dans la mémoire de
+l'agent (ni fichier de configuration, ni `Cmd`), pas de lien entre deux machines
+(un hôte distant n'est pas dans l'inventaire), pas de « confirmer / écarter » pour
+ces liens (un lien faux se corrige dans l'environnement du conteneur ; il vieillit alors), pas de label Traefik (L7).
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| Droit d'agent `observe.env` (liste fermée) | `capabilities[]` de `GET /api/machines/{id}` (jeton ouvert), `GET /api/machines`, `GET /api/session` | Le connaître dans les libellés ; refusé par défaut, absent de tout préréglage |
+| Valeur nouvelle `signal: "environment"` (avec `nature: "config"`, `proof: "deduced"`) | `edges[]` de `GET /api/machines/{id}/network` (jeton ouvert), `GET /api/network` | Une arête qui n'est pas une route à décider : elle a un `last_seen`, peut être `stale`, **ne se retire pas** |
+| `proof: "deduced"` ne veut plus dire « calculé à la lecture » | idem | Le lien lu dans l'environnement est écrit, revu à chaque inventaire ; seul `id` en `ded_…` est une route proposée |
+| `links[].proposed` (booléen) et `environment` (`null` ou `{machine_id, right}`) | `GET /api/directory/services/{id}/links` (opérateur seul, **hors liste des jetons**) | Rien aujourd'hui ; si la route est ouverte un jour, lire `proposed` plutôt que de déduire de `proof` |
+| Clés de catalogue `machine.capability_observe_env`, `machine.capability_observe_env_note`, `link.signal_environment`, `link.from_environment_help`, `link.environment_off`, `link.not_removable` (texte changé) | `GET /api/catalog/{lang}` | Clés nouvelles, fr et en |
+| Aucune route, aucun verbe, aucun champ de requête | | Rien : **la parité UI / MCP ne bouge** |
+
+## Les connexions de l'hôte
+
+Un binaire de l'hôte (Forgejo, un reverse proxy installé sur la machine) ou un
+conteneur qui **publie un port** est joint par quelqu'un. Le noyau le dit, à tout
+compte, dans la table des connexions de l'**espace de noms réseau de l'agent**.
+L'agent la lit et le serveur en fait des liens **observés** sur la fiche du
+service. Étude : `services-modele.md` §2.3 (signal 9), décision 5.
+
+**Sans droit élevé, et sans eBPF.** `/proc/net/tcp` et `/proc/net/tcp6` se lisent
+sans droit (mesuré sur la machine de l'étude, compte non root). Aucun droit
+d'agent nouveau, aucun ré-enrôlement. Ni `CAP_SYS_PTRACE`, ni `CAP_NET_ADMIN`, ni
+conntrack, ni capture de paquets.
+
+**Ce que la table donne, et ce qu'elle ne donne pas.**
+
+| Se voit | Ne se voit pas |
+| --- | --- |
+| Un client **de la machine** (un compte, un binaire) qui joint un port d'écoute de la machine, y compris un port publié par Docker | Le **processus** : la table ne l'attribue qu'aux sockets du compte de l'agent. La source est donc un **compte**, jamais un service |
+| Une machine du **réseau local** qui joint un port d'écoute de la machine | Les connexions **entre conteneurs** : un conteneur a son propre espace de noms réseau, y entrer demande `CAP_SYS_PTRACE` (décision 5). Ces liens restent déclarés ou déduits |
+| Une adresse **publique** qui joint un port d'écoute, réduite à « Internet » | Un client externe dont le paquet est **redirigé (DNAT)** vers un conteneur sans passer par un socket de l'hôte : **non mesuré avec Docker** (aucun démon ici) ; si l'hôte n'a pas de socket, la table n'a pas de ligne |
+| | Les connexions qui durent moins que la période de relevé (15 s) : un instantané manque les liens rares |
+
+**Ce que l'agent envoie** (section `host_connections` du signal, liste blanche
+par type : `hostconn.Connection`). Une ligne par **port** de l'hôte et par
+**source** :
+
+| Champ | Valeurs | Règle |
+| --- | --- | --- |
+| `port` | 1 à 65 535 | le port **de l'hôte** joint |
+| `origin` | `account`, `address`, `internet` | liste fermée |
+| `name` | compte ; adresse ; vide | `account` : un nom d'utilisateur Unix (`^[a-z_][a-z0-9_-]{0,31}$?`), le seul champ de la fiche du compte qui sorte de `os/user` (jamais le nom complet ni le dossier) ; `uid-N` si le compte est inconnu. `address` : une adresse **privée, de lien local ou de l'espace partagé 100.64.0.0/10**, forme canonique. `internet` : **jamais d'adresse** — celle d'un visiteur ne quitte pas la machine |
+
+Une connexion de la machine **à elle-même** a deux lignes dans la table : seule
+celle du client (le port distant écoute) est gardée, sous le compte du client.
+Sinon elle serait comptée deux fois, sous le compte du serveur. Une connexion
+**sortante** vers une autre machine ne joint aucun port de celle-ci : elle n'est
+pas gardée. Au plus **512** lignes, `truncated` si la machine en a davantage.
+
+**Les bornes, côté serveur.** Un agent n'est pas une preuve : `hostconn.Report.Validate`
+refuse **en bloc** (section `host_connections`, clé `bad_host_connections`, les
+autres sections sont écrites) une origine inconnue, un nom de compte qui n'en est
+pas un, une adresse publique présentée comme locale, une adresse avec zone ou en
+forme mappée, une adresse donnée à `internet`, un doublon, un port hors bornes,
+plus de 512 lignes.
+
+**Ce qui est gardé : rien en base.** La liste fermée des signaux de `links` est un
+`CHECK` ; y ajouter `host_connection` demanderait une migration, et l'étude ne
+l'attribue pas à L6 (« aucune »). `hostconn.Service` garde donc les vues **en
+mémoire** (voir « Ce qui est stocké »). Chaque rapport avance la **dernière vue**
+de ce qu'il porte ; ce qu'il ne porte plus vieillit (« Ancien » après 7 jours) et
+reste : l'absence d'observation n'est pas l'absence de lien. Le coût : un
+redémarrage de `serve` efface les vues jusqu'au rapport suivant de chaque agent
+(à l'ouverture de son flux), et il n'y a ni « Confirmer » ni « Écarter » pour un
+lien observé (il faudrait une table).
+
+**Le rapprochement port → instance se fait à la lecture, pas à l'écriture.**
+`directory.observedLinks` cherche, pour chaque service lu, les ports TCP de
+l'hôte que ses unités publient : ceux que ses conteneurs publient **aujourd'hui**
+(l'inventaire de l'agent) et ceux que l'opérateur a **déclarés** (`8080:80` pour
+un conteneur ; `443` seul pour un binaire, qui écoute sur l'hôte ; un port seul
+d'un conteneur n'est **pas** publié ; l'UDP n'est pas dans la table lue). Une vue
+sur un port que personne ne publie ne donne aucun lien. Un conteneur recréé ou un
+port déclaré après coup rattache les mêmes vues.
+
+**Le lien.** Nature `traffic`, preuve `observed`, signal `host_connection`, du côté
+**entrant** du service. La source est une clé `account:nom`, `address:adresse` ou
+`internet:public` (`link.KindOf`) ; ce ne sont **pas des instances**, l'opérateur
+ne les écrit pas (`validKey` les refuse). L'identifiant est `obs_…`, refait de la
+paire et du port.
+
+**Ce que l'écran en fait.** Carte **Liens** de la fiche d'un service : « Utilisé
+par », « Connexion vue », preuve « Observé » (au survol, ce que la table montre et
+ne montre pas), signal « Connexion vue sur l'hôte », source « Compte backup »,
+« Machine 192.168.1.20 » ou « Internet » (ni lien vers une fiche, ni pastille
+« Non déclaré »), port, « Vu il y a… ». Aucun geste : le tiret dit que la
+connexion est vue, pas écrite.
+
+**Banc de non-fuite** (valeurs semées : mot de passe, jeton, adresse de visiteur,
+nom de processus, ligne de commande, dossier de compte) :
+
+| Banc | Ce qu'il prouve |
+| --- | --- |
+| `hostconn` · `TestRead_NoSeededValueLeavesTheAgent` | la table du noyau (colonnes en trop, adresse publique) et la fiche d'un compte (nom complet, dossier) ne laissent rien dans le rapport |
+| `hostconn` · `TestReport_Validate` | tout rapport forgé est refusé en bloc |
+| `server` · `TestAPI_HostConnections_SeededValuesAreInNoOutput` | de bout en bout (flux, signal, API) : un agent hostile glisse processus, ligne de commande, environnement, adresse d'un visiteur ; ni la base (copie `VACUUM INTO`), ni **les réponses de l'API** (routes d'écran et d'audit, lectures ouvertes aux jetons du MCP) n'en portent une |
+| `server` · `TestAPI_HostConnections_ForgedReportIsRefused` | cinq rapports forgés : 400 `bad_host_connections`, aucun lien |
+
+**Mesure.** `hostconn.TestRead_RealLoopbackConnection` ouvre une vraie connexion de
+bouclage et la retrouve dans la vraie table de la machine de test (elle saute hors
+Linux). L'ordre des octets des adresses suppose une machine **little-endian** (x86,
+arm), comme le noyau les écrit.
+
+**Audit.** Aucun : une lecture de l'agent, comme ses mesures.
+
+**Ce que L6 ne fait pas.** Pas de connexion entre conteneurs (décision 5), pas de
+processus attribué ni de rapprochement d'un compte à une unité systemd (étude
+§2.3 : seulement si l'opérateur le confirme), pas de connexion sortante, pas
+d'UDP, pas d'écriture en base, pas de « Confirmer » ni « Écarter », pas de vue sur
+la carte Réseau de la machine (les liens observés n'y sont pas dessinés).
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| Valeurs nouvelles `nature: "traffic"`, `proof: "observed"`, `signal: "host_connection"` | `links[]` de `GET /api/directory/services/{id}/links` (opérateur seul, **hors liste des jetons**) | Rien aujourd'hui ; si la route est ouverte un jour : ces liens ont des `id` en `obs_…`, ne sont ni `removable` ni `proposed`, et peuvent être `stale` |
+| Champ `kind` sur chaque extrémité (`self`, `peer`, `from`, `to`) : `compose`, `container`, `systemd`, `account`, `address`, `internet` | la même route, `GET /api/machines/{id}/network` (jeton ouvert), `GET /api/network` | Champ ajouté : l'ignorer est sans danger. `account`, `address` et `internet` ne sont **pas des instances** : `service_id` vide, `key` en `account:…`, `address:…`, `internet:public` |
+| Section `host_connections` du signal d'agent (`ProtocolVersion` inchangée) ; clé de refus `bad_host_connections` | `/agent/signal` | Aucun : réservé aux agents |
+| Clés de catalogue `link.signal_host_connection`, `link.source_account`, `link.source_address`, `link.source_internet`, `link.observed_help`, `link.from_host_help` | `GET /api/catalog/{lang}` | Clés nouvelles, fr et en |
+| Aucune route, aucun verbe, aucun champ de requête, aucun droit d'agent | | Rien : **la parité UI / MCP ne bouge** |
+
+## Comment les unités systemd se relèvent
+
+L'agent relève les **unités de service systemd** de sa machine, en lecture
+seule, et **sans droit de plus** : `observe`, toujours acquis. Ce n'est pas une
+hypothèse : `systemctl list-units` répond à tout compte (mesuré pour l'étude
+`services-modele.md`, §2.2 ; la doc D-Bus de systemd le dit : « Read access is
+generally granted to all clients »). **Rien n'est écrit** sur une machine : ni
+unité, ni fichier, ni ordre.
+
+**Ce qui est lu.** Une commande, toutes les minutes :
+`systemctl list-units --type=service --all --plain --no-legend --no-pager --full`.
+Aucune autre : ni `show` (les propriétés `Environment=` d'une unité peuvent
+porter un secret), ni `cat`, ni fichier d'unité. La commande part avec un
+**environnement vide** (`LC_ALL`, `SYSTEMD_COLORS`, `PATH` seulement) : rien de
+ce que l'agent porte en variables ne lui arrive.
+
+**Ce qui remonte (liste blanche).** Par unité, quatre champs et pas un de plus :
+
+| Champ | Valeurs |
+| --- | --- |
+| `name` | `^[A-Za-z0-9:_.@-]{1,250}\.service$` : le même motif que l'annuaire accepte de déclarer ; un nom qui porte un échappement (`\x2d`) n'est pas relevé |
+| `load` | `loaded`, `masked`, `error`, `other` ; `not-found` n'est pas relevé (systemd en liste pour toute dépendance citée) |
+| `active` | `active`, `inactive`, `failed`, `activating`, `deactivating`, `reloading`, `other` |
+| `sub` | `running`, `exited`, `dead`, `failed`, `auto-restart`, `start`, `stop`, `reload`, `other` |
+
+Tout mot que systemd écrit hors de ces listes devient `other` : il ne voyage
+pas. **La description** (le cinquième champ, du texte libre) est jetée sans être
+regardée. Du relevé de l'étude, ne sont **pas** repris `MainPID`,
+`ControlGroup` ni `FragmentPath` : le port d'un binaire ne s'en déduit pas sans
+`ptrace`, il se **déclare**. Au plus 512 unités, par nom ; au-delà, le relevé dit
+qu'il est tronqué. Si systemd ne se lit pas (commande absente, machine sans
+systemd comme amorçage, échec), le relevé le dit par une **raison** de liste
+fermée (`no_systemctl`, `not_booted`, `unreadable`) et ne porte aucune unité.
+
+**Un secret n'y entre pas.** Un test (`TestRead_SeededSecret_NeverInTheReport`)
+sème une valeur secrète dans tout ce que `systemctl` peut écrire en texte libre
+(description, champs en trop, nom hors modèle, état inconnu) et vérifie
+qu'elle n'est dans aucune sortie ; un second (`TestSystemd_SeededSecret_…`) la
+suit de bout en bout : le signal que l'agent construit, les réponses de l'API
+(machine, services, écart, machines, proposition) et la base. Le journal de
+l'agent ne dit que des comptes. Limite assumée : **le nom** d'une unité est un
+champ rapporté ; un nom de fichier n'est pas un secret, mais un opérateur qui
+mettrait un secret dans le nom d'une unité le verrait remonter.
+
+**Le chemin.** Le relevé part dans le signal, section `systemd_units`,
+**seulement s'il a changé**, et une fois à chaque ouverture du flux (comme les
+clés SSH). Un agent plus ancien n'envoie rien : l'onglet dit « pas encore
+relevé », et un binaire déclaré reste « non observé » (jamais « absent » : ne
+rien savoir n'est pas savoir l'absence). Le serveur ne fait pas confiance au
+relevé : il refuse le tout (`bad_systemd_units`) s'il sort de ce qu'un agent
+peut avoir lu ; le reste du signal passe, l'ancien relevé reste. Un relevé
+retenu remplace l'ancien dans une transaction et prévient le direct (sujets
+`machines` et `directory`). **Aucun audit** : c'est une lecture de l'agent,
+comme ses mesures.
+
+**Le rapprochement** vit dans `internal/directory` (`units.go`), règle pure :
+l'unité binaire déclarée (`systemd_unit`) est cherchée par son **nom** dans le
+relevé de **sa** machine (jamais d'une autre).
+
+| Le relevé de la machine… | Présence | L'écart |
+| --- | --- | --- |
+| a l'unité | `found`, avec ses trois états | conforme |
+| est lu et n'a pas l'unité | `missing` (« Absente de la machine », avec « vérifiez son nom ») | déclaré, absent |
+| manque ou est illisible | `unknown` (« Non relevée ») | non observé |
+
+L'**état de l'unité** (en marche, en échec…) n'est pas un écart : il se lit à
+côté, dans une colonne « État de l'unité ». Une unité en échec reste « conforme »
+au sens de l'écart (elle existe) et rouge dans sa colonne.
+
+**Le port se déclare.** Le relevé ne dit pas où un binaire écoute. Un binaire
+déclaré sans port montre « Port à déclarer » sur sa fiche : le lien ouvre la
+modification **directement sur l'étape des unités** (`?etape=units`), où le port
+est demandé **à côté de l'unité**, pas sous « Avancé » (il l'était : c'était le
+défaut qui cachait la seule chose à dire).
+
+**Déclarer une unité relevée.** Sur l'onglet « Unités systemd » d'une machine,
+une unité que personne ne déclare a un bouton « Déclarer » : il ouvre
+l'assistant de déclaration rempli par le serveur
+(`GET /api/directory/proposal?machine=…&unit=…` : nom sans `.service`, origine
+binaire, l'unité, **aucun port**). Rien n'est écrit tant que l'opérateur n'a pas
+validé. Un nom déjà pris sur la machine reçoit un suffixe (`forgejo-2`). Une
+unité déjà déclarée est refusée (409, `directory.systemd_unit_declared`) ; une
+unité absente du relevé est introuvable (404,
+`directory.systemd_unit_not_observed`). « Déclarer un service » renvoie vers ces
+unités (un lien par machine qui en a relevé) pour un binaire.
+
+**L'API** : `GET /api/machines/{id}/systemd-units` (404 si la machine n'existe
+pas ; un relevé vide, sans date et `available: false` tant que l'agent n'a rien
+dit) : chaque unité dit le service déclaré qui la porte. Chaque unité d'un
+service (`GET /api/directory/services[/{id}]`) porte `observed` (nul pour un
+conteneur). Lecture seule, pour l'opérateur seul : **aucun jeton d'API** ne
+lit la route des unités (la liste fermée de « Comment un agent IA lit
+openCloud » ne change pas).
+
+**Ce que L2 ne fait pas** (chantiers suivants de `services-modele.md`) : pas de
+connexions de l'hôte (L6, voir « Les connexions de l'hôte »), pas de port
+déduit d'un processus. Un service systemd d'**un autre utilisateur** (unités
+`--user`) n'est pas vu : `systemctl` interroge le gestionnaire du système.
+
+## La carte Réseau de la vue d'ensemble
+
+`GET /api/network` rend **un arbre**, pas un graphe de conteneurs : le serveur
+le déduit (`internal/netmap`, fonction pure), le front le dessine (v0.5.2 R1,
+#457). Aucune zone, aucun nom, aucune adresse n'est écrit en dur.
+
+**Ce que la carte lit, et d'où.** Rien ne vient de l'agent en plus : aucune
+lecture neuve, aucun droit neuf, aucun ré-enrôlement.
+
+| Fait | Source | Écrit par |
+| --- | --- | --- |
+| Machines, type retenu (`physical`, `vm`, `lxc`, `vps`), hôte | liste des machines, `kind` et `host` de chaque fiche | déjà là (v0.5.2 P1) |
+| Invités d'un hôte Proxmox : numéro, type, état, machine rapprochée | dernier relevé de l'hôte (`proxmox_guests`) | déjà là |
+| **Tag VLAN et pont de chaque carte** d'un invité | configuration de l'invité chez l'hôte (`net0: …,bridge=vmbr0,tag=50`), lue par le relevé qui lit déjà les MAC | **mémoire du serveur** (`proxmox.Service.Networks`), jamais en base : aucune migration. Un redémarrage les relit au premier relevé (au plus quelques secondes) ; d'ici là, la zone vient de l'adresse |
+| Interfaces du pare-feu : nom, appareil, rôle, adresse CIDR | dernier relevé du pare-feu déclaré (`GET /api/firewalls/{id}/interfaces`) | déjà là |
+| Services : conteneurs vivants regroupés par instance, unités systemd déclarées, état | suivi des conteneurs, annuaire et relevé systemd | déjà là |
+| Liens : déclarés, déduits (routes à confirmer), observés | `directory.ServiceLinks` de chaque service déclaré, plus les liens stockés | déjà là (L3, L4, L6) |
+
+**Comment un invité trouve sa zone** (dans cet ordre, la première règle qui
+répond) :
+
+| Règle | Zone | Nom |
+| --- | --- | --- |
+| L'adresse de la machine tombe dans le sous-réseau d'une **interface du pare-feu** (la plus précise gagne ; ni l'interface publique, ni un tunnel) | cette interface | le **rôle** de l'interface chez le pare-feu (« SERVICES »), sinon son nom |
+| Pas d'adresse, mais un **tag VLAN** : les autres machines du même tag ont voté (la zone la plus citée gagne), sinon l'appareil de l'interface porte le tag (`…vlan50`, `….50`) | la zone du vote ou de l'interface | idem ; sans pare-feu, « VLAN 50 » |
+| Un tag que rien ne rapproche | une zone de tag | « VLAN 50 » |
+| Seulement une adresse | le **sous-réseau** supposé (/24 en IPv4, /64 en IPv6) | le CIDR |
+| Ni adresse ni tag | aucune zone | l'invité va dans le groupe « sans zone » |
+
+Un tag appris par le vote est **dit sur la zone** (`vlan`). La **teinte** (de 0 à
+7) vient d'un hachage stable de l'identifiant de la zone ; deux zones ne
+partagent une teinte que s'il y a plus de huit zones.
+
+**Où va chaque machine.**
+
+| Machine | Place |
+| --- | --- |
+| Type `vps` sans hôte | **Dehors**, à gauche d'Internet |
+| Hôte d'invités (Proxmox ou « hôte » posé à la main) | Une boîte de la maison, avec **ses invités dedans**, rangés par zone |
+| Invité rapproché d'une machine enrôlée | Dans son hôte, avec son numéro (`VM 5010`) ; jamais à côté |
+| Invité que seul l'hôte connaît (sans agent) | Dans son hôte, sans service, son état tel que l'hôte le dit |
+| Un modèle de VM | Nulle part |
+| Les autres (Pi, machine à plat) | Une boîte de la maison, avec sa zone |
+| Une chaîne d'hôtes qui boucle, un hôte inconnu | À plat |
+
+**Tunnels.** Une interface de pare-feu dont l'appareil s'appelle `wg…`, `tun…`,
+`ovpn…`, `ipsec…` ou `gif…` est un tunnel ; un service du dehors dont le nom
+contient « wireguard » ou commence par `wg` en est l'autre bout. Preuve :
+**observé** (le pare-feu le lit) quand les deux bouts se voient, **déclaré**
+(service de l'annuaire) ou **déduit** (une unité vue seule) quand un seul bout
+se voit. Ces noms d'appareils sont les conventions des systèmes, pas la liste
+des tunnels possibles : un tunnel sous un autre nom n'est pas dessiné.
+
+**Entrées d'Internet.** Un service qui publie un port sur toutes les
+interfaces de sa machine, ou qu'une connexion venue d'Internet a atteint
+(L6, mot « observé »).
+
+**Ce que la carte ne dessine pas.** Un lien dont une extrémité n'est pas une
+puce de la carte (un conteneur qui ne tourne plus et n'est pas déclaré, un
+compte de l'hôte, une adresse du réseau local) : il reste sur la fiche du
+service. Une route déduite que l'opérateur a écartée : jamais.
+
+**Ce que le front en fait** (`web/src/components/netmap/`, maquette
+`docs/projet/maquettes/reseau-carte.html`).
+
+| Élément | Rendu |
+| --- | --- |
+| Trois colonnes | **Hébergeur externe** (machines `vps`), bande **Internet**, **Chez vous** ; sans VPS, la première colonne disparaît |
+| Machine | Une boîte : nom (lien vers la fiche), badge de type (`VM 5010`, `LXC 5011`), adresse, ses services en **puces** (état en mot si ce n'est pas « en marche ») |
+| Hôte | Une boîte qui porte ses invités, rangés par **zone** (cadre, nom, VLAN, CIDR, teinte) ; il se replie sur son en-tête (nombre de machines et de services, pire état) |
+| Machine sans service | Jamais une boîte : une ligne « n machines sans service : a · b » par zone |
+| Repli au départ | Au-delà de **12 machines**, tous les hôtes sans service en défaut ; le choix de l'opérateur l'emporte ensuite |
+| Pare-feu | Une boîte entre Internet et les zones, une ligne par interface (teinte de sa zone, cadenas pour un tunnel, « WAN ») ; un connecteur coloré mène à chaque zone |
+| Traits | Zones (connecteurs), entrées d'Internet (ports sur la puce), liens (plein : déclaré, pointillé court : déduit, pointillé long : observé ; « ? » : à confirmer ; pâle : ancien), tunnel (épais, cadenas) |
+| Preuve | Au survol **et au clavier** (focus du trait) ; la même chose dans la liste « Liens (n) » sous la carte, ouverte d'office sous 860 px où les traits sont cachés |
+| Teinte de zone | `oklch(from var(--accent) l c calc(h + n × 45))` : aucun jeton ajouté |
+
+Un hôte replié reçoit sur son en-tête les traits de ses invités (deux liens qui
+tombent sur les mêmes ancres n'en font qu'un).
+
+**Impact mcp-maison** (source absente de cet espace de travail : déduit des
+formes de l'API).
+
+| Ce qui change | Où | Ce que mcp-maison doit suivre |
+| --- | --- | --- |
+| **`GET /api/network` change de forme** : `machines[]` et `links[]` disparaissent ; `zones[]`, `outside[]`, `home[]` (boîtes avec `services[]` et `groups[].guests[]`), `firewalls[]`, `tunnels[]`, `entries[]`, `links[]` (`from`, `to` = identifiants de puces `s:<machine>\|<clé>`) | route d'opérateur seul, **hors liste des jetons** : aucun jeton ne la lisait | Rien tant qu'un outil n'y est pas branché ; `GET /api/machines/{id}/network` (jeton ouvert) **ne change pas** |
+| Aucune route, aucun verbe, aucun droit d'agent de plus | | Rien |
+
+**Coût.** La carte relit tout à chaque ouverture (machines, conteneurs,
+annuaire, liens de chaque service déclaré) : une quarantaine de machines et
+une centaine de services tiennent sans cache ; au-delà, un cache serait à
+poser.
+
+## Comment un renvoi de menu devient un lien
+
+Un texte qui renvoie à un écran (« réglez-le dans Paramètres → E-mails ») n'écrit
+jamais le chemin : il pose un marqueur, `{link:mail}`, dans le catalogue.
+
+| Étape | Ce qui se passe | Où |
+| --- | --- | --- |
+| Table | Liste fermée des cibles : identifiant, adresse de l'interface (avec ancre) et clés de catalogue des étapes du chemin. Aujourd'hui : `channels`, `api_tokens`, `mail`, `projects` | `internal/lang/links.go` |
+| Chargement | Chaque `{link:id}` devient un lien Markdown `[Paramètres → E-mails](/parametres#e-mails)`, libellés pris dans la langue chargée : un menu renommé change le texte sans le toucher. Un identifiant inconnu **refuse le démarrage** | `lang.Load` |
+| Écran | `Rich` (utilisé par `Note`, `Field`, `SectionHead`, `Empty`) fait de chaque lien Markdown **dont l'adresse commence par `/`** un lien du routeur ; toute autre adresse reste du texte | `components/Rich.tsx`, `lib/richText.ts` |
+| Client de l'API | Reçoit la phrase telle quelle : le chemin lisible, puis l'adresse | — |
+| Tests | Go : un chemin « X › Y » écrit à la main dans un catalogue échoue (`TestLoad_NoMenuPathWrittenByHand`) ; le golden `internal/lang/testdata/links.golden.json` fige cibles et libellés. Front : chaque adresse du golden est une route du routeur et chaque ancre existe dans Paramètres (`menuLinks.test.ts`) | `internal/lang`, `web/src/lib` |
+
+Coût : une cible de plus est une ligne dans la table **et** une ancre côté
+écran ; le test échoue tant que l'un des deux manque.
 
 ## Comment une suppression se décide
 
@@ -4739,7 +5889,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 
 | Supprimer | Retenue tant que (restrict) — clé du 409 | Emporte (cascade, compté) | Détache (compté) | Ensuite |
 | --- | --- | --- | --- | --- |
-| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; destinations de sauvegarde qu'elle porte `machine.has_backup_destinations` ; plans de sauvegarde dont elle est la source `machine.has_backup_plans` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux et volumes Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés SSH relevées, hôte Proxmox déclaré (compté ; ses VM et ses stockages partent avec lui, non comptés), clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul), VM Proxmox rapprochées d'elle (le lien seul : la VM reste dans l'hôte) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
+| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; destinations de sauvegarde qu'elle porte `machine.has_backup_destinations` ; plans de sauvegarde dont elle est la source `machine.has_backup_plans` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux et volumes Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés SSH relevées, unités systemd relevées, hôte Proxmox déclaré (compté ; ses VM et ses stockages partent avec lui, non comptés), clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul), VM Proxmox rapprochées d'elle (le lien seul : la VM reste dans l'hôte) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
 | Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur), incidents (le lien seul) | rapprochement refait ; rien ne touche la machine |
 | Projet | — | — | sa page publique, ses composants et leurs membres ; les liens de projet (les services restent) | — |
 | Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes, incidents (le lien seul) | jeu de sondes renvoyé à sa machine |
@@ -4775,6 +5925,12 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
   avec leur objet ; le plan les compte quand même.
 
 ## Le journal d'audit
+
+Deux lectures sont réglées à l'écran, sans toucher aux lignes : l'accès à
+l'interface (un seul objet, nommé `interface` en base) se désigne par sa sorte,
+et la révocation de tous les jetons posée à la création du compte
+(`api_token.revoke`, `all=true`) se lit « Compte créé : les jetons d'API
+existants sont révoqués (n) », ou « aucun jeton d'API à révoquer ».
 
 Qui a fait quoi, quand, sur quel objet. Chaque geste qui **écrit un objet
 déclaré ou une autorité** ajoute, une fois réussi, une ligne à `audit_events`
@@ -4851,7 +6007,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Enrôlement par l'agent | `agent.enroll` (avant la table `agents` : `machine.enroll`, que les lignes déjà écrites gardent) | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
 | Archiver une machine (garder l'historique) | `agent.revoke` | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
 | Retirer une machine (sans historique) | `machine.delete` | La machine | `hostname`, `address` |
-| Déclarer, retirer l'hôte Proxmox d'une machine | `machine.proxmox_set`, `machine.proxmox_unset` | La machine qui porte l'hôte | `token_id`, `host` (l'hôte et le port, sans le schéma ni le chemin), `pinned` (`yes` ou `no`) ; au retrait, rien. **Ni l'adresse complète ni le secret** |
+| Déclarer, retirer l'hôte Proxmox d'une machine | `machine.proxmox_set`, `machine.proxmox_unset` | La machine qui porte l'hôte | `token_id` (ses quatre premiers caractères), `host` (l'hôte et le port, sans le schéma ni le chemin), `pinned` (`yes` ou `no`) ; au retrait, rien. **Ni l'adresse complète ni le secret** |
 | Projet | `project.create`, `.update`, `.delete` | Le projet | `title` |
 | Service déclaré | `service.create`, `.update`, `.delete`, `.review` | Le service | `machine_id`, `nature`, `origin`, `units` |
 | Politique d'une unité | `unit.update_policy` | L'unité, nommée `service/unité` | `service_id`, `policy` |
@@ -5263,13 +6419,14 @@ refusés avant d'envoyer quoi que ce soit.
 | Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |
 | Les clés SSH ne se relèvent qu'en lecture, dans deux fichiers par compte | Un `AuthorizedKeysFile` personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus. Sous un compte dédié, l'agent ne lit pas les clés des autres comptes (« Illisible pour le compte de l'agent ») ; il ne faut **pas** lui donner `CAP_DAC_READ_SEARCH` pour y remédier : il lirait aussi `/etc/shadow`. L'écriture (`ssh.keys`, #152 étape 2) n'existe pas : ajouter ou retirer une clé reste un geste sur la machine | L'écriture attend une décision (`23-direction.md`, §10 étape 8) |
+| Les unités systemd ne se relèvent qu'au niveau du système, en nom et en état | Les unités d'un utilisateur (`systemctl --user`) ne sont pas vues ; la description, le processus, le fichier et l'environnement d'une unité ne sont jamais lus ; le **port** d'un binaire ne se déduit pas (il demanderait `/proc/<pid>/fd`, donc `ptrace`) : il se déclare. Les liens entre instances viennent avec L3 (déclarés), L4 (déduits) et L5 (environnement, sous `observe.env`) | Une décision de Lucas, si un jour le port doit se déduire (droit élevé : refusé par la décision 5 de l'étude) |
 | Un jeton d'API ne fait que lire | mcp-maison ne peut ni acquitter, ni mettre en pause, ni ouvrir un incident : la liste fermée ne compte aucune écriture, et l'acteur `api` n'écrit encore rien au journal | Avec les actions de l'API (#153, étape 5) |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par mcp-maison, journaux de conteneur compris, quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui crée un jeton et branche mcp-maison | Par conception |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |
 | Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se télécharge ou se compile, et se copie à la main. Une version signée se vérifie (`release verify`), la clé de version est posée depuis le 23/10/2026 : la `v0.0.1` est non signée et n'embarque pas la clé, donc la première version signée s'installe à la main, serveur et agents (`agent.update` refuse sans clé). Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |
 | Spool côté agent | Une coupure de plus d'une heure, ou un redémarrage de l'agent, perd des mesures : un trou dans l'historique | Avec les premiers événements à rejouer |
 | Pas d'historique par volume | Les graphes et la vue d'ensemble montrent la somme des volumes ; le détail par volume n'existe que pour la valeur courante | À décider |
-| L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par label, par le projet Compose ou par le nom du conteneur ; un label ne crée jamais rien, et la découverte qui proposerait des services toute seule n'est pas construite (`ProposeAll` n'en est que le socle). Un binaire reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | La découverte, plus tard |
+| L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par label, par le projet Compose ou par le nom du conteneur ; un label ne crée jamais rien, et la découverte qui proposerait des services toute seule n'est pas construite (`ProposeAll` n'en est que le socle). Un binaire dont la machine n'a pas relevé systemd (agent ancien, systemd illisible) reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | La découverte, plus tard |
 | Alertes et historique pas encore sur l'annuaire | Une alerte reste sur le **conteneur** (une par conteneur et par type ; `service_id` la rattache au service déclaré, pour la fiche et pour le silence) : recréer un conteneur ferme l'alerte de l'ancien et en ouvre une pour le nouveau. Les transitions et les mesures restent sur le conteneur aussi, et l'historique d'un service déclaré est celui de la fiche courante. Les sondes, les membres de composants, un silence posé sur le service et la politique de mise à jour suivent le service déclaré | Annuaire 5/6 et suivantes |
 | Les tâches ne se rattachent pas encore à un service | Une tâche surveillée (`heartbeats`) n'a pas de `service_id` : un composant l'affiche seule, et la fiche d'un service déclaré ne la liste pas | Annuaire 5/6 et suivantes |
 | Le fichier de l'annuaire ne s'applique que par la commande | `opencloud apply` écrit l'annuaire à partir d'un fichier, l'interface n'en applique pas : elle montre le journal et le plan de chaque passage. Hors du fichier : les canaux, les pages de statut, les réglages, les sauvegardes, les composants de statut. L'export n'est pas une sauvegarde : il ne contient ni historique, ni secret, ni jeton | Annuaire 4c (appliquer depuis l'interface) si l'usage le demande ; le reste à décider |
@@ -5292,7 +6449,7 @@ refusés avant d'envoyer quoi que ce soit.
 | L'autorité interne se pose machine par machine | `ca_file` n'est pas distribuée par le serveur : chaque machine qui sonde porte la sienne | À décider |
 | Pas d'incident automatique | Une sonde qui tombe change l'état du composant et ouvre une alerte ; personne n'ouvre l'incident public ni ne le résout | À décider, retouche après la 11 : ouvrir un incident public demande une règle, et une erreur se lit en public |
 | Constats d'exposition non alertés | Un port de base publié se voit sur le graphe, personne n'est prévenu | À décider |
-| Une sauvegarde en échec n'alerte pas | Elle se lit sur la page Sauvegardes (état du dernier ordre, `last_error`) ; aucune alerte ne s'ouvre, aucun canal n'est prévenu | À décider |
+| Un échec isolé n'alerte pas | Un plan ou une sauvegarde restic qui échoue se lit sur la page Sauvegardes (état du dernier ordre, `last_error`) ; l'alerte `backup_stale` n'arrive qu'après **36 h** sans réussite, et dit « le dernier essai a échoué » | Seuil non réglable ; à décider si Lucas veut un réglage ou une alerte dès l'échec |
 | Pas d'onglets machine Sauvegardes, Réglages | Onglets masqués tant qu'ils ne sont pas livrés ; leurs adresses mènent au résumé de la machine. La page Sauvegardes existe, au menu, mais pas rangée par machine. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
 | Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
 | Appliquer une mise à jour : ce qui reste | Pour un service **déployé par openCloud**, le tag plus récent se prend d'un geste (« Passer à »). Restent : **aucun retour arrière** si le service ne redevient pas sain ; une **empreinte changée sous le même tag** (aucun bouton : `--pull missing` ne la tirerait pas) ; une **autre version** que celle proposée (modifier le service, puis « Redéployer ») ; un service dont une unité épingle une empreinte (à retirer à la main). Pour les services **qu'openCloud n'a pas déployés**, il montre la ligne `image:` à changer et fabrique la commande ; l'opérateur les applique, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien (décidé le 12 octobre 2026, issue #125) | Le retour arrière : à décider (issue à part) |
@@ -5369,3 +6526,11 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Gestes sur Proxmox (#266) | Les droits `proxmox.power` et `proxmox.snapshot`, quatre ordres `proxmox.vm.*`, le jeton local de l'agent, la route `POST …/proxmox/guests/{vmid}/actions/{geste}`, l'événement d'audit `machine.proxmox_guest` (« Comment un hôte Proxmox agit ») |
 | Inventaire et historique des sauvegardes (#368) | Les migrations `019_backup_runs.sql` (`backup_runs`), `020_proxmox_backup_observed.sql` (archives vues par invité) et `021_machine_volumes.sql` (`machine_volumes`), `internal/backup/history.go` et `inventory.go` (`Inventory`, `Runs`, les clés de source), `store/backup_runs.go` et `backup_inventory.go`, la purge à 400 lignes par plan, `dockerapi.ListVolumes` et `Mounts`, `container.VolumeReport` (`volumes_complete`, `volumes`), `deletion.KindMachineVolumes`, `GET /api/backups/inventory` et `/runs` (ouvertes aux jetons en lecture), les goldens `backups_inventory` et `backups_runs`, la section Inventaire de la page Sauvegardes. `last_targets_ok` et `last_targets_failed` ne sont plus en mémoire |
 | Registre de modules et rôle de machine (#407) | Le paquet `internal/module`, `machine.Roles()` et `RolePreset`, la migration `024_machine_role.sql`, `store/modules.go`, `PUT /api/machines/{id}/role`, `role` et `modules` dans les machines, `modules` dans les compteurs, `roles` dans la session, `web/src/lib/modules.ts` (menu, onglets, carte « à configurer »), Paramètres › Modules, la carte « Rôle de la machine » (« Comment les modules et le rôle d'une machine décident de l'écran ») |
+| Type de machine, puce MCP, assistant OPNsense (v0.5.2 U4, #456) | `machine.IsPublicAddress` et `Placement.Address` (une VM sans hôte n'est un VPS que sur une adresse publique), la puce MCP retirée (`useAgentHint` : une infobulle, `action.agent_hint`), `internal/tlsinspect` et `POST /api/certificate/inspect`, `credential.Mask` (`api_key_hint`, `token_id_hint`), les libellés OPNsense dans les catalogues (`firewall.menu_*`, `firewall.label_*`), les privilèges DHCP réduits à Dnsmasq ou Kea. Aucune migration |
+| Fiche pare-feu visuelle (v0.5.2 U5, #458) | `internal/policy` (zones, objets, règles « de → vers : quoi, pourquoi », `Model.Grid`), `opnsense.Policy`, `firewall.Translator` et `Service.Policy`, `firewall.MatchMachine`, `GET /api/firewalls/{id}/flows` (ouverte aux jetons en lecture), `machine` dans chaque bail, `source_not` et `destination_not` lus par le connecteur (marque `!` dans `Rule.Source` et `Destination`, sans colonne de plus), l'onglet « Qui parle à qui », la maquette `docs/projet/maquettes/pare-feu-fiche.html`, les composants `Choice` (segment partagé) et `useScrollToHash`. Aucune migration, aucune dépendance, aucun champ d'agent |
+| Instances systemd (v0.5.2 L2, #451) | Le paquet `internal/systemdunits` (relevé par liste blanche, `Exec` à environnement vide, bornes), la section `systemd_units` du signal, la migration `029_systemd_units.sql` (`systemd_reports`, `systemd_units`), `directory.ObserveUnits` / `ApplyUnitObservations` / `ProposeUnit`, la route `GET /api/machines/{id}/systemd-units`, `?machine=&unit=` sur la proposition, le module `systemd_units` (onglet de la machine), la colonne « État de l'unité » et « Port à déclarer » de la fiche du service, le port d'un binaire hors du pli « Avancé » |
+| Connexions de l'hôte (v0.5.2 L6, #455) | Le paquet `internal/hostconn` (lecture de `/proc/net/tcp{,6}`, bornes, `Service` en mémoire), la section `host_connections` du signal, `link.Sighting`, `SignalHostConnection`, `KindOf` et les clés `account:` / `address:` / `internet:`, `directory.observedLinks` (rapprochement port → instance), `kind` sur les extrémités des liens, la boucle `connectionsLoop` de l'agent et le patron `latestReport[T]` (`internal/agent/keeper.go`), les sources d'une connexion sur la carte Liens. **Aucune migration, aucune route, aucun droit** |
+| Fiche Proxmox visuelle et dernière sauvegarde réelle (v0.5.2 P1, #459) | `internal/proxmox/backup_access.go` (droits du jeton lus par `GET /access/permissions`, `GrantFor`), `Reading.BlindStorages`, `Guest.BackupUnknown`, `proxmox_storages.backups_unreadable` (migration 035), `POST /api/machines/{id}/actions/refresh-proxmox`, champs `backup_blind_storages`, `backup_grant`, `backup_unknown`, `last_backup_storage`, `backup_blind`, `observed_unknown`, la maquette `docs/projet/maquettes/hyperviseur.html`, `EntityCard` partagé par les VM et les stockages. Migration `035`, aucune dépendance, aucun champ d'agent |
+| Vérifications et supervision des sauvegardes (v0.5.2 B4, #372) | L'ordre `restic.verify` (`agentwire/restic_verify.go` : paramètres, secret masqué, `ResticVerifyReport` à trois comptes, `ActionResult.Verify`), le droit `restic.verify` (`machine.CapabilityResticVerify`, jugé par `agent/availability.go`), `agent/restic_verify.go` (check, instantanés, relecture bornée, sortie qui jette), `restic/verify_command.go`, `restic/verify.go` (nuit, `VerifyNow`, rapport), `restic/supervise.go` (`FindingsOf`, `Service.Supervise`), `alert.Engine.BackupsJudged` et l'objet `backup`, cinq alertes (`backup_stale`, `restore_test_stale`, `source_unprotected`, `target_full`, `target_unreachable`), la migration `034_restic_verify.sql`, la route `POST …/restic-backups/{backup}/actions/verify` et le verbe `restic.backup.verify`, `verify` dans l'aperçu, la carte Surveillance et le test de restauration de la page Sauvegardes, `holderOfRefusal` |
+| Page Sauvegardes simple et visuelle, matrice et explorateur (v0.5.2 B5, #373) | L'ordre `restic.browse` (`agentwire/restic_browse.go` : paramètres jugés, secret masqué, `ResticBrowseReport` en liste blanche, `ActionResult.Browse`), le droit `restic.browse` (`machine.CapabilityResticBrowse`, jugé par `agent/availability.go`), `agent/restic_browse.go`, `restic/browse_command.go`, `restic/browse.go` (`Service.Browse`, créneau en mémoire), la route `POST …/restic-backups/{backup}/actions/browse` et le verbe `restic.backup.browse`, l'action d'audit `restic_backup.browse`, les composants `FileExplorer`, `Matrix` et `Inspector`, la matrice et l'explorateur de la page Sauvegardes, la tuile de la vue d'ensemble ; supprimés : le bloc « Archives chiffrées » (`Archives.tsx`, `PlanCard.tsx`) : la clé et les destinations sont sur la carte de la base, le plan se gère par le menu de sa carte. L'ordre `restic.restore` (`agentwire/restic_restore.go`, `agent/restic_restore.go`, `restic/restore.go`, `restic/restore_command.go`), le droit `restic.restore` (sans chemin : borné par `files.write`), la route `POST …/restic-backups/{backup}/actions/restore` et le verbe à confirmation `restic.backup.restore`, l'action d'audit `restic_backup.restore`, le bouton Restaurer de l'explorateur (`pages/backups/Restore.tsx`) ; supprimée : la commande `restic restore` à copier. Aucune migration |
+| Verbes MCP et non-suppression (v0.5.2 B6, #374) | Le registre `internal/verb/restic.go` ramené aux quatre verbes `restic.backup.run`, `.verify`, `.restore`, `.browse` (retirés : `restic.target.setup`, `.remove`, `restic.backup.create`, `.delete`, leurs libellés `api_token.verb_restic_*`), `Retention.LowersFrom`, `confirm_name` du `PUT …/restic-backups/{backup}`, le refus `restic.retention_confirm_name`, l'action d'audit `restic_backup.retention_lower`, le champ de saisie du nom dans `ResticEditModal` (`lowersRetention`, `canSaveRetention`) ; les tests `server/api_token_hostile_test.go`, `restic/nodelete_test.go`, `agent/orders_test.go` (ordres forgés), `agentwire` (jamais en place). `verbrequest.Service.Confirm` qui refuse (`verb_request.verb_removed`) et rejette la demande d'un verbe retiré du registre, sans rien rejouer ; le tri des ordres par `requested_at DESC, rowid DESC` (`store/actions.go` : l'identifiant, tiré au hasard, départageait deux ordres de la même seconde et le dernier pouvait tomber hors d'une liste bornée) ; l'attente de fin de suivi des fixtures e2e ; `machine.Service.Connect` qui relit l'agent une fois la session ouverte et refuse (`revoked`) un agent révoqué entre son authentification et l'ouverture du flux, au lieu de laisser vivre un flux d'agent révoqué. Tests de l'agent : `writeProgram` (`syscall.ForkLock`) écrit les faux programmes sans qu'un fork hérite du descripteur (« text file busy »). Aucune migration |

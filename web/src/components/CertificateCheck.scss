@@ -1,0 +1,7 @@
+// Les blocs de l'adresse et du certificat : une colonne, l'espace d'un champ.
+.certificate-check {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}

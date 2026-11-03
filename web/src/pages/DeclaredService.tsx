@@ -9,23 +9,27 @@ import {
   useGaps,
   useProjects,
   type DeclaredServiceDetail,
-  type LinkedObject,
+  type BoundObject,
+  type ObservedUnit,
   type Project,
   type ServiceGap,
-  type ServiceLinks,
+  type ServiceBindings,
 } from "../api/directory";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { DeployCard } from "../components/DeployCard";
-import { NaturePill } from "../components/DeclaredServiceTable";
+import { ImageName } from "../components/ImageName";
+import { CategoryPill, shownCategory } from "../components/CategoryPill";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
 import { GapPill } from "../components/GapPill";
 import { PageHead } from "../components/PageHead";
+import { ServiceLinks } from "../components/ServiceLinks";
 import { Pill } from "../components/Pill";
 import { List, Table } from "../components/Table";
 import { useT } from "../i18n/context";
-import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
+import { formatUnitPorts, hasBindings, projectNames, unitKeyOf } from "../lib/directory";
+import { needsPort, observedPill } from "../lib/systemd";
 import { newMutePath } from "../lib/alerts";
 import { componentLookupPath } from "../lib/status";
 import { probePath } from "../lib/probes";
@@ -61,7 +65,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
       <Card>
         <CardBody gap={16}>
           <span className="machine-state">
-            <NaturePill nature={service.nature} />
+            <CategoryPill service={service} />
             {gap && <GapPill state={gap.state} weak={gap.weak} observed={gap.observed} />}
             <span className="meta">
               <Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>
@@ -76,6 +80,15 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
           <CardHeader title={t("tab.summary")} />
           <CardBody gap={10}>
             <KeyValue label={t("directory.field_machine")} value={<Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>} />
+            <KeyValue
+              label={t("directory.field_category")}
+              value={
+                <>
+                  {t(`directory.category_${shownCategory(service)}`)}
+                  {service.category === "" && <span className="muted"> · {t("directory.category_deduced_note")}</span>}
+                </>
+              }
+            />
             <KeyValue label={t("directory.field_nature")} value={t(`directory.nature_${service.nature}`)} />
             <KeyValue label={t("directory.field_origin")} value={t(`directory.origin_${service.origin}`)} />
             {service.compose_project !== "" && <KeyValue label={t("directory.field_compose_project")} value={service.compose_project} mono />}
@@ -133,7 +146,8 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
           </CardBody>
         </Card>
       </div>
-      <LinksCard links={service.links} />
+      <ServiceLinks serviceID={service.id} />
+      <BindingsCard links={service.links} />
       <AlertsCard serviceID={service.id} />
       <Card className="scroll-x">
         <CardHeader title={t("directory.units_title")} aside={t("directory.units_text")} />
@@ -146,6 +160,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
                 <th>{t("directory.col_version")}</th>
                 {service.origin !== "compose" && <th className="wide-only">{t(service.origin === "binary" ? "directory.col_systemd" : "directory.col_container")}</th>}
                 <th className="th-end wide-only">{t("directory.col_ports")}</th>
+                {service.origin === "binary" && <th>{t("directory.col_unit_state")}</th>}
                 <th>{t("directory.update_policy_label")}</th>
                 <th>{t("gap.column")}</th>
               </tr>
@@ -154,10 +169,11 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
               {service.units.map((unit) => (
                 <tr key={unit.id}>
                   <td className="mono">{unit.name}</td>
-                  <td className="mono wide-only">{unit.image !== "" ? unit.image : "—"}</td>
+                  <td className="mono wide-only">{unit.image !== "" ? <ImageName image={unit.image} /> : "—"}</td>
                   <td className="mono">{unit.version !== "" ? unit.version : "—"}</td>
                   {service.origin !== "compose" && <td className="mono wide-only">{unitKeyOf(unit, service.origin)}</td>}
-                  <td className="mono td-end wide-only">{unit.ports.length > 0 ? formatUnitPorts(unit.ports) : "—"}</td>
+                  <td className="mono td-end wide-only">{unit.ports.length > 0 ? formatUnitPorts(unit.ports) : needsPort(unit.kind, unit.ports) ? <PortToDeclare serviceID={service.id} /> : "—"}</td>
+                  {service.origin === "binary" && <td>{unit.observed !== null ? <ObservedState observed={unit.observed} /> : <span className="muted">—</span>}</td>}
                   <td>{unit.kind === "container" ? t(`update.policy_${unit.update_policy}`) : <span className="muted">—</span>}</td>
                   <td>{unitGap(gap, unit.id)}</td>
                 </tr>
@@ -173,6 +189,32 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
       {/* La fenêtre de l'adresse : modifier le service. */}
       <Outlet />
     </>
+  );
+}
+
+// Un binaire sans port : le relevé systemd ne dit pas où il écoute. Le lien
+// ouvre la modification directement sur l'étape des unités.
+function PortToDeclare({ serviceID }: { serviceID: string }) {
+  const t = useT();
+  return (
+    <Link to={`/services/annuaire/${serviceID}/modifier?etape=units`} title={t("directory.port_to_declare_help")}>
+      {t("directory.port_to_declare")}
+    </Link>
+  );
+}
+
+// L'état d'une unité binaire d'après le relevé de sa machine : en marche, en
+// échec, absente de la machine, ou pas encore relevée. Une absence dit quoi
+// vérifier.
+function ObservedState({ observed }: { observed: ObservedUnit }) {
+  const t = useT();
+  const pill = observedPill(observed);
+  const help = observed.presence === "missing" ? t("systemd.presence_missing_help") : observed.presence === "unknown" ? t("systemd.presence_unknown_help") : undefined;
+  return (
+    <span className="cluster" title={help}>
+      <Pill tone={pill.tone}>{t(pill.key)}</Pill>
+      {observed.presence === "found" && <span className="secondary">{t(`systemd.sub_${observed.sub}`)}</span>}
+    </span>
   );
 }
 
@@ -209,7 +251,9 @@ function AttachedContainers({ gap }: { gap: ServiceGap | undefined }) {
                     {container.name}
                   </Link>
                 </td>
-                <td className="mono wide-only">{container.image}</td>
+                <td className="mono wide-only">
+                  <ImageName image={container.image} />
+                </td>
                 <td>
                   <span className="stack">
                     <GapPill state={container.verdict} weak={container.match_level === "name"} observed={gap?.observed ?? true} />
@@ -261,18 +305,18 @@ function AlertsCard({ serviceID }: { serviceID: string }) {
   );
 }
 
-function LinksCard({ links }: { links: ServiceLinks }) {
+function BindingsCard({ links }: { links: ServiceBindings }) {
   const t = useT();
   return (
     <Card>
       <CardHeader title={t("directory.bound_title")} />
       <CardBody gap={10}>
-        {!hasLinks(links) ? (
+        {!hasBindings(links) ? (
           <span className="secondary">{t("directory.links_none")}</span>
         ) : (
           <>
-            <LinkList label={t("directory.links_probes")} objects={links.probes} to={(object) => probePath(object.id)} />
-            <LinkList label={t("directory.links_components")} objects={links.components} to={(object) => componentLookupPath(object.id)} />
+            <BindingList label={t("directory.links_probes")} objects={links.probes} to={(object) => probePath(object.id)} />
+            <BindingList label={t("directory.links_components")} objects={links.components} to={(object) => componentLookupPath(object.id)} />
           </>
         )}
       </CardBody>
@@ -280,7 +324,7 @@ function LinksCard({ links }: { links: ServiceLinks }) {
   );
 }
 
-function LinkList({ label, objects, to }: { label: string; objects: LinkedObject[]; to: (object: LinkedObject) => string }) {
+function BindingList({ label, objects, to }: { label: string; objects: BoundObject[]; to: (object: BoundObject) => string }) {
   if (objects.length === 0) {
     return null;
   }

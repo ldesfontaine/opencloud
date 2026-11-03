@@ -113,9 +113,21 @@
   }
 }
 
+// Une liste qui défile le dit : une ombre au bord où il reste des options, et
+// une barre fine toujours visible (audit F-8). L'ombre est un fond « scroll »
+// que deux fonds « local », de la couleur de la surface, recouvrent quand le
+// bord de la liste est atteint ; aucun script.
 .select-list {
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  background:
+    linear-gradient(var(--surface) 30%, transparent) top / 100% 24px no-repeat local,
+    linear-gradient(transparent, var(--surface) 70%) bottom / 100% 24px no-repeat local,
+    linear-gradient(color-mix(in srgb, var(--ink) 16%, transparent), transparent) top / 100% 10px no-repeat scroll,
+    linear-gradient(transparent, color-mix(in srgb, var(--ink) 16%, transparent)) bottom / 100% 10px no-repeat scroll,
+    var(--surface);
 }
 
 .select-option {
@@ -150,6 +162,28 @@
     flex: none;
     width: 14px;
     height: 14px;
+  }
+}
+
+// Une option qui ne convient pas : grisée, avec sa raison et le lien qui y
+// remédie juste dessous, hors de l'option pour que le lien reste actif.
+.select-option-disabled {
+  cursor: default;
+
+  .select-option-label {
+    color: var(--muted);
+  }
+}
+
+.select-option-reason {
+  display: block;
+  padding: 0 8px 6px;
+  color: var(--muted);
+  font-size: 12px;
+
+  a {
+    color: var(--accent);
+    text-decoration: underline;
   }
 }
 

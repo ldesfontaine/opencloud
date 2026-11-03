@@ -19,7 +19,7 @@ vi.mock("../hooks/useAction", () => ({
 let offer: AgentUpdateOffer;
 let online = true;
 let runs: ActionRun[] = [];
-const migration: AgentMigration = { version: "v0.0.3", commands: "sudo systemctl stop x\nsudo install guard" };
+const migration: AgentMigration = { version: "v0.0.3", commands: "sudo systemctl stop x\nsudo install guard", root_commands: "systemctl stop x\nrunuser -u agent -- install guard" };
 
 vi.mock("../api/actions", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/actions")>()),
@@ -71,11 +71,11 @@ function run(over: Partial<ActionRun>): ActionRun {
   };
 }
 
-function render(over: { agent?: Agent; updateLast?: boolean; online?: boolean } = {}): string {
+function render(over: { agent?: Agent; updateLast?: boolean; online?: boolean; withoutSudo?: boolean } = {}): string {
   online = over.online ?? true;
   return renderToStaticMarkup(
     <MemoryRouter>
-      <AgentUpdate machineID="m1" agent={over.agent ?? agent()} updateLast={over.updateLast ?? false} />
+      <AgentUpdate machineID="m1" agent={over.agent ?? agent()} updateLast={over.updateLast ?? false} withoutSudo={over.withoutSudo ?? false} />
     </MemoryRouter>,
   );
 }
@@ -103,6 +103,28 @@ test("un agent pas migré ne se met pas à jour : la fiche dit pourquoi et donne
   expect(markup).not.toContain("machine.agent_update(v0.0.3)");
   // Le retour arrière non plus : l'agent ne sait pas le confirmer.
   expect(markup).not.toContain("machine.agent_rollback<");
+});
+
+test("sans sudo (un hôte Proxmox), le bloc de migration se propose en root, avec l'autre au choix", () => {
+  offer = { current: "v0.0.2", target: "v0.0.3", arch: "amd64", available: false, reason: "rollback_unavailable" };
+  const root = render({ agent: agent({ rollback_capable: false }), withoutSudo: true });
+  expect(root).toContain("runuser -u agent -- install guard");
+  expect(root).not.toContain("sudo install guard");
+  expect(root).toContain("machine.agent_migration_root_hint");
+  expect(root).toContain("machine.agent_migration_sudo");
+  const sudo = render({ agent: agent({ rollback_capable: false }), withoutSudo: false });
+  expect(sudo).toContain("sudo install guard");
+  expect(sudo).not.toContain("machine.agent_migration_root_hint");
+});
+
+test("un droit qui manque porte son geste : Ré-enrôler avec « Mettre à jour l'agent »", () => {
+  offer = { current: "v0.0.2", target: "v0.0.3", arch: "amd64", available: false, reason: "right_missing" };
+  const markup = render();
+  expect(markup).toContain("machine.agent_update_reason_right_missing");
+  expect(markup).toContain('href="/machines/m1/reenroller?droit=agent.update"');
+  expect(markup).toContain("machine.reenroll_with(machine.capability_agent_update)");
+  // La phrase seule ne se répète pas en ligne grise : un seul endroit la dit.
+  expect(markup.split("machine.agent_update_reason_right_missing").length).toBe(2);
 });
 
 test("une machine hors ligne garde ses gestes, grisés, avec la raison à côté", () => {

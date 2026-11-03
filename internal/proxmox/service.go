@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/credential"
+
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
@@ -63,6 +65,12 @@ type Service struct {
 	// reading ne laisse lire qu'un hôte à la fois, et ne laisse pas un relevé
 	// qui a commencé avec l'ancienne connexion écrire après une redéclaration.
 	reading sync.Mutex
+
+	// Les cartes réseau des invités du dernier relevé de chaque hôte : le tag
+	// VLAN ne se garde pas en base (aucune migration pour la carte du réseau),
+	// il revient au premier relevé après un redémarrage.
+	networksMu sync.Mutex
+	networks   map[string]map[int][]NIC
 
 	// Les gestes sur les invités : l'envoi des ordres, la lecture du dernier
 	// relevé, et la vie du serveur que le suivi d'un ordre accompagne.
@@ -139,6 +147,9 @@ func (s *Service) Remove(ctx context.Context, machineID string) error {
 	if err := s.store.DeleteProxmoxHost(ctx, machineID); err != nil {
 		return err
 	}
+	s.networksMu.Lock()
+	delete(s.networks, machineID)
+	s.networksMu.Unlock()
 	s.auditor.Record(ctx, unsetEvent(host.Machine))
 	s.changed(machineID)
 	return nil
@@ -173,8 +184,33 @@ func (s *Service) refresh(ctx context.Context, machineID string) error {
 	if err != nil {
 		return fmt.Errorf("replace proxmox reading: %w", err)
 	}
+	s.keepNetworks(machineID, reading.Guests)
 	s.changed(machineID)
 	return nil
+}
+
+// keepNetworks retient les cartes des invités du relevé qui vient d'être écrit.
+func (s *Service) keepNetworks(machineID string, guests []Guest) {
+	byVMID := make(map[int][]NIC, len(guests))
+	for _, guest := range guests {
+		if len(guest.NICs) > 0 {
+			byVMID[guest.VMID] = guest.NICs
+		}
+	}
+	s.networksMu.Lock()
+	defer s.networksMu.Unlock()
+	if s.networks == nil {
+		s.networks = map[string]map[int][]NIC{}
+	}
+	s.networks[machineID] = byVMID
+}
+
+// Networks rend les cartes réseau des invités d'un hôte, par numéro d'invité ;
+// vide tant que l'hôte n'a pas été relu depuis le démarrage.
+func (s *Service) Networks(machineID string) map[int][]NIC {
+	s.networksMu.Lock()
+	defer s.networksMu.Unlock()
+	return s.networks[machineID]
 }
 
 // read joue le relevé ; un secret vidé (clé de chiffrement perdue) est un
@@ -264,7 +300,7 @@ func (s *Service) logRefresh(machineID string, err error) {
 }
 
 func setEvent(declared machine.Machine, definition Definition) audit.Event {
-	details := audit.Details{"token_id": definition.TokenID, "pinned": "no"}
+	details := audit.Details{"token_id": credential.Mask(definition.TokenID), "pinned": "no"}
 	if parsed, err := url.Parse(definition.APIURL); err == nil {
 		details["host"] = parsed.Host
 	}

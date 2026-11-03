@@ -16,8 +16,7 @@ export function useProposalActions() {
   return {
     accept: (containerID: string) =>
       action.run(async () => {
-        const { id, body } = acceptanceOf(await fetchProposal(containerID));
-        return saveDeclaredService(id, body);
+        return saveDeclaredService(undefined, acceptanceOf(await fetchProposal(containerID)));
       }, options),
     ignore: (key: IgnoreKey) => action.run(() => ignoreObservation(key), options),
     stopIgnoring: (key: IgnoreKey) => action.run(() => unignoreObservation(key), options),

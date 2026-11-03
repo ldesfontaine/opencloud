@@ -4,12 +4,14 @@ import { enableAuth, signIn, useAuth, type AuthState } from "../api/auth";
 import { offerLocalEnrollment, type TokenResponse } from "../api/machines";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Note } from "../components/Card";
-import { TokenBox } from "../components/Copy";
 import { Failure } from "../components/Failure";
 import { Field } from "../components/Field";
+import { InstallSteps } from "../components/InstallSteps";
 import { Brand } from "../components/Layout";
+import { PublicUrlNote } from "../components/PublicUrlNote";
 import { EnumSelect } from "../components/Select";
 import { useAction } from "../hooks/useAction";
+import { useChecklist } from "../hooks/useChecklist";
 import { useT } from "../i18n/context";
 import { needsFirstSetup } from "../lib/auth";
 import { formatRemaining } from "../lib/time";
@@ -114,10 +116,11 @@ async function agentLineOrNull(): Promise<TokenResponse | null> {
   }
 }
 
-// La deuxième étape : la ligne qui installe l'agent de la machine où tourne
-// le serveur, à coller sur elle. Elle ne s'affiche qu'ici, une fois.
+// La deuxième étape : les étapes qui installent l'agent de la machine où tourne
+// le serveur, à coller sur elle. Elles ne s'affichent qu'ici, une fois.
 function AgentLine({ line, onContinue }: { line: TokenResponse; onContinue: () => void }) {
   const t = useT();
+  const installed = useChecklist();
   const expiresIn = formatRemaining(t, Date.parse(line.expires_at) - Date.now());
   return (
     <main className="first-setup">
@@ -128,16 +131,9 @@ function AgentLine({ line, onContinue }: { line: TokenResponse; onContinue: () =
           <CardBody>
             <p>{t("auth.setup_agent_intro")}</p>
             <Note tone="warn">{t("machine.token_once", expiresIn)}</Note>
-            <Field label={t("machine.prepare_label")} help={t("machine.prepare_help")} tip={t("machine.prepare_tip")}>
-              <TokenBox value={line.preparation} lines />
-            </Field>
-            <Note tone="warn">{t("machine.prepare_docker_note")}</Note>
-            <div className="field">
-              <span className="field-label">{t("machine.command_label")}</span>
-              <TokenBox value={line.command} />
-            </div>
-            {line.url_local && <Note tone="danger">{t("machine.url_local")}</Note>}
-            <p className="secondary">{t("auth.setup_agent_units")}</p>
+            <p className="secondary">{t("machine.install_root_note")}</p>
+            <InstallSteps steps={line.steps} produces={false} done={installed.done} onToggle={installed.toggle} />
+            <PublicUrlNote local={line.url_local} suggestion={line.url_suggestion} />
             <p className="secondary">{t("auth.setup_agent_later")}</p>
             <div className="cluster">
               <Button onClick={onContinue}>{t("auth.setup_continue")}</Button>

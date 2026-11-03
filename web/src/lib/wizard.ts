@@ -16,6 +16,12 @@ interface WizardMove {
 // validate rend la clé du refus d'une étape, ou null quand elle est bonne.
 export type StepValidator = (index: number) => string | null;
 
+// Une seule étape ne se parcourt pas : elle tient en un écran, sans barre
+// d'étapes, sans récapitulatif.
+export function isOneScreen(stepCount: number): boolean {
+  return stepCount === 1;
+}
+
 export function summaryPosition(stepCount: number): number {
   return stepCount;
 }
@@ -28,6 +34,15 @@ export function isSummary(position: number, stepCount: number): boolean {
 // récapitulatif, d'où l'on va droit à l'étape à changer.
 export function initialPosition(mode: WizardMode, stepCount: number): number {
   return mode === "edit" ? summaryPosition(stepCount) : 0;
+}
+
+// Où s'ouvre l'assistant. En modification, un lien peut mener droit à une
+// étape (startAt, son identifiant) : « Déclarer le port » ouvre l'étape des
+// unités, sans passer par le récapitulatif. Une étape inconnue, ou la
+// création, gardent la règle d'initialPosition.
+export function startPosition(mode: WizardMode, stepIds: readonly string[], startAt: string | undefined): number {
+  const index = startAt === undefined ? -1 : stepIds.indexOf(startAt);
+  return mode === "edit" && index >= 0 ? index : initialPosition(mode, stepIds.length);
 }
 
 // Revenir en arrière ne demande rien : le brouillon vit chez l'appelant.

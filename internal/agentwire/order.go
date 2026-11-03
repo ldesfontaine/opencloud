@@ -174,6 +174,37 @@ const (
 	ReasonComposeTooOld     = "compose_too_old"
 	ReasonDiskFull          = "disk_full"
 	ReasonComposeFailed     = "compose_failed"
+	// Les raisons des droits et des ordres restic : rest-server ou restic
+	// manque sur la machine (ni dans le PATH, ni au chemin déclaré) ; restic
+	// a échoué, rejeu compris (sa sortie d'erreur filtrée est dans le
+	// résultat). Une cible injoignable n'est pas un échec : la source passe
+	// par le relais.
+	ReasonRestServerMissing = "rest_server_missing"
+	ReasonResticMissing     = "restic_missing"
+	ReasonResticFailed      = "restic_failed"
+	// La source n'a pas reçu les mots de passe du lien (restic.provision) :
+	// elle ne sauvegarde pas. La cible refuse une rétention hors bornes, ou
+	// sous son plancher, et un plancher plus bas que celui posé.
+	ReasonResticNotProvisioned = "restic_not_provisioned"
+	ReasonRetentionInvalid     = "retention_invalid"
+	ReasonRetentionBelowFloor  = "retention_below_floor"
+	// Les raisons d'une partie d'un service (restic.docker) : le conteneur ou
+	// le volume n'est plus sur la machine ; le volume n'est monté par aucun
+	// conteneur (rien d'où le lire sans root) ; l'image n'est pas une base prise
+	// en charge ; l'outil de dump a échoué dans le conteneur.
+	ReasonContainerMissing  = "container_missing"
+	ReasonVolumeUnmounted   = "volume_unmounted"
+	ReasonEngineUnsupported = "engine_unsupported"
+	ReasonDumpFailed        = "dump_failed"
+	// Les raisons de restic.verify : restic check a trouvé le dépôt abîmé ; la
+	// relecture d'un fichier a échoué ; le dépôt n'a encore aucun instantané.
+	ReasonCheckFailed   = "check_failed"
+	ReasonRestoreFailed = "restore_failed"
+	ReasonRepoEmpty     = "repo_empty"
+	// Les raisons de restic.restore : la destination existe déjà (rien n'est
+	// écrasé ni numéroté en silence) ; le chemin demandé n'est pas dans l'instantané.
+	ReasonPathExists        = "path_exists"
+	ReasonPathNotInSnapshot = "path_not_in_snapshot"
 )
 
 // RightMissing rend la raison d'un ordre refusé faute du droit nommé.
@@ -201,6 +232,10 @@ func RefusalReasons() []string {
 		ReasonProxmoxUnreachable, ReasonProxmoxCertificate, ReasonProxmoxUnauthorized, ReasonProxmoxBadResponse,
 		ReasonProxmoxGuestMissing, ReasonProxmoxTemplate, ReasonProxmoxStateMismatch,
 		ReasonProxmoxSnapshotNotOurs, ReasonProxmoxSnapshotMissing, ReasonProxmoxTaskFailed, ReasonProxmoxTaskTimeout,
+		ReasonRestServerMissing, ReasonResticMissing, ReasonResticFailed,
+		ReasonResticNotProvisioned, ReasonRetentionInvalid, ReasonRetentionBelowFloor,
+		ReasonContainerMissing, ReasonVolumeUnmounted, ReasonEngineUnsupported, ReasonDumpFailed,
+		ReasonCheckFailed, ReasonRestoreFailed, ReasonRepoEmpty, ReasonPathExists, ReasonPathNotInSnapshot,
 	}
 }
 
@@ -227,6 +262,15 @@ type ActionResult struct {
 	State  ActionState  `json:"state"`
 	Reason string       `json:"reason,omitempty"`
 	Output []OutputLine `json:"output,omitempty"`
+	// Le chemin et le bilan d'une sauvegarde restic.backup, réussie ou non ;
+	// absent pour les autres ordres.
+	Restic *ResticRunReport `json:"restic,omitempty"`
+	// Les comptes d'une vérification restic.verify réussie ; absent pour les
+	// autres ordres.
+	Verify *ResticVerifyReport `json:"verify,omitempty"`
+	// Ce qu'un parcours restic.browse a lu : des noms, jamais un contenu ;
+	// absent pour les autres ordres.
+	Browse *ResticBrowseReport `json:"browse,omitempty"`
 }
 
 // OutputLine est une ligne de la sortie d'un ordre ; stream vaut « stdout »

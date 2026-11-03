@@ -1,4 +1,4 @@
-import type { Firewall, FirewallGateway, FirewallRule, GatewayStatus } from "../api/firewalls";
+import type { Firewall, FirewallGateway, FirewallInterface, FirewallRule, GatewayStatus } from "../api/firewalls";
 import type { Translate } from "../i18n/context";
 import type { Tone } from "./tone";
 
@@ -130,29 +130,118 @@ export function endpointLabel(address: string, port: string): string {
   return port === "" ? shown : `${shown} : ${port}`;
 }
 
-// Les interfaces que les règles nomment (une règle peut en nommer plusieurs,
-// séparées par une virgule), sans doublon, dans l'ordre alphabétique.
-export function ruleInterfaces(rules: readonly Pick<FirewallRule, "interface">[]): string[] {
-  const names = new Set<string>();
-  for (const rule of rules) {
-    for (const name of rule.interface.split(",")) {
-      if (name.trim() !== "") {
-        names.add(name.trim());
-      }
-    }
-  }
-  return [...names].sort((a, b) => a.localeCompare(b));
-}
-
-// Les règles d'une interface ; « » les garde toutes.
-export function rulesOfInterface<Rule extends Pick<FirewallRule, "interface">>(rules: readonly Rule[], name: string): Rule[] {
-  if (name === "") {
-    return [...rules];
-  }
-  return rules.filter((rule) => rule.interface.split(",").some((candidate) => candidate.trim() === name));
-}
-
 // L'adresse de l'API sans son schéma, pour une ligne de carte étroite.
 export function shortAddress(apiURL: string): string {
   return apiURL.replace(/^https:\/\//, "");
+}
+
+// Ce qu'une règle fait, pour la compter et la filtrer : une règle éteinte ne fait
+// rien, quelle que soit son action ; une action que le front ne connaît pas
+// n'est ni passante ni bloquante.
+type RuleKind = "pass" | "block" | "other" | "off";
+
+export function ruleKind(rule: Pick<FirewallRule, "action" | "is_enabled">): RuleKind {
+  if (!rule.is_enabled) {
+    return "off";
+  }
+  switch (rule.action) {
+    case "pass":
+      return "pass";
+    case "block":
+    case "reject":
+      return "block";
+    default:
+      return "other";
+  }
+}
+
+// Les filtres de la liste des règles : toutes, ou un genre.
+export type RuleFilter = "all" | "pass" | "block" | "off";
+
+export const ruleFilters: readonly RuleFilter[] = ["all", "pass", "block", "off"];
+
+export interface RuleTotals {
+  all: number;
+  pass: number;
+  block: number;
+  off: number;
+}
+
+export function ruleTotals(rules: readonly Pick<FirewallRule, "action" | "is_enabled">[]): RuleTotals {
+  const totals: RuleTotals = { all: rules.length, pass: 0, block: 0, off: 0 };
+  for (const rule of rules) {
+    const kind = ruleKind(rule);
+    if (kind === "pass" || kind === "block" || kind === "off") {
+      totals[kind] += 1;
+    }
+  }
+  return totals;
+}
+
+// Les règles qui se montrent : le genre choisi, et le texte cherché dans ce que
+// l'écran affiche d'une règle (description, adresses, ports, protocole, interface).
+export function filterRules<Rule extends FirewallRule>(rules: readonly Rule[], filter: RuleFilter, query: string): Rule[] {
+  const words = query.toLowerCase().split(/\s+/).filter((word) => word !== "");
+  return rules.filter((rule) => {
+    if (filter !== "all" && ruleKind(rule) !== filter) {
+      return false;
+    }
+    const text = [rule.description, rule.protocol, rule.source, rule.source_port, rule.destination, rule.destination_port, rule.interface, rule.action].join(" ").toLowerCase();
+    return words.every((word) => text.includes(word));
+  });
+}
+
+// Un groupe de règles : celles d'une interface, dans l'ordre où le pare-feu les rend.
+export interface RuleGroup {
+  // L'identifiant de l'interface chez le pare-feu ; vide pour les règles
+  // flottantes, qui n'en nomment aucune.
+  name: string;
+  // Le nom que le pare-feu lui donne (LAN), l'identifiant à défaut.
+  label: string;
+  rules: FirewallRule[];
+}
+
+// Les règles groupées par interface : celles que la liste relève d'abord, dans
+// son ordre, puis celles que les règles nomment sans qu'elle la relève (une
+// interface retirée, une règle flottante). Une règle qui en nomme plusieurs
+// (« lan,opt1 ») figure dans chaque groupe ; un groupe sans règle disparaît.
+export function groupRulesByInterface(rules: readonly FirewallRule[], interfaces: readonly Pick<FirewallInterface, "name" | "role">[]): RuleGroup[] {
+  const groups = new Map<string, RuleGroup>(interfaces.map((item) => [item.name, { name: item.name, label: item.role === "" ? item.name : item.role, rules: [] }]));
+  for (const rule of rules) {
+    const names = rule.interface.split(",").map((name) => name.trim()).filter((name) => name !== "");
+    for (const name of names.length === 0 ? [""] : names) {
+      const group = groups.get(name) ?? { name, label: name, rules: [] };
+      group.rules.push(rule);
+      groups.set(name, group);
+    }
+  }
+  return [...groups.values()].filter((group) => group.rules.length > 0);
+}
+
+// Les passerelles d'un coup d'œil : combien tiennent, combien ne tiennent pas.
+interface GatewayTotals {
+  all: number;
+  online: number;
+  offline: number;
+  // Dégradées ou inconnues : ni tout à fait en ligne, ni coupées.
+  other: number;
+}
+
+export function gatewayTotals(gateways: readonly Pick<FirewallGateway, "status">[]): GatewayTotals {
+  const totals: GatewayTotals = { all: gateways.length, online: 0, offline: 0, other: 0 };
+  for (const gateway of gateways) {
+    if (gateway.status === "online") {
+      totals.online += 1;
+    } else if (gateway.status === "offline") {
+      totals.offline += 1;
+    } else {
+      totals.other += 1;
+    }
+  }
+  return totals;
+}
+
+// Le ton d'une carte d'interface : « up » va, « down » s'éteint, le reste se remarque.
+export function interfaceCardTone(status: string): "up" | "down" | "other" {
+  return status === "up" ? "up" : status === "down" ? "down" : "other";
 }

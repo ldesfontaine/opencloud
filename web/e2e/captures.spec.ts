@@ -18,6 +18,9 @@ for (const theme of ["light", "dark"] as const) {
       await page.goto(shot.url);
       const dialog = page.locator("dialog[open]");
       await expect(dialog).toBeVisible();
+      if (shot.name === "sonde-type") {
+        await dialog.locator("details.fold > summary").first().click();
+      }
       await dialog.locator(shot.trigger).first().click();
       await expect(dialog.locator("[role=listbox]")).toBeVisible();
       const folder = new URL("../../docs/projet/refonte-ux/captures/", import.meta.url);

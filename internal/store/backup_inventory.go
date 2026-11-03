@@ -16,7 +16,8 @@ import (
 func (db *DB) ListObservedGuests(ctx context.Context) ([]backup.ObservedGuest, error) {
 	rows, err := db.sql.QueryContext(ctx, `
 		SELECT g.machine_id, m.name, g.vmid, g.kind, g.name, g.node, g.backup_count, g.backup_total_bytes,
-			g.last_backup_at, g.last_backup_bytes, g.last_backup_storage
+			g.last_backup_at, g.last_backup_bytes, g.last_backup_storage,
+			(g.backup_count = 0 AND `+blindStorageExists+`)
 		FROM proxmox_guests g JOIN machines m ON m.id = g.machine_id
 		WHERE g.template = 0
 		ORDER BY m.name, g.machine_id, g.vmid`)
@@ -28,7 +29,7 @@ func (db *DB) ListObservedGuests(ctx context.Context) ([]backup.ObservedGuest, e
 		var kind string
 		var lastAt *int64
 		err := row.Scan(&guest.HostMachineID, &guest.HostMachineName, &guest.VMID, &kind, &guest.Name, &guest.Node,
-			&guest.Archives.Count, &guest.Archives.TotalBytes, &lastAt, &guest.Archives.LastBytes, &guest.Archives.Storage)
+			&guest.Archives.Count, &guest.Archives.TotalBytes, &lastAt, &guest.Archives.LastBytes, &guest.Archives.Storage, &guest.ArchivesUnknown)
 		guest.Kind = backup.KindVM
 		if kind == proxmox.KindLXC {
 			guest.Kind = backup.KindLXC

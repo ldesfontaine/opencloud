@@ -248,6 +248,16 @@
   font-size: 13px;
 }
 
+// Le geste d'une note (« Ré-enrôler avec ce droit ») se pose sous son texte.
+.note > p + .btn {
+  margin-top: 8px;
+}
+
+.note-neutral {
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
 .note-ok {
   background: var(--ok-wash);
   color: var(--ok);
@@ -269,4 +279,37 @@
   justify-content: center;
   padding: 8px 20px;
   border-top: 1px solid var(--line);
+}
+
+// Une tuile qui mène à sa liste (Stat, prop to) : même dessin, le trait
+// s'appuie au survol.
+a.stat-link {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: 14px;
+
+  &,
+  &:hover {
+    color: inherit;
+  }
+
+  > .card {
+    flex: 1;
+  }
+
+  &:hover > .card {
+    border-color: var(--line-strong);
+  }
+}
+
+// Un exemple qui ne se copie pas : la même boîte qu'une ligne à copier, sans bouton.
+.public-url-example {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--line-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }

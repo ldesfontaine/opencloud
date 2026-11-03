@@ -23,7 +23,7 @@ func fakeDocker(t *testing.T, script string) string {
 	content := "#!/bin/sh\n" +
 		"printf '%s\\n' \"$@\" > \"" + dir + "/args\"\n" +
 		"env > \"" + dir + "/env\"\n" + script
-	if err := os.WriteFile(program, []byte(content), 0o755); err != nil { // #nosec G306 -- un exécutable de test.
+	if err := writeProgram(program, []byte(content), 0o755); err != nil { // #nosec G306 -- un exécutable de test.
 		t.Fatal(err)
 	}
 	return program

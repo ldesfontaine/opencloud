@@ -28,6 +28,13 @@ var literalsNotKeys = map[string]string{
 	"proxmox.snapshot": "un droit d'agent (machine.CapabilityProxmoxSnapshot), que le front envoie au serveur",
 	"backup.receive":   "un droit d'agent (machine.CapabilityBackupReceive), que le front envoie au serveur",
 	"probe.lan":        "un droit d'agent (machine.CapabilityProbeLAN), que le front envoie au serveur",
+	"observe.env":      "un droit d'agent (machine.CapabilityObserveEnv), que le front envoie au serveur",
+	"restic.target":    "un droit d'agent (machine.CapabilityResticTarget), que le front envoie au serveur",
+	"restic.produce":   "un droit d'agent (machine.CapabilityResticProduce), que le front envoie au serveur",
+	"restic.docker":    "un droit d'agent (machine.CapabilityResticDocker), que le front envoie au serveur",
+	"restic.verify":    "un droit d'agent (machine.CapabilityResticVerify), que le front envoie au serveur",
+	"restic.browse":    "un droit d'agent (machine.CapabilityResticBrowse), que le front envoie au serveur",
+	"restic.restore":   "un droit d'agent (machine.CapabilityResticRestore), que le front envoie au serveur",
 	"machine.delete":   "un verbe du registre (internal/verb), que le front reconnaît dans une demande à confirmer",
 }
 

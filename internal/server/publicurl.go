@@ -9,14 +9,38 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
+// publicAddress est l'adresse que les machines doivent appeler, et ce que
+// l'écran en dit.
+type publicAddress struct {
+	URL string
+	// Local : elle paraît locale, une machine distante ne la joindra pas.
+	Local bool
+	// Suggestion : l'adresse de la page, quand elle est publique alors que
+	// celle ci-dessus ne l'est pas, c'est-à-dire un public_url mal réglé. Vide
+	// sinon : une page locale ne dit pas l'adresse publique, et l'essai local
+	// n'est pas une erreur.
+	Suggestion string
+}
+
 // resolvePublicURL donne l'adresse que les machines doivent appeler : la
 // configuration d'abord, sinon ce que dit un mandataire de confiance, sinon
-// l'hôte de la requête. Le booléen dit si elle paraît locale, auquel cas une
-// machine distante ne la joindra pas.
-func (s *Server) resolvePublicURL(r *http.Request) (string, bool) {
-	if s.publicURL != "" {
-		return strings.TrimRight(s.publicURL, "/"), looksLocal(hostOf(s.publicURL))
+// l'hôte de la requête.
+func (s *Server) resolvePublicURL(r *http.Request) publicAddress {
+	page := s.pageAddress(r)
+	if s.publicURL == "" {
+		return publicAddress{URL: page, Local: looksLocal(hostOf(page))}
 	}
+	configured := strings.TrimRight(s.publicURL, "/")
+	address := publicAddress{URL: configured, Local: looksLocal(hostOf(configured))}
+	if address.Local && !looksLocal(hostOf(page)) {
+		address.Suggestion = page
+	}
+	return address
+}
+
+// pageAddress est l'adresse par laquelle on lit la page : l'hôte de la
+// requête, ou celui que dit un mandataire de confiance.
+func (s *Server) pageAddress(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -30,7 +54,7 @@ func (s *Server) resolvePublicURL(r *http.Request) (string, bool) {
 			scheme = proto
 		}
 	}
-	return scheme + "://" + host, looksLocal(host)
+	return scheme + "://" + host
 }
 
 // clientAddress est l'adresse de l'agent telle que le serveur la voit, ou

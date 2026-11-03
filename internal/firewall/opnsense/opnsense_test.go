@@ -295,3 +295,48 @@ func TestBoundedText_NeverCutsACharacterInHalf(t *testing.T) {
 		t.Fatalf("%d bytes", len(cut))
 	}
 }
+
+func TestExportConfiguration_ReadsTheConfigurationWithOneGET(t *testing.T) {
+	fake := newFakeOPNsense(t)
+	exporter := fake.client(fake.pin()).(firewall.Exporter)
+	content, err := exporter.ExportConfiguration(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != opnsensetest.Configuration {
+		t.Errorf("content %q", content)
+	}
+	if got := fake.seen(); len(got) != 1 || got[0] != "GET "+exportPath {
+		t.Errorf("requests %v", got)
+	}
+}
+
+func TestExportConfiguration_ForbiddenIsTheMissingPrivilege_UnauthorizedIsTheKey(t *testing.T) {
+	cases := map[string]struct {
+		status int
+		want   error
+	}{
+		"403 : the key lacks the privilege": {403, firewall.ErrExportForbidden},
+		"401 : the key is wrong":            {401, firewall.ErrUnauthorized},
+		"500":                               {500, firewall.ErrBadResponse},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			fake := newFakeOPNsense(t)
+			fake.answer(exportPath, c.status, `{"status":"x"}`)
+			_, err := fake.client(fake.pin()).(firewall.Exporter).ExportConfiguration(context.Background())
+			if !errors.Is(err, c.want) {
+				t.Fatalf("got %v, want %v", err, c.want)
+			}
+		})
+	}
+}
+
+func TestExportConfiguration_AnswerThatIsNotAConfigurationIsRefused(t *testing.T) {
+	fake := newFakeOPNsense(t)
+	fake.answer(exportPath, 200, `<html>login</html>`)
+	_, err := fake.client(fake.pin()).(firewall.Exporter).ExportConfiguration(context.Background())
+	if !errors.Is(err, firewall.ErrBadResponse) {
+		t.Fatalf("got %v", err)
+	}
+}

@@ -6,10 +6,12 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -21,13 +23,20 @@ import (
 )
 
 const (
-	pveID           = remoteID
-	dockerVMID      = "77777777-8888-4999-8aaa-bbbbbbbbbbbb"
-	pveTokenID      = "lecteur@pve!lecture"
+	pveID      = remoteID
+	dockerVMID = "77777777-8888-4999-8aaa-bbbbbbbbbbbb"
+	pveTokenID = "lecteur@pve!lecture"
+	// Le jeton qui lit aussi les archives, pour le parcours navigateur : même secret fictif.
+	pveFullTokenID  = "lecteur@pve!complet"
 	pveTokenSecret  = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9" // gitleaks:allow -- faux secret de test
 	pveGoldenURL    = "https://pve.lan:8006"
 	pveGoldenPinHex = "abababababababababababababababababababababababababababababababab"
 )
+
+// Les tâches vzdump de l'hôte, telles que /cluster/backup les rend : chaque
+// nuit, tous les invités vers le partage du Pi, avec sa rétention.
+const pveBackupJobs = `{"data":[{"id":"nuit-pi","type":"vzdump","schedule":"03:00","next-run":1793329200,
+	"storage":"pi-sauvegardes","enabled":1,"all":1,"mode":"snapshot","prune-backups":"keep-daily=14,keep-weekly=8,keep-monthly=3"}]}`
 
 // L'adresse de la carte de la VM 5012, telle que l'hôte la dit dans sa configuration.
 const pveGuestMAC = "BC:24:11:AA:BB:CC"
@@ -38,6 +47,11 @@ type fakeProxmox struct {
 	*httptest.Server
 	mu     sync.Mutex
 	broken bool
+	// auditor : le jeton n'a que PVEAuditor, comme celui de Lucas.
+	auditor bool
+	// rich : un hôte garni (plusieurs VM, un modèle, des stockages dont un NFS de
+	// sauvegardes) pour le parcours navigateur et les captures.
+	rich bool
 	// Le nom de la VM 5012, que le rapprochement lie à une machine du même nom d'hôte.
 	runningName string
 }
@@ -46,12 +60,13 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 	t.Helper()
 	api := &fakeProxmox{}
 	api.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "PVEAPIToken="+pveTokenID+"="+pveTokenSecret {
+		full := r.Header.Get("Authorization") == "PVEAPIToken="+pveFullTokenID+"="+pveTokenSecret
+		if !full && r.Header.Get("Authorization") != "PVEAPIToken="+pveTokenID+"="+pveTokenSecret {
 			http.Error(w, `{"data":null}`, http.StatusUnauthorized)
 			return
 		}
 		api.mu.Lock()
-		broken := api.broken
+		broken, auditor, rich := api.broken, api.auditor && !full, api.rich
 		runningName := api.runningName
 		api.mu.Unlock()
 		if runningName == "" {
@@ -64,6 +79,12 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 		case broken:
 			http.Error(w, "boom", http.StatusInternalServerError)
 			return
+		case rich && r.URL.Path == "/api2/json/cluster/resources" && r.URL.Query().Get("type") == "vm":
+			body = richGuests(runningName)
+		case rich && r.URL.Path == "/api2/json/cluster/resources" && r.URL.Query().Get("type") == "storage":
+			body = richStorages
+		case rich && r.URL.Path == "/api2/json/nodes/pve/storage/pi-sauvegardes/content":
+			body = richArchives()
 		case r.URL.Path == "/api2/json/cluster/resources" && r.URL.Query().Get("type") == "vm":
 			body = `{"data":[
 				{"type":"qemu","vmid":5012,"name":"` + runningName + `","node":"pve","status":"running","template":0,"maxcpu":2,"maxmem":2147483648,"maxdisk":34359738368},
@@ -73,9 +94,19 @@ func newFakeProxmox(t *testing.T) *fakeProxmox {
 		case r.URL.Path == "/api2/json/cluster/status":
 			body = `{"data":[{"type":"cluster","name":"homelab","nodes":1},{"type":"node","name":"pve","local":1}]}`
 		case r.URL.Path == "/api2/json/nodes/pve/qemu/5012/config":
-			body = `{"data":{"name":"` + runningName + `","net0":"virtio=` + pveGuestMAC + `,bridge=vmbr0,firewall=1"}}`
+			body = `{"data":{"name":"` + runningName + `","net0":"virtio=` + pveGuestMAC + `,bridge=vmbr0,firewall=1,tag=50"}}`
+		case r.URL.Path == "/api2/json/nodes/pve/lxc/200/config":
+			body = `{"data":{"net0":"name=eth0,bridge=vmbr0,hwaddr=BC:24:11:AA:BB:DD,tag=50,ip=dhcp"}}`
+		case r.URL.Path == "/api2/json/access/permissions":
+			privileges := `"Datastore.Audit":1,"Datastore.Allocate":1`
+			if auditor {
+				privileges = `"Datastore.Audit":1,"VM.Audit":1`
+			}
+			body = `{"data":{"` + r.URL.Query().Get("path") + `":{` + privileges + `}}}`
 		case r.URL.Path == "/api2/json/nodes/pve/storage/local/content":
 			body = `{"data":[{"vmid":5012,"ctime":1790086400,"size":244318208}]}`
+		case r.URL.Path == "/api2/json/cluster/backup":
+			body = pveBackupJobs
 		default:
 			http.NotFound(w, r)
 			return
@@ -116,14 +147,9 @@ func proxmoxBench(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer) {
 	return server, api, journal
 }
 
-// proxmoxBenchWithKey rend aussi la clé de l'agent de l'hôte, pour ouvrir son
-// flux : un ordre n'est écrit que pour une machine en ligne.
-func proxmoxBenchWithKey(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer, ed25519.PrivateKey) {
+// wireProxmox branche au serveur d'essai un vrai composant Proxmox.
+func wireProxmox(t *testing.T, server *testServer, logger *slog.Logger) {
 	t.Helper()
-	server := newTestServer(t)
-	var journal bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&journal, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	server.logger = logger
 	component := proxmox.New(server.db, server.machines, logger)
 	component.SetClock(func() time.Time { return testNow })
 	component.SetWatcher(server.bus)
@@ -139,6 +165,17 @@ func proxmoxBenchWithKey(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer
 		component.WaitBackground()
 	})
 	server.Server.proxmox = component
+}
+
+// proxmoxBenchWithKey rend aussi la clé de l'agent de l'hôte, pour ouvrir son
+// flux : un ordre n'est écrit que pour une machine en ligne.
+func proxmoxBenchWithKey(t *testing.T) (*testServer, *fakeProxmox, *bytes.Buffer, ed25519.PrivateKey) {
+	t.Helper()
+	server := newTestServer(t)
+	var journal bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&journal, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	server.logger = logger
+	wireProxmox(t, server, logger)
 	_, hostKey := server.enroll(t, "pve", pveID)
 	server.enroll(t, "docker1", dockerVMID)
 	return server, newFakeProxmox(t), &journal, hostKey
@@ -434,4 +471,97 @@ func TestProxmox_GuestActionRefusesBeforeSending(t *testing.T) {
 	if err != nil || len(runs) != 0 {
 		t.Fatalf("a refusal wrote runs: %v %v", runs, err)
 	}
+}
+
+// La cause du « Aucune » : avec PVEAuditor, l'hôte liste zéro archive sans
+// erreur. La fiche le dit en clair, avec les commandes exactes, et ne montre
+// jamais le secret.
+func TestProxmox_AnAuditorTokenIsToldItCannotSeeTheArchives(t *testing.T) {
+	server, api, journal := proxmoxBench(t)
+	api.auditor = true
+
+	put := putProxmox(server, pveID, api.request(pveTokenSecret))
+	if put.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", put.Code, put.Body.String())
+	}
+	var host proxmoxHostJSON
+	decodeAPI(t, put, &host)
+	if host.LastError != "" || !slices.Equal(host.BlindStorages, []string{"local"}) || host.BackupGrant == nil {
+		t.Fatalf("host: %+v", host)
+	}
+	want := "pveum acl modify /storage/local --roles LectureSauvegardes --tokens '" + pveTokenID + "'"
+	if !slices.Contains(host.BackupGrant.Commands, want) {
+		t.Errorf("commands: %v", host.BackupGrant.Commands)
+	}
+	for _, guest := range host.Guests {
+		if guest.LastBackupAt != nil || !guest.BackupUnknown {
+			t.Errorf("no archive was read: it is unknown, not none: %+v", guest)
+		}
+	}
+	listed := callAPI(server.Server, http.MethodGet, "/api/machines", nil)
+	if !strings.Contains(listed.Body.String(), `"backup_blind":true`) {
+		t.Errorf("the machine list must say it: %s", listed.Body.String())
+	}
+	for name, text := range map[string]string{"card": put.Body.String(), "list": listed.Body.String(), "journal": journal.String()} {
+		if strings.Contains(text, pveTokenSecret) {
+			t.Errorf("the token secret leaked in the %s", name)
+		}
+	}
+}
+
+// « Relire maintenant » : la nouvelle lecture est rendue avec la fiche, un hôte
+// qui refuse n'est pas une erreur de la demande, et la route est fermée aux jetons.
+func TestProxmox_RefreshNowReadsAgainAndKeepsARefusalOnTheCard(t *testing.T) {
+	server, api, _ := proxmoxBench(t)
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+pveID+"/actions/refresh-proxmox", nil); got.Code != http.StatusNotFound {
+		t.Fatalf("an undeclared host: %d", got.Code)
+	}
+	if put := putProxmox(server, pveID, api.request(pveTokenSecret)); put.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", put.Code, put.Body.String())
+	}
+	api.auditor = true
+	got := callAPI(server.Server, http.MethodPost, "/api/machines/"+pveID+"/actions/refresh-proxmox", nil)
+	var host proxmoxHostJSON
+	decodeAPI(t, got, &host)
+	if got.Code != http.StatusOK || !slices.Equal(host.BlindStorages, []string{"local"}) {
+		t.Fatalf("refresh: %d %+v", got.Code, host)
+	}
+	api.setBroken(true)
+	got = callAPI(server.Server, http.MethodPost, "/api/machines/"+pveID+"/actions/refresh-proxmox", nil)
+	decodeAPI(t, got, &host)
+	if got.Code != http.StatusOK || host.LastError != "proxmox.bad_response" || !slices.Equal(host.BlindStorages, []string{"local"}) {
+		t.Fatalf("a refusal must stay on the card: %d %+v", got.Code, host)
+	}
+}
+
+// Un hôte garni, tel qu'une petite installation : quatre VM et conteneurs en
+// marche ou arrêtés, un modèle, trois stockages dont un NFS de sauvegardes.
+func richGuests(linkedName string) string {
+	return `{"data":[
+		{"type":"qemu","vmid":5012,"name":"` + linkedName + `","node":"pve","status":"running","template":0,"maxcpu":4,"maxmem":8589934592,"maxdisk":68719476736},
+		{"type":"qemu","vmid":102,"name":"vpn","node":"pve","status":"running","template":0,"maxcpu":2,"maxmem":2147483648,"maxdisk":17179869184},
+		{"type":"lxc","vmid":104,"name":"dns","node":"pve","status":"running","template":0,"maxcpu":1,"maxmem":536870912,"maxdisk":8589934592},
+		{"type":"qemu","vmid":105,"name":"immich","node":"pve","status":"running","template":0,"maxcpu":4,"maxmem":17179869184,"maxdisk":274877906944},
+		{"type":"qemu","vmid":201,"name":"windows-test","node":"pve","status":"stopped","template":0,"maxcpu":4,"maxmem":8589934592,"maxdisk":85899345920},
+		{"type":"lxc","vmid":202,"name":"vieux-wiki","node":"pve","status":"stopped","template":0,"maxcpu":1,"maxmem":1073741824,"maxdisk":12884901888},
+		{"type":"qemu","vmid":9000,"name":"debian-12","node":"pve","status":"stopped","template":1,"maxcpu":2,"maxmem":1073741824,"maxdisk":4294967296}]}`
+}
+
+const richStorages = `{"data":[
+	{"type":"storage","storage":"local","node":"pve","plugintype":"dir","status":"available","content":"iso,vztmpl","maxdisk":107374182400,"disk":23622320128},
+	{"type":"storage","storage":"local-lvm","node":"pve","plugintype":"lvmthin","status":"available","content":"images,rootdir","maxdisk":1099511627776,"disk":670000000000},
+	{"type":"storage","storage":"pi-sauvegardes","node":"pve","plugintype":"nfs","status":"available","content":"backup","maxdisk":2199023255552,"disk":1759218604441}]}`
+
+// Les archives de la nuit, datées d'après l'heure réelle : l'écran juge leur
+// âge à l'horloge du navigateur. 9 h pour les VM sauvegardées chaque nuit, 3 jours
+// pour immich, 20 jours pour le vieux wiki, aucune pour windows-test.
+func richArchives() string {
+	at := func(age time.Duration) int64 { return time.Now().Add(-age).Unix() }
+	return fmt.Sprintf(`{"data":[
+		{"vmid":5012,"ctime":%d,"size":13300000000,"volid":"pi-sauvegardes:backup/vzdump-qemu-5012-a"},
+		{"vmid":102,"ctime":%d,"size":3300000000,"volid":"pi-sauvegardes:backup/vzdump-qemu-102-a"},
+		{"vmid":104,"ctime":%d,"size":640000000,"volid":"pi-sauvegardes:backup/vzdump-lxc-104-a"},
+		{"vmid":105,"ctime":%d,"size":44000000000,"volid":"pi-sauvegardes:backup/vzdump-qemu-105-a"},
+		{"vmid":202,"ctime":%d,"size":1300000000,"volid":"pi-sauvegardes:backup/vzdump-lxc-202-a"}]}`,
+		at(9*time.Hour), at(9*time.Hour), at(9*time.Hour), at(72*time.Hour), at(20*24*time.Hour))
 }

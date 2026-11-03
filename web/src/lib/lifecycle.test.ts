@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import type { Lifecycle } from "../api/lifecycle";
 import type { LifecycleSettings } from "../api/settings";
 import type { Translate } from "../i18n/context";
-import { formatDay, lifecycleHasDetails, lifecycleText, lifecycleTones, newerLine, readingText } from "./lifecycle";
+import { formatDay, lifecycleHasDetails, lifecycleText, lifecycleTones, newerLine, readingText, showsInMachineHead } from "./lifecycle";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -54,7 +54,7 @@ test("lifecycleText parle d'un système avec ses mots", () => {
   expect(lifecycleText(t, debian, "fr", "system")).toBe("lifecycle.maintained_until:Debian:12:30 juin 2028");
   expect(lifecycleText(t, lifecycle({ status: "unknown_version", product: "Debian", cycle: "" }), "fr", "system")).toBe("lifecycle.unknown_version_system:Debian");
   expect(lifecycleText(t, lifecycle({ status: "unknown_product", product: "" }), "fr", "system")).toBe("lifecycle.unknown_system");
-  expect(lifecycleText(t, lifecycle({ status: "pending", product: "" }), "fr", "system")).toBe("lifecycle.pending_system");
+  expect(lifecycleText(t, lifecycle({ status: "pending", product: "" }), "fr", "system")).toBe("lifecycle.reading");
 });
 
 test("seule la fin de support demande l'opérateur", () => {
@@ -83,4 +83,10 @@ test("lifecycleHasDetails : une carte sous l'historique seulement s'il y a plus 
   expect(lifecycleHasDetails(lifecycle({ ...bare, status: "eol", newer: [{ cycle: "13", latest: "", eol_from: "" }] }))).toBe(true);
   expect(lifecycleHasDetails(lifecycle({ ...bare, status: "unknown_product", is_stale: true }))).toBe(true);
   expect(lifecycleHasDetails(lifecycle({ ...bare, status: "maintained", fetched_at: "2026-10-12T06:00:00Z" }))).toBe(true);
+});
+
+test("l'en-tête d'une machine ne dit pas « en attente » : la lecture en cours vit dans la carte du support", () => {
+  expect(showsInMachineHead(lifecycle({ status: "pending" }))).toBe(false);
+  expect(showsInMachineHead(lifecycle({ status: "maintained" }))).toBe(true);
+  expect(showsInMachineHead(lifecycle({ status: "unknown_product" }))).toBe(true);
 });

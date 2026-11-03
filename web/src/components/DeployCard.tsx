@@ -12,6 +12,7 @@ import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
+import { MissingRight } from "./MissingRight";
 import { Textarea, Field } from "./Field";
 import { Modal, ModalCancel } from "./Modal";
 import { Pill } from "./Pill";
@@ -27,7 +28,8 @@ export function DeployCard({ serviceID }: { serviceID: string }) {
   const [asking, setAsking] = useState(false);
   const data = plan.data;
   const running = data?.last_run != null && inFlightStates.has(data.last_run.state);
-  const blocked = data === null || data.right === "missing" || running;
+  const shared = data !== null && data.shared_with.length > 0;
+  const blocked = data === null || data.right === "missing" || running || shared;
   return (
     <Card>
       <CardHeader
@@ -47,6 +49,7 @@ export function DeployCard({ serviceID }: { serviceID: string }) {
       <CardBody gap={10}>
         <p className="secondary">{t("deploy.subtitle")}</p>
         {plan.error && <Failure error={plan.error} />}
+        {data !== null && shared && <Note tone="warn">{t("deploy.shared_project", data.shared_with.join(", "))}</Note>}
         {data !== null && <PlanBody plan={data} />}
       </CardBody>
       {asking && data !== null && <DeployDialog plan={data} onClose={() => setAsking(false)} />}
@@ -60,7 +63,11 @@ function PlanBody({ plan }: { plan: DeployPlan }) {
   const run = plan.last_run;
   return (
     <>
-      {plan.right === "missing" && <Note tone="warn">{t("deploy.right_missing")}</Note>}
+      {plan.right === "missing" && (
+        <MissingRight machineID={plan.machine_id} right="docker.deploy">
+          {t("deploy.right_missing")}
+        </MissingRight>
+      )}
       {plan.right === "unavailable" && <Note tone="warn">{t("deploy.right_unavailable", reasonText(t, plan.right_reason ?? ""))}</Note>}
       <KeyValue label={t("deploy.plan_path")} value={plan.path} mono />
       <KeyValue
@@ -138,7 +145,7 @@ function DeployDialog({ plan, onClose }: { plan: DeployPlan; onClose: () => void
       <p className="mono deploy-dialog-path">
         {plan.machine_name} · {plan.path}
       </p>
-      <Failure error={action.error} />
+      <Failure error={action.error} gesture={{ machineID: plan.machine_id, right: "docker.deploy" }} />
       <Field label={t("deploy.env_label")} htmlFor="deploy-env" help={t("deploy.env_help")}>
         <Textarea
           id="deploy-env"

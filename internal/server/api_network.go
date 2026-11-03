@@ -30,19 +30,19 @@ type groupJSON struct {
 	Members   []string `json:"members"`
 }
 
+// Une arête de lien stocké dit son identifiant, sa nature, sa preuve et sa
+// fraîcheur ; une arête publique n'en dit rien.
 type edgeJSON struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Kind     string `json:"kind"`
 	Port     int    `json:"port,omitempty"`
 	Protocol string `json:"protocol,omitempty"`
-	Source   string `json:"source,omitempty"`
-}
-
-// La vue d'ensemble lit toutes les machines d'un coup, chacune avec sa
-// topologie ; le front en fait un seul dessin, moins détaillé.
-type overviewNetworkResponse struct {
-	Machines []networkResponse `json:"machines"`
+	LinkID   string `json:"link_id,omitempty"`
+	Nature   string `json:"nature,omitempty"`
+	Proof    string `json:"proof,omitempty"`
+	Signal   string `json:"signal,omitempty"`
+	Stale    bool   `json:"stale,omitempty"`
 }
 
 func (s *Server) getMachineNetwork(w http.ResponseWriter, r *http.Request) {
@@ -53,22 +53,6 @@ func (s *Server) getMachineNetwork(w http.ResponseWriter, r *http.Request) {
 	response, err := s.networkOf(r.Context(), found)
 	if s.failed(w, r, err, nil) {
 		return
-	}
-	s.writeAPI(w, http.StatusOK, response)
-}
-
-func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request) {
-	statuses, err := s.machines.List(r.Context())
-	if s.failed(w, r, err, nil) {
-		return
-	}
-	response := overviewNetworkResponse{Machines: make([]networkResponse, 0, len(statuses))}
-	for _, machineStatus := range statuses {
-		network, err := s.networkOf(r.Context(), machineStatus)
-		if s.failed(w, r, err, nil) {
-			return
-		}
-		response.Machines = append(response.Machines, network)
 	}
 	s.writeAPI(w, http.StatusOK, response)
 }
@@ -111,5 +95,8 @@ func (s *Server) networkOf(ctx context.Context, machineStatus machine.Status) (n
 }
 
 func edgeToJSON(edge container.Edge) edgeJSON {
-	return edgeJSON{From: edge.From, To: edge.To, Kind: string(edge.Kind), Port: edge.Port, Protocol: edge.Protocol, Source: string(edge.Source)}
+	return edgeJSON{
+		From: edge.From, To: edge.To, Kind: string(edge.Kind), Port: edge.Port, Protocol: edge.Protocol,
+		LinkID: edge.LinkID, Nature: string(edge.Nature), Proof: string(edge.Proof), Signal: string(edge.Signal), Stale: edge.Stale,
+	}
 }

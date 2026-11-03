@@ -24,6 +24,7 @@ var writesWithoutScreen = map[string]string{
 	"POST /agent/signal":                 "l'agent, à chaque signal",
 	"POST /agent/logs/{request}":         "l'agent, la réponse à une lecture de journaux",
 	"PUT /agent/parcels/{parcel}/{name}": "l'agent, un colis qu'il produit",
+	"POST /agent/relay/response/{id}":    "l'agent d'une cible restic, la réponse de rest-server à une requête relayée",
 	"POST /ping/{token}":                 "le ping d'une tâche, appelé par la tâche",
 	"POST /ping/{token}/start":           "le ping d'une tâche, appelé par la tâche",
 	"POST /ping/{token}/{code}":          "le ping d'une tâche, appelé par la tâche",

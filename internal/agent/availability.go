@@ -55,6 +55,10 @@ type hostChecks struct {
 	// proxmoxToken : le jeton local de Proxmox est posé, lisible du seul compte
 	// de l'agent, avec l'empreinte du certificat.
 	proxmoxToken func() string
+	// findRestic, findRestServer : le chemin absolu du binaire, cherché au
+	// chemin que l'opérateur a déclaré, sinon dans le PATH de l'agent.
+	findRestic     func() (string, error)
+	findRestServer func() (string, error)
 }
 
 // newHostChecks branche les vérifications sur la vraie machine.
@@ -66,7 +70,9 @@ func newHostChecks(socket string, updater *selfUpdater) hostChecks {
 		lookPath:    exec.LookPath,
 		sudoList:    sudoListsProgram,
 		// Branché par newOrderRunner : il lit l'état de l'agent.
-		proxmoxToken: func() string { return "" },
+		proxmoxToken:   func() string { return "" },
+		findRestic:     func() (string, error) { return findBinary("", resticProgram, exec.LookPath) },
+		findRestServer: func() (string, error) { return findBinary("", restServerProgram, exec.LookPath) },
 	}
 }
 
@@ -74,12 +80,14 @@ func newHostChecks(socket string, updater *selfUpdater) hostChecks {
 // à juger.
 func allowAll() hostChecks {
 	return hostChecks{
-		docker:       func(context.Context) string { return "" },
-		writable:     func(string) string { return "" },
-		agentUpdate:  func() string { return "" },
-		lookPath:     func(name string) (string, error) { return name, nil },
-		sudoList:     func(context.Context, string) error { return nil },
-		proxmoxToken: func() string { return "" },
+		docker:         func(context.Context) string { return "" },
+		writable:       func(string) string { return "" },
+		agentUpdate:    func() string { return "" },
+		lookPath:       func(name string) (string, error) { return name, nil },
+		sudoList:       func(context.Context, string) error { return nil },
+		proxmoxToken:   func() string { return "" },
+		findRestic:     func() (string, error) { return "/usr/bin/" + resticProgram, nil },
+		findRestServer: func() (string, error) { return "/usr/bin/" + restServerProgram, nil },
 	}
 }
 
@@ -210,9 +218,43 @@ func judgeRights(ctx context.Context, identity Identity, checks hostChecks) map[
 			note(capability.Name, firstProducerReason(ctx, checks, capability.Paths))
 		case machine.CapabilityProxmoxPower, machine.CapabilityProxmoxSnapshot:
 			note(capability.Name, checks.proxmoxToken())
+		case machine.CapabilityResticTarget:
+			note(capability.Name, resticTargetReason(checks, capability.Paths))
+		case machine.CapabilityResticProduce:
+			note(capability.Name, binaryReason(checks.findRestic, agentwire.ReasonResticMissing))
+		case machine.CapabilityResticDocker:
+			note(capability.Name, resticDockerReason(ctx, checks))
+		case machine.CapabilityResticVerify, machine.CapabilityResticBrowse, machine.CapabilityResticRestore:
+			note(capability.Name, binaryReason(checks.findRestic, agentwire.ReasonResticMissing))
 		}
 	}
 	return unavailable
+}
+
+// resticTargetReason : le dossier des dépôts d'abord, puis rest-server.
+func resticTargetReason(checks hostChecks, paths []string) string {
+	if reason := firstPathReason(checks, paths); reason != "" {
+		return reason
+	}
+	return binaryReason(checks.findRestServer, agentwire.ReasonRestServerMissing)
+}
+
+// resticDockerReason : la socket et le programme docker d'abord (docker cp,
+// docker exec), puis restic, qui les lance.
+func resticDockerReason(ctx context.Context, checks hostChecks) string {
+	if reason := checks.docker(ctx); reason != "" {
+		return reason
+	}
+	return binaryReason(checks.findRestic, agentwire.ReasonResticMissing)
+}
+
+// binaryReason rend missing quand le binaire ne se trouve pas, ou ne se
+// lance pas sous le compte de l'agent.
+func binaryReason(find func() (string, error), missing string) string {
+	if _, err := find(); err != nil {
+		return missing
+	}
+	return ""
 }
 
 // dockerRightReason : la socket d'abord, puis la racine des services.

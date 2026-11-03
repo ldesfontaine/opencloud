@@ -87,8 +87,11 @@ type Directory struct {
 	watcher    Watcher
 	containers Containers
 	checks     ImageChecks
+	units      Units
 	rematcher  Rematcher
 	assigner   Assigner
+	linker     Linker
+	observer   Observer
 	auditor    *audit.Recorder
 	logger     *slog.Logger
 	now        func() time.Time
@@ -239,6 +242,7 @@ func serviceOf(id string, definition ServiceDefinition, units []Unit) Service {
 		Name:           definition.Name,
 		Title:          definition.Title,
 		Nature:         definition.Nature,
+		Category:       definition.Category,
 		Origin:         definition.Origin,
 		ComposeProject: definition.ComposeProject,
 		PublicURL:      definition.PublicURL,

@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router";
 
 import type { StateTone } from "../lib/tone";
 import { Icon, type IconName } from "./Icon";
+import { Rich } from "./Rich";
 import "./Card.scss";
 
 // Les cartes se distinguent par un trait, jamais par une ombre.
@@ -34,7 +36,8 @@ export function KeyValue({ label, value, mono = false }: { label: string; value:
 // Chiffre clé : étiquette avec icône, valeur, jauge optionnelle, une ligne
 // de contexte. La variante compacte sert une bande de chiffres en tête de
 // page : la valeur à gauche, l'étiquette et le contexte l'un sous l'autre à
-// côté, sans jauge.
+// côté, sans jauge. to : la tuile entière mène à la liste qu'elle compte ; une
+// tuile qui chiffre sans mener nulle part est un défaut (audit G2).
 export function Stat({
   icon,
   label,
@@ -44,6 +47,7 @@ export function Stat({
   foot,
   compact = false,
   wideFoot = false,
+  to,
 }: {
   icon: IconName;
   label: string;
@@ -55,8 +59,9 @@ export function Stat({
   // Compacte, avec le pied sur toute la largeur de la tuile, sous le chiffre :
   // pour un pied long (« 39 % utilisée, swap 0 o / 2 Go »).
   wideFoot?: boolean;
+  to?: string;
 }) {
-  return (
+  const tile = (
     <Card>
       <div className={compact ? (wideFoot ? "card-b stat stat-compact stat-wide-foot" : "card-b stat stat-compact") : "card-b stat"}>
         <span className="label">
@@ -71,6 +76,13 @@ export function Stat({
         <span className="foot">{foot}</span>
       </div>
     </Card>
+  );
+  return to === undefined ? (
+    tile
+  ) : (
+    <Link className="stat-link" to={to}>
+      {tile}
+    </Link>
   );
 }
 
@@ -104,7 +116,9 @@ export function Empty({
         </span>
       )}
       {title !== undefined && <h2>{title}</h2>}
-      <p>{text}</p>
+      <p>
+        <Rich text={text} />
+      </p>
       {action}
     </div>
   );
@@ -116,7 +130,9 @@ export function Empty({
 export function EmptyLine({ text, action }: { text: string; action?: ReactNode }) {
   return (
     <div className="empty-line">
-      <p>{text}</p>
+      <p>
+        <Rich text={text} />
+      </p>
       {action}
     </div>
   );
@@ -145,6 +161,8 @@ export function EmptyCard({
   );
 }
 
-export function Note({ tone, children }: { tone: StateTone; children: ReactNode }) {
-  return <div className={`note note-${tone}`}>{children}</div>;
+// Une phrase du catalogue passe par Rich : ses renvois de menu sont des liens.
+// neutral : une information qui n'attend aucun geste, ni bonne ni mauvaise.
+export function Note({ tone, children }: { tone: StateTone | "neutral"; children: ReactNode }) {
+  return <div className={`note note-${tone}`}>{typeof children === "string" ? <Rich text={children} /> : children}</div>;
 }

@@ -4,11 +4,11 @@ import type { ActionsResponse, ActionRun, AgentMigration, AgentUpdateOffer, RunL
 import type { APITokensState } from "./apiTokens";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
-import type { BackupCoverage, BackupDestination, BackupInventory, BackupKeyring, BackupObserved, BackupPlan, BackupRun, BackupRuns, BackupSource, BackupTarget, Backups } from "./backups";
+import type { BackupDestination, BackupForget, BackupKeyring, BackupMachine, BackupMachineRight, BackupOverview, BackupPath, BackupPlan, BackupPartResult, BackupProtection, BackupRetention, BackupSource, BackupSourcePart, BackupTarget, BackupVerify, Backups, ResticRun, RetentionFloor } from "./backups";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
-import type { Firewall, FirewallCounts, FirewallDetail, FirewallInterfacesResponse, FirewallLeasesResponse, FirewallRulesResponse, FirewallsResponse } from "./firewalls";
+import type { Firewall, FirewallCounts, FirewallDetail, FirewallFlowsResponse, FirewallInterfacesResponse, FirewallLeasesResponse, FirewallRulesResponse, FirewallsResponse, FlowEndpoint, FlowRule } from "./firewalls";
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
@@ -16,10 +16,12 @@ import type { Account, Agent, Capability, Machine, MachineHost, MachineRole, Mac
 import type { MachineStorage, PhysicalDisk, StoragePool } from "./storage";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
-import type { NetworkResponse, OverviewNetworkResponse } from "./network";
+import type { LinkEnd, ServiceLinksResponse } from "./links";
+import type { MapBox, MapEntry, MapFirewall, MapGroup, MapLink, MapService, MapTunnel, MapZone, NetworkMap, NetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
-import type { ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
+import type { BackupGrant, ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
+import type { SystemdReport } from "./systemd";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
 import type { Session } from "./session";
 import type { VerbRequest, VerbRequestsResponse } from "./verbRequests";
@@ -139,6 +141,7 @@ const machine = shape<Machine>("Machine", {
     declared: value,
     guests: value,
     last_error: value,
+    backup_blind: value,
     node: value,
     cluster: shape<ProxmoxCluster>("ProxmoxCluster", { id: value, name: value }),
     guest_list: shape<ProxmoxMember>("ProxmoxMember", {
@@ -166,6 +169,7 @@ const machine = shape<Machine>("Machine", {
       max_disk: value,
       last_backup_at: value,
       last_backup_bytes: value,
+      backup_unknown: value,
     }),
   }),
 });
@@ -281,6 +285,85 @@ const containerResponse = shape<ContainerResponse>("ContainerResponse", {
   }),
 });
 
+const linkEnd = shape<LinkEnd>("LinkEnd", {
+  machine_id: value,
+  machine_name: value,
+  key: value,
+  kind: value,
+  label: value,
+  service_id: value,
+  service_name: value,
+  unit_name: value,
+  container_id: value,
+});
+
+// Un hôte porte ses invités, qui ont la forme d'une machine : la description se
+// referme sur elle-même, une fois les deux formes faites.
+const mapService = shape<MapService>("MapService", { id: value, label: value, kind: value, state: value, replicas: value, container_id: value, service_id: value });
+const mapGroup = shape<MapGroup>("MapGroup", { zone_id: value, guests: value as never });
+const mapBox = shape<MapBox>("MapBox", {
+  id: value,
+  machine_id: value,
+  name: value,
+  kind: value,
+  vmid: value,
+  node: value,
+  managed: value,
+  online: value,
+  guest_status: value,
+  address: value,
+  zone_id: value,
+  services: mapService,
+  groups: mapGroup,
+});
+mapGroup.fields.guests = mapBox;
+
+const networkMap = shape<NetworkMap>("NetworkMap", {
+  zones: shape<MapZone>("MapZone", { id: value, name: value, source: value, cidr: value, vlan: value, tone: value }),
+  outside: mapBox,
+  home: mapBox,
+  firewalls: shape<MapFirewall>("MapFirewall", {
+    id: value,
+    name: value,
+    interfaces: shape("MapInterface", { name: value, device: value, role: value, cidr: value, up: value, zone_id: value, wan: value, tunnel: value }),
+  }),
+  tunnels: shape<MapTunnel>("MapTunnel", { id: value, label: value, proof: value, outside: value, service: value, firewall: value, interface: value }),
+  entries: shape<MapEntry>("MapEntry", { to: value, ports: value, observed: value }),
+  links: shape<MapLink>("MapLink", {
+    id: value,
+    from: value,
+    to: value,
+    nature: value,
+    proof: value,
+    signal: value,
+    port: value,
+    stale: value,
+    proposed: value,
+    first_seen_at: value,
+    last_seen_at: value,
+  }),
+});
+
+const serviceLinks = shape<ServiceLinksResponse>("ServiceLinksResponse", {
+  links: shape("ServiceLink", {
+    id: value,
+    direction: value,
+    nature: value,
+    proof: value,
+    signal: value,
+    port: value,
+    first_seen_at: value,
+    last_seen_at: value,
+    stale: value,
+    removable: value,
+    proposed: value,
+    dismissed: value,
+    self: linkEnd,
+    peer: linkEnd,
+  }),
+  environment: shape("EnvironmentRight", { machine_id: value, right: value }),
+});
+
 const network = shape<NetworkResponse>("NetworkResponse", {
   machine_id: value,
   machine_name: value,
@@ -288,7 +371,7 @@ const network = shape<NetworkResponse>("NetworkResponse", {
   engine,
   containers: container,
   groups: shape("Group", { network_id: value, name: value, internal: value, members: value }),
-  edges: shape("Edge", { from: value, to: value, kind: value, port: optional(value), protocol: optional(value), source: optional(value) }),
+  edges: shape("Edge", { from: value, to: value, kind: value, port: optional(value), protocol: optional(value), link_id: optional(value), nature: optional(value), proof: optional(value), signal: optional(value), stale: optional(value) }),
 });
 
 const sshReport = shape<SSHReport>("SSHReport", {
@@ -306,15 +389,33 @@ const sshReport = shape<SSHReport>("SSHReport", {
   }),
 });
 
+const systemdReport = shape<SystemdReport>("SystemdReport", {
+  machine_id: value,
+  machine_name: value,
+  reported_at: value,
+  available: value,
+  reason: value,
+  truncated: value,
+  units: shape("SystemdUnit", {
+    name: value,
+    load: value,
+    active: value,
+    sub: value,
+    declared: shape("DeclaredUnitRef", { service_id: value, service_name: value, unit_id: value }),
+  }),
+});
+
 const proxmoxHost = shape<ProxmoxHost>("ProxmoxHost", {
   api_url: value,
-  token_id: value,
+  token_id_hint: value,
   pin: value,
   node: value,
   version: value,
   verified_at: value,
   last_read_at: value,
   last_error: value,
+  backup_blind_storages: value,
+  backup_grant: shape<BackupGrant>("BackupGrant", { privileges: value, role: value, commands: value }),
   guests: shape("ProxmoxGuest", {
     vmid: value,
     kind: value,
@@ -328,6 +429,8 @@ const proxmoxHost = shape<ProxmoxHost>("ProxmoxHost", {
     linked_machine_id: value,
     last_backup_at: value,
     last_backup_bytes: value,
+    last_backup_storage: value,
+    backup_unknown: value,
     own_snapshots: value,
   }),
   storages: shape("ProxmoxStorage", { node: value, name: value, type: value, total: value, used: value, avail: value, content: value, active: value }),
@@ -409,6 +512,7 @@ const jobResponse = shape<JobResponse>("JobResponse", {
   job,
   ping_url: value,
   url_local: value,
+  url_suggestion: value,
   snippets: shape("Snippet", { key: value, code: value }),
   runs: shape("Run", { id: value, started_at: value, completed_at: value, duration_ms: value, exit_code: value, outcome: value, payload: value }),
   pings: shape("Ping", { id: value, kind: value, exit_code: value, source: value, method: value, received_at: value }),
@@ -466,6 +570,7 @@ const alert = shape<AlertJSON>("Alert", {
     target: optional(value),
     not_after: optional(value),
     since: optional(value),
+    bytes: optional(value),
   }),
   opened_at: value,
   updated_at: value,
@@ -549,6 +654,7 @@ const serviceUnit = shape<DeclaredServiceJSON["units"][number]>("ServiceUnit", {
   ports: value,
   data_path: value,
   update_policy: value,
+  observed: shape("ObservedUnit", { presence: value, load: value, active: value, sub: value, reported_at: value }),
 });
 
 const declaredServiceFields = {
@@ -558,6 +664,8 @@ const declaredServiceFields = {
   name: value,
   title: value,
   nature: value,
+  category: value,
+  category_deduced: value,
   origin: value,
   compose_project: value,
   public_url: value,
@@ -573,11 +681,11 @@ const declaredServices = shape<DeclaredServicesResponse>("DeclaredServicesRespon
   services: shape<DeclaredServiceJSON>("DeclaredService", declaredServiceFields),
 });
 
-const linked = shape<DeclaredServiceDetail["links"]["probes"][number]>("LinkedObject", { id: value, name: value });
+const linked = shape<DeclaredServiceDetail["links"]["probes"][number]>("BoundObject", { id: value, name: value });
 
 const declaredService = shape<DeclaredServiceDetail>("DeclaredServiceDetail", {
   ...declaredServiceFields,
-  links: shape("ServiceLinks", { probes: linked, components: linked }),
+  links: shape("ServiceBindings", { probes: linked, components: linked }),
 });
 
 const projects = shape<ProjectsResponse>("ProjectsResponse", {
@@ -632,7 +740,8 @@ const gaps = shape<GapsResponse>("GapsResponse", {
     key_kind: value,
     key_value: value,
     ignored: value,
-    service_id: value,
+    project: value,
+    compose_service: value,
     adoptable: value,
     containers: shape("UndeclaredContainer", {
       id: value,
@@ -648,12 +757,12 @@ const gaps = shape<GapsResponse>("GapsResponse", {
 });
 
 const proposal = shape<ProposalResponse>("ProposalResponse", {
-  service_id: value,
   definition: shape("ProposalResponse.definition", {
     machine_id: value,
     name: value,
     title: value,
     nature: value,
+    category: value,
     origin: value,
     compose_project: value,
     public_url: value,
@@ -864,6 +973,7 @@ const deployPlan = shape<DeployPlan>("DeployPlan", {
   right_reason: optional(value),
   compose: value,
   data_dirs: value,
+  shared_with: value,
   last_run: actionRun,
 });
 
@@ -898,34 +1008,76 @@ const backups = shape<Backups>("Backups", {
   }),
 });
 
-const backupRun = shape<BackupRun>("BackupRun", {
-  plan: value,
-  source: value,
-  pass_at: value,
-  started_at: value,
-  finished_at: value,
-  result: value,
+const backupProtection = shape<BackupProtection>("BackupProtection", {
+  origin: value,
+  id: value,
+  name: value,
+  scope: value,
+  target_machine_id: value,
+  target_machine_name: value,
+  storage: value,
+  archive_storage: value,
+  state: value,
   reason: value,
+  last_at: value,
+  last_success_at: value,
+  next_at: value,
+  schedule: value,
   size_bytes: value,
-  destination_id: value,
-  destination_name: value,
-  action_run_id: value,
+  added_bytes: value,
+  copies: value,
+  retention: shape<BackupRetention>("BackupRetention", {
+    known: value,
+    applied: value,
+    keep_all: value,
+    keep_last: value,
+    keep_daily: value,
+    keep_weekly: value,
+    keep_monthly: value,
+    keep_yearly: value,
+    last_forget: shape<BackupForget>("BackupForget", { at: value, state: value, reason: value }),
+  }),
+  path: shape<BackupPath>("BackupPath", { path: value, reason: value, source_name: value, target_name: value, target_host: value, target_port: value }),
+  parts: shape<BackupPartResult>("BackupPartResult", { kind: value, name: value, state: value, reason: value, bytes_added: value }),
+  runs: shape<ResticRun>("ResticRun", {
+    run_id: value,
+    finished_at: value,
+    state: value,
+    reason: value,
+    path: value,
+    path_reason: value,
+    bytes_added: value,
+    duration_seconds: value,
+    parts: shape<BackupPartResult>("BackupPartResult", { kind: value, name: value, state: value, reason: value, bytes_added: value }),
+  }),
+  verify: shape<BackupVerify>("BackupVerify", {
+    state: value,
+    reason: value,
+    at: value,
+    success_at: value,
+    snapshots: value,
+    files: value,
+    bytes: value,
+    right: value,
+    right_reason: value,
+    stale: value,
+  }),
 });
 
-const backupInventory = shape<BackupInventory>("BackupInventory", {
+const backupOverview = shape<BackupOverview>("BackupOverview", {
   sources: shape<BackupSource>("BackupSource", {
     key: value,
     kind: value,
     name: value,
     machine_id: value,
     machine_name: value,
-    id: value,
+    vmid: value,
+    service_id: value,
     driver: value,
     used_by: value,
-    covered_by: shape<BackupCoverage>("BackupCoverage", { subject: value, plan_name: value, destination_id: value, destination_name: value }),
-    observed: shape<BackupObserved>("BackupObserved", { storage: value, count: value, total_bytes: value, last_at: value, last_bytes: value }),
-    last_run: backupRun,
-    last_ok: backupRun,
+    observed_unknown: value,
+    parts: shape<BackupSourcePart>("BackupSourcePart", { kind: value, name: value, engine: value }),
+    protections: backupProtection,
   }),
   targets: shape<BackupTarget>("BackupTarget", {
     key: value,
@@ -933,27 +1085,44 @@ const backupInventory = shape<BackupInventory>("BackupInventory", {
     name: value,
     machine_id: value,
     machine_name: value,
-    path: value,
-    right: optional(value),
-    right_reason: optional(value),
+    online: value,
+    state: value,
+    reason: value,
+    host: value,
+    port: value,
+    dir: value,
+    version: value,
+    fingerprint: value,
+    disk_total_bytes: value,
+    disk_free_bytes: value,
+    disk_used_bytes: value,
+    backup_bytes: value,
+    reported_at: value,
+    retention_floor: shape<RetentionFloor>("RetentionFloor", { keep_daily: value, keep_weekly: value, keep_monthly: value }),
     node: value,
     type: value,
-    total_bytes: value,
-    used_bytes: value,
-    avail_bytes: value,
-    active: value,
-    plans: value,
+    holds: value,
+  }),
+  machines: shape<BackupMachine>("BackupMachine", {
+    machine_id: value,
+    machine_name: value,
+    os: value,
+    arch: value,
+    online: value,
+    restic_available: value,
+    is_target: value,
+    proxmox_host: value,
+    proxmox_jobs_unknown: value,
+    rights: shape<BackupMachineRight>("BackupMachineRight", { right: value, state: value, reason: value, path: value }),
   }),
 });
-
-const backupRuns = shape<BackupRuns>("BackupRuns", { runs: backupRun });
 
 const firewallFields = {
   id: value,
   name: value,
   kind: value,
   api_url: value,
-  api_key: value,
+  api_key_hint: value,
   pin: value,
   is_pinned: value,
   version: value,
@@ -995,7 +1164,41 @@ const firewallRules = shape<FirewallRulesResponse>("FirewallRulesResponse", {
 
 const firewallLeases = shape<FirewallLeasesResponse>("FirewallLeasesResponse", {
   ...firewallReading,
-  leases: shape("FirewallLease", { address: value, mac: value, hostname: value, interface: value, server: value, is_static: value, expires_at: value }),
+  leases: shape("FirewallLease", {
+    machine: shape("FirewallLeaseMachine", { id: value, name: value }),
+    address: value,
+    mac: value,
+    hostname: value,
+    interface: value,
+    server: value,
+    is_static: value,
+    expires_at: value,
+  }),
+});
+
+const flowEndpoint = shape<FlowEndpoint>("FlowEndpoint", { zone: value, object: value, except: value });
+
+const flowRule = shape<FlowRule>("FlowRule", {
+  ref: value,
+  from: flowEndpoint,
+  to: flowEndpoint,
+  protocol: value,
+  port: value,
+  source_port: value,
+  why: value,
+  effect: value,
+  is_enabled: value,
+});
+
+const firewallFlows = shape<FirewallFlowsResponse>("FirewallFlowsResponse", {
+  ...firewallReading,
+  zones: shape("FlowZone", { id: value, label: value, kind: value, network: value, is_up: value }),
+  objects: shape("FlowObject", { id: value, kind: value, label: value, zone: value, is_negated: value }),
+  rows: value,
+  columns: value,
+  cells: shape("FlowCell", { from: value, to: value, allowed: flowRule, denied: flowRule }),
+  unplaced: flowRule,
+  disabled: value,
 });
 
 const firewalls = shape<FirewallsResponse>("FirewallsResponse", { firewalls: firewall, limit: value });
@@ -1013,7 +1216,7 @@ const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
 const contract: Record<string, Shape<unknown>> = {
   "actions.golden.json": actions,
   "agent_update_offer.golden.json": agentUpdateOffer,
-  "agent_migration.golden.json": shape<AgentMigration>("AgentMigration", { version: value, commands: value }),
+  "agent_migration.golden.json": shape<AgentMigration>("AgentMigration", { version: value, commands: value, root_commands: value }),
   "alert.golden.json": alertResponse,
   "alert_channels.golden.json": channels,
   "alert_mutes.golden.json": mutes,
@@ -1023,8 +1226,7 @@ const contract: Record<string, Shape<unknown>> = {
   "audit_forwarding.golden.json": auditForwarding,
   "backups.golden.json": backups,
   "backups_empty.golden.json": backups,
-  "backups_inventory.golden.json": backupInventory,
-  "backups_runs.golden.json": backupRuns,
+  "backups_overview.golden.json": backupOverview,
   "backups_plans.golden.json": backups,
   "backups_unavailable.golden.json": backups,
   "auth.golden.json": auth,
@@ -1041,6 +1243,7 @@ const contract: Record<string, Shape<unknown>> = {
   "directory_proposal.golden.json": proposal,
   "firewall.golden.json": firewallDetail,
   "firewall_interfaces.golden.json": firewallInterfaces,
+  "firewall_flows.golden.json": firewallFlows,
   "firewall_leases.golden.json": firewallLeases,
   "firewall_rules.golden.json": firewallRules,
   "firewalls.golden.json": firewalls,
@@ -1067,7 +1270,7 @@ const contract: Record<string, Shape<unknown>> = {
   "machines.golden.json": machines,
   "manifest_applies.golden.json": shape<AppliesResponse>("AppliesResponse", { applies: apply }),
   "manifest_apply.golden.json": apply,
-  "network.golden.json": shape<OverviewNetworkResponse>("OverviewNetworkResponse", { machines: network }),
+  "network.golden.json": networkMap,
   "probe.golden.json": probeResponse,
   "probes.golden.json": probes,
   "projects.golden.json": projects,
@@ -1076,6 +1279,9 @@ const contract: Record<string, Shape<unknown>> = {
   "session.golden.json": session,
   "ssh_keys.golden.json": shape<SSHMatrixResponse>("SSHMatrixResponse", { machines: sshReport }),
   "ssh_keys_machine.golden.json": sshReport,
+  "service_links.golden.json": serviceLinks,
+  "systemd_units_machine.golden.json": systemdReport,
+  "proposal_systemd_unit.golden.json": proposal,
   "settings_ai_agent.golden.json": mcpCheck,
   "verb_requests.golden.json": shape<VerbRequestsResponse>("VerbRequestsResponse", {
     requests: shape<VerbRequest>("VerbRequest", {
@@ -1102,6 +1308,7 @@ const contract: Record<string, Shape<unknown>> = {
 
 // Les autres goldens JSON que le front ne lit pas, chacun avec sa raison.
 const notReadByFront: Record<string, string> = {
+  "backups_runs.golden.json": "l'historique des passages des plans d'archives se lit par un jeton d'API ; la page Sauvegardes lit l'aperçu",
   "agent_updates.golden.json": "le plan des mises à jour se lit par un agent IA (jeton en lecture) ; la fiche d'une machine lit l'offre de sa machine",
   "manifest_plan.golden.json": "le plan se lit par la commande apply ; l'écran ne montre que les passages",
   "verbs.golden.json": "le registre des verbes, pas une réponse de l'API ; parity.test.ts le compare aux écritures de routes.ts",

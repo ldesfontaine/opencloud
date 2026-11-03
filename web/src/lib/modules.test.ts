@@ -19,29 +19,30 @@ function countsWith(configured: ModuleID[]): Counts {
 }
 
 function machineWith(name: string, modules: ModuleID[], declared = false): Machine {
-  return { id: `id-${name}`, name, modules, proxmox: { declared, guests: 0, last_error: "", hosted: null } } as Machine;
+  return { id: `id-${name}`, name, modules, proxmox: { declared, guests: 0, last_error: "", backup_blind: false, hosted: null } } as Machine;
 }
 
 const labels = (entries: ReturnType<typeof menuEntries>) => entries.map((entry) => entry.key);
 
-test("sans compteurs lus, le menu ne montre que les entrées fixes, sans chiffre inventé", () => {
+const allKeys = ["overview", "machines", "firewall", "backups", "services", "probes", "jobs", "alerts", "audit"];
+
+test("sans compteurs lus, le menu montre tous les modules, sans chiffre ni point inventés", () => {
   const entries = menuEntries(null);
-  expect(labels(entries)).toEqual(["overview", "machines", "services", "alerts", "audit"]);
-  expect(entries.every((entry) => entry.counter === null)).toBe(true);
+  expect(labels(entries)).toEqual(allKeys);
+  expect(entries.every((entry) => entry.counter === null && !entry.toConfigure)).toBe(true);
 });
 
-test("un module n'entre au menu que configuré, à son rang", () => {
-  expect(labels(menuEntries(countsWith([])))).toEqual(["overview", "machines", "services", "alerts", "audit"]);
-  expect(labels(menuEntries(countsWith(["jobs", "firewall", "probes"])))).toEqual([
-    "overview",
-    "machines",
-    "firewall",
-    "services",
-    "probes",
-    "jobs",
-    "alerts",
-    "audit",
-  ]);
+// Audit G3 : « Disponibilité » se trouve là où on la cherche, dès le premier
+// lancement. Un point dit qu'elle n'a encore aucun objet.
+test("tous les modules sont au menu, configurés ou non ; un point signale ceux qui n'ont aucun objet", () => {
+  expect(labels(menuEntries(countsWith([])))).toEqual(allKeys);
+  const flagged = (configured: ModuleID[]) =>
+    menuEntries(countsWith(configured))
+      .filter((entry) => entry.toConfigure)
+      .map((entry) => entry.key);
+  expect(flagged([])).toEqual(["firewall", "backups", "probes", "jobs"]);
+  expect(flagged(["jobs", "firewall", "probes"])).toEqual(["backups"]);
+  expect(flagged(["jobs", "firewall", "probes", "backups"])).toEqual([]);
 });
 
 test("le pare-feu et les sauvegardes sont au niveau de Machines, avant Services", () => {
@@ -110,6 +111,6 @@ test("Machines n'a d'onglet que pour les modules que l'une des machines porte", 
   expect(machinesListTabs([machineWith("a", ["containers"])])).toEqual([{ to: "/machines", key: "machines.tab_list" }]);
   expect(machinesListTabs([machineWith("a", ["containers"]), machineWith("b", ["ssh_keys"])])).toEqual([
     { to: "/machines", key: "machines.tab_list" },
-    { to: "/machines/acces-ssh", key: "machines.tab_ssh" },
+    { to: "/machines/acces-ssh", key: "module.ssh_keys" },
   ]);
 });

@@ -90,6 +90,7 @@ var (
 	ErrNameInvalid           = refusal.Invalid("directory.name_invalid", "declared service name must be a lowercase label: letters, digits, dashes, underscores")
 	ErrTitleInvalid          = refusal.Invalid("directory.title_invalid", "declared service title must be at most 80 characters")
 	ErrNatureInvalid         = refusal.Invalid("directory.nature_invalid", "declared service nature must be application or infra")
+	ErrCategoryInvalid       = refusal.Invalid("directory.category_invalid", "declared service category must be web, sso, database, security, monitoring or application, or empty")
 	ErrOriginInvalid         = refusal.Invalid("directory.origin_invalid", "declared service origin must be compose, container or binary")
 	ErrComposeProjectInvalid = refusal.Invalid("directory.compose_project_invalid", "compose project is required for a compose service, and only for it")
 	ErrPublicURLInvalid      = refusal.Invalid("directory.public_url_invalid", "public url must be an absolute http or https address")
@@ -108,7 +109,7 @@ var (
 	ErrPortsInvalid          = refusal.Invalid("directory.ports_invalid", "unit ports must be port, host:port, with an optional /tcp or /udp")
 	ErrDataPathInvalid       = refusal.Invalid("directory.data_path_invalid", "unit data path must be a clean absolute path inside the container, never /, and only for a container")
 	ErrNameTaken             = refusal.Conflict("directory.name_taken", "declared service name already used on this machine")
-	ErrComposeProjectTaken   = refusal.Conflict("directory.compose_project_taken", "compose project already declared on this machine")
+	ErrComposeServiceTaken   = refusal.Conflict("directory.compose_service_taken", "compose service already declared on this machine")
 	ErrMatchKeyTaken         = refusal.Conflict("directory.match_key_taken", "container name or systemd unit already declared on this machine")
 	ErrUnitInvalid           = refusal.Invalid("directory.unit_invalid", "unit does not belong to this service")
 	ErrProjectInvalid        = refusal.Invalid("directory.project_invalid", "project must exist")
@@ -129,9 +130,6 @@ var (
 	// l'accepter créerait une unité que ce label empêcherait de rattacher.
 	// Un état que l'opérateur corrige par le label, d'où un conflit.
 	ErrContainerLabelled = refusal.Conflict("directory.container_labelled", "container carries a label that targets no unit of its machine")
-	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y
-	// ajoute. Un état du service, pas une faute de saisie.
-	ErrUnitsFull = refusal.Conflict("directory.units_full", "declared service already holds the maximum number of units")
 
 	ErrUpdatePolicyInvalid = refusal.Invalid("directory.update_policy_invalid", "unit update policy must be watch, hold or ignore, and only watch for a binary")
 	ErrUnitNotFound        = errors.New("unit not found")
@@ -150,7 +148,10 @@ type Service struct {
 	Name        string
 	Title       string
 	Nature      Nature
-	Origin      Origin
+	// Category : la correction de l'opérateur ; vide, elle se déduit de
+	// l'image (ShownCategory).
+	Category Category
+	Origin   Origin
 	// Le projet Compose du service, seulement en origine compose.
 	ComposeProject string
 	PublicURL      string
@@ -203,6 +204,7 @@ type ServiceDefinition struct {
 	Name           string
 	Title          string
 	Nature         Nature
+	Category       Category
 	Origin         Origin
 	ComposeProject string
 	PublicURL      string

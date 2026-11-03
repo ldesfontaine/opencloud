@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>openCloud · Sauvegardes (maquette)</title>
+<!-- Maquette de la page Sauvegardes (B1, mise à jour B2, B5). Données fictives, adresses de
+documentation seulement. Paramètres de l'adresse : ?theme=dark ·
+?etat=vide|erreurs|binaire|partielle|retard · ?fenetre=quoi|ou|recap|cible|explorateur · ?quoi=vm|service · ?vue=cartes|matrice · ?selection=<source> · ?nobar (sans la barre de démo).
+B2 : un service entier = son dossier + ses volumes + ses bases ; vzdump lancé par openCloud ; la tâche Proxmox « nuit-pi » est observée, à remplacer ;
+supervision (dernière réussite, retard, échec) ; accès aux sauvegardes d'une base ou d'un volume.
+B5 : deux vues de « Ce qui est sauvegardé » (cartes, matrice sources × cibles) ; un inspecteur à droite (340 px) au clic d'une case ;
+l'explorateur de fichiers (fenêtre : instantanés à gauche, fil d'Ariane, liste, sélection, sorties) qui lit une source d'arborescence
+(ici un instantané restic ; plus tard le système de fichiers vivant d'une machine) ; la base d'openCloud est une ligne de plus,
+ses réglages (clé, destination) s'ouvrent depuis son inspecteur ; l'ancien bloc « Archives » est supprimé. -->
 <style>
 /* Jetons : docs/projet/21-direction-artistique.md, tels quels. */
 :root{
@@ -21,172 +30,331 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:400 13px/1.45 var(--sans)}
-button{font:inherit;color:inherit}
-.mono{font-family:var(--mono);font-size:12px}
-.muted{color:var(--muted)}
-.ink2{color:var(--ink-2)}
+button,input{font:inherit;color:inherit}
+[hidden]{display:none!important}
+.mono{font-family:var(--mono);font-size:12px}.muted{color:var(--muted)}.ink2{color:var(--ink-2)}
+.ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* Coquille */
 .app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
 .side{background:var(--surface);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:4px}
-.brand{display:flex;align-items:center;gap:8px;padding:4px 10px 16px;font-weight:600;letter-spacing:-.02em;font-size:15px}
+.brand{display:flex;align-items:center;gap:8px;padding:4px 10px 24px;font-weight:600;letter-spacing:-.02em;font-size:15px}
 .brand b{font-weight:500;color:var(--ink-2)}
 .side-label{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:12px 10px 6px}
-.nav{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;color:var(--ink-2);cursor:default}
+.nav{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;color:var(--ink-2)}
 .nav.active{background:var(--surface-2);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(16,18,22,.06)}
 .nav .count{margin-left:auto;font:12px var(--mono);color:var(--muted)}
-.nav .count.alert{color:var(--danger)}
-.ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.side .foot{margin-top:auto;display:flex;gap:6px;padding:8px 10px}
-.main{padding:28px 32px;min-width:0}
+.main{padding:28px 32px;min-width:0;max-width:1240px}
 
-/* En-tête de page, onglets */
-.head{display:flex;align-items:flex-start;gap:16px;margin-bottom:16px}
+/* En-tête, boutons, pastilles */
+.head{display:flex;align-items:flex-start;gap:16px;margin-bottom:16px;flex-wrap:wrap}
 .head h1{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0}
 .head p{margin:4px 0 0;color:var(--ink-2)}
-.head .actions{margin-left:auto;display:flex;gap:8px}
-.btn{height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line-strong);background:var(--surface);display:inline-flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,22,.05);white-space:nowrap}
+.head .actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.btn{height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line-strong);background:var(--surface);display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,22,.05);white-space:nowrap}
 .btn:hover{background:var(--surface-2)}
 .btn.primary{background:var(--primary);color:var(--primary-ink);border-color:var(--primary);box-shadow:none}
 .btn.primary:hover{opacity:.9}
+.btn:disabled{opacity:.4;cursor:default}
 .btn.small{height:30px;border-radius:7px;padding:0 10px}
-.btn.danger{color:var(--danger)}
-.btn:focus-visible,.cell:focus-visible,.row-name:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.tabs{display:flex;gap:20px;border-bottom:1px solid var(--line);margin-bottom:20px}
-.tab{padding:8px 0 10px;color:var(--ink-2);cursor:pointer;border:0;background:none;border-bottom:2px solid transparent;margin-bottom:-1px}
-.tab.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
-
-/* Pastilles, chips */
+.btn.ghost{border-color:transparent;background:none;box-shadow:none;color:var(--ink-2)}
+.btn.ghost:hover{background:var(--surface-2)}
 .pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}
-.pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
-.pill.small{height:17px;padding:0 7px;font-size:11px;gap:5px}.pill.small i{width:5px;height:5px}
+.pill:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.sm{height:20px;padding:0 8px;font-size:11px}.pill.nodot:before{display:none}
 .t-ok{background:var(--ok-wash);color:var(--ok)}.t-warn{background:var(--warn-wash);color:var(--warn)}
 .t-danger{background:var(--danger-wash);color:var(--danger)}.t-neutral{background:var(--surface-2);color:var(--muted)}
 .t-accent{background:var(--accent-wash);color:var(--accent)}
-.chip{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:5px;font:500 10px var(--mono);letter-spacing:.02em;border:1px solid var(--line-strong);color:var(--ink-2)}
-.chip.mcp{border-color:var(--accent);color:var(--accent)}
-.chip.lock{border-style:dashed;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.label{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 
 /* Verdict */
-.verdict{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.verdict{display:flex;align-items:center;gap:14px;padding:16px 20px;margin-bottom:28px;flex-wrap:wrap}
 .verdict.warn{background:var(--warn-wash);border-color:transparent}
-.verdict b{font-weight:600}
-.verdict .facts{margin-left:auto;display:flex;gap:24px}
-.fact{display:flex;flex-direction:column;align-items:flex-end}
-.fact .v{font:600 20px var(--sans);letter-spacing:-.03em}
-.fact .v small{font:400 12px var(--sans);color:var(--muted);margin-left:2px}
-.fact .l{font-size:12px;color:var(--muted)}
+.verdict.danger{background:var(--danger-wash);border-color:transparent}
+.verdict .say b{font-weight:600;font-size:14px}
+.verdict .facts{margin-left:auto;display:flex;gap:28px}
+.vfact{display:flex;flex-direction:column;align-items:flex-end}
+.vfact .v{font:600 20px var(--sans);letter-spacing:-.03em}
+.vfact .v small{font:400 12px var(--sans);color:var(--muted);margin-left:3px;letter-spacing:0}
+.vfact .l{font-size:12px;color:var(--muted)}
 
-/* Matrice quoi -> où */
-.layout{display:grid;grid-template-columns:1fr;gap:16px;align-items:start}
-.layout.with-insp{grid-template-columns:minmax(0,1fr) 340px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
-.matrix{width:100%;border-collapse:separate;border-spacing:0}
-.matrix th{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:12px 8px 10px;border-bottom:1px solid var(--line);vertical-align:bottom;white-space:nowrap}
-.matrix th .tgt{display:block;text-transform:none;letter-spacing:0;font:500 12px var(--sans);color:var(--ink)}
-.matrix th .tgt-sub{white-space:normal;max-width:150px;display:block;text-transform:none;letter-spacing:0;font:11px var(--mono);color:var(--muted);margin-top:2px}
-.matrix td{padding:0 8px;height:52px;border-bottom:1px solid var(--line);vertical-align:middle}
-.matrix tr:last-child td{border-bottom:0}
-.matrix tr.group td{height:34px;background:var(--surface-2);font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.matrix tr.group td .mono{text-transform:none;letter-spacing:0}
-.src{display:flex;flex-direction:column;gap:1px;min-width:150px}
-.row-name{font-weight:500;color:var(--ink);text-decoration:none;cursor:pointer;background:none;border:0;padding:0;text-align:left}
-.src .kind{font:11px var(--mono);color:var(--muted);white-space:nowrap}
-.cell{display:flex;align-items:center;gap:8px;width:100%;min-width:104px;height:40px;padding:0 8px;border-radius:8px;border:1px solid transparent;background:none;cursor:pointer;text-align:left}
-.cell:hover{background:var(--surface-2)}
-.cell.sel{border-color:var(--accent);background:var(--accent-wash)}
-.cell .dot{width:8px;height:8px;border-radius:50%;flex:none}
-.cell .when{display:flex;flex-direction:column;line-height:1.2}
-.cell .when b{font-weight:500}
-.cell .when span{font:11px var(--mono);color:var(--muted)}
-.cell.empty{color:var(--muted);cursor:default}.cell.empty:hover{background:none}
-.cell.observed .dot{background:transparent;border:1.5px solid var(--ok)}
-.d-ok{background:var(--ok)}.d-warn{background:var(--warn)}.d-danger{background:var(--danger)}.d-neutral{background:var(--muted)}
-.rt{white-space:nowrap}
-.legend{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+/* Têtes de section */
+.section{margin-bottom:32px;scroll-margin-top:16px}
+.shead{display:flex;align-items:flex-end;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.shead p{margin:2px 0 0;color:var(--ink-2)}
+.shead .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+/* Cartes de source */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.src{display:flex;flex-direction:column;gap:12px;padding:16px}
+.src.warn{background:var(--warn-wash);border-color:transparent}
+.src.danger{border-color:var(--danger)}
+.src .top{display:flex;align-items:flex-start;gap:10px}
+.badge{width:32px;height:32px;border-radius:9px;background:var(--surface-2);display:grid;place-items:center;flex:none;color:var(--ink-2)}
+.src.warn .badge{background:var(--surface)}
+.src .name{font-weight:600;font-size:14px;line-height:1.25}
+.src .sub{color:var(--muted);font-size:12px}
+.src .top .pill{margin-left:auto}
+.origin{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.origin .muted{font-size:12px}
+
+/* Le trajet : source → cible */
+.flow{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:var(--surface-2)}
+.src.warn .flow{background:var(--surface)}
+.node{display:flex;flex-direction:column;min-width:0}
+.node b{font-weight:600;display:flex;align-items:center;gap:6px}
+.node span{font:11px var(--mono);color:var(--muted);white-space:nowrap}
+.node.to{text-align:right;align-items:flex-end}
+.wire{position:relative;height:30px;color:var(--line-strong);min-width:56px}
+.wire:before{content:"";position:absolute;left:0;right:7px;top:21px;border-top:2px solid currentColor}
+.wire:after{content:"";position:absolute;right:0;top:17px;border:5px solid transparent;border-left:7px solid currentColor;border-right:0}
+.wire.dashed:before{border-top-style:dashed}
+.wire.accent{color:var(--accent)}.wire.warn{color:var(--warn)}.wire.danger{color:var(--danger)}.wire.muted{color:var(--muted)}
+.wire em{position:absolute;left:0;right:0;top:0;text-align:center;font:11px var(--mono);font-style:normal;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wire.none:before{border-top-style:dotted}.wire.none:after{display:none}
+
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+.fact{display:flex;flex-direction:column;gap:1px;min-width:0}
+.fact .k{color:var(--muted);font-size:12px}
+.fact .v{font-weight:500}
+.fact .v.mono{font-weight:400;font-size:12px}
+.fact .s{color:var(--muted);font:11px var(--mono)}
+.fact.wide{grid-column:1/-1}
+.path{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px}
+.path .line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.copyline{display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:4px 4px 4px 10px}
+.copyline code{flex:1;font:12px var(--mono);min-width:0;white-space:normal;overflow-wrap:break-word;color:var(--ink);padding:3px 0}
+.copyline .nb{white-space:nowrap}
+.copyline .on{flex:none;align-self:flex-start;margin-top:3px;height:18px;padding:0 6px;border-radius:5px;background:var(--surface);border:1px solid var(--line-strong);font:500 11px/16px var(--mono);color:var(--ink-2)}
+.src .foot{display:flex;gap:8px;align-items:center;margin-top:auto}
+.src .foot .muted{font-size:12px}
+
+/* Ce que contient une sauvegarde de service (B2) */
+.parts{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line);padding-top:10px}
+.parts .p{display:flex;align-items:center;gap:8px;min-height:28px}
+.parts .p .nm{flex:1;min-width:0;display:flex;flex-direction:column}
+.parts .p .nm b{font-weight:500}
+.parts .p .nm span{color:var(--muted);font-size:12px}
+.parts .p .sz{font:12px var(--mono);color:var(--ink-2)}
+.mark{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;flex:none;font:600 11px var(--sans)}
+.mark.ok{background:var(--ok-wash);color:var(--ok)}.mark.failed{background:var(--danger-wash);color:var(--danger)}
+.mark.skipped,.mark.todo{background:var(--surface-2);color:var(--muted)}
+.parts .head2{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.replace{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:var(--warn-wash);color:var(--ink)}
+.replace>span{flex:1 1 200px}
+.replace .btn{background:var(--surface)}
+.late{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* Cibles */
+.targets{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:12px}
+.tgt{padding:20px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px 28px}
+.tgt.unknown{border-style:dashed}
+.tgt .top{grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tgt .top .name{font-weight:600;font-size:16px}
+.big{font:600 26px var(--sans);letter-spacing:-.03em}
+.big small{font:400 14px var(--sans);color:var(--muted);margin-left:4px;letter-spacing:0}
+.bar{display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--surface-2);margin:10px 0 8px;gap:2px}
+.bar i{display:block;height:100%}
+.bar .b-bk{background:var(--accent)}.bar .b-other{background:var(--line-strong)}
+.bar.stale{opacity:.5}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--ink-2)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
-.legend .dot{width:8px;height:8px;border-radius:50%}
+.legend i{width:8px;height:8px;border-radius:2px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:10px 0 0}
+.kv dt{color:var(--muted)}.kv dd{margin:0;text-align:right}
+.holds{grid-column:1/-1;border-top:1px solid var(--line);padding-top:16px}
+.holds .groups{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2)}
+.chip b{font-weight:500}
+.floor{margin-top:10px;font-size:12px;color:var(--ink-2)}
+.install{grid-column:1/-1;border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:12px}
+.install .ihead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.install .ihead b{font-size:14px;font-weight:600}
+.install .steps .copyline{background:var(--surface-2)}
+.m-body .install{border-top:0;padding:14px;border:1px solid var(--line);border-radius:10px}
+.add{align-self:start;padding:20px;border:1px dashed var(--line-strong);background:none;display:flex;flex-direction:column;gap:10px;align-items:flex-start;justify-content:center}
+.add .badge{background:var(--surface)}
+.add b{font-size:14px}
+.add p{margin:0;color:var(--ink-2)}
 
-/* Inspecteur */
-.insp{position:sticky;top:20px;padding:20px;display:flex;flex-direction:column;gap:16px}
-.insp h2{font-size:14px;font-weight:600;margin:0}
-.insp .sub{font:12px var(--mono);color:var(--muted);margin-top:2px}
-.insp .close{margin-left:auto;border:0;background:none;cursor:pointer;color:var(--muted);height:28px;width:28px;border-radius:7px}
-.insp .close:hover{background:var(--surface-2)}
-.label{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
-.frise{display:flex;gap:3px}
-.frise i{width:8px;height:20px;border-radius:2px}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px}
-.kv dt{color:var(--muted)}
-.kv dd{margin:0;text-align:right}
-.acts{display:flex;flex-direction:column;gap:8px}
-.acts .row{display:flex;gap:8px;align-items:center}
-.acts .row .btn{flex:1;justify-content:center}
-.danger-zone{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:8px}
-.danger-zone p{margin:0;font-size:12px;color:var(--muted)}
-hr.sep{border:0;border-top:1px solid var(--line);margin:0}
+/* Accéder */
+.note{display:flex;gap:10px;align-items:center;padding:12px 14px;border-radius:10px;background:var(--surface-2);color:var(--ink-2);flex-wrap:wrap}
+.note.warn{background:var(--warn-wash);color:var(--ink)}
+.note .ico{color:var(--ink-2)}
+.note>span{flex:1 1 240px}
+.note .copyline{flex:1 1 360px;background:var(--surface)}
+.note.stack{flex-direction:column;align-items:stretch;gap:8px}
+.note.stack .say{display:flex;gap:10px;align-items:flex-start}
+.note.stack .say .ico{margin-top:2px}
+.note.stack>span,.note.stack .copyline{flex:none}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{height:30px;padding:0 12px;border:0;border-right:1px solid var(--line);background:var(--surface);cursor:pointer;color:var(--ink-2)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed=true]{background:var(--surface-2);color:var(--ink);font-weight:500}
+.how{padding:18px;display:flex;flex-direction:column;gap:12px}
+.how h3{margin:0;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.how .badge{width:28px;height:28px;border-radius:8px}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px;counter-reset:s}
+.steps li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:4px 8px;counter-increment:s}
+.steps li:before{content:counter(s);width:20px;height:20px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line-strong);display:grid;place-items:center;font:500 11px var(--mono);color:var(--ink-2)}
+.steps li>div{display:flex;flex-direction:column;gap:6px;min-width:0}
+.alt{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:6px}
+.crumb{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.crumb span{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line);font-size:12px;font-weight:500}
+.crumb .sepc{background:none;border:0;padding:0;color:var(--muted);font-weight:400}
 
-/* Politiques */
-.policies{display:flex;flex-direction:column;gap:12px}
-.policy{padding:16px 20px;display:grid;grid-template-columns:1fr auto;gap:8px 16px;align-items:center}
-.policy .sentence{font-size:14px;line-height:1.6}
-.policy .sentence .tok{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);font-weight:500;margin:0 2px}
-.policy .meta{grid-column:1/-1;display:flex;gap:16px;color:var(--muted);font-size:12px}
+.empty{display:flex;align-items:center;gap:12px;padding:14px 16px;flex-wrap:wrap}
+.empty .btn{margin-left:auto}
 
-/* Explorateur (composant réutilisable) */
-.scrim{position:fixed;inset:0;background:var(--scrim);display:none;align-items:center;justify-content:center;padding:32px;z-index:10}
-.scrim.on{display:flex}
-.explorer{width:min(1080px,100%);height:min(680px,100%);background:var(--surface);border:1px solid var(--line);border-radius:14px;display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.18)}
-.ex-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
-.ex-head h2{font-size:14px;font-weight:600;margin:0}
-.ex-body{display:grid;grid-template-columns:220px 1fr;min-height:0}
-.snaps{border-right:1px solid var(--line);overflow:auto;padding:12px 8px}
-.snap{display:flex;flex-direction:column;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent}
-.snap:hover{background:var(--surface-2)}
-.snap.on{background:var(--accent-wash);border-color:var(--accent)}
-.snap b{font-weight:500}.snap span{font:11px var(--mono);color:var(--muted)}
-.files{display:flex;flex-direction:column;min-width:0}
-.crumbs{display:flex;align-items:center;gap:4px;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.crumbs button{border:0;background:none;padding:4px 6px;border-radius:6px;cursor:pointer;font:12px var(--mono);color:var(--ink-2)}
-.crumbs button:hover{background:var(--surface-2)}
-.crumbs .sepc{color:var(--muted)}
-.crumbs .search{margin-left:auto;height:30px;border:1px solid var(--line-strong);border-radius:7px;padding:0 10px;background:var(--surface);color:var(--ink);font:12px var(--sans);width:200px}
-.flist{overflow:auto;flex:1}
-.flist table{width:100%;border-collapse:collapse}
-.flist th{font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface)}
-.flist td{padding:0 16px;height:40px;border-bottom:1px solid var(--line)}
-.flist tr:hover td{background:var(--surface-2)}
-.flist tr.picked td{background:var(--accent-wash)}
-.fname{display:flex;align-items:center;gap:10px;cursor:pointer}
-.fname .ico{color:var(--muted)}
-.fname.dir{font-weight:500}
-.ex-foot{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
-.ex-foot .sel{color:var(--ink-2)}
-.ex-foot .sp{flex:1}
-.note{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--surface-2);color:var(--ink-2);font-size:12px}
-.confirm{display:none;align-items:center;gap:8px;font-size:12px}
-.confirm.on{display:inline-flex}
+/* Fenêtres */
+.scrim{position:fixed;inset:0;background:var(--scrim);backdrop-filter:blur(2px);display:flex;align-items:flex-start;justify-content:center;padding:56px 24px;z-index:10;overflow:auto}
+.modal{width:min(680px,100%);background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 64px rgba(0,0,0,.18);display:flex;flex-direction:column}
+.modal.narrow{width:min(520px,100%)}
+.m-head{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.m-head h2{margin:0;font-size:16px;font-weight:600}
+.m-head h2:focus{outline:none}
+.m-head .x{margin-left:auto;width:30px;height:30px;border-radius:7px;border:0;background:none;cursor:pointer;display:grid;place-items:center;color:var(--muted)}
+.m-head .x:hover{background:var(--surface-2)}
+.stepper{display:flex;align-items:center;gap:8px;padding:12px 20px;border-bottom:1px solid var(--line)}
+.st{display:inline-flex;align-items:center;gap:8px;color:var(--muted)}
+.st i{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:500 11px var(--mono);font-style:normal;border:1px solid var(--line-strong)}
+.st.on{color:var(--ink);font-weight:500}.st.on i{background:var(--primary);color:var(--primary-ink);border-color:var(--primary)}
+.st.done i{background:var(--surface-2);color:var(--ok)}
+.st-sep{flex:0 0 24px;border-top:1px solid var(--line-strong)}
+.m-body{padding:20px;display:flex;flex-direction:column;gap:14px}
+.m-body h3{margin:0;font-size:14px;font-weight:600}
+.m-foot{display:flex;align-items:center;gap:8px;padding:14px 20px;border-top:1px solid var(--line)}
+.m-foot .sp{flex:1}
+.search{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface)}
+.search input{border:0;background:none;outline:0;flex:1;min-width:0}
+.search:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);cursor:pointer;text-align:left;width:100%}
+.opt:hover{border-color:var(--line-strong)}
+.opt[aria-checked=true]{border-color:var(--accent);background:var(--accent-wash)}
+.opt .radio{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line-strong);flex:none;display:grid;place-items:center}
+.opt[aria-checked=true] .radio{border-color:var(--accent)}
+.opt[aria-checked=true] .radio:after{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.opt .who{display:flex;flex-direction:column;min-width:0;flex:1}
+.opt .who b{font-weight:500}
+.opt .who span{color:var(--muted);font-size:12px}
+.opt .end{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.opt.off{cursor:default;background:var(--surface-2)}
+.opt.off:hover{border-color:var(--line)}
+.opt.off .who b,.opt.off .badge,.opt.off .radio{opacity:.55}
+.mini{width:80px;height:6px;border-radius:999px;background:var(--surface-2);overflow:hidden}
+.mini i{display:block;height:100%;background:var(--accent)}
+.recap{display:flex;flex-direction:column}
+.recap .r{display:grid;grid-template-columns:120px minmax(0,1fr) auto;gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}
+.recap .r:first-child{border-top:0;padding-top:0}
+.recap .r .k{color:var(--muted)}
+.recap .r .v{display:flex;flex-direction:column;gap:4px}
+.recap .r .btn{height:26px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-weight:500}
+.field .help{color:var(--muted);font-size:12px}
+.input{height:36px;padding:0 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);font:12px var(--mono);color:var(--ink);width:100%}
+.input.short{width:104px}
+.trigger{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);cursor:pointer;width:100%;text-align:left}
+.trigger .muted{margin-left:4px}
+.trigger .ico:last-child{margin-left:auto;color:var(--muted)}
+.row2{display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:14px}
 
-/* Tweaks */
-.tweaks{position:fixed;right:16px;bottom:16px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;gap:6px;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,.08)}
-@media (max-width:1100px){.layout.with-insp{grid-template-columns:1fr}.insp{position:static}}
-@media (max-width:860px){.app{grid-template-columns:1fr}.side{display:none}.main{padding:20px 16px}.verdict{flex-wrap:wrap}.verdict .facts{margin-left:0}.ex-body{grid-template-columns:1fr}.snaps{display:none}}
-@media (prefers-reduced-motion:no-preference){.cell,.btn,.snap{transition:background .12s,border-color .12s}}
+
+/* Vues, matrice, inspecteur (B5) */
+.view{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.view.with-insp{grid-template-columns:minmax(0,1fr) 340px;align-items:start}
+.matrix{overflow-x:auto;padding:0}
+.matrix table{border-collapse:collapse;width:100%}
+.matrix th,.matrix td{padding:0 12px;height:48px;border-top:1px solid var(--line);text-align:left;font-weight:400;vertical-align:middle}
+.matrix thead th{border-top:0;height:44px;color:var(--muted);font:500 11px var(--sans);letter-spacing:.08em;text-transform:uppercase}
+.matrix tr.grp th{height:30px;background:var(--surface-2);color:var(--ink-2);font:500 12px var(--sans);letter-spacing:0;text-transform:none}
+.matrix th.row{font-weight:500;white-space:nowrap}
+.matrix th.row span{display:block;color:var(--muted);font-weight:400;font-size:12px}
+.cell{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:9px;border:1px solid transparent;background:none;cursor:pointer;white-space:nowrap}
+.cell:hover{background:var(--surface-2)}
+.cell[aria-pressed=true]{border-color:var(--accent);background:var(--accent-wash)}
+.cell .dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--ok)}
+.cell .dot.warn{background:var(--warn)}.cell .dot.danger{background:var(--danger)}
+.cell .dot.obs{background:none;border:2px solid var(--muted)}
+.cell .dot.none{background:none;border:2px dashed var(--line-strong)}
+.cell small{color:var(--muted);font:12px var(--mono)}
+.legend2{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 12px;border-top:1px solid var(--line);color:var(--ink-2);font-size:12px}
+.legend2 span{display:inline-flex;align-items:center;gap:6px}
+.legend2 .dot{width:10px;height:10px;border-radius:50%;background:var(--ok)}
+.legend2 .dot.warn{background:var(--warn)}.legend2 .dot.danger{background:var(--danger)}
+.legend2 .dot.obs{background:none;border:2px solid var(--muted)}.legend2 .dot.none{background:none;border:2px dashed var(--line-strong)}
+.insp{position:sticky;top:16px;display:flex;flex-direction:column}
+.insp .ih{display:flex;align-items:flex-start;gap:10px;padding:16px;border-bottom:1px solid var(--line)}
+.insp .ih .x{margin-left:auto;width:28px;height:28px;border-radius:7px;border:0;background:none;cursor:pointer;color:var(--muted);display:grid;place-items:center}
+.insp .ib{padding:16px;display:flex;flex-direction:column;gap:14px}
+.insp .acts{display:flex;flex-direction:column;gap:8px}
+.insp .acts .btn{justify-content:flex-start}
+.insp .back{font-size:12px;color:var(--muted)}
+.insp .danger-zone{border-top:1px solid var(--line);padding:12px 16px;display:flex;flex-direction:column;gap:6px}
+.strip{display:flex;gap:3px}
+.strip i{flex:1;height:18px;border-radius:4px;background:var(--ok)}
+.strip i.w{background:var(--warn)}.strip i.d{background:var(--danger)}.strip i.n{background:var(--surface-2);border:1px solid var(--line)}
+
+/* L'explorateur de fichiers (B5) : une source d'arborescence, des sorties */
+.modal.wide{width:min(980px,100%)}
+.xp{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:420px}
+.xp-snaps{border-right:1px solid var(--line);padding:12px;display:flex;flex-direction:column;gap:6px;overflow:auto;max-height:480px}
+.xp-snap{display:flex;flex-direction:column;gap:1px;text-align:left;padding:8px 10px;border:1px solid transparent;border-radius:9px;background:none;cursor:pointer;width:100%}
+.xp-snap:hover{background:var(--surface-2)}
+.xp-snap[aria-selected=true]{background:var(--accent-wash);border-color:var(--accent)}
+.xp-snap b{font-weight:500}.xp-snap span{color:var(--muted);font-size:12px}
+.xp-main{display:flex;flex-direction:column;min-width:0}
+.xp-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.xp-list{list-style:none;margin:0;padding:6px;overflow:auto;max-height:340px}
+.xp-row{display:grid;grid-template-columns:22px 22px minmax(0,1fr) 84px 120px;gap:8px;align-items:center;min-height:34px;padding:0 8px;border-radius:8px;cursor:default}
+.xp-row:hover{background:var(--surface-2)}
+.xp-row[aria-selected=true]{background:var(--accent-wash)}
+.xp-row .sz{font:12px var(--mono);color:var(--ink-2);text-align:right}.xp-row .dt{font-size:12px;color:var(--muted)}
+.xp-row .chk{width:15px;height:15px;accent-color:var(--accent)}
+.xp-out{border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:8px;margin-top:auto}
+.xp-hint{padding:8px 14px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
+kbd{font:11px var(--mono);padding:1px 5px;border:1px solid var(--line-strong);border-radius:5px;background:var(--surface-2)}
+@media (max-width:1100px){.view.with-insp{grid-template-columns:1fr}.insp{position:static}}
+@media (max-width:860px){.xp{grid-template-columns:1fr}.xp-snaps{border-right:0;border-bottom:1px solid var(--line);max-height:160px}}
+
+/* Barre de démonstration (hors produit) */
+.demo{position:fixed;right:16px;bottom:16px;background:var(--surface);border:1px solid var(--line-strong);border-radius:12px;padding:8px;display:flex;gap:6px;align-items:center;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,.1);flex-wrap:wrap;max-width:calc(100% - 32px)}
+.demo .label{padding:0 6px}
+
+@media (max-width:1100px){.targets{grid-template-columns:1fr}}
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}.side{display:none}.main{padding:20px 16px}
+  .verdict .facts{margin-left:0}.tgt{grid-template-columns:1fr}.holds .groups{grid-template-columns:1fr}
+  .btn{height:44px}.btn.small{height:40px}.recap .r{grid-template-columns:1fr auto}.recap .r .k{grid-column:1/-1}
+}
+@media (prefers-reduced-motion:no-preference){.btn,.opt{transition:background .12s,border-color .12s}}
 </style>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></symbol>
   <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="13" width="16" height="7" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
-  <symbol id="i-box" viewBox="0 0 24 24"><path d="M4 8l8-4 8 4-8 4-8-4zM4 8v8l8 4 8-4V8M12 12v8"/></symbol>
+  <symbol id="i-vm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
   <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="5" rx="1.5"/><path d="M5 9v10h14V9M10 13h4"/></symbol>
   <symbol id="i-fire" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16M9 6v6M15 12v6"/></symbol>
   <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 20h4"/></symbol>
-  <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4"/></symbol>
-  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2h8a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 18.5H5A1.5 1.5 0 0 1 3.5 17z"/></symbol>
   <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M6 18l1.4-1.4M16.6 7.4 18 6"/></symbol>
-  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2h8a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 18.5H5A1.5 1.5 0 0 1 3.5 17z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></symbol>
 </svg>
 
 <div class="app">
@@ -194,296 +362,646 @@ hr.sep{border:0;border-top:1px solid var(--line);margin:0}
     <div class="brand"><svg class="ico" style="width:20px;height:20px;stroke-width:2.2" viewBox="0 0 24 24"><path d="M9 19a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9H14"/></svg><span><b>open</b>Cloud</span></div>
     <div class="side-label">Vue</div>
     <div class="nav"><svg class="ico"><use href="#i-grid"/></svg>Vue d'ensemble</div>
-    <div class="nav"><svg class="ico"><use href="#i-server"/></svg>Machines<span class="count">7</span></div>
-    <div class="nav"><svg class="ico"><use href="#i-box"/></svg>Services<span class="count">12</span></div>
-    <div class="nav"><svg class="ico"><use href="#i-bell"/></svg>Alertes<span class="count alert">2</span></div>
+    <div class="nav"><svg class="ico"><use href="#i-server"/></svg>Machines<span class="count">6</span></div>
+    <div class="nav"><svg class="ico"><use href="#i-box"/></svg>Services<span class="count">9</span></div>
+    <div class="nav"><svg class="ico"><use href="#i-bell"/></svg>Alertes<span class="count">0</span></div>
     <div class="side-label">Administration</div>
     <div class="nav"><svg class="ico"><use href="#i-fire"/></svg>Pare-feu</div>
-    <div class="nav active"><svg class="ico"><use href="#i-archive"/></svg>Sauvegardes<span class="count alert">3</span></div>
+    <div class="nav active"><svg class="ico"><use href="#i-archive"/></svg>Sauvegardes<span class="count" id="nav-count">6</span></div>
     <div class="nav"><svg class="ico"><use href="#i-settings"/></svg>Paramètres</div>
-    <div class="nav"><svg class="ico"><use href="#i-file"/></svg>Journal</div>
   </aside>
 
   <main class="main">
     <div class="head">
       <div>
         <h1>Sauvegardes</h1>
-        <p>Ce qui est sauvegardé, où, et si on sait le remettre.</p>
+        <p>Ce qui est sauvegardé, sur quelle machine, et quand.</p>
       </div>
       <div class="actions">
-        <button class="btn">Ajouter une cible</button>
-        <button class="btn primary">Composer une politique</button>
+        <button class="btn" data-open="cible"><svg class="ico"><use href="#i-server"/></svg>Faire d'une machine une cible</button>
+        <button class="btn primary" data-open="quoi"><svg class="ico"><use href="#i-plus"/></svg>Sauvegarder…</button>
       </div>
     </div>
 
-    <div class="verdict warn" role="status">
-      <span class="pill t-warn"><i></i>À traiter</span>
-      <div><b>2 sources sans sauvegarde</b>, et 1 restauration test périmée.<br><span class="ink2">Dernière exécution réussie : cette nuit à 02:31, il y a 8 h.</span></div>
-      <div class="facts">
-        <div class="fact"><span class="v">14<small>sources</small></span><span class="l">12 couvertes</span></div>
-        <div class="fact"><span class="v">186<small>Gio</small></span><span class="l">sur les cibles</span></div>
-        <div class="fact"><span class="v">9<small>/ 12</small></span><span class="l">restaurations testées</span></div>
+    <div class="card verdict" id="verdict" role="status"></div>
+
+    <section class="section" id="sources" aria-labelledby="h-sources">
+      <div class="shead">
+        <div><div class="label" id="h-sources">Ce qui est sauvegardé</div><p>Une carte par VM ou par service entier : où elle part, quand (dernière et prochaine), combien on garde.</p></div>
+        <div class="right"><div class="seg" role="group" aria-label="Vue" id="pick-view">
+          <button aria-pressed="true" data-view="cartes">Cartes</button><button aria-pressed="false" data-view="matrice">Matrice</button></div></div>
       </div>
-    </div>
+      <div id="sources-body"></div>
+    </section>
 
-    <div class="tabs" role="tablist">
-      <button class="tab on" data-tab="matrix" role="tab" aria-selected="true">Quoi → où</button>
-      <button class="tab" data-tab="policies" role="tab">Politiques <span class="muted mono">4</span></button>
-      <button class="tab" data-tab="targets" role="tab">Cibles <span class="muted mono">3</span></button>
-      <button class="tab" data-tab="runs" role="tab">Historique</button>
-    </div>
+    <section class="section" id="cibles" aria-labelledby="h-cibles">
+      <div class="shead">
+        <div><div class="label" id="h-cibles">Où ça va</div><p>Les machines qui reçoivent les sauvegardes, et la place qui leur reste.</p></div>
+      </div>
+      <div id="targets-body"></div>
+    </section>
 
-    <!-- Onglet : matrice -->
-    <section id="tab-matrix">
-      <div class="layout" id="layout">
-        <div class="card" style="overflow:auto">
-          <table class="matrix" id="matrix" aria-label="Sources en lignes, cibles en colonnes"></table>
-          <div class="legend">
-            <span><i class="dot d-ok"></i>Réussie</span>
-            <span><i class="dot d-warn"></i>En retard</span>
-            <span><i class="dot d-danger"></i>Échouée</span>
-            <span><i class="dot" style="border:1.5px solid var(--ok)"></i>Observée hors openCloud</span>
-            <span><span class="chip mcp">MCP</span> faisable par un agent</span>
-            <span><span class="chip lock">Interface</span> réservé à l'interface</span>
+    <section class="section" id="acceder" aria-labelledby="h-acceder">
+      <div class="shead">
+        <div><div class="label" id="h-acceder">Accéder à mes sauvegardes</div><p>Parcourir, reprendre un fichier, remettre une base, un volume ou une VM.</p></div>
+        <div class="right"><button class="btn" data-open="explorateur"><svg class="ico"><use href="#i-folder"/></svg>Parcourir dans l'écran</button><span class="muted">Pour</span>
+          <div class="seg" role="group" aria-label="Source" id="pick-src">
+            <button aria-pressed="true" data-src="forgejo">forgejo</button>
+            <button aria-pressed="false" data-src="base">Base d'openCloud</button>
+            <button aria-pressed="false" data-src="vaultwarden">vaultwarden</button>
           </div>
         </div>
-        <aside class="card insp" id="insp" hidden aria-live="polite"></aside>
       </div>
-    </section>
-
-    <!-- Onglet : politiques -->
-    <section id="tab-policies" hidden>
-      <div class="policies">
-        <div class="card policy">
-          <div class="sentence">Chaque nuit à <span class="tok mono">02:30</span>, <span class="tok">les VM et LXC de pve-01</span> vers <span class="tok">pi · rest-server</span>, gardées <span class="tok">14 jours · 8 semaines · 3 mois</span>.</div>
-          <span class="pill small t-ok"><i></i>À l'heure</span>
-          <div class="meta"><span>6 sources</span><span>Prochaine : <span class="mono">02:30</span></span><span>Restauration test : 1ᵉʳ du mois, une VM tirée au sort</span></div>
-        </div>
-        <div class="card policy">
-          <div class="sentence">Toutes les <span class="tok mono">6 h</span>, <span class="tok">les volumes et la base des services</span> vers <span class="tok">pi · rest-server</span>, gardées <span class="tok">48 h · 30 jours</span>.</div>
-          <span class="pill small t-ok"><i></i>À l'heure</span>
-          <div class="meta"><span>5 sources</span><span>Prochaine : <span class="mono">12:00</span></span><span>Restauration test : chaque semaine, un fichier par source</span></div>
-        </div>
-        <div class="card policy">
-          <div class="sentence">Chaque jour à <span class="tok mono">03:15</span>, <span class="tok">l'export du pare-feu</span> vers <span class="tok">pi · rest-server</span>, gardé <span class="tok">90 jours</span>.</div>
-          <span class="pill small t-warn"><i></i>En retard</span>
-          <div class="meta"><span>1 source</span><span>Dernière réussite : il y a 3 jours</span><span>Restauration test : déchiffrement et lecture à chaque passage</span></div>
-        </div>
-        <div class="card policy">
-          <div class="sentence">Chaque nuit à <span class="tok mono">04:00</span>, <span class="tok">la base d'openCloud</span> vers <span class="tok">pi · rest-server</span> et <span class="tok">vps · rest-server</span>, gardée <span class="tok">30 jours</span>.</div>
-          <span class="pill small t-ok"><i></i>À l'heure</span>
-          <div class="meta"><span>1 source, 2 cibles</span><span>La racine de la reprise : la phrase du kit papier l'ouvre</span></div>
-        </div>
+      <div class="note stack" style="margin-bottom:12px">
+        <div class="say"><svg class="ico"><use href="#i-lock"/></svg>
+          <span>Le mot de passe du dépôt est sur la machine source, <b class="v-host">docker1</b> : fichier <span class="mono">/<wbr>var/<wbr>lib/<wbr>opencloud-agent/<wbr>restic/<wbr>pi.env</span> (0600). Il est aussi gardé chiffré par openCloud.</span></div>
+        <span>Lancez tout depuis <b class="v-host">docker1</b>, en root, après :</span>
+        <div class="copyline"><span class="on v-host">docker1</span><code>set -a; . /<wbr>var/<wbr>lib/<wbr>opencloud-agent/<wbr>restic/<wbr>pi.env; set +a</code><button class="btn small" data-copy><svg class="ico"><use href="#i-copy"/></svg>Copier</button></div>
       </div>
+      <div class="grid" id="how"></div>
     </section>
-
-    <section id="tab-targets" hidden><div class="card" style="padding:20px" class="muted">Cibles : une carte par cible (espace, plancher de rétention posé sur la cible, dernier contrôle d'intégrité, chemin : LAN direct ou relais).</div></section>
-    <section id="tab-runs" hidden><div class="card" style="padding:20px">Historique : le tableau des exécutions (frise en tête, puis une ligne par exécution, filtre par politique, source, cible, auteur).</div></section>
   </main>
 </div>
 
-<!-- Explorateur de fichiers : composant réutilisable (sauvegardes, données d'un service, fichiers d'un conteneur). -->
-<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-labelledby="ex-title">
-  <div class="explorer">
-    <div class="ex-head">
-      <svg class="ico"><use href="#i-archive"/></svg>
-      <div><h2 id="ex-title">Parcourir</h2><div class="muted mono" id="ex-sub"></div></div>
-      <button class="btn small" style="margin-left:auto" id="ex-close"><svg class="ico"><use href="#i-x"/></svg>Fermer</button>
-    </div>
-    <div class="ex-body">
-      <nav class="snaps" aria-label="Instantanés" id="snaps"></nav>
-      <div class="files">
-        <div class="crumbs" id="crumbs"></div>
-        <div class="flist"><table><thead><tr><th style="width:28px"></th><th>Nom</th><th>Taille</th><th>Modifié</th></tr></thead><tbody id="flist"></tbody></table></div>
-      </div>
-    </div>
-    <div class="ex-foot">
-      <span class="sel" id="ex-sel">Rien de choisi</span>
-      <span class="sp"></span>
-      <span class="confirm" id="ex-confirm">Remplacer les fichiers du service ? <button class="btn small danger">Confirmer</button><button class="btn small" id="ex-cancel">Annuler</button></span>
-      <button class="btn small" id="ex-inplace" disabled title="Interface seulement, avec confirmation"><svg class="ico"><use href="#i-lock"/></svg>Restaurer en place</button>
-      <button class="btn small" id="ex-dl" disabled>Télécharger</button>
-      <button class="btn small primary" id="ex-side" disabled>Restaurer à côté <span class="chip mcp" style="border-color:currentColor;color:inherit">MCP</span></button>
-    </div>
-  </div>
-</div>
+<div class="scrim" id="scrim" hidden><div id="modal-root"></div></div>
 
-<div class="tweaks" aria-label="Réglages de la maquette">
+<div class="demo" id="demo" aria-label="Barre de démonstration de la maquette">
+  <span class="label">Démo</span>
+  <div class="seg" role="group" aria-label="État" id="pick-state">
+    <button aria-pressed="true" data-state="normal">Normal</button>
+    <button aria-pressed="false" data-state="vide">Vide</button>
+    <button aria-pressed="false" data-state="erreurs">Erreurs</button>
+    <button aria-pressed="false" data-state="binaire">Binaire manquant</button>
+    <button aria-pressed="false" data-state="partielle">Une partie échoue</button>
+    <button aria-pressed="false" data-state="retard">En retard</button>
+  </div>
+  <button class="btn small" data-open="quoi">Sauvegarder…</button>
+  <button class="btn small" data-open="cible">Nouvelle cible</button>
   <button class="btn small" id="theme">Thème sombre</button>
 </div>
 
 <script>
-// Données de démonstration, génériques (aucune valeur réelle).
-var TARGETS = [
-  {id:"pi", name:"pi · rest-server", sub:"LAN direct · append-only"},
-  {id:"nfs", name:"pi · NFS vzdump", sub:"observé, tâche de l'hôte"},
-  {id:"vps", name:"vps · rest-server", sub:"relais · à venir"}
+// Données de démonstration, génériques. Il est 06:10, lundi.
+const ico = (n, cls="ico") => `<svg class="${cls}"><use href="#i-${n}"/></svg>`;
+const copyBtn = () => `<button class="btn small" data-copy>${ico("copy")}Copier</button>`;
+// <wbr> après « / » : une longue commande passe à la ligne entre deux segments, la copie reste intacte.
+// Un segment ne se coupe pas sur un tiret : « rest-server » reste entier.
+const wrapCommand = (text) => text.split(" ").map(word => word.split("/").map(seg => `<span class="nb">${seg}</span>`).join("/<wbr>")).join(" ");
+// host : la machine où coller la commande, nommée en tête (hors de la copie).
+const copyLine = (text, host) => `<div class="copyline">${host ? `<span class="on">${host}</span>` : ""}<code>${wrapCommand(text)}</code>${copyBtn()}</div>`;
+const RETAIN = "14 nuits · 8 semaines · 3 mois";
+const FLOOR = "Plancher posé sur pi : au moins 7 nuits ; une politique plus basse est refusée par pi.";
+
+// Binaire manquant : commandes exactes, sans rien à remplacer. pi est en arm64.
+const REST_SERVER = "rest-server_0.14.0_linux_arm64";
+const REST_SERVER_URL = "https://github.com/restic/rest-server/releases/download/v0.14.0/";
+const INSTALL_REST_SERVER = [
+  ["Télécharger l'archive", `curl -fsSLO ${REST_SERVER_URL}${REST_SERVER}.tar.gz`],
+  ["Télécharger les empreintes", `curl -fsSLO ${REST_SERVER_URL}SHA256SUMS`],
+  ["Vérifier l'archive", "sha256sum -c --ignore-missing SHA256SUMS"],
+  ["L'extraire", `tar -xzf ${REST_SERVER}.tar.gz`],
+  ["L'installer", `sudo install -m 0755 ${REST_SERVER}/rest-server /usr/local/bin/rest-server`]
 ];
-var SOURCES = [
-  {group:"Non sauvegardé", warn:true, rows:[
-    {id:"vol-uploads", name:"atelier_uploads", kind:"volume Docker · atelier", cells:{}, rt:null},
-    {id:"db-hindsight", name:"hindsight", kind:"base PostgreSQL · agent-ia", cells:{}, rt:null}
-  ]},
-  {group:"pve-01 · VM et LXC", rows:[
-    {id:"vm-101", name:"edge", kind:"VM 101", cells:{pi:["ok","02:31","3,4 Gio"], nfs:["obs","02:30","5,1 Gio"]}, rt:["ok","le 01/10"]},
-    {id:"vm-102", name:"coffre", kind:"VM 102", cells:{pi:["ok","02:34","1,2 Gio"], nfs:["obs","02:30","1,9 Gio"]}, rt:["warn","il y a 47 j"]},
-    {id:"ct-103", name:"forge", kind:"LXC 103", cells:{pi:["ok","02:36","6,8 Gio"], nfs:["obs","02:30","9,0 Gio"]}, rt:["ok","le 01/10"]},
-    {id:"vm-104", name:"cloud", kind:"VM 104", cells:{pi:["danger","02:39","échouée"], nfs:["obs","02:30","4,4 Gio"]}, rt:["ok","le 01/10"]},
-    {id:"vm-201", name:"agent-ia", kind:"VM 201", cells:{pi:["ok","02:41","11 Gio"]}, rt:["ok","le 01/10"]}
-  ]},
-  {group:"Services", rows:[
-    {id:"vol-mcp", name:"mcp_data", kind:"volume Docker · cloud", cells:{pi:["ok","06:00","84 Mio"]}, rt:["ok","il y a 2 j"]},
-    {id:"db-payload", name:"payload", kind:"base PostgreSQL · vps", cells:{pi:["ok","06:00","212 Mio"], vps:["neutral","—","à venir"]}, rt:["ok","il y a 2 j"]},
-    {id:"db-oc", name:"opencloud.db", kind:"base d'openCloud", cells:{pi:["ok","04:00","38 Mio"], vps:["neutral","—","à venir"]}, rt:["ok","il y a 1 j"]}
-  ]},
-  {group:"Exports de configuration", rows:[
-    {id:"cfg-fw", name:"pare-feu", kind:"export OPNsense, chiffré", cells:{pi:["warn","il y a 3 j","412 Kio"]}, rt:["ok","à chaque passage"]},
-    {id:"cfg-sw", name:"switch", kind:"export manuel", cells:{pi:["neutral","déposé le 12/10","8 Kio"]}, rt:["neutral","jamais"]}
-  ]}
+function installBlock(title, sub, host, steps){
+  return `<div class="install">
+    <div class="ihead"><b>${title}</b><span class="muted">${sub}</span></div>
+    <ol class="steps">${steps.map(([label, cmd])=>step(label, copyLine(cmd, host))).join("")}</ol>
+  </div>`;
+}
+const installRestServer = () => installBlock("Installer rest-server sur pi", "arm64 · version 0.14.0 · openCloud le voit au prochain relevé", "pi", INSTALL_REST_SERVER);
+const installRestic = () => installBlock("Installer restic sur vps", "Debian ou Ubuntu", "vps", [["Depuis les paquets", "sudo apt install restic"]]);
+
+// kind : vm | service ; origin : proxmox (observée) | restic (openCloud) | none
+const SOURCES = [
+  {id:"nextcloud", name:"nextcloud", kind:"service", sub:"Service entier · sur vps", origin:"none",
+   parts:[["folder","Dossier","/srv/nextcloud","23 Gio"],["volume","nextcloud_data","volume Docker","180 Gio"],["database","nextcloud-db-1","PostgreSQL","2,4 Gio"]]},
+  {id:"docker1", name:"docker1", kind:"vm", sub:"VM 101 · sur pve", origin:"proxmox", size:"12,4 Gio", copies:25,
+   last:["il y a 3 h","cette nuit 03:00"], next:["dans 21 h","demain 03:00"]},
+  {id:"immich", name:"immich", kind:"vm", sub:"VM 105 · sur pve", origin:"proxmox", size:"41 Gio", copies:25,
+   last:["il y a 3 h","cette nuit 03:04"], next:["dans 21 h","demain 03:00"]},
+  {id:"vpn", name:"vpn", kind:"vm", sub:"VM 102 · sur pve", origin:"restic", host:"pve", via:"vzdump",
+   path:"direct", reason:"pi répond, certificat vérifié", size:"3,1 Gio", copies:12, added:"+210 Mio cette nuit",
+   last:["il y a 3 h 50","cette nuit 02:20"], next:["dans 20 h","demain 02:20"]},
+  {id:"forgejo", name:"forgejo", kind:"service", sub:"Service entier · sur docker1", origin:"restic", host:"docker1",
+   path:"direct", reason:"pi répond, certificat vérifié", size:"1,8 Gio", copies:31, added:"+42 Mio cette nuit",
+   last:["il y a 3 h 40","cette nuit 02:30"], next:["dans 20 h","demain 02:30"],
+   parts:[["folder","Dossier","/srv/forgejo","40 Mio","ok"],["volume","forgejo_data","volume Docker","1,7 Gio","ok"],["database","forgejo-db-1","PostgreSQL","58 Mio","ok"]]},
+  {id:"base", name:"Base d'openCloud", kind:"db", sub:"Service · sur cloud", origin:"restic", host:"cloud",
+   path:"direct", reason:"pi répond, certificat vérifié", size:"38 Mio", copies:31, added:"+1 Mio cette nuit",
+   last:["il y a 3 h 35","cette nuit 02:35"], next:["dans 20 h","demain 02:35"]},
+  {id:"vaultwarden", name:"vaultwarden", kind:"service", sub:"Service entier · sur vps", origin:"restic", host:"vps",
+   path:"relay", reason:"vps ne joint pas pi:8000 (TCP)", size:"12 Mio", copies:9, added:"+0,2 Mio cette nuit",
+   last:["il y a 3 h 30","cette nuit 02:40"], next:["dans 20 h","demain 02:40"],
+   parts:[["volume","vaultwarden_data","volume Docker","12 Mio","ok"]]}
 ];
-var TONE = {ok:"d-ok", warn:"d-warn", danger:"d-danger", neutral:"d-neutral"};
-var RT = {ok:["t-ok","Réussie"], warn:["t-warn","Périmée"], danger:["t-danger","Échouée"], neutral:["t-neutral","Jamais"]};
 
-function el(tag, attrs, html){ var e=document.createElement(tag); for (var k in (attrs||{})) e.setAttribute(k, attrs[k]); if (html!=null) e.innerHTML=html; return e; }
+// État « partielle » : tout part, sauf le dump de la base de forgejo (une partie échoue, les autres sont gardées).
+const PARTIAL = {forgejo:{tone:"warn", stateLabel:"Partielle", why:"Le dump de forgejo-db-1 a échoué dans le conteneur. Le dossier et le volume sont bien gardés.",
+  last:["il y a 3 h 40","cette nuit 02:30"], lastOk:["il y a 1 j 3 h","hier 02:30"], parts:["ok","ok","failed"]}};
 
-function renderMatrix(){
-  var t = document.getElementById("matrix"); t.innerHTML="";
-  var thead = el("thead"), tr = el("tr");
-  tr.appendChild(el("th", null, "Source"));
-  tr.appendChild(el("th", null, "Restauration test"));
-  TARGETS.forEach(function(g){ tr.appendChild(el("th", null, '<span class="tgt">'+g.name+'</span><span class="tgt-sub">'+g.sub+'</span>')); });
-  thead.appendChild(tr); t.appendChild(thead);
-  var tb = el("tbody");
-  SOURCES.forEach(function(gr){
-    var g = el("tr", {"class":"group"});
-    g.appendChild(el("td", {colspan: String(TARGETS.length+2)}, gr.warn ? '<span class="pill small t-warn"><i></i>'+gr.group+'</span> <span class="mono" style="margin-left:8px">'+gr.rows.length+' sources, aucune politique</span>' : gr.group));
-    tb.appendChild(g);
-    gr.rows.forEach(function(s){
-      var r = el("tr");
-      r.appendChild(el("td", null, '<div class="src"><button class="row-name" data-src="'+s.id+'">'+s.name+'</button><span class="kind">'+s.kind+'</span></div>'));
-      r.appendChild(el("td", {"class":"rt", title: s.rt ? s.rt[1] : "aucune"}, s.rt ? '<span class="pill small '+RT[s.rt[0]][0]+'"><i></i>'+RT[s.rt[0]][1]+'</span><div class="muted mono" style="font-size:11px;margin-top:2px">'+s.rt[1]+'</div>' : '<span class="muted">—</span>'));
-      TARGETS.forEach(function(g){
-        var c = s.cells[g.id], td = el("td");
-        if (!c) { td.appendChild(el("span", {"class":"cell empty"}, gr.warn && g.id==="pi" ? '<button class="btn small" data-compose="'+s.id+'">Couvrir…</button>' : '—')); }
-        else {
-          var b = el("button", {"class":"cell"+(c[0]==="obs"?" observed":""), "data-src":s.id, "data-tgt":g.id, "aria-label":s.name+" vers "+g.name});
-          b.innerHTML = '<i class="dot '+(c[0]==="obs"?"":TONE[c[0]])+'"></i><span class="when"><b>'+c[1]+'</b><span>'+c[2]+'</span></span>';
-          td.appendChild(b);
-        }
-        r.appendChild(td);
-      });
-      tb.appendChild(r);
-    });
-  });
-  t.appendChild(tb);
+// État « erreurs » : pi ne répond plus depuis 02:15, et vps n'a pas le droit de produire.
+const BROKEN = {
+  docker1:{tone:"warn", stateLabel:"En retard", last:["il y a 1 j","hier 03:00"], lastOk:["il y a 1 j","hier 03:00"], why:"Attendue avant 04:00, rien reçu : le stockage pi-sauvegardes ne répond pas."},
+  immich:{tone:"warn", stateLabel:"En retard", last:["il y a 1 j","hier 03:04"], lastOk:["il y a 1 j","hier 03:04"], why:"Attendue avant 04:00, rien reçu : le stockage pi-sauvegardes ne répond pas."},
+  vpn:{tone:"danger", stateLabel:"Échouée", last:["il y a 1 j","hier 02:20"], lastOk:["il y a 2 j","avant-hier 02:20"], why:"pi ne répond pas, ni en direct ni par relais."},
+  forgejo:{tone:"danger", stateLabel:"Échouée", last:["il y a 1 j","hier 02:30"], lastOk:["il y a 2 j","avant-hier 02:30"], why:"pi ne répond pas, ni en direct ni par relais."},
+  base:{tone:"danger", stateLabel:"Échouée", last:["il y a 1 j","hier 02:35"], lastOk:["il y a 2 j","avant-hier 02:35"], why:"pi ne répond pas, ni en direct ni par relais."},
+  vaultwarden:{tone:"danger", stateLabel:"Refusée", last:["il y a 1 j","hier 02:40"], lastOk:["il y a 2 j","avant-hier 02:40"], why:"vps n'a pas le droit restic.produce.", rights:true}
+};
+
+let state = "normal";
+let view = "cartes", selected = "";
+
+function kindIcon(kind){ return kind==="vm" ? "vm" : kind==="db" ? "db" : "box"; }
+const PART_ICON = {folder:"folder", volume:"archive", database:"db"};
+const PART_KIND = {folder:"Dossier", volume:"Volume", database:"Base"};
+// Les parties d'un service : ce qui part, et le résultat de chacune quand la sauvegarde existe.
+function partsBlock(s, results){
+  if (!s.parts) return "";
+  const rows = s.parts.map(([kind,name,sub,size,result],i) => {
+    const r = results ? results[i] : result;
+    const mark = r==="failed" ? `<span class="mark failed" title="Échouée">✕</span>` : r==="ok" ? `<span class="mark ok" title="Gardée">✓</span>` : `<span class="mark todo" title="Partira">·</span>`;
+    return `<div class="p">${mark}<span class="badge" style="width:24px;height:24px;border-radius:7px">${ico(PART_ICON[kind])}</span>
+      <span class="nm"><b>${kind==="folder"?name+" · "+sub:name}</b><span>${kind==="folder"?PART_KIND[kind]:PART_KIND[kind]+" · "+sub}</span></span><span class="sz">${size}</span></div>`;
+  }).join("");
+  const said = s.origin==="none" ? "Ce que la sauvegarde contiendra" : "Ce qu'elle contient";
+  return `<div class="parts"><div class="head2 label">${said}</div>${rows}</div>`;
+}
+function tsFact(label, pair){ return `<div class="fact"><span class="k">${label}</span><span class="v">${pair[0]}</span><span class="s">${pair[1]}</span></div>`; }
+
+function flow(s, broken){
+  if (s.origin==="none") return `<div class="flow"><div class="node"><b>${ico(kindIcon(s.kind))}${s.name}</b><span>vps</span></div>
+    <div class="wire none muted"><em>rien</em></div><div class="node to"><b class="muted">—</b><span>pas de cible</span></div></div>`;
+  const pve = s.origin==="proxmox";
+  const tone = broken ? (broken.tone==="danger" ? "danger" : "warn") : pve ? "muted" : s.path==="relay" ? "warn" : "accent";
+  const dashed = s.path==="relay" || broken ? " dashed" : "";
+  const label = pve ? "vzdump" : s.path==="relay" ? "relais" : s.via ? "vzdump · direct" : "direct";
+  const from = pve ? "pve" : s.host;
+  const to = pve ? "pi-sauvegardes" : "rest-server";
+  return `<div class="flow" aria-label="${s.name} est envoyée vers pi">
+    <div class="node"><b>${ico(kindIcon(s.kind))}${pve || s.via ? s.name : s.host}</b><span>${pve ? "par " + from : s.via ? "lancée par openCloud sur " + from : "source"}</span></div>
+    <div class="wire ${tone}${dashed}"><em>${label}</em></div>
+    <div class="node to"><b>${ico("server")}pi</b><span>${to}</span></div></div>`;
 }
 
-function find(id){ var f=null; SOURCES.forEach(function(g){ g.rows.forEach(function(s){ if (s.id===id) f=s; }); }); return f; }
-
-function openInspector(srcId, tgtId){
-  var s = find(srcId), tgt = TARGETS.filter(function(x){return x.id===tgtId;})[0] || TARGETS[0];
-  var c = s.cells[tgt.id] || ["neutral","—","—"];
-  document.querySelectorAll(".cell.sel").forEach(function(x){ x.classList.remove("sel"); });
-  var me = document.querySelector('.cell[data-src="'+srcId+'"][data-tgt="'+tgt.id+'"]'); if (me) me.classList.add("sel");
-  var observed = c[0]==="obs";
-  var frise = ""; for (var i=0;i<14;i++){ var tone = (s.id==="vm-104" && i>=12) ? "d-danger" : (s.id==="cfg-fw" && i>=11) ? "d-warn" : "d-ok"; frise += '<i class="'+tone+'"></i>'; }
-  var verdict = c[0]==="danger" ? '<span class="pill t-danger"><i></i>Échouée</span><div style="margin-top:8px"><b>2 échecs de suite</b> depuis hier 02:39 : la cible a refusé l\'envoi (plancher d\'espace atteint).</div><div class="ink2">Dernière réussite : avant-hier 02:38. Libérer de l\'espace sur la cible, puis relancer.</div>'
-    : observed ? '<span class="pill t-neutral"><i></i>Observée</span><div style="margin-top:8px">Faite par la tâche vzdump de l\'hôte, hors openCloud. openCloud la voit, ne la lance pas.</div><div class="ink2">Elle s\'arrête une fois chaque VM couverte par une politique et restaurée une fois.</div>'
-    : c[0]==="warn" ? '<span class="pill t-warn"><i></i>En retard</span><div style="margin-top:8px"><b>Pas de réussite depuis 3 jours.</b> La clé d\'API du pare-feu répond 401.</div>'
-    : '<span class="pill t-ok"><i></i>Réussie</span><div style="margin-top:8px"><b>Cette nuit à '+c[1]+'</b>, '+c[2]+'.</div><div class="ink2">14 réussites de suite.</div>';
-  var insp = document.getElementById("insp");
-  insp.innerHTML =
-    '<div style="display:flex;align-items:flex-start"><div><h2>'+s.name+' → '+tgt.name+'</h2><div class="sub">'+s.kind+'</div></div><button class="close" aria-label="Fermer" id="insp-close"><svg class="ico"><use href="#i-x"/></svg></button></div>'+
-    '<div>'+verdict+'</div>'+
-    (observed ? '' : '<div><div class="label">14 derniers passages</div><div class="frise">'+frise+'</div></div>')+
-    '<hr class="sep"><dl class="kv">'+
-      '<dt>Politique</dt><dd>'+(observed?'—':'Chaque nuit, 02:30')+'</dd>'+
-      '<dt>Rétention</dt><dd class="mono">14 j · 8 sem · 3 mois</dd>'+
-      '<dt>Instantanés</dt><dd class="mono">'+(observed?'5':'24')+'</dd>'+
-      '<dt>Chemin</dt><dd>'+(tgt.id==="vps"?'relais du serveur':'LAN direct, TLS épinglé')+'</dd>'+
-      '<dt>Restauration test</dt><dd>'+(s.rt?'<span class="pill small '+RT[s.rt[0]][0]+'"><i></i>'+RT[s.rt[0]][1]+'</span>':'—')+'</dd>'+
-    '</dl><hr class="sep">'+
-    (observed ? '<div class="note">Pour la piloter : composer une politique pour cette VM. La tâche de l\'hôte reste le filet jusqu\'à la première restauration test réussie.</div>' :
-    '<div class="acts">'+
-      '<div class="row"><button class="btn primary">Lancer maintenant <span class="chip mcp" style="border-color:currentColor;color:inherit">MCP</span></button></div>'+
-      '<div class="row"><button class="btn">Vérifier <span class="chip mcp">MCP</span></button>'+(/^VM|^LXC/.test(s.kind) ? '<button class="btn" disabled style="opacity:.55;cursor:not-allowed">Parcourir</button>' : '<button class="btn" id="browse">Parcourir <span class="chip mcp">MCP</span></button>')+'</div>'+
-      (/^VM|^LXC/.test(s.kind) ? '<p class="muted" style="margin:-2px 0 0;font-size:12px">Une VM se restaure entière. Ses fichiers se parcourent par les sauvegardes de ses services.</p>' : '')+
-      '<div class="row"><button class="btn">Tester une restauration <span class="chip mcp">MCP</span></button></div>'+
-    '</div>'+
-    '<div class="danger-zone"><p>Réduire la rétention ou supprimer des instantanés se fait ici seulement, jamais par un agent. Il faut saisir le nom de la politique ; le journal le garde.</p>'+
-      '<div class="row" style="display:flex;gap:8px"><button class="btn small danger"><svg class="ico"><use href="#i-lock"/></svg>Réduire la rétention</button><button class="btn small danger"><svg class="ico"><use href="#i-lock"/></svg>Supprimer…</button></div></div>');
-  insp.hidden = false;
-  document.getElementById("layout").classList.add("with-insp");
-  document.getElementById("insp-close").onclick = closeInspector;
-  var br = document.getElementById("browse"); if (br) br.onclick = function(){ openExplorer(s); };
+// État « retard » : la tâche nuit-pi n'a rien reçu cette nuit (la page le voit à l'heure des archives, sans plan openCloud).
+const LATE = {docker1:{tone:"warn", stateLabel:"En retard", last:["il y a 1 j","hier 03:00"], lastOk:["il y a 1 j","hier 03:00"], why:"Attendue avant 04:00, rien reçu depuis hier."}};
+function sourceCard(s){
+  const partial = state==="partielle" ? PARTIAL[s.id] : null;
+  const broken = state==="erreurs" ? BROKEN[s.id] : partial || (state==="retard" ? LATE[s.id] : null);
+  if (s.origin==="none") {
+    return `<article class="card src warn">
+      <div class="top"><span class="badge">${ico(kindIcon(s.kind))}</span><div><div class="name">${s.name}</div><div class="sub">${s.sub}</div></div>
+        <span class="pill sm t-warn">Pas sauvegardé</span></div>
+      ${flow(s)}
+      ${partsBlock(s)}
+      <div class="facts">
+        <div class="fact"><span class="k">Dernière</span><span class="v">Jamais</span><span class="s">aucune copie, nulle part</span></div>
+        <div class="fact"><span class="k">À sauvegarder</span><span class="v mono">205 Gio</span><span class="s">dossier + volume + base</span></div>
+        ${state==="binaire"
+          ? `<div class="fact wide"><span class="k">Ce qu'il manque</span><span class="v">rest-server sur pi, restic sur vps.</span><span class="s">les commandes sont dans « Sauvegarder… »</span></div>`
+          : `<div class="fact wide"><span class="k">Ce qu'il manque</span><span class="v">Une cible : pi est prête.</span><span class="s">vps a le droit restic.produce</span></div>`}
+      </div>
+      <div class="foot"><button class="btn primary small" data-open="quoi">${ico("plus")}Sauvegarder le service entier</button><span class="muted">Chaque nuit, vers pi</span></div>
+    </article>`;
+  }
+  const pve = s.origin==="proxmox";
+  const tone = broken ? broken.tone : "ok";
+  const label = broken ? broken.stateLabel : "À jour";
+  const last = broken ? broken.last : s.last;
+  const originPill = pve
+    ? `<span class="pill sm nodot t-neutral" title="Faite par l'hôte Proxmox. openCloud la voit, ne la lance pas.">Observée · Proxmox</span><span class="muted">tâche nuit-pi</span>`
+    : `<span class="pill sm nodot t-accent">openCloud · restic</span><span class="muted">${s.kind==="vm"?"VM entière, vzdump lancé par openCloud":"service entier"}</span>`;
+  const replace = pve ? `<div class="replace">${ico("undo")}<span><b>À remplacer par un plan openCloud.</b> La tâche nuit-pi est faite par Proxmox : openCloud la voit, mais ne la lance pas et ne la surveille que par ses archives.</span><button class="btn small" data-open="quoi" data-what="${s.id}" data-mode="vm">Remplacer par openCloud</button></div>` : "";
+  const retention = `<div class="fact wide"><span class="k">Gardées</span><span class="v">${RETAIN}</span><span class="s">${pve ? "appliqué par pve à chaque tâche" : "appliqué par pi chaque nuit"}</span></div>`;
+  let path = "";
+  if (broken) {
+    path = `<div class="path"><div class="line"><span class="pill sm t-${broken.tone}">${broken.stateLabel}</span><span class="ink2">${broken.why}</span></div>
+      ${broken.rights ? `<div><button class="btn small">Ré-enrôler vps avec ce droit</button></div>` : ""}</div>`;
+  } else if (!pve) {
+    const relay = s.path==="relay";
+    path = `<div class="path"><div class="line"><span class="pill sm ${relay?"t-warn":"t-ok"}">${relay?"Relais":"Direct"}</span><span class="ink2">${s.reason}</span></div>
+      ${relay ? copyLine("pour passer en direct : vps doit joindre pi:8000") : ""}</div>`;
+  }
+  const lastOk = broken && broken.lastOk ? tsFact("Dernière réussite", broken.lastOk) : "";
+  return `<article class="card src${broken && broken.tone==="danger" ? " danger" : ""}">
+    <div class="top"><span class="badge">${ico(kindIcon(s.kind))}</span><div><div class="name">${s.name}</div><div class="sub">${s.sub}</div></div>
+      <span class="pill sm t-${tone}">${label}</span></div>
+    ${flow(s, broken)}
+    <div class="origin">${originPill}</div>
+    ${replace}
+    ${partsBlock(s, broken && broken.parts)}
+    <div class="facts">
+      ${tsFact(broken ? "Dernier essai" : "Dernière", last)}
+      ${lastOk || tsFact("Prochaine", s.next)}
+      ${lastOk ? tsFact("Prochaine", s.next) : ""}
+      <div class="fact"><span class="k">Taille</span><span class="v mono">${s.size}</span><span class="s">${pve ? "dernière archive" : s.added}</span></div>
+      <div class="fact"><span class="k">Copies gardées</span><span class="v mono">${s.copies}</span><span class="s">sur pi</span></div>
+      ${retention}
+    </div>
+    ${path}
+    ${pve ? "" : `<div class="foot"><button class="btn small" data-open="explorateur" data-src="${s.id}">${ico("folder")}Parcourir ses sauvegardes</button><button class="btn small ghost" data-select="${s.id}">Voir dans la matrice</button></div>`}
+  </article>`;
 }
-function closeInspector(){ document.getElementById("insp").hidden = true; document.getElementById("layout").classList.remove("with-insp"); document.querySelectorAll(".cell.sel").forEach(function(x){ x.classList.remove("sel"); }); }
 
-// Explorateur : un arbre, des instantanés, une sélection, trois sorties.
-var TREE = {name:"/", kids:[
-  {name:"srv", kids:[{name:"workspace", kids:[{name:"atelier", kids:[
-    {name:"data", kids:[{name:"uploads", kids:[{name:"2026-10", kids:[{name:"rapport-final.pdf", size:"2,4 Mio", at:"30/10 18:12"},{name:"photo-chantier.jpg", size:"5,1 Mio", at:"29/10 09:40"}]},{name:"2026-09", kids:[{name:"devis.pdf", size:"310 Kio", at:"14/09 11:02"}]}]},{name:"db", kids:[{name:"dump.sql.zst", size:"18 Mio", at:"31/10 06:00"}]}]},
-    {name:".env", size:"1,2 Kio", at:"21/10 10:15"},{name:"compose.yml", size:"2,0 Kio", at:"21/10 10:15"}]}]}]},
-  {name:"etc", kids:[{name:"atelier", kids:[{name:"config.toml", size:"3,3 Kio", at:"12/10 08:30"}]}]}
-]};
-var path = [TREE], picked = {};
-function openExplorer(s){
-  document.getElementById("ex-sub").textContent = s.name+" · "+s.kind;
-  var snaps = document.getElementById("snaps"); snaps.innerHTML = '<div class="label" style="padding:0 10px">Instantanés</div>';
-  ["Aujourd'hui 06:00","Aujourd'hui 00:00","Hier 18:00","Hier 12:00","29/10 06:00","Semaine 43","Septembre"].forEach(function(n,i){
-    var d = el("div", {"class":"snap"+(i===0?" on":""), tabindex:"0"}, '<b>'+n+'</b><span>'+(i===0?"a3f9c21e · 84 Mio":"instantané")+'</span>');
-    d.onclick = function(){ snaps.querySelectorAll(".snap").forEach(function(x){x.classList.remove("on");}); d.classList.add("on"); };
-    snaps.appendChild(d);
-  });
-  path = [TREE]; picked = {}; renderFiles();
-  document.getElementById("scrim").classList.add("on");
-  document.getElementById("ex-close").focus();
+function renderVerdict(){
+  const v = document.getElementById("verdict");
+  if (state==="vide") {
+    v.className = "card verdict";
+    v.innerHTML = `<span class="pill t-neutral">Rien de sauvegardé</span><div class="say"><b>Aucune sauvegarde, ni par openCloud, ni vue chez Proxmox.</b><br><span class="ink2">Commencez par choisir une machine qui recevra les copies.</span></div>`;
+    return;
+  }
+  if (state==="erreurs") {
+    v.className = "card verdict danger";
+    v.innerHTML = `<span class="pill t-danger">À traiter</span><div class="say"><b>Rien n'a été sauvegardé cette nuit.</b><br><span class="ink2">pi ne répond plus depuis 02:15. Dernière réussite : hier 03:04, il y a 1 j.</span></div>
+      <div class="facts"><div class="vfact"><span class="v">0<small>sur 6</small></span><span class="l">à jour</span></div><div class="vfact"><span class="v">1<small>cible</small></span><span class="l">hors ligne</span></div></div>`;
+    return;
+  }
+  if (state==="binaire") {
+    v.className = "card verdict warn";
+    v.innerHTML = `<span class="pill t-warn">Il manque un logiciel</span><div class="say"><b>pi est une cible, mais n'a pas rest-server.</b><br><span class="ink2">Les sauvegardes restic attendent qu'il soit installé. Proxmox, lui, continue.</span></div>
+      <div class="facts"><div class="vfact"><span class="v">2<small>sur 3</small></span><span class="l">protégés</span></div><div class="vfact"><span class="v">600<small>Gio</small></span><span class="l">libres sur pi</span></div></div>`;
+    return;
+  }
+  if (state==="partielle") {
+    v.className = "card verdict warn";
+    v.innerHTML = `<span class="pill t-warn">1 partie à reprendre</span><div class="say"><b>forgejo : la base n'a pas été sauvegardée cette nuit</b><br><span class="ink2">Son dossier et son volume le sont. Dernière sauvegarde complète : hier 02:30, il y a 1 j.</span></div>
+      <div class="facts"><div class="vfact"><span class="v">6<small>sur 7</small></span><span class="l">protégés</span></div><div class="vfact"><span class="v">600<small>Gio</small></span><span class="l">libres sur pi</span></div></div>`;
+    return;
+  }
+  if (state==="retard") {
+    v.className = "card verdict warn";
+    v.innerHTML = `<span class="pill t-warn">1 en retard</span><div class="say"><b>docker1 : rien reçu depuis hier 03:00</b><br><span class="ink2">La tâche nuit-pi (Proxmox) aurait dû écrire avant 04:00. Plutôt que de l'attendre, remplacez-la par un plan openCloud, que cette page surveille de bout en bout.</span></div>
+      <div class="facts"><div class="vfact"><span class="v">6<small>sur 7</small></span><span class="l">protégés</span></div><div class="vfact"><span class="v">600<small>Gio</small></span><span class="l">libres sur pi</span></div></div>`;
+    return;
+  }
+  v.className = "card verdict warn";
+  v.innerHTML = `<span class="pill t-warn">1 à protéger</span><div class="say"><b>6 sur 7 protégés · dernière sauvegarde il y a 3 h</b><br><span class="ink2">nextcloud, sur vps, n'a aucune copie. 2 VM sont encore sauvegardées par la tâche Proxmox nuit-pi : à remplacer par un plan openCloud.</span></div>
+    <div class="facts">
+      <div class="vfact"><span class="v">6<small>sur 7</small></span><span class="l">protégés</span></div>
+      <div class="vfact"><span class="v">600<small>Gio</small></span><span class="l">libres sur pi</span></div>
+      <div class="vfact"><span class="v">20<small>h</small></span><span class="l">avant la prochaine</span></div>
+    </div>`;
 }
-function renderFiles(){
-  var cur = path[path.length-1], cr = document.getElementById("crumbs"); cr.innerHTML = "";
-  path.forEach(function(n,i){ if (i) cr.appendChild(el("span", {"class":"sepc"}, "/")); var b = el("button", null, i===0?"racine":n.name); b.onclick = function(){ path = path.slice(0,i+1); renderFiles(); }; cr.appendChild(b); });
-  var q = el("input", {"class":"search", placeholder:"Chercher dans l'instantané…", "aria-label":"Chercher"}); cr.appendChild(q);
-  var tb = document.getElementById("flist"); tb.innerHTML = "";
-  var kids = (cur.kids||[]).slice().sort(function(a,b){ return (!!b.kids - !!a.kids) || a.name.localeCompare(b.name); });
-  kids.forEach(function(k){
-    var full = path.map(function(p){return p.name;}).join("/")+"/"+k.name;
-    var tr = el("tr", {"class": picked[full] ? "picked" : ""});
-    var cb = el("input", {type:"checkbox", "aria-label":"Choisir "+k.name}); cb.checked = !!picked[full];
-    cb.onchange = function(){ if (cb.checked) picked[full] = k; else delete picked[full]; renderFiles(); };
-    var td0 = el("td"); td0.appendChild(cb); tr.appendChild(td0);
-    var nm = el("td", null, '<span class="fname'+(k.kids?" dir":"")+'"><svg class="ico"><use href="#i-'+(k.kids?"folder":"file")+'"/></svg>'+k.name+'</span>');
-    if (k.kids) nm.querySelector(".fname").onclick = function(){ path.push(k); renderFiles(); };
-    tr.appendChild(nm);
-    tr.appendChild(el("td", {"class":"mono"}, k.size || (k.kids ? '<span class="muted">'+k.kids.length+' élément'+(k.kids.length>1?"s":"")+'</span>' : "")));
-    tr.appendChild(el("td", {"class":"mono muted"}, k.at || ""));
-    tb.appendChild(tr);
-  });
-  var n = Object.keys(picked).length;
-  document.getElementById("ex-sel").textContent = n ? n+" élément"+(n>1?"s":"")+" choisi"+(n>1?"s":"") : "Rien de choisi";
-  ["ex-side","ex-dl","ex-inplace"].forEach(function(id){ document.getElementById(id).disabled = !n; });
-}
-document.getElementById("ex-close").onclick = function(){ document.getElementById("scrim").classList.remove("on"); };
-document.getElementById("ex-inplace").onclick = function(){ document.getElementById("ex-confirm").classList.add("on"); document.getElementById("ex-inplace").hidden = true; document.getElementById("ex-cancel").focus(); };
-document.getElementById("ex-cancel").onclick = function(){ document.getElementById("ex-confirm").classList.remove("on"); var b = document.getElementById("ex-inplace"); b.hidden = false; b.focus(); };
-document.addEventListener("keydown", function(e){ if (e.key==="Escape"){ var sc=document.getElementById("scrim"); if (sc.classList.contains("on")) sc.classList.remove("on"); else closeInspector(); } });
 
-document.addEventListener("click", function(e){
-  var c = e.target.closest(".cell:not(.empty)"); if (c) openInspector(c.getAttribute("data-src"), c.getAttribute("data-tgt"));
-  var n = e.target.closest(".row-name"); if (n) { var s = find(n.getAttribute("data-src")); var first = Object.keys(s.cells)[0]; if (first) openInspector(s.id, first); }
+function renderSources(){
+  const body = document.getElementById("sources-body");
+  if (state==="vide") {
+    body.innerHTML = `<div class="card empty">${ico("archive")}<span><b>Aucune sauvegarde.</b> <span class="ink2">Choisissez une VM ou un service, puis où l'envoyer.</span></span><button class="btn primary" data-open="quoi">${ico("plus")}Sauvegarder…</button></div>`;
+    return;
+  }
+  const shown = state==="binaire" ? SOURCES.filter(s=>s.origin!=="restic") : SOURCES;
+  if (view==="matrice") { body.innerHTML = matrixView(shown); return; }
+  body.innerHTML = `<div class="grid">${shown.map(sourceCard).join("")}</div>`;
+}
+
+// La matrice : une ligne par source (groupées par machine), une colonne par endroit où ça peut aller.
+// La case dit l'état de ce couple ; un clic l'ouvre dans l'inspecteur. Une case vide est un choix possible.
+const COLS = [["pi","Cible restic"],["pi-sauvegardes","Tâche Proxmox"],["nas","Pas encore une cible"]];
+function cellOf(s, col){
+  if (s.origin==="none") return col==="pi" ? `<button class="cell" data-select="${s.id}" aria-pressed="${selected===s.id}"><span class="dot none"></span>Aucune</button>` : "";
+  if (s.origin==="proxmox") return col==="pi-sauvegardes" ? `<button class="cell" data-select="${s.id}" aria-pressed="${selected===s.id}"><span class="dot obs"></span>Observée<small>${s.copies}</small></button>` : "";
+  if (col!=="pi") return "";
+  const b = state==="erreurs" ? BROKEN[s.id] : state==="partielle" ? PARTIAL[s.id] : state==="retard" ? LATE[s.id] : null;
+  const tone = b ? (b.tone==="danger" ? "danger" : "warn") : s.path==="relay" ? "warn" : "";
+  return `<button class="cell" data-select="${s.id}" aria-pressed="${selected===s.id}"><span class="dot ${tone}"></span>${b ? b.stateLabel : s.path==="relay" ? "Relais" : "À jour"}<small>${s.copies}</small></button>`;
+}
+function matrixView(list){
+  const hosts = [...new Set(list.map(s=>s.host || (s.origin==="proxmox" ? "pve" : "vps")))];
+  const hostOf = s => s.host || (s.origin==="proxmox" ? "pve" : "vps");
+  const rows = hosts.map(h=>`<tr class="grp"><th colspan="${COLS.length+1}" scope="colgroup">${ico("server")} ${h}</th></tr>` +
+    list.filter(s=>hostOf(s)===h).map(s=>`<tr><th class="row" scope="row">${s.name}<span>${s.sub}</span></th>${COLS.map(([c])=>`<td>${cellOf(s,c)}</td>`).join("")}</tr>`).join("")).join("");
+  const insp = selected ? inspector(list.find(s=>s.id===selected)) : "";
+  return `<div class="view${insp?" with-insp":""}"><div class="card matrix"><table><caption class="label" style="text-align:left;padding:12px">Sources × endroits</caption>
+    <thead><tr><th scope="col">Source</th>${COLS.map(([c,sub])=>`<th scope="col">${c}<br><span style="text-transform:none;letter-spacing:0;font-weight:400">${sub}</span></th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
+    <div class="legend2"><span><i class="dot"></i>À jour</span><span><i class="dot warn"></i>À surveiller</span><span><i class="dot danger"></i>En échec</span><span><i class="dot obs"></i>Observée (Proxmox)</span><span><i class="dot none"></i>Pas sauvegardé</span></div></div>${insp}</div>`;
+}
+// L'inspecteur : verdict, frise des dernières nuits, faits, actions, retour arrière. Il ne montre rien que la carte ne montre.
+function inspector(s){
+  const pve = s.origin==="proxmox", none = s.origin==="none";
+  const tone = none ? "warn" : "ok";
+  const label = none ? "Pas sauvegardé" : pve ? "Observée" : "À jour";
+  const strip = none ? "" : `<div><div class="label" style="margin-bottom:6px">14 dernières nuits</div><div class="strip" role="img" aria-label="14 nuits, toutes réussies">${"<i></i>".repeat(14)}</div></div>`;
+  const facts = none ? `<div class="facts"><div class="fact wide"><span class="k">Dernière</span><span class="v">Jamais</span><span class="s">aucune copie, nulle part</span></div></div>`
+    : `<div class="facts">${tsFact("Dernière", s.last)}${tsFact("Prochaine", s.next)}<div class="fact"><span class="k">Taille</span><span class="v mono">${s.size}</span></div><div class="fact"><span class="k">Copies</span><span class="v mono">${s.copies}</span></div><div class="fact wide"><span class="k">Gardées</span><span class="v">${RETAIN}</span></div></div>`;
+  const acts = none ? `<button class="btn primary" data-open="quoi" data-what="${s.id}" data-mode="${s.kind==="vm"?"vm":"service"}">${ico("plus")}Sauvegarder…</button>`
+    : pve ? `<button class="btn" data-open="quoi" data-what="${s.id}" data-mode="vm">${ico("undo")}Remplacer par openCloud</button>`
+    : `<button class="btn primary" data-open="explorateur" data-src="${s.id}">${ico("folder")}Parcourir ses sauvegardes</button><button class="btn">${ico("search")}Vérifier maintenant</button>${s.kind==="db" ? `<button class="btn" data-open="cible">${ico("lock")}Clé et destination…</button>` : ""}`;
+  return `<aside class="card insp" aria-label="Détail de ${s.name}"><div class="ih"><span class="badge">${ico(kindIcon(s.kind))}</span><div><div class="name" style="font-weight:600;font-size:14px">${s.name}</div><div class="sub muted">${s.sub}</div></div>
+    <button class="x" data-select="" aria-label="Fermer le détail">${ico("x")}</button></div>
+    <div class="ib"><div><span class="pill t-${tone}">${label}</span></div>${strip}${facts}<div class="acts">${acts}</div>
+    ${none ? "" : `<div class="back">Retour : la sauvegarde s'arrête, les copies déjà faites restent sur pi.</div>`}</div></aside>`;
+}
+
+// L'explorateur : même fenêtre pour un instantané restic aujourd'hui, pour le système de fichiers d'une machine plus tard.
+const SNAPS = [["il y a 3 h 35","cette nuit 02:35","a41f9c2e"],["il y a 1 j 3 h","hier 02:35","7be03d11"],["il y a 2 j 3 h","avant-hier 02:35","c90a5b67"],["il y a 7 j","lundi dernier 02:35","1d2e8f40"]];
+const TREE = {"/":[["d","srv","—","hier"],["d","etc","—","il y a 3 mois"]],
+  "/srv":[["d","forgejo","—","cette nuit"]],
+  "/srv/forgejo":[["d","data","—","cette nuit"],["d","config","—","il y a 2 mois"],["f","docker-compose.yml","1,2 Kio","il y a 2 mois"],["f","app.ini","3,4 Kio","il y a 2 mois"]],
+  "/srv/forgejo/config":[["f","app.ini","3,4 Kio","il y a 2 mois"],["f","custom.css","812 o","il y a 5 mois"]]};
+let xp = {snap:0, path:"/srv/forgejo", picked:new Set(["app.ini"])};
+function explorer(){
+  const rows = (TREE[xp.path]||[]).map(([k,n,z,d])=>`<li class="xp-row" role="option" aria-selected="${xp.picked.has(n)}" tabindex="0" data-row="${n}" data-kind="${k}">
+    <input class="chk" type="checkbox" aria-label="Choisir ${n}" ${xp.picked.has(n)?"checked":""} data-pick="${n}">${ico(k==="d"?"folder":"file")}<span>${n}</span><span class="sz">${z}</span><span class="dt">${d}</span></li>`).join("");
+  const parts = xp.path.split("/").filter(Boolean);
+  const crumb = `<div class="crumb"><span>forgejo</span>${parts.map(x=>`<span class="sepc">›</span><span>${x}</span>`).join("")}</div>`;
+  const cmd = `restic restore ${SNAPS[xp.snap][2]} --target /tmp/restauration --include ${xp.path}/${[...xp.picked][0]||""}`;
+  return `<div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <div class="m-head"><h2 id="m-title" tabindex="-1">Sauvegardes de forgejo</h2><span class="pill sm t-ok">pi · direct</span><button class="x" data-close aria-label="Fermer">${ico("x")}</button></div>
+    <div class="xp"><div class="xp-snaps" role="listbox" aria-label="Instantanés"><div class="label" style="padding:2px 4px">Instantanés</div>
+      ${SNAPS.map(([a,b,id],i)=>`<button class="xp-snap" role="option" aria-selected="${xp.snap===i}" data-snap="${i}"><b>${b}</b><span>${a} · <span class="mono">${id}</span></span></button>`).join("")}</div>
+      <div class="xp-main"><div class="xp-bar"><button class="btn small ghost" data-up aria-label="Dossier parent">${ico("undo")}</button>${crumb}</div>
+        <ul class="xp-list" role="listbox" aria-multiselectable="true" aria-label="Contenu du dossier">${rows}</ul>
+        <div class="xp-out"><div class="label">Sorties</div><div class="muted">Sortir à côté, sans rien écraser : à lancer sur <b>docker1</b>, qui garde le mot de passe du dépôt.</div>${copyLine(cmd,"docker1")}</div>
+        <div class="xp-hint"><kbd>↑</kbd> <kbd>↓</kbd> bouger · <kbd>Entrée</kbd> ouvrir · <kbd>Espace</kbd> cocher · <kbd>Retour arrière</kbd> remonter · <kbd>Échap</kbd> fermer</div></div></div>
+    <div class="m-foot"><span class="muted">Lecture seule : rien n'est modifié ni restauré par cet écran.</span><span class="sp"></span><button class="btn" data-close>Fermer</button></div></div>`;
+}
+
+function renderTargets(){
+  const body = document.getElementById("targets-body");
+  if (state==="vide") {
+    body.innerHTML = `<div class="card empty">${ico("server")}<span><b>Aucune cible.</b> <span class="ink2">Une cible est une machine qui reçoit les copies.</span></span><button class="btn" data-open="cible">Faire d'une machine une cible</button></div>`;
+    return;
+  }
+  const off = state==="erreurs";
+  const missing = state==="binaire";
+  const restPill = off
+    ? `<span class="pill sm t-neutral">Ne signale plus</span><span class="muted">Dernier état : en marche, il y a 4 h</span>`
+    : missing ? `<span class="pill sm t-warn">pi n'a pas rest-server</span>`
+    : `<span class="pill sm t-ok">rest-server en marche</span>`;
+  const proxmoxChips = [["docker1","310 Gio"],["immich","690 Gio"]].map(([n,z])=>`<span class="chip">${ico("vm")}<b>${n}</b><span class="mono muted">${z}</span></span>`).join("");
+  const resticChips = [["forgejo","box","2,1 Gio"],["Base d'openCloud","db","52 Mio"],["vaultwarden","box","15 Mio"]].map(([n,i,z])=>`<span class="chip">${ico(i)}<b>${n}</b><span class="mono muted">${z}</span></span>`).join("");
+  body.innerHTML = `<div class="targets">
+    <article class="card tgt${off?" unknown":""}">
+      <div class="top"><span class="badge">${ico("server")}</span><span class="name">pi</span><span class="pill sm nodot t-neutral">Matériel</span>${restPill}</div>
+      <div>
+        <div class="label">Disque des sauvegardes</div>
+        <div class="big" style="margin-top:6px">600<small>Gio libres sur 2 Tio</small></div>
+        <div class="bar${off?" stale":""}" role="img" aria-label="Sauvegardes 1 Tio, autre 0,4 Tio, libre 600 Gio"><i class="b-bk" style="width:50%"></i><i class="b-other" style="width:20%"></i></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Sauvegardes <b class="mono">1 Tio</b></span><span><i style="background:var(--line-strong)"></i>Autre <b class="mono">0,4 Tio</b></span><span><i style="background:var(--surface-2);border:1px solid var(--line-strong)"></i>Libre <b class="mono">600 Gio</b></span></div>
+        <div class="muted" style="margin-top:8px;font-size:12px">${off?"Dernier relevé : 02:14, il y a 4 h.":"Environ +4 Gio par nuit. Relevé il y a 1 min."}</div>
+      </div>
+      <div>
+        <div class="label">rest-server</div>
+        <dl class="kv">
+          <dt>Adresse annoncée</dt><dd class="mono">192.0.2.10:8000</dd>
+          <dt>Dossier</dt><dd class="mono">/srv/restic</dd>
+          <dt>Mode</dt><dd>ajout seul</dd>
+          <dt>Purge</dt><dd>par pi, chaque nuit</dd>
+          <dt>Version</dt><dd class="mono">${missing ? "—" : "0.14.0"}</dd>
+          <dt>Certificat</dt><dd class="mono" title="Empreinte SHA-256 du certificat de pi">${missing ? "—" : "7c:1e:…:a4"}</dd>
+        </dl>
+        <div class="floor">${FLOOR}</div>
+      </div>
+      ${missing ? installRestServer() : ""}
+      <div class="holds">
+        <div class="label">Ce qui s'y trouve</div>
+        <div class="groups">
+          <div><div class="ink2">Partage NFS <b class="mono">pi-sauvegardes</b>, écrit par la tâche Proxmox nuit-pi <span class="pill sm nodot t-neutral">à remplacer</span></div><div class="chips">${proxmoxChips}</div></div>
+          <div><div class="ink2">Dépôts restic, écrits par openCloud</div>${missing
+            ? `<div class="muted" style="margin-top:6px">Aucun pour l'instant.</div>`
+            : `<div class="chips">${resticChips}</div>`}</div>
+        </div>
+      </div>
+    </article>
+    <div class="card add">
+      <span class="badge">${ico("plus")}</span>
+      <b>Une autre cible</b>
+      <p>Une deuxième machine garde une copie si pi tombe. Il lui faut le droit <span class="mono">restic.target</span>.</p>
+      <button class="btn" data-open="cible">Faire d'une machine une cible</button>
+    </div>
+  </div>`;
+}
+
+// Accéder : les commandes suivent la source choisie.
+const ACCESS = {
+  forgejo:{host:"docker1", dir:"/srv/forgejo", file:"/srv/forgejo/data/gitea/conf/app.ini", db:"forgejo-db-1", vol:"forgejo_data"},
+  base:{host:"cloud", dir:"/var/lib/opencloud", file:"/var/lib/opencloud/opencloud.db", db:"opencloud", vol:"opencloud"},
+  vaultwarden:{host:"vps", dir:"/srv/vaultwarden", file:"/srv/vaultwarden/data/config.json", db:"vaultwarden", vol:"vaultwarden_data"}
+};
+let accessSrc = "forgejo";
+function step(title, body){ return `<li><div><b>${title}</b>${body||""}</div></li>`; }
+function renderHow(){
+  const a = ACCESS[accessSrc];
+  document.querySelectorAll(".v-host").forEach(e=>e.textContent=a.host);
+  document.getElementById("how").innerHTML = `
+    <article class="card how">
+      <h3><span class="badge">${ico("folder")}</span>Parcourir</h3>
+      <ol class="steps">
+        ${step("Lister les sauvegardes", copyLine("restic snapshots"))}
+        ${step("Voir les fichiers de la dernière", copyLine(`restic ls latest ${a.dir}`))}
+        ${step("Une autre date ?", `<span class="ink2">Remplacez <span class="mono">latest</span> par l'identifiant de la liste.</span>`)}
+      </ol>
+    </article>
+    <article class="card how">
+      <h3><span class="badge">${ico("file")}</span>Restaurer un fichier</h3>
+      <ol class="steps">
+        ${step("Le sortir à côté, sans rien écraser", copyLine(`restic restore latest --target /tmp/restauration --include ${a.file}`))}
+        ${step("Comparer, puis le remettre en place", `<span class="ink2">Le fichier est sous <span class="mono">/tmp/restauration</span>.</span>`)}
+      </ol>
+    </article>
+    <article class="card how">
+      <h3><span class="badge">${ico("db")}</span>Restaurer une base ou un volume</h3>
+      <ol class="steps">
+        ${step("Sortir le dump à côté", copyLine(`restic restore latest --target /tmp/restauration --include /database-${a.db}.sql`))}
+        ${step("Le rejouer dans le conteneur", copyLine(`docker exec -i ${a.db} sh -c 'psql -U "$POSTGRES_USER"' < /tmp/restauration/database-${a.db}.sql`, a.host))}
+        ${step("Un volume ?", `<span class="ink2">Même geste avec <span class="mono">volume-${a.vol}.tar</span>, puis <span class="mono">tar -x</span> dans un volume neuf.</span>`)}
+      </ol>
+    </article>
+    <article class="card how">
+      <h3><span class="badge">${ico("vm")}</span>Restaurer une VM</h3>
+      <ol class="steps">
+        ${step("Sur l'hôte Proxmox, en VM neuve", copyLine("restic dump latest /vzdump-qemu-105.vma | qmrestore - 1105 --storage local-lvm"))}
+        ${step("La démarrer, vérifier, puis échanger", `<span class="ink2">1105 est un numéro libre : l'originale reste intacte.</span>`)}
+      </ol>
+      <div class="alt">
+        <b>Sauvegarde observée chez Proxmox</b>
+        <div class="crumb"><span>pve</span><span class="sepc">›</span><span>pi-sauvegardes</span><span class="sepc">›</span><span>Sauvegardes</span><span class="sepc">›</span><span>Restaurer</span></div>
+        <span class="muted">Dans l'interface Proxmox : choisir l'archive, puis un numéro de VM libre.</span>
+      </div>
+    </article>`;
+}
+
+// Fenêtres
+const PICK = {mode:"service", what:"nextcloud", where:"pi"};
+const VMS = [
+  ["docker1","VM 101 · sur pve","observed"],["immich","VM 105 · sur pve","observed"],
+  ["vpn","VM 102 · sur pve","none"],["dns","LXC 104 · sur pve","none"]
+];
+// [nom, sous-titre, état, parties, grisé (le droit manque)]
+const SERVICES = [
+  ["nextcloud","Service entier · sur vps","none",[["folder","Dossier","/srv/nextcloud","23 Gio"],["volume","nextcloud_data","volume Docker","180 Gio"],["database","nextcloud-db-1","PostgreSQL","2,4 Gio"]]],
+  ["forgejo","Service entier · sur docker1","restic",[["folder","Dossier","/srv/forgejo","40 Mio"],["volume","forgejo_data","volume Docker","1,7 Gio"],["database","forgejo-db-1","PostgreSQL","58 Mio"]]],
+  ["vaultwarden","Service entier · sur vps","restic",[["volume","vaultwarden_data","volume Docker","12 Mio"]]],
+  ["paperless","Service entier · sur docker1","none",[["folder","Dossier","/srv/paperless","4 Gio"],["database","paperless-db-1","PostgreSQL","310 Mio"]],"restic.docker"]
+];
+const STATUS = {
+  observed:`<span class="pill sm nodot t-neutral">Observée · Proxmox</span>`,
+  restic:`<span class="pill sm t-ok">Protégé</span>`,
+  none:`<span class="pill sm t-warn">Aucune</span>`
+};
+function stepper(at){
+  const names = ["Quoi","Où","Récap"];
+  return `<div class="stepper" aria-label="Étape ${at+1} sur 3">${names.map((n,i)=>{
+    const cls = i===at ? "on" : i<at ? "done" : "";
+    const mark = i<at ? "✓" : String(i+1);
+    return `${i?'<span class="st-sep"></span>':""}<span class="st ${cls}" title="${n}"><i>${mark}</i>${i===at?n:""}</span>`;
+  }).join("")}</div>`;
+}
+function frame(title, at, body, foot){
+  return `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <div class="m-head"><h2 id="m-title" tabindex="-1">${title}</h2><button class="x" data-close aria-label="Fermer">${ico("x")}</button></div>
+    ${at===null?"":stepper(at)}<div class="m-body">${body}</div><div class="m-foot">${foot}</div></div>`;
+}
+function stepWhat(){
+  const list = PICK.mode==="vm" ? VMS : SERVICES;
+  const opts = list.map(([n,sub,st,parts,lacks])=> lacks
+    ? `<div class="opt off" aria-disabled="true"><span class="radio"></span><span class="badge">${ico("box")}</span>
+    <span class="who"><b>${n}</b><span>${sub} · docker1 n'a pas le droit <span class="mono">${lacks}</span></span></span><span class="end"><button class="btn small">Ré-enrôler docker1 avec ce droit</button></span></div>`
+    : `<button class="opt" role="radio" aria-checked="${PICK.what===n}" data-what="${n}">
+    <span class="radio"></span><span class="badge">${ico(PICK.mode==="vm"?"vm":"box")}</span>
+    <span class="who"><b>${n}</b><span>${sub}</span></span><span class="end">${STATUS[st]}</span></button>`).join("");
+  const chosen = PICK.mode==="service" ? SERVICES.find(x=>x[0]===PICK.what) : null;
+  const preview = chosen ? `<div class="card" style="padding:12px 14px"><div class="parts" style="border-top:0;padding-top:0"><div class="head2 label">Ce qui part avec ${chosen[0]}</div>${chosen[3].map(([kind,name,sub,size])=>`<div class="p"><span class="badge" style="width:24px;height:24px;border-radius:7px">${ico(PART_ICON[kind])}</span><span class="nm"><b>${kind==="folder"?name+" · "+sub:name}</b><span>${kind==="folder"?PART_KIND[kind]:PART_KIND[kind]+" · "+sub}</span></span><span class="sz">${size}</span></div>`).join("")}</div></div>` : "";
+  const note = PICK.mode==="vm"
+    ? "openCloud lance vzdump sur l'hôte Proxmox et envoie le flux : plus besoin d'une tâche Datacenter. Il faut les droits restic.produce et backup.produce."
+    : "Le service entier part : son dossier, ses volumes Docker et ses bases (leur dump, fait dans le conteneur). Il faut le droit restic.docker. Un volume copié en marche peut être incohérent : pour une base, c'est son dump qui compte.";
+  return frame("Que sauvegarder ?", 0, `
+    <div class="seg" role="group" aria-label="Portée" style="align-self:flex-start">
+      <button aria-pressed="${PICK.mode==="vm"}" data-mode="vm">VM entière</button><button aria-pressed="${PICK.mode==="service"}" data-mode="service">Service entier</button></div>
+    <label class="search">${ico("search")}<input placeholder="${PICK.mode==="vm"?"Chercher une VM…":"Chercher un service…"}" aria-label="Chercher"></label>
+    <div class="opts" role="radiogroup" aria-label="Source">${opts}</div>
+    ${preview}
+    <div class="note">${ico("folder")}<span>${note}</span></div>`,
+    `<button class="btn ghost" data-close>Annuler</button><span class="sp"></span><button class="btn primary" data-go="ou">Suivant</button>`);
+}
+function stepWhere(){
+  const sel = (id) => PICK.where===id;
+  const missing = state==="binaire";
+  const pi = missing
+    ? `<div class="opt off" aria-disabled="true">
+        <span class="radio"></span><span class="badge">${ico("server")}</span>
+        <span class="who"><b>pi</b><span>pi n'a pas rest-server · 600 Gio libres sur 2 Tio</span></span>
+        <span class="end"><span class="pill sm t-warn">Binaire manquant</span></span></div>`
+    : `<button class="opt" role="radio" aria-checked="${sel("pi")}" data-where="pi">
+        <span class="radio"></span><span class="badge">${ico("server")}</span>
+        <span class="who"><b>pi</b><span>rest-server en marche · 600 Gio libres sur 2 Tio</span></span>
+        <span class="end"><span class="mini" aria-hidden="true"><i style="width:70%"></i></span><span class="pill sm t-ok">Prête</span></span></button>`;
+  const install = missing
+    ? `${installRestServer()}<div class="note warn">${ico("server")}<span>vps n'a pas restic non plus : la source en a besoin.</span></div>${installRestic()}`
+    : "";
+  return frame("Où l'envoyer ?", 1, `
+    <div class="opts" role="radiogroup" aria-label="Cible">
+      ${pi}
+      <div class="opt off" aria-disabled="true">
+        <span class="radio"></span><span class="badge">${ico("server")}</span>
+        <span class="who"><b>nas</b><span>A le droit, mais n'est pas encore une cible.</span></span>
+        <span class="end"><button class="btn small" data-open="cible">En faire une cible</button></span></div>
+      <div class="opt off" aria-disabled="true">
+        <span class="radio"></span><span class="badge">${ico("vm")}</span>
+        <span class="who"><b>docker1</b><span>Pas le droit <span class="mono">restic.target</span>. Il se donne à l'enrôlement.</span></span>
+        <span class="end"><button class="btn small">Ré-enrôler avec ce droit</button></span></div>
+    </div>
+    ${install}
+    <div class="note">${ico("lock")}<span>pi reçoit en ajout seul : nextcloud ne pourra rien y effacer.</span></div>`,
+    `<button class="btn ghost" data-close>Annuler</button><span class="sp"></span><button class="btn" data-go="quoi">Précédent</button><button class="btn primary" data-go="recap"${missing ? " disabled" : ""}>Suivant</button>`);
+}
+function stepRecap(){
+  const row = (k, v, back) => `<div class="r"><span class="k">${k}</span><div class="v">${v}</div>${back?`<button class="btn small ghost" data-go="${back}">Modifier</button>`:"<span></span>"}</div>`;
+  return frame("Récapitulatif", 2, `<div class="recap">
+    ${row("Quoi", PICK.mode==="vm"
+      ? `<b>${PICK.what}</b><span class="muted">VM entière · vzdump lancé par openCloud sur pve</span>`
+      : `<b>${PICK.what}</b><span class="muted">Service entier · ${SERVICES.find(x=>x[0]===PICK.what)[3].map(p=>p[1]==="Dossier"?"dossier":p[0]==="volume"?"volume "+p[1]:"base "+p[1]).join(" · ")}</span>`, "quoi")}
+    ${row("Où", `<b>${PICK.where}</b><span class="muted">rest-server <span class="mono">192.0.2.10:8000</span></span>`, "ou")}
+    ${row("Rythme", `<b>Chaque nuit</b><span class="muted">vers 02:30</span>`)}
+    ${row("Gardées", `<b>${RETAIN}</b><span class="muted">Appliqué par pi chaque nuit. Plancher de pi : 7 nuits.</span>`)}
+    ${row("Chemin attendu", `<span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill sm t-warn">Relais</span><span class="ink2">vps ne joint pas pi:8000</span></span>${copyLine("pour passer en direct : vps doit joindre pi:8000")}`)}
+    ${row("Mots de passe", `<span class="ink2">Les mots de passe sont créés par openCloud et envoyés aux deux machines ; vous ne les tapez jamais.</span>`)}
+  </div>`,
+    `<button class="btn ghost" data-close>Annuler</button><span class="sp"></span><button class="btn" data-go="ou">Précédent</button><button class="btn primary" data-close>Sauvegarder chaque nuit</button>`);
+}
+function targetForm(){
+  return `<div class="modal narrow" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <div class="m-head"><h2 id="m-title" tabindex="-1">Faire de cette machine une cible</h2><button class="x" data-close aria-label="Fermer">${ico("x")}</button></div>
+    <div class="m-body">
+      <div class="field"><label>Machine</label><button class="trigger">${ico("server")}<b>nas</b><span class="muted">Matériel</span>${ico("chev")}</button>
+        <span class="help">Seules les machines avec le droit <span class="mono">restic.target</span> sont proposées.</span></div>
+      <div class="row2">
+        <div class="field"><label for="f-addr">Adresse annoncée</label><input class="input" id="f-addr" value="192.0.2.20"><span class="help">L'adresse que les sources joignent.</span></div>
+        <div class="field"><label for="f-port">Port</label><input class="input short" id="f-port" value="8000"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="f-dir">Dossier des dépôts</label><input class="input" id="f-dir" value="/srv/restic"><span class="help">Celui que le droit autorise. Il doit avoir de la place.</span></div>
+        <div class="field"><label for="f-floor">Plancher</label><input class="input short" id="f-floor" value="7" inputmode="numeric"><span class="help">nuits au moins</span></div>
+      </div>
+      <div class="note">${ico("archive")}<span>nas purge ses dépôts chaque nuit. Une politique sous le plancher est refusée par nas.</span></div>
+      <div class="note">${ico("lock")}<span>rest-server tourne en ajout seul : une source ne peut rien effacer.</span></div>
+    </div>
+    <div class="m-foot"><button class="btn ghost" data-close>Annuler</button><span class="sp"></span><button class="btn primary" data-close>Faire de nas une cible</button></div></div>`;
+}
+const SCREENS = {quoi:stepWhat, ou:stepWhere, recap:stepRecap, cible:targetForm, explorateur:explorer};
+let lastFocus = null;
+function openModal(name){
+  if (document.getElementById("scrim").hidden) lastFocus = document.activeElement;
+  document.getElementById("modal-root").innerHTML = SCREENS[name]();
+  document.getElementById("scrim").hidden = false;
+  document.getElementById("m-title").focus();
+}
+function closeModal(){ document.getElementById("scrim").hidden = true; if (lastFocus) lastFocus.focus(); }
+
+function render(){ document.getElementById("acceder").hidden = state==="vide" || state==="binaire"; renderVerdict(); renderSources(); renderTargets(); renderHow();
+  document.getElementById("nav-count").textContent = state==="vide" ? "0" : state==="binaire" ? "3" : "6"; }
+
+document.addEventListener("click", (e) => {
+  const row = e.target.closest("[data-row]");
+  if (row && !e.target.closest("[data-pick]") && document.querySelector(".xp")) {
+    if (row.dataset.kind==="d") { xp.path = (xp.path==="/"?"":xp.path)+"/"+row.dataset.row; xp.picked = new Set(); openModal("explorateur"); }
+    return;
+  }
+  const t = e.target.closest("button,[data-what],[data-where],[data-pick]"); if (!t) return;
+  if (t.dataset.pick) { xp.picked.has(t.dataset.pick) ? xp.picked.delete(t.dataset.pick) : xp.picked.add(t.dataset.pick); return openModal("explorateur"); }
+  if (t.dataset.snap) { xp.snap = +t.dataset.snap; return openModal("explorateur"); }
+  if (t.hasAttribute("data-up")) { xp.path = xp.path.split("/").slice(0,-1).join("/") || "/"; xp.picked = new Set(); return openModal("explorateur"); }
+  if (t.dataset.view) { view = t.dataset.view; document.querySelectorAll("#pick-view button").forEach(b=>b.setAttribute("aria-pressed", b===t)); return renderSources(); }
+  if (t.hasAttribute("data-select")) { selected = t.dataset.select; view = "matrice"; document.querySelectorAll("#pick-view button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.view===view)); renderSources(); return; }
+  if (t.dataset.open) { if (t.dataset.mode) { PICK.mode = t.dataset.mode; PICK.what = t.dataset.what; } return openModal(t.dataset.open); }
+  if (t.hasAttribute("data-close")) return closeModal();
+  if (t.dataset.go) return openModal(t.dataset.go);
+  if (t.dataset.mode) { PICK.mode = t.dataset.mode; PICK.what = t.dataset.what || (t.dataset.mode==="vm"?VMS:SERVICES)[0][0]; return openModal(t.dataset.open ? t.dataset.open : "quoi"); }
+  if (t.dataset.what) { PICK.what = t.dataset.what; return openModal("quoi"); }
+  if (t.dataset.where) { PICK.where = t.dataset.where; return openModal("ou"); }
+  if (t.dataset.state) { state = t.dataset.state; document.querySelectorAll("#pick-state button").forEach(b=>b.setAttribute("aria-pressed", b===t)); return render(); }
+  if (t.dataset.src && !t.dataset.open) { accessSrc = t.dataset.src; document.querySelectorAll("#pick-src button").forEach(b=>b.setAttribute("aria-pressed", b===t)); return renderHow(); }
+  if (t.hasAttribute("data-copy")) {
+    const code = t.parentElement.querySelector("code");
+    try { navigator.clipboard.writeText(code.textContent); } catch (err) {}
+    const before = t.innerHTML; t.textContent = "Copié"; setTimeout(()=>{ t.innerHTML = before; }, 1500);
+  }
 });
-document.querySelectorAll(".tab").forEach(function(t){ t.onclick = function(){
-  document.querySelectorAll(".tab").forEach(function(x){ x.classList.remove("on"); x.setAttribute("aria-selected","false"); });
-  t.classList.add("on"); t.setAttribute("aria-selected","true");
-  ["matrix","policies","targets","runs"].forEach(function(k){ document.getElementById("tab-"+k).hidden = (k !== t.getAttribute("data-tab")); });
-};});
-var th = document.getElementById("theme");
-th.onclick = function(){ var d = document.documentElement; var dark = d.getAttribute("data-theme")==="dark"; d.setAttribute("data-theme", dark?"light":"dark"); th.textContent = dark?"Thème sombre":"Thème clair"; };
+document.addEventListener("keydown", (e) => {
+  if (e.key==="Escape" && !document.getElementById("scrim").hidden) return closeModal();
+  const row = e.target.closest && e.target.closest("[data-row]"); if (!row) return;
+  const rows = [...document.querySelectorAll("[data-row]")], i = rows.indexOf(row);
+  if (e.key==="ArrowDown") { e.preventDefault(); (rows[i+1]||row).focus(); }
+  if (e.key==="ArrowUp") { e.preventDefault(); (rows[i-1]||row).focus(); }
+  if (e.key==="Enter" && row.dataset.kind==="d") row.click();
+  if (e.key===" ") { e.preventDefault(); row.querySelector("[data-pick]").click(); }
+  if (e.key==="Backspace") document.querySelector("[data-up]").click();
+});
+const th = document.getElementById("theme");
+function setTheme(dark){ document.documentElement.dataset.theme = dark ? "dark" : "light"; th.textContent = dark ? "Thème clair" : "Thème sombre"; }
+th.onclick = () => setTheme(document.documentElement.dataset.theme !== "dark");
 
-renderMatrix();
-openInspector("vm-104","pi");
-// Démo : ?explorer ouvre l'explorateur depuis un volume de service.
-if (location.search.indexOf("explorer") >= 0) { openInspector("vol-mcp","pi"); openExplorer(find("vol-mcp")); }
-if (location.search.indexOf("sombre") >= 0) { document.getElementById("theme").click(); }
+const params = new URLSearchParams(location.search);
+if (params.get("theme")==="dark") setTheme(true);
+if (params.has("etat")) state = params.get("etat");
+if (params.get("vue")==="matrice") { view = "matrice"; document.querySelectorAll("#pick-view button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.view===view)); }
+if (params.has("selection")) selected = params.get("selection");
+if (params.get("quoi")==="vm") { PICK.mode = "vm"; PICK.what = VMS[0][0]; }
+document.querySelectorAll("#pick-state button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.state===state));
+if (params.has("nobar")) document.getElementById("demo").hidden = true;
+render();
+if (params.has("fenetre")) openModal(params.get("fenetre"));
 </script>
 </body>
 </html>

@@ -239,11 +239,22 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
     (`CopyList`). Les cases sont un repère, rien ne les exige. Les libellés d'un
     autre produit s'écrivent tels qu'il les affiche. Un avertissement se dit en
     une phrase (`Note`).
-- **Assistant** (`Wizard`) : la création d'un objet à plus de cinq champs
-  environ ou à plusieurs notions (service, sonde, pare-feu, plan de
-  sauvegarde). Toujours dans une `Modal` large ; pas pour une page de
-  réglages (Paramètres) ni pour un formulaire de trois champs (`ModalForm`) :
-  il ajoute des clics là où tout tient à l'écran.
+- **Assistant** (`Wizard`) : la création d'un objet à plusieurs notions qui
+  ne tiennent pas en un écran (service, pare-feu, machine). Toujours dans une
+  `Modal` large ; pas pour une page de réglages (Paramètres) ni pour ce qui
+  tient en un écran : il ajoute des clics là où tout tient à l'écran.
+  - **Un écran d'abord** (U3, #450). Ce qui peut tenir en un écran n'est pas un
+    assistant : une seule étape se rend en un formulaire, sans barre ni
+    récapitulatif, avec l'action finale (« Créer »). Les champs sans lesquels
+    rien n'existe sont à l'écran (un nom, une adresse) ; les réglages dont la
+    valeur par défaut suffit sont repliés sous **« Réglages »**
+    (`SettingsFold`), et le pli dit ces valeurs en clair, fermé : « HTTP depuis
+    vps-lyon, chaque minute, 3 échecs avant l'alerte ». Un champ faux dans un
+    pli fermé l'ouvre. Ce qui est contextuel (l'annonce publique d'un silence)
+    reste à l'écran : une erreur ne se cache pas dans un pli. Gardent leurs
+    étapes ceux qui ont un geste à faire ailleurs entre deux champs (pare-feu :
+    les gestes dans OPNsense, puis la clé), une empreinte à confirmer avant
+    d'écrire (pare-feu, hôte Proxmox), ou une commande à coller (machine).
   - **Barre d'étapes** : une pastille numérotée par étape ; la courante en
     encre pleine, avec son nom **en entier**, une étape faite cochée, à venir
     en discret. Les autres n'ont que leur pastille, leur titre complet en
@@ -262,6 +273,10 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
     « Modifier », Suivant devient « Revenir au récapitulatif ».
   - **En modification**, l'assistant s'ouvre sur le récapitulatif et chaque
     étape de la barre y mène ; un saut en avant valide les étapes franchies.
+    Un écran unique s'ouvre sur ses champs.
+  - **Une période se dit toujours pareil** (`describeEvery`) : « chaque
+    minute », « toutes les 5 min », que le champ soit en secondes (sonde) ou en
+    minutes (tâche).
 - **Graphe réseau** : fond pointé, nœuds de 184 px (icône, nom, sous-titre
   mono, point d'état), arêtes orthogonales arrondies, groupes en pointillé,
   nœud « Internet » en noir, sélection par anneau d'accent, inspecteur de

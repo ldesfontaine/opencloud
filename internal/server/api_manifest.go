@@ -29,9 +29,8 @@ func (s *Server) exportedDirectory(ctx context.Context, options manifest.ExportO
 	}
 	catalog := s.catalogs.For(code)
 	return s.manifest.Export(ctx, manifest.Annotations{
-		Header:       catalog.Get("manifest.export_header"),
-		Proposed:     catalog.Get("manifest.export_proposed"),
-		ProposedUnit: catalog.Get("manifest.export_proposed_unit"),
+		Header:   catalog.Get("manifest.export_header"),
+		Proposed: catalog.Get("manifest.export_proposed"),
 	}, options)
 }
 

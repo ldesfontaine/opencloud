@@ -2,6 +2,7 @@ package proxmox
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -10,18 +11,32 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
-func TestMacsOfNIC(t *testing.T) {
-	cases := map[string][]string{
-		"virtio=BC:24:11:AA:BB:CC,bridge=vmbr0,firewall=1":                  {"bc:24:11:aa:bb:cc"},
-		"e1000=bc:24:11:00:00:01,bridge=vmbr1,tag=20":                       {"bc:24:11:00:00:01"},
-		"name=eth0,bridge=vmbr0,hwaddr=BC:24:11:AA:BB:DD,ip=dhcp,type=veth": {"bc:24:11:aa:bb:dd"},
-		"bridge=vmbr0,firewall=1":                                           {},
+func TestNICOf(t *testing.T) {
+	cases := map[string]NIC{
+		"virtio=BC:24:11:AA:BB:CC,bridge=vmbr0,firewall=1":                  {MAC: "bc:24:11:aa:bb:cc", Bridge: "vmbr0"},
+		"e1000=bc:24:11:00:00:01,bridge=vmbr1,tag=20":                       {MAC: "bc:24:11:00:00:01", Bridge: "vmbr1", VLAN: 20},
+		"name=eth0,bridge=vmbr0,hwaddr=BC:24:11:AA:BB:DD,ip=dhcp,type=veth": {MAC: "bc:24:11:aa:bb:dd", Bridge: "vmbr0"},
+		"bridge=vmbr0,firewall=1":                                           {Bridge: "vmbr0"},
 		"virtio=pas-une-mac":                                                {},
+		"virtio=bc:24:11:00:00:02,tag=9999":                                 {MAC: "bc:24:11:00:00:02"},
+		"virtio=bc:24:11:00:00:03,tag=abc":                                  {MAC: "bc:24:11:00:00:03"},
 	}
 	for nic, want := range cases {
-		if got := macsOfNIC(nic); !reflect.DeepEqual(got, want) {
-			t.Errorf("%q : got %v, want %v", nic, got, want)
+		if got := nicOf(nic); got != want {
+			t.Errorf("%q : got %+v, want %+v", nic, got, want)
 		}
+	}
+}
+
+// Seuls la MAC, le pont et le tag survivent : ni le pare-feu de la carte, ni
+// son adresse IP, ni un champ inconnu (ici, une valeur secrète semée).
+func TestNICOf_KeepsNothingElse(t *testing.T) {
+	got := nicOf("virtio=BC:24:11:AA:BB:CC,bridge=vmbr0,tag=50,ip=10.1.2.3/24,gw=10.1.2.1,note=SECRET-SEMEE")
+	if rendered := fmt.Sprintf("%+v", got); strings.Contains(rendered, "SECRET") || strings.Contains(rendered, "10.1.2") {
+		t.Errorf("la carte garde plus que MAC, pont et tag : %s", rendered)
+	}
+	if got.VLAN != 50 || got.Bridge != "vmbr0" {
+		t.Errorf("carte : %+v", got)
 	}
 }
 
@@ -127,7 +142,7 @@ func TestClient_Read_ATokenThatCannotReadConfigsStopsAskingAndKeepsTheReading(t 
 
 func TestClient_EscapesTheNodeInTheConfigPath(t *testing.T) {
 	api := newFakeAPI(t)
-	if _, err := NewClient(api.credentials(api.pin())).GuestMACs(context.Background(), "../x", KindQEMU, 100); err == nil {
+	if _, err := NewClient(api.credentials(api.pin())).GuestNICs(context.Background(), "../x", KindQEMU, 100); err == nil {
 		t.Fatal("un chemin qui n'existe pas doit échouer")
 	}
 	for _, path := range api.requested() {

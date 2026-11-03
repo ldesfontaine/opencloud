@@ -1,8 +1,12 @@
 package server
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/credential"
 
 	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
@@ -10,7 +14,8 @@ import (
 
 // Un pare-feu déclaré, tel que la liste et la fiche le lisent : ce que son API
 // a dit au dernier relevé réussi. Le secret n'est jamais rendu, ni ici ni dans
-// une erreur ; last_error est la clé du refus du dernier relevé qui a échoué,
+// une erreur ; la clé n'est rendue que par ses quatre premiers caractères
+// (api_key_hint) ; last_error est la clé du refus du dernier relevé qui a échoué,
 // vide s'il a réussi. Un jeton d'API ne voit ni la clé ni l'empreinte
 // (redactedFirewall).
 type firewallJSON struct {
@@ -18,7 +23,7 @@ type firewallJSON struct {
 	Name       string             `json:"name"`
 	Kind       string             `json:"kind"`
 	APIURL     string             `json:"api_url"`
-	APIKey     string             `json:"api_key"`
+	APIKeyHint string             `json:"api_key_hint"`
 	Pin        string             `json:"pin"`
 	IsPinned   bool               `json:"is_pinned"`
 	Version    string             `json:"version"`
@@ -95,14 +100,23 @@ type firewallRulesResponse struct {
 	Rules []firewallRuleJSON `json:"rules"`
 }
 
+// firewallLeaseMachineJSON est la machine d'openCloud que le bail désigne, par
+// sa carte réseau ou son adresse.
+type firewallLeaseMachineJSON struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type firewallLeaseJSON struct {
-	Address   string     `json:"address"`
-	MAC       string     `json:"mac"`
-	Hostname  string     `json:"hostname"`
-	Interface string     `json:"interface"`
-	Server    string     `json:"server"`
-	IsStatic  bool       `json:"is_static"`
-	ExpiresAt *time.Time `json:"expires_at"`
+	// Machine : nulle quand aucune machine connue ne correspond.
+	Machine   *firewallLeaseMachineJSON `json:"machine"`
+	Address   string                    `json:"address"`
+	MAC       string                    `json:"mac"`
+	Hostname  string                    `json:"hostname"`
+	Interface string                    `json:"interface"`
+	Server    string                    `json:"server"`
+	IsStatic  bool                      `json:"is_static"`
+	ExpiresAt *time.Time                `json:"expires_at"`
 }
 
 type firewallLeasesResponse struct {
@@ -131,7 +145,7 @@ func (request firewallRequest) definition() firewall.Definition {
 
 func firewallToJSON(declared firewall.Firewall, counts firewallCountsJSON) firewallJSON {
 	return firewallJSON{
-		ID: declared.ID, Name: declared.Name, Kind: declared.Kind, APIURL: declared.APIURL, APIKey: declared.APIKey,
+		ID: declared.ID, Name: declared.Name, Kind: declared.Kind, APIURL: declared.APIURL, APIKeyHint: credential.Mask(declared.APIKey),
 		Pin: declared.Pin, IsPinned: declared.Pin != "", Version: declared.Version, VerifiedAt: declared.VerifiedAt.UTC(),
 		LastReadAt: httpx.TimeOrNil(declared.LastReadAt), LastError: declared.LastError, Counts: counts,
 	}
@@ -169,7 +183,7 @@ func firewallReadingOf(view firewall.View) firewallReadingJSON {
 // redactedFirewall est la seule règle « un jeton masque la paire de clés » :
 // la clé d'API et l'empreinte du certificat ne sortent que vers l'opérateur.
 func redactedFirewall(converted firewallJSON) firewallJSON {
-	converted.APIKey, converted.Pin = "", ""
+	converted.APIKeyHint, converted.Pin = "", ""
 	return converted
 }
 
@@ -246,10 +260,15 @@ func (s *Server) listFirewallLeases(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	known, err := s.knownMachines(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
 	s.writeAPI(w, http.StatusOK, firewallLeasesResponse{
 		firewallReadingJSON: firewallReadingOf(view),
 		Leases: httpx.ConvertAll(view.Leases, func(lease firewall.Lease) firewallLeaseJSON {
 			return firewallLeaseJSON{
+				Machine: leaseMachineOf(lease, known),
 				Address: lease.Address, MAC: lease.MAC, Hostname: lease.Hostname, Interface: lease.Interface,
 				Server: lease.Server, IsStatic: lease.IsStatic, ExpiresAt: httpx.TimeOrNil(lease.ExpiresAt),
 			}
@@ -297,4 +316,33 @@ func (s *Server) writeFirewallDetail(w http.ResponseWriter, r *http.Request, id 
 
 func (s *Server) deleteFirewall(w http.ResponseWriter, r *http.Request) {
 	s.finishAPIAction(w, r, s.firewalls.Remove(r.Context(), r.PathValue("id")), firewall.ErrNotFound)
+}
+
+// knownMachines : les machines d'openCloud, réduites à ce qui les reconnaît
+// dans un bail.
+func (s *Server) knownMachines(ctx context.Context) ([]firewall.KnownMachine, error) {
+	statuses, err := s.machines.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	known := make([]firewall.KnownMachine, 0, len(statuses))
+	for _, status := range statuses {
+		known = append(known, firewall.KnownMachine{ID: status.ID, Name: status.Name, Host: hostWithoutPort(status.Address), MACs: status.MACs})
+	}
+	return known, nil
+}
+
+func hostWithoutPort(address string) string {
+	if host, _, err := net.SplitHostPort(address); err == nil {
+		return host
+	}
+	return address
+}
+
+func leaseMachineOf(lease firewall.Lease, known []firewall.KnownMachine) *firewallLeaseMachineJSON {
+	found, ok := firewall.MatchMachine(lease, known)
+	if !ok {
+		return nil
+	}
+	return &firewallLeaseMachineJSON{ID: found.ID, Name: found.Name}
 }

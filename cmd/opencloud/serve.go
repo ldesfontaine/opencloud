@@ -115,6 +115,7 @@ func runServe(args []string) error {
 	parts.containers.SetWatcher(bus)
 	parts.probes.SetWatcher(bus)
 	parts.declared.SetWatcher(bus)
+	parts.links.SetWatcher(bus)
 	parts.updates.SetWatcher(bus)
 	parts.statusPage.AddWatcher(bus)
 	parts.statusPage.AddWatcher(publicBus)
@@ -124,6 +125,8 @@ func runServe(args []string) error {
 	parts.manifests.SetWatcher(bus)
 	parts.actions.SetWatcher(bus)
 	parts.sshKeys.SetWatcher(bus)
+	parts.systemd.SetWatcher(bus)
+	parts.hostConns.SetWatcher(bus)
 	parts.roles.SetWatcher(bus)
 	parts.proxmox.SetWatcher(bus)
 	parts.firewalls.SetWatcher(bus)
@@ -141,6 +144,9 @@ func runServe(args []string) error {
 	// vie de serve.
 	parts.backups.SetLifetime(ctx)
 	parts.backups.SetWatcher(bus)
+	// Une sauvegarde restic lancée à la main est suivie derrière la requête.
+	parts.restic.SetLifetime(ctx)
+	parts.restic.SetWatcher(bus)
 	// Le suivi d'un geste sur un invité Proxmox (relire l'hôte quand il a
 	// réussi) vit avec serve.
 	parts.proxmox.SetLifetime(ctx)
@@ -155,12 +161,12 @@ func runServe(args []string) error {
 
 	logInterfaceAccess(ctx, logger, parts.operator, cfg.Listen)
 	warnIfForwardUnproven(ctx, logger, parts.operator, cfg.TrustedPrefixes(), forwardSecret != "")
-	// Quinze boucles de fond : les échéances, le rollup et la purge des
+	// Seize boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la purge des conteneurs, le rollup et la purge des sondes, la
 	// purge des constats d'images, la page de statut, les machines perdues,
 	// le moteur des alertes, le notifieur, la purge des jetons d'API, l'échéance des demandes de verbe, la fin
 	// de support, l'expiration et la purge des ordres, la sauvegarde de la
-	// base, le relevé des hôtes Proxmox, le relevé des pare-feu. Elles finissent avant
+	// base, la nuit de restic, le relevé des hôtes Proxmox, le relevé des pare-feu. Elles finissent avant
 	// que la base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { parts.heartbeats.Watch(ctx) })
@@ -177,6 +183,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { parts.support.Watch(ctx) })
 	runLoop(&loops, func() { parts.actions.Watch(ctx) })
 	runLoop(&loops, func() { parts.backups.Watch(ctx) })
+	runLoop(&loops, func() { parts.restic.Watch(ctx) })
 	runLoop(&loops, func() { parts.proxmox.Watch(ctx) })
 	runLoop(&loops, func() { parts.firewalls.Watch(ctx) })
 	defer func() { stop(); loops.Wait() }()
@@ -190,6 +197,8 @@ func runServe(args []string) error {
 	// suivant de chaque agent. Les exclusions se disent après : c'est
 	// l'unité rattachée qui porte la politique.
 	parts.containers.RematchAll(ctx)
+	// Les liens d'ordre des conteneurs déjà connus, de même.
+	parts.containers.RecordLinksAll(ctx)
 
 	// L'arrêt d'un apply suit celui du serveur : un apply en cours finit son
 	// changement puis se journalise « interrompu ».
@@ -213,6 +222,7 @@ func runServe(args []string) error {
 	parts.probes.SetCommander(server)
 	parts.updates.SetCommander(server)
 	parts.actions.SetCommander(server)
+	parts.relay.SetPusher(server)
 	// Le port principal s'ouvre avant la socket de commande : un second serve
 	// sur le même state_dir échoue ici, avant d'avoir touché à la socket du
 	// premier.

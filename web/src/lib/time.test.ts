@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { deadlineIn, everyOnce, formatDuration, formatRemaining, formatWhen, lastPing, seenAgo } from "./time";
+import { deadlineIn, describeEvery, everyOnce, formatDuration, formatRemaining, formatWhen, lastPing, seenAgo } from "./time";
 
 // Un faux catalogue : la clé et ses arguments, pour lire ce qui est demandé.
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -55,4 +55,10 @@ test("formatWhen donne l'heure le jour même, la date sinon", () => {
   const noon = new Date(2026, 9, 12, 12, 0, 0).getTime();
   expect(formatWhen(new Date(2026, 9, 12, 9, 50, 8).toISOString(), noon)).toBe("09:50");
   expect(formatWhen(new Date(2026, 9, 11, 23, 5, 0).toISOString(), noon)).toBe("2026-10-11 23:05");
+});
+
+test("describeEvery dit la même phrase pour des secondes et des minutes", () => {
+  expect(describeEvery(t, 60_000)).toBe("time.every_minute");
+  expect(describeEvery(t, 5 * 60_000)).toBe("time.every time.minutes:5");
+  expect(describeEvery(t, 300 * 1000)).toBe(describeEvery(t, 5 * 60_000));
 });

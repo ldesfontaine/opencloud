@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import type { Machine } from "../api/machines";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
+import { showsInMachineHead } from "../lib/lifecycle";
 import { machineSeen } from "../lib/machines";
 import { machineTabsOf, type ModuleID } from "../lib/modules";
 import { MachineSelect } from "./MachineSelect";
@@ -32,7 +33,7 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
           <span>{machineSeen(t, current, now)}</span>
         </span>
       </span>
-      {current.lifecycle !== undefined && <SupportLine lifecycle={current.lifecycle} subject="system" />}
+      {current.lifecycle !== undefined && showsInMachineHead(current.lifecycle) && <SupportLine lifecycle={current.lifecycle} subject="system" />}
     </div>
   );
 }

@@ -14,11 +14,14 @@ import (
 // ouverture de flux, et appliqués par l'agent : un ordre dont le droit n'est
 // pas dans son fichier est refusé (action.RightOf dit lequel). observe est
 // toujours là. Les changer, c'est ré-enrôler avec d'autres droits.
-// probe.lan est le seul droit qu'aucun ordre n'exige : c'est une borne de
-// l'observation, que l'agent applique à ses propres sondes.
+// probe.lan et observe.env sont les seuls droits qu'aucun ordre n'exige : ce
+// sont des bornes de l'observation, que l'agent applique à ses propres
+// lectures. observe.env, refusé par défaut, ouvre la lecture de l'environnement
+// des conteneurs (étude services-modèle §2.4) ; sans lui, l'agent ne le lit pas.
 const (
 	CapabilityObserve       = "observe"
 	CapabilityProbeLAN      = "probe.lan"
+	CapabilityObserveEnv    = "observe.env"
 	CapabilityAgentUpdate   = "agent.update"
 	CapabilityDockerDeploy  = "docker.deploy"
 	CapabilityDockerUpdate  = "docker.update"
@@ -30,15 +33,48 @@ const (
 	// supprimer ses propres instantanés.
 	CapabilityProxmoxPower    = "proxmox.power"
 	CapabilityProxmoxSnapshot = "proxmox.snapshot"
+	// La cible restic : l'agent lance rest-server en écriture seule sur le
+	// dossier des dépôts, le chemin du droit, et y applique la rétention
+	// (restic.retain), jamais sous le plancher qu'il tient. La source : l'agent lance restic
+	// vers une cible liée, sans chemin (le dossier d'un service est sous sa
+	// racine, un invité passe par backup.produce).
+	CapabilityResticTarget  = "restic.target"
+	CapabilityResticProduce = "restic.produce"
+	// Sauvegarder les volumes et les bases Docker d'un service : l'agent lit
+	// un volume par le conteneur qui le monte (docker cp) et lance l'outil de
+	// dump d'une base dans son conteneur (docker exec). Équivaut à la socket
+	// Docker qu'il a déjà ; refusé par défaut, coché par machine. Il ne lit
+	// jamais l'environnement du conteneur : le mot de passe de la base reste
+	// dans le conteneur.
+	CapabilityResticDocker = "restic.docker"
+	// Vérifier les dépôts reçus : restic check, puis la relecture d'un
+	// échantillon de fichiers de chaque dernier instantané. L'agent déchiffre
+	// du contenu en mémoire, rien n'est écrit sur son disque ; il détient déjà
+	// le mot de passe du dépôt pour la rétention, mais ce droit le dit en
+	// clair. Demande restic.target. Refusé par défaut, coché par machine.
+	CapabilityResticVerify = "restic.verify"
+	// Parcourir les dépôts reçus : la cible lit les NOMS, tailles et dates des
+	// fichiers d'un instantané et les rend à l'écran qui les demande (l'explorateur
+	// de la page Sauvegardes). Rien du contenu, rien n'est écrit ni restauré ;
+	// le serveur ne garde pas les noms. Demande restic.target. Refusé par
+	// défaut, coché par machine : les noms de fichiers sont déjà une donnée.
+	CapabilityResticBrowse = "restic.browse"
+	// Restaurer sur la machine source un fichier ou un dossier d'un instantané,
+	// À CÔTÉ de l'original (<chemin>.restaure-<horodatage>), jamais par-dessus et
+	// sans rien supprimer. Le droit n'a pas de chemin : où l'agent peut écrire est
+	// borné par files.write, que la destination doit couvrir (et par l'unité
+	// systemd). Refusé par défaut, coché par machine.
+	CapabilityResticRestore = "restic.restore"
 )
 
 // CapabilityNames rend la liste fermée, dans l'ordre où elle s'affiche :
 // chaque droit a son libellé dans les catalogues.
 func CapabilityNames() []string {
 	return []string{
-		CapabilityObserve, CapabilityProbeLAN, CapabilityAgentUpdate, CapabilityDockerDeploy,
+		CapabilityObserve, CapabilityProbeLAN, CapabilityObserveEnv, CapabilityAgentUpdate, CapabilityDockerDeploy,
 		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite,
-		CapabilityProxmoxPower, CapabilityProxmoxSnapshot,
+		CapabilityProxmoxPower, CapabilityProxmoxSnapshot, CapabilityResticTarget, CapabilityResticProduce, CapabilityResticDocker,
+		CapabilityResticVerify, CapabilityResticBrowse, CapabilityResticRestore,
 	}
 }
 
@@ -67,7 +103,7 @@ var capabilityPathPattern = regexp.MustCompile(`^/[A-Za-z0-9._/-]{1,254}$`)
 var (
 	ErrCapabilityUnknown = refusal.Invalid("machine.capability_unknown", "unknown agent capability")
 	ErrCapabilityPath    = refusal.Invalid("machine.capability_path", "capability path must be absolute, clean, and made of letters, digits, dot, dash, underscore")
-	ErrCapabilityScope   = refusal.Invalid("machine.capability_scope", "backup.receive takes one path, files.write one to eight, backup.produce one to four producers, the others none")
+	ErrCapabilityScope   = refusal.Invalid("machine.capability_scope", "backup.receive and restic.target take one path, files.write one to eight, backup.produce one to four producers, the others none")
 )
 
 // NormalizeCapabilities vérifie une liste de droits, ajoute observe, retire
@@ -94,8 +130,8 @@ func NormalizeCapabilities(capabilities []Capability) ([]Capability, error) {
 	return normalized, nil
 }
 
-// normalizePaths juge la portée d'un droit : un chemin pour backup.receive, un
-// à huit pour files.write, des producteurs pour backup.produce, rien pour les
+// normalizePaths juge la portée d'un droit : un chemin pour backup.receive et
+// restic.target, un à huit pour files.write, des producteurs pour backup.produce, rien pour les
 // autres. Elle ressort triée, sans doublon.
 func normalizePaths(capability Capability) ([]string, error) {
 	if capability.Name == CapabilityBackupProduce {
@@ -110,7 +146,7 @@ func normalizePaths(capability Capability) ([]string, error) {
 		}
 	}
 	switch capability.Name {
-	case CapabilityBackupReceive:
+	case CapabilityBackupReceive, CapabilityResticTarget:
 		if len(paths) != 1 {
 			return nil, ErrCapabilityScope
 		}

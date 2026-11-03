@@ -24,6 +24,8 @@ export interface RightsValues {
   // des virgules.
   backupPath: string;
   writePaths: string;
+  // Le dossier des dépôts d'une cible restic : un seul.
+  resticPath: string;
 }
 
 // Le formulaire d'une machine neuve : l'opérateur la nomme et coche les
@@ -37,7 +39,7 @@ interface MachineFormValues extends RightsValues {
 // Le rôle générique d'abord, et probe.lan coché d'emblée : les sondes d'une
 // machine visent d'abord son réseau local ; l'opérateur le décoche s'il veut
 // les en empêcher. C'est le préréglage de ce rôle (machine.RolePreset).
-export const emptyMachineForm: MachineFormValues = { name: "", role: "generic", rights: ["probe.lan"], backupPath: "", writePaths: "" };
+export const emptyMachineForm: MachineFormValues = { name: "", role: "generic", rights: ["probe.lan"], backupPath: "", writePaths: "", resticPath: "" };
 
 // Choisir un rôle coche d'avance ses droits, tels que le serveur les dit à la
 // session ; l'opérateur les ajuste ensuite sous « Avancé ».
@@ -50,14 +52,14 @@ export function rolePatch(role: RoleID, roles: readonly SessionRole[]): Pick<Mac
 // demande alors s'il faut l'abandonner.
 export function isMachineFormModified(values: MachineFormValues): boolean {
   const sameRights = values.rights.length === emptyMachineForm.rights.length && values.rights.every((right) => emptyMachineForm.rights.includes(right));
-  return values.name.trim() !== "" || values.role !== emptyMachineForm.role || values.backupPath.trim() !== "" || values.writePaths.trim() !== "" || !sameRights;
+  return values.name.trim() !== "" || values.role !== emptyMachineForm.role || values.backupPath.trim() !== "" || values.writePaths.trim() !== "" || values.resticPath.trim() !== "" || !sameRights;
 }
 
 // Les droits ont changé depuis ceux d'origine (l'ordre des cases n'y compte pas) :
 // fermer la fenêtre du ré-enrôlement demande alors s'il faut les abandonner.
 export function isRightsModified(values: RightsValues, initial: RightsValues): boolean {
   const sameRights = values.rights.length === initial.rights.length && values.rights.every((right) => initial.rights.includes(right));
-  return !sameRights || values.backupPath.trim() !== initial.backupPath.trim() || values.writePaths.trim() !== initial.writePaths.trim();
+  return !sameRights || values.backupPath.trim() !== initial.backupPath.trim() || values.writePaths.trim() !== initial.writePaths.trim() || values.resticPath.trim() !== initial.resticPath.trim();
 }
 
 // Les droits d'un agent en valeurs du formulaire : ce que son jeton
@@ -68,6 +70,7 @@ export function rightsFormOf(capabilities: Capability[]): RightsValues {
     rights: capabilities.map((capability) => capability.name).filter((name) => name !== alwaysGranted),
     backupPath: pathsOf("backup.receive").join(", "),
     writePaths: pathsOf("files.write").join(", "),
+    resticPath: pathsOf("restic.target").join(", "),
   };
 }
 
@@ -81,31 +84,11 @@ export function tokenPageState(token: TokenResponse, rights: Capability[]): Toke
   return { ...token, rights };
 }
 
-// La racine des services qu'un agent déploie quand on ne lui en donne pas
-// d'autre : brand.WorkspaceRoot côté Go (-root-dir).
-const workspaceRoot = "/srv/workspace";
-
-// Les dossiers où l'agent écrit hors de son état, que son unité systemd ne
-// laisse pas écrire sans ReadWritePaths : celui des sauvegardes reçues, et la
-// racine des services dès qu'il déploie ou redéploie.
-export function unitWritePaths(rights: Capability[]): string[] {
-  const paths = [...(rights.find((capability) => capability.name === "backup.receive")?.paths ?? [])];
-  const deploys = rights.some((capability) => capability.name === "docker.deploy" || capability.name === "docker.update");
-  if (deploys && !paths.includes(workspaceRoot)) {
-    paths.push(workspaceRoot);
-  }
-  return paths;
-}
-
-// Le fichier à poser dans le dossier drop-in de l'unité de l'agent.
-export function unitDropIn(paths: string[]): string {
-  return `[Service]\nReadWritePaths=${paths.join(" ")}`;
-}
-
 // La liste fermée du serveur (machine.CapabilityNames), dans son ordre.
 export const capabilityNames = [
   "observe",
   "probe.lan",
+  "observe.env",
   "agent.update",
   "docker.deploy",
   "docker.update",
@@ -114,6 +97,12 @@ export const capabilityNames = [
   "files.write",
   "proxmox.power",
   "proxmox.snapshot",
+  "restic.target",
+  "restic.produce",
+  "restic.docker",
+  "restic.verify",
+  "restic.browse",
+  "restic.restore",
 ] as const;
 
 // Les droits qui agissent sur les invités d'un hôte Proxmox, sans chemin.
@@ -157,6 +146,9 @@ function pathsOf(name: string, values: RightsValues): string[] {
   }
   if (name === "files.write") {
     return splitPaths(values.writePaths);
+  }
+  if (name === "restic.target") {
+    return splitPaths(values.resticPath);
   }
   if (name === "backup.produce") {
     return [backupProducer];

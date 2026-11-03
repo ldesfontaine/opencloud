@@ -27,7 +27,7 @@ const (
 
 // SourceKinds rend la liste fermée des genres de source.
 func SourceKinds() []string {
-	return []string{KindDatabase, KindVM, KindLXC, KindVolume}
+	return []string{KindDatabase, KindVM, KindLXC, KindVolume, KindFirewall}
 }
 
 // TargetKinds rend la liste fermée des genres de cible.
@@ -46,6 +46,9 @@ type ObservedGuest struct {
 	Name            string
 	Node            string
 	Archives        ObservedArchives
+	// Vrai quand aucune archive n'est connue et que l'hôte n'a pas pu lister
+	// certains stockages faute de droit : « rien vu » ne dit pas « rien ».
+	ArchivesUnknown bool
 }
 
 // ObservedArchives sont les fichiers vzdump vus sur les stockages de l'hôte,
@@ -96,6 +99,12 @@ type Coverage struct {
 	PlanName        string
 	DestinationID   string
 	DestinationName string
+	// La machine de la destination, et combien d'archives le plan y garde.
+	DestinationMachineID   string
+	DestinationMachineName string
+	Keep                   int
+	// La prochaine tentative de la nuit.
+	NextAt time.Time
 }
 
 // Source est ce qui peut être sauvegardé : la base d'openCloud, une VM ou un
@@ -108,6 +117,8 @@ type Source struct {
 	MachineName string
 	// L'identifiant propre au genre : le numéro de l'invité ; vide sinon.
 	ID string
+	// Le nœud Proxmox d'un invité ; vide sinon.
+	Node string
 	// Pour un volume : son pilote et les conteneurs qui le montent.
 	Driver string
 	UsedBy []string
@@ -116,6 +127,8 @@ type Source struct {
 	// Ce que les stockages de Proxmox gardent d'elle, hors des plans
 	// d'openCloud ; nil pour une source qui n'est pas un invité, ou rien vu.
 	Observed *ObservedArchives
+	// Vrai quand Observed est nil faute de droit de lecture, non faute d'archive.
+	ObservedUnknown bool
 	// La dernière exécution d'un plan d'openCloud sur cette source, et la
 	// dernière réussie ; nil tant qu'aucune n'a eu lieu.
 	LastRun *RunRecord
@@ -183,10 +196,11 @@ func (s *Service) Inventory(ctx context.Context) (Inventory, error) {
 	if err != nil {
 		return Inventory{}, fmt.Errorf("read latest backup runs: %w", err)
 	}
-	destinationNames := make(map[string]string, len(destinations))
+	destinationsByID := make(map[string]Destination, len(destinations))
 	for _, destination := range destinations {
-		destinationNames[destination.ID] = destination.Name
+		destinationsByID[destination.ID] = destination
 	}
+	now := s.now()
 
 	sources := []Source{s.databaseSource(ctx)}
 	for _, guest := range guests {
@@ -195,9 +209,14 @@ func (s *Service) Inventory(ctx context.Context) (Inventory, error) {
 	for _, volume := range volumes {
 		sources = append(sources, volumeSource(volume))
 	}
+	firewallSources, err := s.firewallSources(ctx)
+	if err != nil {
+		return Inventory{}, err
+	}
+	sources = append(sources, firewallSources...)
 	for index := range sources {
 		source := &sources[index]
-		source.CoveredBy = coverageOf(*source, plans, destinationNames)
+		source.CoveredBy = coverageOf(*source, plans, destinationsByID, now)
 		if run, found := latest.Last[source.Key]; found {
 			source.LastRun = &run
 		}
@@ -215,8 +234,11 @@ func (s *Service) Inventory(ctx context.Context) (Inventory, error) {
 func protectionOf(source Source) int {
 	switch {
 	case len(source.CoveredBy) > 0:
-		return 2
+		return 3
 	case source.Observed != nil:
+		return 2
+	case source.ObservedUnknown:
+		// Ni « rien » ni « Proxmox seul » : on ne sait pas. Après « rien », avant le reste.
 		return 1
 	}
 	return 0
@@ -232,15 +254,40 @@ func (s *Service) databaseSource(ctx context.Context) Source {
 	return source
 }
 
+// firewallSources : un pare-feu déclaré est une source, lue par le serveur sur
+// la machine openCloud.
+func (s *Service) firewallSources(ctx context.Context) ([]Source, error) {
+	if s.firewalls == nil {
+		return nil, nil
+	}
+	declared, err := s.firewalls.Declared(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list declared firewalls: %w", err)
+	}
+	machineName := ""
+	if local, err := s.machines.Get(ctx, machine.LocalID); err == nil {
+		machineName = local.Name
+	}
+	sources := make([]Source, 0, len(declared))
+	for _, firewall := range declared {
+		sources = append(sources, Source{
+			Key: FirewallSourceKey(firewall.ID), Kind: KindFirewall, Name: firewall.Name, ID: firewall.ID,
+			MachineID: machine.LocalID, MachineName: machineName,
+		})
+	}
+	return sources, nil
+}
+
 func guestSource(guest ObservedGuest) Source {
 	source := Source{
 		Key: GuestSourceKey(guest.HostMachineID, guest.VMID), Kind: guest.Kind, Name: guest.Name,
-		MachineID: guest.HostMachineID, MachineName: guest.HostMachineName, ID: strconv.Itoa(guest.VMID),
+		MachineID: guest.HostMachineID, MachineName: guest.HostMachineName, ID: strconv.Itoa(guest.VMID), Node: guest.Node,
 	}
 	if guest.Archives.Count > 0 {
 		archives := guest.Archives
 		source.Observed = &archives
 	}
+	source.ObservedUnknown = guest.ArchivesUnknown
 	return source
 }
 
@@ -255,15 +302,17 @@ func volumeSource(volume ObservedVolume) Source {
 // plan de la base pour la base, un plan machine pour les invités de l'hôte
 // qu'il nomme, tous pour « all », ceux de la liste sinon. Aucun producteur ne
 // sauvegarde encore un volume Docker.
-func coverageOf(source Source, plans []Plan, destinationNames map[string]string) []Coverage {
+func coverageOf(source Source, plans []Plan, destinations map[string]Destination, now time.Time) []Coverage {
 	var covering []Coverage
 	for _, plan := range plans {
 		if !planCovers(plan, source) {
 			continue
 		}
+		destination := destinations[plan.DestinationID]
 		covering = append(covering, Coverage{
 			Subject: plan.Subject, PlanName: plan.Name, DestinationID: plan.DestinationID,
-			DestinationName: destinationNames[plan.DestinationID],
+			DestinationName: destination.Name, DestinationMachineID: destination.MachineID,
+			DestinationMachineName: destination.MachineName, Keep: plan.Keep, NextAt: nextAttempt(now, plan),
 		})
 	}
 	return covering
@@ -273,6 +322,8 @@ func planCovers(plan Plan, source Source) bool {
 	switch {
 	case plan.SourceKind == SourceDatabase:
 		return source.Kind == KindDatabase
+	case plan.IsFirewallExport():
+		return source.Kind == KindFirewall && source.ID == plan.Selector
 	case plan.SourceKind == SourceAgent && plan.Producer == machine.ProducerProxmoxVzdump:
 		if source.Kind != KindVM && source.Kind != KindLXC || source.MachineID != plan.SourceMachineID {
 			return false

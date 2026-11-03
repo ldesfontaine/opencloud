@@ -146,15 +146,21 @@ func loggedPath(r *http.Request) string {
 }
 
 // limitBody borne le corps de toute requête, sauf le téléversement d'un agent
-// (PUT d'un fichier de colis) : une archive se compte en Gio. Cette route,
-// sous la session d'un agent, borne son propre corps (agentapi).
+// (PUT d'un fichier de colis) : une archive se compte en Gio ; et le relais
+// de restic, dont un paquet pèse des dizaines de Mio. Ces routes, sous la
+// preuve ou la session d'un agent, bornent leur propre corps (agentapi).
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isParcelUpload(r) {
+		if !isParcelUpload(r) && !isRelayTransfer(r) {
 			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isRelayTransfer(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, agentwire.ResticRelayRoute) ||
+		(r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, agentwire.ResticRelayResponseRoute))
 }
 
 func isParcelUpload(r *http.Request) bool {

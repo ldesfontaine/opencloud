@@ -67,6 +67,7 @@ function todoTarget(machineID: string, todo: MachineTodo): string {
     case "proxmox_to_declare":
       return `${base}/proxmox`;
     case "proxmox_read_failed":
+    case "proxmox_backup_blind":
       return `${base}/hyperviseur`;
   }
 }

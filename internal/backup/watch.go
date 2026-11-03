@@ -68,10 +68,23 @@ func (s *Service) logRun(subject string, err error) {
 // aucune tentative n'a eu lieu depuis le dernier 3 h passé, y compris celui
 // d'hier si on n'y est pas encore : un serveur éteint à 3 h rattrape.
 func due(now time.Time, plan Plan) bool {
+	return plan.LastAttemptAt.Before(lastThreshold(now))
+}
+
+func lastThreshold(now time.Time) time.Time {
 	year, month, day := now.Date()
 	threshold := time.Date(year, month, day, dailyAtHour, 0, 0, 0, now.Location())
 	if now.Before(threshold) {
 		threshold = time.Date(year, month, day-1, dailyAtHour, 0, 0, 0, now.Location())
 	}
-	return plan.LastAttemptAt.Before(threshold)
+	return threshold
+}
+
+// nextAttempt dit quand la nuit lancera le plan : au prochain passage s'il
+// est dû, sinon au prochain 3 h.
+func nextAttempt(now time.Time, plan Plan) time.Time {
+	if due(now, plan) {
+		return now
+	}
+	return lastThreshold(now).AddDate(0, 0, 1)
 }

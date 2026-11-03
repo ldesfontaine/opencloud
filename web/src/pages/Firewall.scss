@@ -1,23 +1,177 @@
-// La fiche d'un pare-feu : ses cartes s'empilent, sans plus.
+// La fiche d'un pare-feu : ses blocs s'empilent, l'état en tête.
 .firewall {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-// Le mot qui explique le filtre, et le filtre, au-dessus de la table des règles.
-.firewall-filter {
+// Quatre tuiles : version, relevé, passerelles, règles.
+.firewall-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+// La version est un texte, pas un chiffre : plus petite, elle tient en entier.
+.firewall-version,
+.firewall-read {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.firewall-version {
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.firewall-gateways {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 20px;
+  list-style: none;
+}
+
+.firewall-gateway {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+// Les interfaces : une carte par zone, le trait de gauche dit l'état.
+.firewall-zones {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.firewall-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-2);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  &-up {
+    border-left-color: var(--ok);
+  }
+
+  &-other {
+    border-left-color: var(--warn);
+  }
+}
+
+.firewall-zone-top {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  justify-content: space-between;
+  gap: 8px;
+
+  b {
+    font-size: 14px;
+    font-weight: 600;
+  }
+}
+
+.firewall-zone-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+// La recherche et les filtres, au-dessus des groupes de règles.
+.firewall-tools {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--line);
+}
 
-  p {
-    margin: 0;
+.firewall-search {
+  position: relative;
+  display: flex;
+  flex: 1 1 260px;
+  max-width: 380px;
+
+  .icon {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
   }
+
+  input {
+    padding-left: 36px;
+  }
+}
+
+.firewall-no-match {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.firewall-group {
+  border-bottom: 1px solid var(--line);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  > summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    list-style: none;
+    cursor: pointer;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+}
+
+.firewall-group-counts {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 
 // Une règle désactivée reste lisible mais s'efface.
@@ -27,4 +181,166 @@
 
 .firewall-disabled {
   margin-left: 8px;
+}
+
+// Un bail rattaché à une machine d'openCloud : un lien vers sa fiche.
+.firewall-machine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 7px;
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+// « Qui parle à qui » : la légende, puis la grille.
+.firewall-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  list-style: none;
+  color: var(--ink-2);
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+}
+
+.firewall-legend-allow {
+  background: var(--ok);
+}
+
+.firewall-legend-deny {
+  background: var(--danger);
+}
+
+.firewall-grid-scroll {
+  padding: 0 12px;
+}
+
+.firewall-grid {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: separate;
+  border-spacing: 8px;
+
+  th {
+    padding: 10px;
+    text-align: left;
+    vertical-align: bottom;
+    font-weight: 600;
+
+    small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 400;
+    }
+  }
+}
+
+.firewall-grid-corner {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.firewall-grid .firewall-grid-row {
+  min-width: 120px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  vertical-align: top;
+}
+
+.firewall-cell {
+  min-width: 150px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  vertical-align: top;
+
+  // Une zone vers elle-même : le trafic ne passe pas par le pare-feu.
+  &-same {
+    border-style: dashed;
+    background: repeating-linear-gradient(135deg, var(--surface-2) 0 6px, var(--surface) 6px 12px);
+  }
+
+  // Aucune règle ne passe : refusé.
+  &-empty {
+    vertical-align: middle;
+    text-align: center;
+    color: var(--muted);
+  }
+}
+
+.firewall-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.firewall-line {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 8px;
+  border-left: 3px solid var(--ok);
+  border-radius: 6px;
+  background: var(--ok-wash);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+
+  small {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  &-deny {
+    border-left-color: var(--danger);
+    background: var(--danger-wash);
+  }
+}
+
+.firewall-notes {
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+
+  p {
+    margin: 0 0 8px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .firewall-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .firewall-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

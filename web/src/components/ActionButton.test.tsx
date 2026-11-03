@@ -9,22 +9,22 @@ vi.mock("../i18n/context", () => ({
   useIsVerbRoute: () => (route: string) => route === "POST /api/probes/{id}/actions/pause",
 }));
 
-test("un geste qui est un verbe d'API porte la puce MCP", () => {
+test("un geste qui est un verbe d'API dit en infobulle qu'un agent peut le faire, sans puce", () => {
   const markup = renderToStaticMarkup(
     <ActionButton route="POST /api/probes/{id}/actions/pause" onClick={() => undefined}>
       Pause
     </ActionButton>,
   );
   expect(markup).toContain("btn-primary");
-  expect(markup).toContain('class="mcp-chip"');
-  expect(markup).toContain(">action.mcp_chip<");
+  expect(markup).toContain('title="action.agent_hint"');
+  expect(markup).not.toContain("mcp");
 });
 
-test("un geste réservé à l'interface n'a pas la puce", () => {
+test("un geste réservé à l'interface n'a pas d'infobulle", () => {
   const markup = renderToStaticMarkup(
     <ActionButton route="POST /api/probes" onClick={() => undefined}>
       Ajouter
     </ActionButton>,
   );
-  expect(markup).not.toContain("mcp-chip");
+  expect(markup).not.toContain("title=");
 });

@@ -1,0 +1,12 @@
+# U3 : code mort avant / après (#450)
+
+Avant = 93dfe8a (dev), après = fin de la branche orca/v052-u3.
+
+deadcode ./... (Go) avant : 79 ; après : 79, rapport identique (aux numéros de ligne près).
+knip@5.88.1, `npx knip@5.88.1 --reporter compact` dans web/ avant : 4 fichiers (public/theme.js, src/statut/*), 1 export (`isMaintenance`), 3 types (`TextPart`, `AvailabilityTab`, `MachinesTab`) ; après : les mêmes (les 3 fichiers de dist/ ne comptent qu'après `make front`).
+
+Supprimé dans ce chantier
+- Go : le retour `(string, bool)` de `resolvePublicURL`, remplacé par `publicAddress` (URL, Local, Suggestion) ; la logique de la requête passe dans `pageAddress`.
+- Catalogues (fr et en) : `machine.url_local` et `job.url_local` (remplacés par `public_url.*`), `probe.step_target`, `probe.step_rhythm`, `channel.step_rules`, `channel.on`, `channel.off`, `channel.secret_summary_changed|cleared|kept|none`, `project.step_publication`, `project.not_published`, `silence.step_target`, `silence.step_when`, `silence.start_now`, `backup.plan_step_source`, `backup.plan_step_destination` : les récapitulatifs et les étapes des assistants d'un écran n'existent plus.
+- Front : les récapitulatifs (`summary`) des assistants passés en un écran, `secretSummary` (ChannelWizard), `objectName` (MuteWizard), l'import `publicAddressOf` de ProjectWizard, la note rouge `url_local` écrite trois fois (EnrollmentToken, FirstSetup, Job).
+- Déjà inutilisée avant, non touchée : la clé `machine.local_agent_waiting`.

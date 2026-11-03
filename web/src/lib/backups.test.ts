@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackupPlan, BackupRun, BackupSource, Backups } from "../api/backups";
+import type { BackupPlan } from "../api/backups";
 import type { Translate } from "../i18n/context";
-import { backupsPath, editPlanPath, emptyPlanForm, failedAttemptOf, isBackedUp, lastBackupOf, protectionOf, runReasonText, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
+import { backupsPath, editPlanPath, emptyPlanForm, firewallIdOf, kindPatch, isFirewallPlan, newFirewallPlanPath, lastErrorRight, lastErrorText, lowersRetention, canSaveRetention, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
-const keyring = { recipient: "age1x", fingerprint: "0123456789abcdef", created_at: "2026-09-12T12:00:00Z" };
-const destination = { id: "bkd_1", name: "store-1", machine_id: "m1", machine_name: "store-1", path: "/srv/backups", right: "ok" as const, created_at: "2026-09-12T12:00:00Z" };
 const databasePlan: BackupPlan = {
   subject: "database",
   name: "",
@@ -53,24 +51,6 @@ describe("passphraseProblem", () => {
 
   it("does not count the spaces at the ends, as the server does", () => {
     expect(passphraseProblem("  quinze caractèr  ", "  quinze caractèr  ")).toBe("backup.passphrase_too_short");
-  });
-});
-
-describe("isBackedUp", () => {
-  it("needs a key and the database plan with its destination", () => {
-    expect(isBackedUp({ keyring, destinations: [destination], plans: [databasePlan] })).toBe(true);
-    expect(isBackedUp({ keyring: null, destinations: [destination], plans: [databasePlan] })).toBe(false);
-    expect(isBackedUp({ keyring, destinations: [destination], plans: [] })).toBe(false);
-    expect(isBackedUp({ keyring, destinations: [], plans: [databasePlan] })).toBe(false);
-  });
-
-  it("is not backed up by a plan that points elsewhere", () => {
-    const elsewhere: Backups = { keyring, destinations: [destination], plans: [{ ...databasePlan, destination_id: "bkd_2" }] };
-    expect(isBackedUp(elsewhere)).toBe(false);
-  });
-
-  it("is not backed up by the plan of another source", () => {
-    expect(isBackedUp({ keyring, destinations: [destination], plans: [agentPlan] })).toBe(false);
   });
 });
 
@@ -162,8 +142,8 @@ describe("subjectProblem", () => {
 
 describe("sourceKindsFor", () => {
   it("offers the database to a new plan only while it has none", () => {
-    expect(sourceKindsFor(false)).toEqual(["database", "agent"]);
-    expect(sourceKindsFor(true)).toEqual(["agent"]);
+    expect(sourceKindsFor(false)).toEqual(["database", "agent", "firewall"]);
+    expect(sourceKindsFor(true)).toEqual(["agent", "firewall"]);
   });
 });
 
@@ -214,6 +194,8 @@ describe("the choice of virtual machines", () => {
     linked_machine_id: null,
     last_backup_at: null,
     last_backup_bytes: 0,
+    last_backup_storage: "",
+    backup_unknown: false,
     own_snapshots: [],
   });
 
@@ -236,76 +218,78 @@ describe("the choice of virtual machines", () => {
   });
 });
 
-const run = (overrides: Partial<BackupRun>): BackupRun => ({
-  plan: "pve",
-  source: "guest:m1:100",
-  pass_at: "2026-10-30T03:00:00Z",
-  started_at: "2026-10-30T03:00:00Z",
-  finished_at: "2026-10-30T03:10:00Z",
-  result: "ok",
-  reason: "",
-  size_bytes: 1000,
-  destination_id: "bkd_1",
-  destination_name: "store-1",
-  action_run_id: "run_1",
-  ...overrides,
-});
-
-const source = (overrides: Partial<BackupSource>): BackupSource => ({
-  key: "guest:m1:100",
-  kind: "vm",
-  name: "web",
-  machine_id: "m1",
-  machine_name: "pve",
-  id: "100",
-  driver: "",
-  used_by: [],
-  covered_by: [],
-  observed: null,
-  last_run: null,
-  last_ok: null,
-  ...overrides,
-});
-
-const observed = { storage: "nfs", count: 3, total_bytes: 900, last_at: "2026-10-31T02:00:00Z", last_bytes: 300 };
-const coverage = { subject: "pve", plan_name: "", destination_id: "bkd_1", destination_name: "store-1" };
-
-describe("inventory protection", () => {
-  it("tells apart a source nothing saves, one only Proxmox keeps, and one a plan covers", () => {
-    expect(protectionOf(source({}))).toBe("none");
-    expect(protectionOf(source({ observed }))).toBe("observed");
-    expect(protectionOf(source({ observed, covered_by: [coverage] }))).toBe("covered");
-  });
-
-  it("shows the most recent of the last plan success and the newest archive Proxmox keeps", () => {
-    const older = run({ finished_at: "2026-10-30T03:10:00Z" });
-    expect(lastBackupOf(source({}))).toBeNull();
-    expect(lastBackupOf(source({ last_ok: older }))).toEqual({ at: "2026-10-30T03:10:00Z", bytes: 1000, target: "store-1", origin: "plan" });
-    expect(lastBackupOf(source({ observed }))).toEqual({ at: "2026-10-31T02:00:00Z", bytes: 300, target: "nfs", origin: "observed" });
-    expect(lastBackupOf(source({ observed, last_ok: older }))?.origin).toBe("observed");
-    expect(lastBackupOf(source({ observed, last_ok: run({ finished_at: "2026-11-01T03:10:00Z" }) }))?.origin).toBe("plan");
-  });
-
-  it("reports an attempt only when it failed after the last success", () => {
-    const success = run({ finished_at: "2026-10-30T03:10:00Z" });
-    const failure = run({ result: "failed", reason: "timeout", finished_at: "2026-10-31T03:10:00Z" });
-    expect(failedAttemptOf(source({ last_run: success, last_ok: success }))).toBeNull();
-    expect(failedAttemptOf(source({ last_run: failure, last_ok: success }))).toBe(failure);
-    expect(failedAttemptOf(source({ last_run: failure }))).toBe(failure);
-    expect(failedAttemptOf(source({ last_run: run({ result: "refused", finished_at: "2026-10-29T03:10:00Z" }), last_ok: success }))).toBeNull();
-  });
-
-  it("translates a refusal key as is and sends a closed word to the order decoder", () => {
-    expect(runReasonText(t, "", () => "decoded")).toBe("");
-    expect(runReasonText(t, "backup.machine_offline", () => "decoded")).toBe("backup.machine_offline");
-    expect(runReasonText(t, "disk_full", (reason) => `decoded ${reason}`)).toBe("decoded disk_full");
-  });
-});
-
 describe("les adresses des fenêtres de Sauvegardes", () => {
   it("s'ouvrent sur la page, le plan à corriger porte son sujet", () => {
     expect(backupsPath).toBe("/sauvegardes");
     expect(editPlanPath("pve-nuit")).toBe("/sauvegardes/plans/pve-nuit/modifier");
     expect(editPlanPath("a b")).toBe("/sauvegardes/plans/a%20b/modifier");
+  });
+});
+
+it("lastErrorRight : le droit derrière une erreur de plan, et la machine dont l'agent doit l'avoir", () => {
+  const destination = { machine_id: "m-dest", path: "/srv/backups" };
+  const plan = (last_error: string) => ({ last_error, source_machine_id: "m-src" });
+  expect(lastErrorRight(plan("backup.right_missing"), destination)).toEqual({ machineID: "m-dest", right: "backup.receive", path: "/srv/backups" });
+  expect(lastErrorRight(plan("backup.source_right_missing"), destination)).toEqual({ machineID: "m-src", right: "backup.produce" });
+  expect(lastErrorRight(plan("backup.target_failed:5010:right_missing:backup.produce"), destination)).toEqual({ machineID: "m-src", right: "backup.produce" });
+  expect(lastErrorRight(plan("autre erreur"), destination)).toBeNull();
+  expect(lastErrorRight(plan(""), undefined)).toBeNull();
+  expect(lastErrorRight(plan("backup.right_missing"), undefined)).toBeNull();
+});
+
+describe("l'export d'un pare-feu", () => {
+  const firewallPlan: BackupPlan = { ...agentPlan, subject: "bordure", name: "", source_machine_id: "local", source_machine_name: "opencloud", producer: "opnsense-config", selector: "fw1" };
+
+  it("se reconnaît à son producteur et se lit dans le formulaire comme une troisième source", () => {
+    expect(isFirewallPlan(firewallPlan)).toBe(true);
+    expect(isFirewallPlan(agentPlan)).toBe(false);
+    expect(planFormOf(firewallPlan)).toMatchObject({ kind: "firewall", selector: "fw1", subject: "bordure" });
+    expect(sourceLabel(t, firewallPlan)).toBe("backup.source_firewall:opencloud");
+  });
+
+  it("part en requête « agent » sans machine : le serveur pose la machine openCloud", () => {
+    const values = { ...emptyPlanForm(false, { id: "fw1", name: "Pare-feu Bordure" }), destination: "bkd_1" };
+    expect(values).toMatchObject({ kind: "firewall", subject: "pare-feu-bordure", selector: "fw1" });
+    expect(planRequestOf(values, "bkd_1")).toEqual({
+      subject: "pare-feu-bordure",
+      request: { name: "", source_kind: "agent", source_machine_id: "", producer: "opnsense-config", selector: "fw1", destination_id: "bkd_1", keep: 14 },
+    });
+  });
+
+  it("propose un sujet valide même pour un nom accentué ou réservé", () => {
+    expect(emptyPlanForm(true, { id: "a", name: "Épine ñ !" }).subject).toBe("epine-n");
+    expect(emptyPlanForm(true, { id: "a", name: "database" }).subject).toBe("pare-feu");
+    expect(emptyPlanForm(true, { id: "a", name: "***" }).subject).toBe("pare-feu");
+  });
+
+  it("garde un sujet saisi comme une source agent, la base mise à part", () => {
+    expect(subjectProblem({ ...emptyPlanForm(true, { id: "a", name: "x" }), subject: "Mal" })).toBe("backup.plan_invalid");
+  });
+
+  it("réinitialise le sélecteur en changeant de source : « all » n'est pas un pare-feu", () => {
+    expect(kindPatch("firewall")).toEqual({ kind: "firewall", selector: "" });
+    expect(kindPatch("agent")).toEqual({ kind: "agent", selector: "all" });
+    expect(kindPatch("database")).toEqual({ kind: "database", selector: "" });
+  });
+
+  it("lit l'identifiant du pare-feu dans la clé de sa source", () => {
+    expect(firewallIdOf("firewall:fw1")).toBe("fw1");
+    expect(newFirewallPlanPath("fw 1")).toBe("/sauvegardes/plans/nouveau?firewall=fw%201");
+  });
+});
+
+describe("baisser une rétention", () => {
+  const before = { keep_daily: "14", keep_weekly: "8", keep_monthly: "3" };
+  it("ne demande le nom que si un compte baisse", () => {
+    expect(lowersRetention(before, before)).toBe(false);
+    expect(lowersRetention(before, { ...before, keep_daily: "30" })).toBe(false);
+    expect(lowersRetention(before, { ...before, keep_monthly: "2" })).toBe(true);
+    expect(lowersRetention(before, { keep_daily: "30", keep_weekly: "1", keep_monthly: "3" })).toBe(true);
+  });
+  it("attend le nom tel quel", () => {
+    expect(canSaveRetention(false, "paperless", "")).toBe(true);
+    expect(canSaveRetention(true, "paperless", "")).toBe(false);
+    expect(canSaveRetention(true, "paperless", "Paperless")).toBe(false);
+    expect(canSaveRetention(true, "paperless", "paperless")).toBe(true);
   });
 });

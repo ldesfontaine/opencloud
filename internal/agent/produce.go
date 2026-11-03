@@ -396,8 +396,7 @@ func (v vzdumpProducer) run(ctx context.Context, request producerRequest) (produ
 	// bounded: sudo est celui du PATH de l'unité, le script une constante de
 	// brand, la cible jugée par vzdumpTarget (chiffres seuls : jamais une option),
 	// les autres arguments des constantes.
-	command := exec.CommandContext(ctx, sudo, "-n", v.wrapper, request.target, // #nosec G204 -- bounded: voir ci-dessus.
-		"--mode", "snapshot", "--compress", "zstd", "--stdout", "--quiet", "1")
+	command := exec.CommandContext(ctx, sudo, vzdumpArguments(v.wrapper, request.target, vzdumpCompressArchive)...) // #nosec G204 -- bounded: voir ci-dessus.
 	command.Env = producerEnvironment
 	command.Stdout = request.raw
 	tail := newLineTail(producerTailLines)
@@ -417,6 +416,20 @@ func (v vzdumpProducer) run(ctx context.Context, request producerRequest) (produ
 	}
 	result.entry = vzdumpEntryName(guest.kind(), request.target, request.now)
 	return result, nil
+}
+
+// La compression de vzdump : zstd pour une archive envoyée au serveur ; rien
+// pour restic, qui ne déduplique que du clair d'une sauvegarde à l'autre et
+// compresse lui-même.
+const (
+	vzdumpCompressArchive = "zstd"
+	vzdumpCompressNone    = "0"
+)
+
+// vzdumpArguments rend ce que sudo reçoit après son nom : le script de root,
+// l'invité, et vzdump en flux sur sa sortie standard.
+func vzdumpArguments(wrapper, target, compress string) []string {
+	return []string{"-n", wrapper, target, "--mode", "snapshot", "--compress", compress, "--stdout", "--quiet", "1"}
 }
 
 // vzdumpEntryName nomme l'entrée du tar comme vzdump nomme ses archives, pour

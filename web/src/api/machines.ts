@@ -46,7 +46,7 @@ export interface Machine {
 }
 
 // Les types de machine (liste fermée du serveur). « vps » se déduit : virtualisée
-// sans hôte connu.
+// sans hôte connu, avec une adresse publique ; sinon c'est une VM.
 export type KindID = "physical" | "vm" | "lxc" | "vps" | "unknown";
 
 // L'hôte d'une machine : celui que l'opérateur a désigné (override), sinon
@@ -123,17 +123,25 @@ export interface MachinesResponse {
   pending: PendingToken[];
 }
 
+// Une étape de l'installation de l'agent : son identifiant (le titre vient du
+// catalogue) et le bloc à coller tel quel sur la machine.
+export interface InstallStep {
+  id: "stop" | "binary" | "prepare" | "enroll" | "unit" | "rights";
+  command: string;
+}
+
 export interface TokenResponse {
   name: string;
+  // Le jeton n'est montré qu'une fois, dans la commande de l'étape « enroll ».
   token: string;
-  command: string;
-  // Les commandes à jouer une fois, en root, avant `command`.
-  preparation: string;
+  steps: InstallStep[];
   // Les commandes à jouer en root sur l'hôte Proxmox, une par ligne, pour créer
   // le jeton local des droits proxmox.* ; vide sans l'un de ces droits.
   proxmox_commands: string;
   expires_at: string;
   url_local: boolean;
+  // L'adresse de la page quand elle est publique et que public_url ne l'est pas.
+  url_suggestion: string;
 }
 
 const machinesPath = "/api/machines";

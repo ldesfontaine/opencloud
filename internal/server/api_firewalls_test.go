@@ -15,6 +15,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense/opnsensetest"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 const (
@@ -41,8 +43,10 @@ func firewallBench(t *testing.T) (*testServer, *opnsensetest.Server, *bytes.Buff
 	component.SetWatcher(server.bus)
 	component.SetAuditor(server.journal)
 	component.SetConnector(firewall.KindOPNsense, opnsense.New)
+	component.SetTranslator(firewall.KindOPNsense, opnsense.Policy)
 	server.Server.firewalls = component
 	server.firewalls = component
+	server.backups.SetFirewalls(component)
 	return server, opnsensetest.New(t), &journal
 }
 
@@ -203,7 +207,7 @@ func TestFirewalls_ATokenReadsWithoutAnySecretAndWritesNothing(t *testing.T) {
 	id, _ := declareFirewallThroughAPI(t, server, fake)
 	bearer := server.issueAPIToken(t, "mcp-maison")
 
-	reads := []string{"/api/firewalls", "/api/firewalls/" + id, "/api/firewalls/" + id + "/rules", "/api/firewalls/" + id + "/interfaces", "/api/firewalls/" + id + "/leases"}
+	reads := []string{"/api/firewalls", "/api/firewalls/" + id, "/api/firewalls/" + id + "/rules", "/api/firewalls/" + id + "/interfaces", "/api/firewalls/" + id + "/leases", "/api/firewalls/" + id + "/flows"}
 	for _, path := range reads {
 		got := callBearer(server.Server, path, bearer)
 		if got.Code != http.StatusOK {
@@ -215,13 +219,15 @@ func TestFirewalls_ATokenReadsWithoutAnySecretAndWritesNothing(t *testing.T) {
 			}
 		}
 	}
-	// L'opérateur, lui, lit la clé et l'empreinte de sa déclaration.
+	// L'opérateur lit l'empreinte et le début de la clé, jamais la clé entière ni le secret.
 	operator := callAPI(server.Server, http.MethodGet, "/api/firewalls/"+id, nil).Body.String()
-	if !strings.Contains(operator, opnsensetest.Key) || !strings.Contains(operator, fake.Pin()) {
-		t.Fatalf("the operator should read the key and the pin: %s", operator)
+	if !strings.Contains(operator, opnsensetest.Key[:4]+"…") || !strings.Contains(operator, fake.Pin()) {
+		t.Fatalf("the operator should read the key hint and the pin: %s", operator)
 	}
-	if strings.Contains(operator, opnsensetest.Secret) {
-		t.Fatalf("not even the operator reads the secret: %s", operator)
+	for _, secret := range []string{opnsensetest.Secret, opnsensetest.Key} {
+		if strings.Contains(operator, secret) {
+			t.Fatalf("not even the operator reads %q back: %s", secret[:4], operator)
+		}
 	}
 
 	for _, attempt := range []struct{ method, path string }{
@@ -292,5 +298,51 @@ func TestFirewalls_TheSecretNeverLeaves(t *testing.T) {
 		if firewallActions[index] != want[index] {
 			t.Fatalf("audit actions %v, want %v", firewallActions, want)
 		}
+	}
+}
+
+// Un bail se rattache à la machine d'openCloud qui porte la même carte réseau ;
+// un bail d'un appareil inconnu reste sans machine.
+func TestFirewallLeases_AttachTheMachineOfTheSameNetworkCard(t *testing.T) {
+	server, fake, _ := firewallBench(t)
+	server.seedAll(t)
+	if _, err := server.db.ReplaceHostReport(context.Background(), remoteID, machine.KindVM, hostinfo.Report{
+		Interfaces: []hostinfo.Interface{{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := declareFirewallThroughAPI(t, server, fake)
+
+	var leases firewallLeasesResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/firewalls/"+id+"/leases", nil), &leases)
+	byHostname := map[string]*firewallLeaseMachineJSON{}
+	for _, lease := range leases.Leases {
+		byHostname[lease.Hostname] = lease.Machine
+	}
+	if got := byHostname["nas"]; got == nil || got.ID != remoteID {
+		t.Errorf("nas (aa:bb:cc:dd:ee:ff) is the remote machine: %+v", got)
+	}
+	if got := byHostname["imprimante"]; got != nil {
+		t.Errorf("an unknown device has no machine: %+v", got)
+	}
+}
+
+// La grille « qui parle à qui » est construite sur le modèle des échanges ; sa
+// réponse est figée, et un jeton d'API la lit comme les autres relevés.
+func TestFirewallFlows_AreTheGridOfTheGenericModel(t *testing.T) {
+	server, fake, _ := firewallBench(t)
+	id, _ := declareFirewallThroughAPI(t, server, fake)
+	got := callAPI(server.Server, http.MethodGet, "/api/firewalls/"+id+"/flows", nil)
+	if got.Code != http.StatusOK {
+		t.Fatalf("flows: %d %s", got.Code, got.Body.String())
+	}
+	compareGolden(t, filepath.Join("testdata", "firewall_flows.golden.json"), goldenFirewall(fake, got.Body.String()))
+	var flows firewallFlowsResponse
+	decodeAPI(t, got, &flows)
+	if len(flows.Cells) == 0 || len(flows.Rows) == 0 || flows.Disabled != 1 {
+		t.Errorf("flows: %+v", flows)
+	}
+	if missing := callAPI(server.Server, http.MethodGet, "/api/firewalls/absent/flows", nil); missing.Code != http.StatusNotFound {
+		t.Errorf("unknown firewall: %d", missing.Code)
 	}
 }

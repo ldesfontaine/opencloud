@@ -55,11 +55,16 @@ export function topicsOf(path: string): readonly Topic[] {
     return ["containers"];
   }
   // L'écart croise l'annuaire et les conteneurs : il se relit quand l'un ou
-  // l'autre change. La proposition d'adoption, elle, ne suit que l'annuaire :
-  // elle se lit pour remplir un formulaire, et un rapport de l'agent ne doit
-  // pas la relire pendant que l'opérateur le remplit.
+  // l'autre change. La proposition d'adoption, elle, ne se relit jamais
+  // seule : elle se lit une fois pour remplir un formulaire. Ni un rapport de
+  // l'agent, ni l'écriture du service qu'elle propose ne doivent la relire : le
+  // conteneur serait alors déclaré, et le serveur répondrait 409 à une page
+  // dont l'écriture vient de réussir.
   if (path.startsWith("/api/directory/gaps")) {
     return ["directory", "containers"];
+  }
+  if (path.startsWith("/api/directory/proposal")) {
+    return [];
   }
   // Le plan d'un déploiement croise l'annuaire, les ordres (le dernier, et
   // si le dossier est écrit) et la machine (ses droits, sa racine).
@@ -90,10 +95,11 @@ export function topicsOf(path: string): readonly Topic[] {
   }
   // L'état d'une sauvegarde est celui de son dernier ordre : la page suit
   // les deux sujets.
-  // L'inventaire croise les plans, les hôtes Proxmox et les volumes Docker des
-  // machines : il se relit quand l'un d'eux change.
-  if (path.startsWith("/api/backups/inventory")) {
-    return ["backups", "actions", "machines", "containers"];
+  // L'aperçu croise les sauvegardes, leurs ordres, les machines (leurs droits,
+  // leurs hôtes Proxmox), les volumes Docker et les services déclarés : il se
+  // relit quand l'un d'eux change.
+  if (path.startsWith("/api/backups/overview")) {
+    return ["backups", "actions", "machines", "containers", "directory"];
   }
   if (path.startsWith("/api/backups")) {
     return ["backups", "actions"];
@@ -101,6 +107,10 @@ export function topicsOf(path: string): readonly Topic[] {
   // Les demandes de verbe à confirmation ont leur sujet.
   if (path.startsWith("/api/verb-requests")) {
     return ["verb_requests"];
+  }
+  // Les baux disent quelle machine ils désignent : ils suivent aussi les machines.
+  if (/^\/api\/firewalls\/[^/?]+\/leases/.test(path)) {
+    return ["firewalls", "machines"];
   }
   // Les pare-feu et leurs relevés ont leur sujet.
   if (path.startsWith("/api/firewalls")) {
@@ -111,6 +121,11 @@ export function topicsOf(path: string): readonly Topic[] {
   }
   if (path.includes("/probes")) {
     return ["probes"];
+  }
+  // La carte du réseau croise les machines (leur hôte, leur type), l'annuaire
+  // (services et liens), les conteneurs et les pare-feu (les zones).
+  if (path === "/api/network") {
+    return ["machines", "containers", "directory", "firewalls"];
   }
   if (path.includes("/containers") || path.includes("/network")) {
     return ["containers"];

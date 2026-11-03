@@ -1,0 +1,16 @@
+# U1 : code mort avant / après (#447)
+
+Avant = c750c56 (dev), après = fin de la branche orca/v052-u1.
+
+deadcode ./... (Go) avant : 79 ; après : 79, rapport identique (aux numéros de ligne près).
+knip, `npx knip@5.88.1 --reporter compact` dans web/ avant : 7 fichiers, 1 export, 2 types non utilisés ; après : les mêmes (seul le nom haché du bundle de dist/ change). Un export de type ajouté pendant le chantier (`WantedRight`) a été retiré de l'export avant le dernier relevé.
+
+Supprimé dans ce chantier
+- La réponse du jeton : les champs `command` et `preparation` (remplacés par `steps`) dans `tokenResponse` (Go) et `TokenResponse` (TS).
+- Les clés de catalogue (fr et en) `machine.token_label`, `machine.prepare_label`, `machine.prepare_help`, `machine.prepare_tip`, `machine.command_label`, `machine.unit_read_write`, `auth.setup_agent_units` : le jeton n'est plus un champ à part, les blocs ont chacun leur titre `machine.install_*`, l'unité et le drop-in sont des étapes, plus des phrases qui renvoient à la documentation.
+- `unitWritePaths`, `unitDropIn` et la constante `workspaceRoot` de `web/src/lib/machines.ts`, et leurs tests : le fichier `droits.conf` se fabrique côté serveur (`installRights`), testé en Go.
+- Le bloc « note + drop-in » de `EnrollmentToken.tsx` et la copie du texte de l'écran de première configuration (`AgentLine`) : les deux montrent `InstallSteps`.
+- Le renvoi « changez ses droits » / « ré-enrôlez-le avec … » des refus de droit (catalogue) : le geste est un bouton.
+- La mention « (voir ci-dessous) » de `machine.agent_rollback_capable_no` (F-4).
+- La constante `UnitFile` de `internal/machine/guard.go`, déplacée dans `unit.go` avec l'unité de l'agent.
+- (Constat de Lucas sur un hôte Proxmox) La copie `scp` du binaire (`installBinary(publicURL)`, `serverHostPattern`, le repère `ADRESSE_DU_SERVEUR`) : remplacée par le téléchargement vérifié ; tous les `sudo -u` de la ligne d'enrôlement et des textes de l'agent (`runuser -u … --`) ; le « copiez d'abord le binaire dans /tmp » de `machine.agent_migration_text`.

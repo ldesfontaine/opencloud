@@ -18,7 +18,12 @@ export type AlertKind =
   | "cert_expired"
   | "cert_untrusted"
   | "disk_full"
-  | "agent_rolled_back";
+  | "agent_rolled_back"
+  | "backup_stale"
+  | "restore_test_stale"
+  | "source_unprotected"
+  | "target_full"
+  | "target_unreachable";
 
 // Le catalogue fermé, dans l'ordre des écrans.
 export const alertKinds: readonly AlertKind[] = [
@@ -34,11 +39,16 @@ export const alertKinds: readonly AlertKind[] = [
   "cert_untrusted",
   "disk_full",
   "agent_rolled_back",
+  "backup_stale",
+  "restore_test_stale",
+  "source_unprotected",
+  "target_full",
+  "target_unreachable",
 ];
 
 export type AlertSeverity = "attention" | "danger";
 type AlertStatus = "open" | "resolved";
-export type AlertObjectKind = "machine" | "container" | "heartbeat" | "probe" | "volume";
+export type AlertObjectKind = "machine" | "container" | "heartbeat" | "probe" | "volume" | "backup";
 
 export interface AlertObject {
   kind: AlertObjectKind;
@@ -65,6 +75,8 @@ interface AlertDetails {
   target?: string;
   not_after?: string;
   since?: string;
+  // La place libre d'une cible de sauvegardes.
+  bytes?: number;
 }
 
 export interface Alert {

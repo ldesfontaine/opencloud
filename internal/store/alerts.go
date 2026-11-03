@@ -109,7 +109,7 @@ func (db *DB) ListAlerts(ctx context.Context, filter alert.Filter) ([]alert.Aler
 // clé étrangère est passée à NULL.
 func (db *DB) ListOrphanAlerts(ctx context.Context) ([]alert.Alert, error) {
 	return db.queryAlerts(ctx, `SELECT `+alertColumns+alertFrom+` WHERE a.status = 'open' AND (
-		(a.object_kind IN ('machine', 'volume') AND a.machine_id IS NULL) OR
+		(a.object_kind IN ('machine', 'volume', 'backup') AND a.machine_id IS NULL) OR
 		(a.object_kind = 'container' AND a.container_id IS NULL) OR
 		(a.object_kind = 'heartbeat' AND a.heartbeat_id IS NULL) OR
 		(a.object_kind = 'probe' AND a.probe_id IS NULL))`)

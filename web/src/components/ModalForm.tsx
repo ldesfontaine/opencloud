@@ -2,7 +2,7 @@ import { useId, type FormEvent, type ReactNode } from "react";
 
 import type { ApiError } from "../api/client";
 import { Button } from "./Button";
-import { Failure } from "./Failure";
+import { Failure, type RightGesture } from "./Failure";
 import type { IconName } from "./Icon";
 import { Modal, ModalCancel } from "./Modal";
 
@@ -23,6 +23,7 @@ export function ModalForm({
   busy,
   canSubmit = true,
   error,
+  errorGesture,
   children,
 }: {
   title: string;
@@ -35,6 +36,8 @@ export function ModalForm({
   busy: boolean;
   canSubmit?: boolean;
   error: ApiError | string | null;
+  // Où mène un refus de droit : voir Failure.
+  errorGesture?: RightGesture | undefined;
   children: ReactNode;
 }) {
   const formID = useId();
@@ -59,7 +62,7 @@ export function ModalForm({
     >
       <form id={formID} className="modal-form" onSubmit={submit}>
         {children}
-        <Failure error={error} />
+        <Failure error={error} gesture={errorGesture} />
       </form>
     </Modal>
   );

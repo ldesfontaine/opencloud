@@ -52,12 +52,12 @@ func (s *Service) RunNow(ctx context.Context, subject string) (action.Run, error
 	if err != nil {
 		return action.Run{}, err
 	}
-	if plan.SourceKind == SourceAgent {
+	if !plan.producedByServer() {
 		first, err := s.startAgentPass(ctx, plan)
 		handedToPass = err == nil
 		return first, err
 	}
-	return s.runDatabase(ctx, plan)
+	return s.runOnServer(ctx, plan)
 }
 
 // run mène le plan jusqu'au bout, sans rendre la main avant : c'est le passage
@@ -73,10 +73,10 @@ func (s *Service) run(ctx context.Context, subject string) (action.Run, error) {
 	if err != nil {
 		return action.Run{}, err
 	}
-	if plan.SourceKind == SourceAgent {
+	if !plan.producedByServer() {
 		return s.runAgentPass(ctx, plan)
 	}
-	return s.runDatabase(ctx, plan)
+	return s.runOnServer(ctx, plan)
 }
 
 func (s *Service) readPlan(ctx context.Context, subject string) (Plan, error) {
@@ -90,10 +90,11 @@ func (s *Service) readPlan(ctx context.Context, subject string) (Plan, error) {
 	return plan, nil
 }
 
-// runDatabase prépare l'archive chiffrée de la base, l'envoie à l'agent de la
+// runOnServer mène un plan que le serveur produit lui-même (la base, ou la
+// configuration d'un pare-feu) : il prépare l'archive chiffrée, l'envoie à l'agent de la
 // destination, puis lui demande d'élaguer. L'ordre backup.receive rendu est
 // celui dont l'état dit si la sauvegarde est arrivée.
-func (s *Service) runDatabase(ctx context.Context, plan Plan) (action.Run, error) {
+func (s *Service) runOnServer(ctx context.Context, plan Plan) (action.Run, error) {
 	at := s.now()
 	sent, err := s.send(ctx, plan, at)
 	if err != nil {
@@ -104,7 +105,7 @@ func (s *Service) runDatabase(ctx context.Context, plan Plan) (action.Run, error
 	if err := s.store.NoteBackupAttempt(ctx, plan.Subject, at, "", run.ID); err != nil {
 		return run, fmt.Errorf("note backup attempt: %w", err)
 	}
-	s.followDatabase(plan, at, sent)
+	s.followServerRun(plan, at, sent)
 	s.logger.Info("backup sent", "plan_id", plan.ID, "subject", plan.Subject, "run_id", run.ID, "destination_id", plan.DestinationID)
 	s.auditor.Record(ctx, audit.Event{
 		Action: audit.BackupPlanRun, ObjectID: plan.ID, ObjectName: plan.Subject,
@@ -114,13 +115,13 @@ func (s *Service) runDatabase(ctx context.Context, plan Plan) (action.Run, error
 	return run, nil
 }
 
-// followDatabase écrit dans l'historique ce que devient la sauvegarde de la
+// followServerRun écrit dans l'historique ce que devient la sauvegarde de la
 // base : l'ordre backup.receive est parti, mais c'est son état qui dit si
 // l'archive est arrivée. Le suivi vit avec le serveur, pas avec la requête.
-func (s *Service) followDatabase(plan Plan, at time.Time, sent delivery) {
+func (s *Service) followServerRun(plan Plan, at time.Time, sent delivery) {
 	if sent.run.State.IsFinished() {
 		// L'ordre n'est pas parti : il n'y a rien à attendre.
-		s.recordDatabase(s.lifetime, plan, at, sent, sent.run)
+		s.recordServerRun(s.lifetime, plan, at, sent, sent.run)
 		return
 	}
 	s.background.Add(1)
@@ -133,13 +134,13 @@ func (s *Service) followDatabase(plan Plan, at time.Time, sent delivery) {
 			}
 			return
 		}
-		s.recordDatabase(s.lifetime, plan, at, sent, finished)
+		s.recordServerRun(s.lifetime, plan, at, sent, finished)
 	}()
 }
 
-func (s *Service) recordDatabase(ctx context.Context, plan Plan, at time.Time, sent delivery, finished action.Run) {
+func (s *Service) recordServerRun(ctx context.Context, plan Plan, at time.Time, sent delivery, finished action.Run) {
 	record := RunRecord{
-		Source: SourceDatabaseKey, StartedAt: at, Result: ResultOK, SizeBytes: &sent.size, ActionRunID: sent.run.ID,
+		Source: plan.sourceKey(), StartedAt: at, Result: ResultOK, SizeBytes: &sent.size, ActionRunID: sent.run.ID,
 	}
 	if finished.State != action.StateSucceeded {
 		record.Result, record.Reason, record.SizeBytes = ResultFailed, runReason(finished), nil
@@ -178,8 +179,8 @@ func (s *Service) noteFailure(ctx context.Context, plan Plan, at time.Time, caus
 	// Un plan machine refusé avant sa première cible n'a pas de source : c'est
 	// le plan entier.
 	source := ""
-	if plan.SourceKind == SourceDatabase {
-		source = SourceDatabaseKey
+	if plan.producedByServer() {
+		source = plan.sourceKey()
 	}
 	s.recordRun(ctx, plan, s.destinationOf(ctx, plan), at, RunRecord{Source: source, StartedAt: at, Result: result, Reason: key})
 	s.changed()
@@ -243,7 +244,7 @@ func (s *Service) send(ctx context.Context, plan Plan, at time.Time) (delivery, 
 	if err != nil {
 		return delivery{}, fmt.Errorf("create parcel: %w", err)
 	}
-	if err := s.stage(ctx, writer, keyring, plan.Subject, at); err != nil {
+	if err := s.stageArchive(ctx, writer, keyring, plan, at); err != nil {
 		writer.Discard()
 		return delivery{}, err
 	}
@@ -296,6 +297,15 @@ func (s *Service) requestPrune(ctx context.Context, destination Destination, pre
 		return action.Run{}, fmt.Errorf("encode prune params: %w", err)
 	}
 	return s.sender.Send(ctx, destination.MachineID, agentwire.KindBackupPrune, params)
+}
+
+// stageArchive écrit dans le colis ce que le plan envoie : la base ou la
+// configuration de son pare-feu.
+func (s *Service) stageArchive(ctx context.Context, writer *action.ParcelWriter, keyring Keyring, plan Plan, at time.Time) error {
+	if plan.IsFirewallExport() {
+		return s.stageFirewall(ctx, writer, keyring, plan, at)
+	}
+	return s.stage(ctx, writer, keyring, plan.Subject, at)
 }
 
 // stage écrit dans le colis l'archive chiffrée et la clé scellée. La copie

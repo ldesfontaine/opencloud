@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { useSSHKeyMatrix } from "../../api/sshkeys";
 import { Card, CardBody, EmptyCard } from "../../components/Card";
+import { Choice } from "../../components/Choice";
 import { Failure } from "../../components/Failure";
 import { Pill } from "../../components/Pill";
 import { Table } from "../../components/Table";
@@ -48,8 +49,10 @@ export function SSHAccess() {
   );
 }
 
-// Est-ce que ça va ? Une clé faible qui ouvre encore une machine, ou une
-// machine mal lue, demande l'opérateur ; sinon le verdict reste blanc.
+// Est-ce que ça va ? Une clé faible qui ouvre encore une machine, ou un
+// fichier que l'agent refuse de lire, demande l'opérateur ; sinon le verdict
+// reste blanc. Une machine lue en partie (compte dédié) n'est pas une alarme :
+// une ligne grise dit comment tout lire.
 function AccessVerdict({ summary }: { summary: AccessSummary }) {
   const t = useT();
   const watch = summary.weak > 0 || summary.incomplete > 0;
@@ -58,11 +61,18 @@ function AccessVerdict({ summary }: { summary: AccessSummary }) {
       tone={watch ? "warn" : "ok"}
       pill={<Pill tone={watch ? "warn" : "ok"}>{t(watch ? "ssh.access_verdict_watch" : "ssh.access_verdict_ok")}</Pill>}
       fact={verdictFact(t, summary)}
-      context={summary.weak > 0 && summary.incomplete > 0 ? t("ssh.access_context_incomplete") : null}
+      context={verdictContext(t, summary)}
     >
       {t("ssh.access_counts", summary.keys, summary.privileged, summary.single)}
     </Verdict>
   );
+}
+
+function verdictContext(t: Translate, summary: AccessSummary): string | null {
+  if (summary.weak > 0 && summary.incomplete > 0) {
+    return t("ssh.access_context_incomplete");
+  }
+  return summary.partial > 0 ? t("ssh.access_context_partial") : null;
 }
 
 function verdictFact(t: Translate, summary: AccessSummary): string {
@@ -72,35 +82,10 @@ function verdictFact(t: Translate, summary: AccessSummary): string {
   if (summary.incomplete > 0) {
     return summary.incomplete === 1 ? t("ssh.access_fact_incomplete_one", summary.incomplete) : t("ssh.access_fact_incomplete", summary.incomplete);
   }
+  if (summary.partial > 0) {
+    return summary.partial === 1 ? t("ssh.access_fact_partial_one", summary.partial) : t("ssh.access_fact_partial", summary.partial);
+  }
   return t("ssh.access_fact_ok");
-}
-
-// Un choix parmi quelques-uns : le segment de la direction artistique.
-function Choice<Value extends string>({
-  label,
-  name,
-  choices,
-  value,
-  text,
-  onChange,
-}: {
-  label: string;
-  name: string;
-  choices: readonly Value[];
-  value: Value;
-  text: (choice: Value) => string;
-  onChange: (choice: Value) => void;
-}) {
-  return (
-    <span className="seg" role="radiogroup" aria-label={label}>
-      {choices.map((choice) => (
-        <label key={choice}>
-          <input type="radio" name={name} checked={value === choice} onChange={() => onChange(choice)} />
-          <span>{text(choice)}</span>
-        </label>
-      ))}
-    </span>
-  );
 }
 
 function KeyTable({ rows }: { rows: KeyAccess[] }) {

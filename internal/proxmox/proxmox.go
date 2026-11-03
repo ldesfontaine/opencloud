@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,7 +66,14 @@ type Host struct {
 	// LastError est la clé du refus du dernier relevé qui a échoué, vide s'il
 	// a réussi.
 	LastError string
-	CreatedAt time.Time
+	// Les stockages dont le dernier relevé n'a pas pu lister les archives faute
+	// de droit (BlindStorages) : tant qu'il y en a, « aucune sauvegarde » n'est
+	// pas une réponse. Dérivé des stockages relevés, jamais saisi.
+	BlindStorages []string
+	// Vrai quand le dernier relevé n'a pas pu lire les tâches de sauvegarde
+	// (403 sur /cluster/backup) : « aucune tâche » n'est pas une réponse.
+	JobsUnreadable bool
+	CreatedAt      time.Time
 }
 
 // Credentials est l'hôte avec son secret : il ne sort de la base que pour
@@ -91,6 +99,10 @@ type Guest struct {
 	// pour le rapprochement ; vides quand l'hôte ne les dit pas. Non gardées :
 	// le rapprochement est fait avant l'écriture du relevé.
 	MACs []string
+	// Ses cartes réseau (MAC, pont, tag VLAN), lues au même endroit : la carte
+	// du réseau en tire la zone de l'invité. Non gardées en base : le service
+	// les tient en mémoire (Service.Networks), un redémarrage les relit.
+	NICs []NIC
 	// La machine enrôlée que le rapprochement lui trouve (MAC, puis nom
 	// d'hôte) ; vide sans rapprochement.
 	LinkedMachineID string
@@ -102,6 +114,9 @@ type Guest struct {
 	LastBackupStorage string
 	BackupCount       int
 	BackupTotalBytes  int64
+	// Vrai quand aucune archive n'est connue ET que l'hôte a des stockages
+	// illisibles : « aucune » serait un mensonge, c'est « inconnue ».
+	BackupUnknown bool
 }
 
 type Storage struct {
@@ -114,6 +129,11 @@ type Storage struct {
 	// Ce que le stockage accepte : backup, iso, vztmpl…
 	Content []string
 	Active  bool
+	// Vrai quand le jeton ne lit pas les archives de ce stockage (liste que
+	// Proxmox vide en silence faute de droit) : leur absence ne prouve rien.
+	// Faux est la valeur sûre, aussi pour un stockage qui ne reçoit pas de
+	// sauvegardes.
+	BackupsUnreadable bool
 }
 
 // AcceptsBackups dit si vzdump peut y écrire ses archives.
@@ -126,6 +146,19 @@ func (s Storage) AcceptsBackups() bool {
 	return false
 }
 
+// BlindStorages rend, triés et sans doublon, les identifiants des stockages de
+// sauvegardes dont le jeton ne lit pas les archives.
+func BlindStorages(storages []Storage) []string {
+	blind := []string{}
+	for _, storage := range storages {
+		if storage.AcceptsBackups() && storage.BackupsUnreadable && !slices.Contains(blind, storage.Name) {
+			blind = append(blind, storage.Name)
+		}
+	}
+	slices.Sort(blind)
+	return blind
+}
+
 // Reading est un relevé complet de l'API : il remplace le précédent ou rien.
 type Reading struct {
 	Version string
@@ -135,6 +168,9 @@ type Reading struct {
 	Cluster  string
 	Guests   []Guest
 	Storages []Storage
+	// Les tâches vzdump de la grappe, et si le jeton a pu les lire.
+	Jobs           []BackupJob
+	JobsUnreadable bool
 }
 
 // View est ce que la fiche de l'hôte montre.
@@ -142,6 +178,7 @@ type View struct {
 	Host     Host
 	Guests   []Guest
 	Storages []Storage
+	Jobs     []BackupJob
 }
 
 // Summary est ce que chaque machine dit de Proxmox : porte-t-elle un hôte,
@@ -150,6 +187,8 @@ type Summary struct {
 	Declared  bool
 	Guests    int
 	LastError string
+	// Vrai quand des archives n'ont pas pu être listées faute de droit.
+	BackupBlind bool
 	// Le nom du nœud de l'hôte, sa grappe (nil pour un nœud seul), et ses
 	// invités : l'arbre des machines se construit avec.
 	Node    string

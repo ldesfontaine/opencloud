@@ -8,15 +8,13 @@
   }
 }
 
-// L'image et, à côté, la pastille de mise à jour. Un nom d'image long
-// passe à la ligne plutôt que de pousser la mémoire hors du tableau.
+// L'image (ImageName, sur une ligne) et, à côté, la pastille de mise à jour,
+// qui passe dessous quand la place manque.
 .image-cell {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 8px;
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 .table .th-num,
@@ -78,4 +76,26 @@
   flex-wrap: nowrap;
   justify-content: flex-end;
   white-space: nowrap;
+}
+
+// L'en-tête d'un projet Compose dans la liste des services : le groupe
+// d'exécution sous lequel les services sont rangés.
+.table tr.svc-project > th {
+  padding: 8px 20px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+
+  .icon {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+// Une instance d'un service présent sur plusieurs machines : en retrait sous
+// la ligne du service.
+.table tr.svc-instance > td:first-child {
+  padding-left: 40px;
 }

@@ -1,6 +1,9 @@
 package container
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Report est ce que l'agent met dans son signal, à côté des lectures de la
 // machine. Complete dit que Inventory est la liste entière, même vide ;
@@ -22,6 +25,34 @@ type Report struct {
 // IsEmpty dit si le signal ne porte rien sur les conteneurs.
 func (r Report) IsEmpty() bool {
 	return r.Engine == nil && !r.Complete && !r.NetworksComplete && !r.VolumesComplete && len(r.Events) == 0 && len(r.Stats) == 0
+}
+
+// HasEnvironment dit si le rapport porte des instances désignées par
+// l'environnement d'un conteneur.
+func (r Report) HasEnvironment() bool {
+	if slices.ContainsFunc(r.Inventory, func(item Observed) bool { return len(item.EnvTargets) > 0 }) {
+		return true
+	}
+	return slices.ContainsFunc(r.Events, func(event Event) bool { return event.Container != nil && len(event.Container.EnvTargets) > 0 })
+}
+
+// WithoutEnvironment rend le rapport sans rien de l'environnement : le serveur
+// l'applique à un agent qui n'a pas le droit observe.env, parce qu'un agent
+// n'est pas une preuve. Le rapport reçu n'est pas modifié.
+func (r Report) WithoutEnvironment() Report {
+	r.Inventory = slices.Clone(r.Inventory)
+	for index := range r.Inventory {
+		r.Inventory[index].EnvTargets = nil
+	}
+	r.Events = slices.Clone(r.Events)
+	for index := range r.Events {
+		if r.Events[index].Container != nil {
+			observed := *r.Events[index].Container
+			observed.EnvTargets = nil
+			r.Events[index].Container = &observed
+		}
+	}
+	return r
 }
 
 // VolumeReport est un volume nommé de la machine tel que l'agent l'a listé.
@@ -71,6 +102,9 @@ type Observed struct {
 	Privileged   bool         `json:"privileged,omitempty"`
 	Networks     []Attachment `json:"networks,omitempty"`
 	DependsOn    []Dependency `json:"depends_on,omitempty"`
+	// Les instances que l'environnement du conteneur désigne ; absent sans le
+	// droit observe.env, et le serveur le retire d'un agent qui ne l'a pas.
+	EnvTargets []EnvTarget `json:"env_targets,omitempty"`
 	// Les labels <préfixe>.* du conteneur, préfixe retiré : aucun autre label
 	// ne quitte la machine. Absent chez un agent plus vieux ; un serveur plus
 	// vieux l'ignore (décodeur du signal tolérant).

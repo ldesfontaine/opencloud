@@ -202,3 +202,55 @@ func TestProxmoxRights_TakeNoScopeAndAreRoundTripped(t *testing.T) {
 		t.Error("observe is not a Proxmox right")
 	}
 }
+
+// Les deux droits de restic : la cible prend un seul chemin, le dossier des
+// dépôts ; la source n'en prend aucun. Ni l'un ni l'autre n'est donné sans
+// être coché.
+func TestCapabilities_ResticTargetTakesOnePathAndResticProduceNone(t *testing.T) {
+	parsed, err := ParseCapabilities("restic.produce,restic.target=/srv/restic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := FormatCapabilities(parsed); text != "observe,restic.target=/srv/restic,restic.produce" {
+		t.Fatalf("formatted %q", text)
+	}
+	if !CoversPath(parsed, CapabilityResticTarget, "/srv/restic") || CoversPath(parsed, CapabilityResticTarget, "/srv/restic2") {
+		t.Fatal("restic.target covers its path and nothing beside")
+	}
+	cases := map[string]error{
+		"restic.target":               ErrCapabilityScope,
+		"restic.target=/srv/a:/srv/b": ErrCapabilityScope,
+		"restic.target=relative":      ErrCapabilityPath,
+		"restic.produce=/srv/a":       ErrCapabilityScope,
+	}
+	for text, want := range cases {
+		if _, err := ParseCapabilities(text); !errors.Is(err, want) {
+			t.Errorf("%q: %v, want %v", text, err, want)
+		}
+	}
+	none, err := ParseCapabilities("")
+	if err != nil || HasCapability(none, CapabilityResticTarget) || HasCapability(none, CapabilityResticProduce) {
+		t.Fatalf("restic rights are never granted by default: %+v %v", none, err)
+	}
+}
+
+// restic.verify n'a pas de chemin (le dépôt est sous celui de restic.target),
+// se pose après restic.docker dans l'ordre des droits, et n'est jamais donné
+// par défaut.
+func TestCapability_ResticVerifyHasNoScopeAndIsNeverDefault(t *testing.T) {
+	parsed, err := ParseCapabilities("restic.verify,restic.target=/srv/restic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := FormatCapabilities(parsed); text != "observe,restic.target=/srv/restic,restic.verify" {
+		t.Fatalf("formatted %q", text)
+	}
+	if _, err := ParseCapabilities("restic.verify=/srv/a"); err != ErrCapabilityScope {
+		t.Fatalf("a path on restic.verify: %v", err)
+	}
+	for _, role := range Roles() {
+		if HasCapability(RolePreset(role), CapabilityResticVerify) {
+			t.Errorf("role %s grants restic.verify", role)
+		}
+	}
+}

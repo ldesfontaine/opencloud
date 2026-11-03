@@ -1,8 +1,9 @@
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 
 import { saveChannel, useChannel, type Channel } from "../../api/alerts";
 import { useMailSettings } from "../../api/settings";
 import { Note } from "../../components/Card";
+import { SettingsFold } from "../../components/Disclosure";
 import { Checkbox, Checks, Field, Input } from "../../components/Field";
 import { Failure } from "../../components/Failure";
 import { Pill } from "../../components/Pill";
@@ -12,7 +13,7 @@ import { Wizard, type WizardStep } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
-import { alertSeverities, channelFormats, channelFormOf, channelRequestOf, emptyChannelForm } from "../../lib/alerts";
+import { alertSeverities, channelFormats, channelFormOf, channelRequestOf, channelSettingsHint, emptyChannelForm } from "../../lib/alerts";
 import { isFormModified } from "../../lib/modal";
 
 // Le secret d'un webhook signe le corps ; celui d'un canal Matrix est le
@@ -23,13 +24,13 @@ const matrixTokenKeys = { label: "channel.matrix_token_label", help: "channel.ma
 const settingsPath = "/parametres";
 
 // Ajouter ou modifier un canal : la fenêtre de Paramètres › Notifications, à
-// /parametres/canaux/nouveau ou /parametres/canaux/:id. Deux étapes : où
-// partent les alertes (nom, format, adresse, secret), puis lesquelles et quand
-// (gravité minimale, résolution, journal, activation), et le récapitulatif.
-// En édition, elle s'ouvre sur le récapitulatif. Le secret ne revient jamais du
-// serveur : on sait seulement qu'il y en a un ; vide, le champ garde l'ancien.
-// Un canal e-mail remplace l'adresse et le secret par ses destinataires ; un
-// canal Matrix nomme son serveur d'accueil, son salon et le jeton du bot.
+// /parametres/canaux/nouveau ou /parametres/canaux/:id. Un seul écran : où
+// partent les alertes (nom, format, adresse, secret), puis Créer. Lesquelles et
+// quand (gravité minimale, résolution, journal, activation) sont repliés sous
+// « Réglages ». Le secret ne revient jamais du serveur : on sait seulement
+// qu'il y en a un ; vide, le champ garde l'ancien. Un canal e-mail remplace
+// l'adresse et le secret par ses destinataires ; un canal Matrix nomme son
+// serveur d'accueil, son salon et le jeton du bot.
 export function ChannelWizard() {
   const { id } = useParams();
   const isEditing = id !== undefined;
@@ -90,9 +91,7 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<ReturnType<typeof
                 <Input id="channel-recipients" mono type="text" value={values.destination} onChange={(event) => change("destination", event.target.value)} maxLength={2600} autoComplete="off" required />
               </Field>
               {mailMissing && (
-                <Note tone="warn">
-                  {t("channel.mail_relay_missing")} <Link to="/parametres#e-mails">{t("channel.mail_relay_link")}</Link>
-                </Note>
+                <Note tone="warn">{t("channel.mail_relay_missing")}</Note>
               )}
             </>
           ) : (
@@ -126,55 +125,21 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<ReturnType<typeof
               />
             </>
           )}
+          <SettingsFold hint={channelSettingsHint(t, values)}>
+            <Field label={t("channel.min_severity_label")} htmlFor="channel-severity" help={t("channel.min_severity_help")}>
+              <EnumSelect id="channel-severity" value={values.minSeverity} values={alertSeverities} labelKey="alert.severity_" onChange={(severity) => change("minSeverity", severity)} />
+            </Field>
+            <Checks>
+              <Checkbox label={t("channel.notify_resolve_label")} checked={values.notifyResolve} onChange={(checked) => change("notifyResolve", checked)} />
+              <Checkbox label={t("channel.receives_audit_label")} checked={values.receivesAudit} onChange={(checked) => change("receivesAudit", checked)} />
+              <Checkbox label={t("channel.enabled_label")} checked={values.enabled} onChange={(checked) => change("enabled", checked)} />
+            </Checks>
+            <p className="field-help">{t("channel.receives_audit_help")}</p>
+          </SettingsFold>
         </>
       ),
-      // Le secret n'est jamais redit : seulement s'il y en a un, ou s'il change.
-      summary: () => [
-        { label: t("channel.name_label"), value: values.name },
-        { label: t("channel.format_label"), value: t(`channel.format_${values.format}`) },
-        ...(isEmail
-          ? [{ label: t("channel.recipients_label"), value: values.destination, mono: true }]
-          : [
-              { label: t(isMatrix ? "channel.matrix_homeserver_label" : "channel.url_label"), value: values.url, mono: true },
-              ...(isMatrix ? [{ label: t("channel.matrix_room_label"), value: values.destination, mono: true }] : []),
-              { label: t((isMatrix ? matrixTokenKeys : signingSecretKeys).label), value: secretSummary(t, hasSecret, values.secret, values.clearSecret) },
-            ]),
-      ],
-    },
-    {
-      id: "rules",
-      title: t("channel.step_rules"),
-      render: () => (
-        <>
-          <Field label={t("channel.min_severity_label")} htmlFor="channel-severity" help={t("channel.min_severity_help")}>
-            <EnumSelect id="channel-severity" value={values.minSeverity} values={alertSeverities} labelKey="alert.severity_" onChange={(severity) => change("minSeverity", severity)} />
-          </Field>
-          <Checks>
-            <Checkbox label={t("channel.notify_resolve_label")} checked={values.notifyResolve} onChange={(checked) => change("notifyResolve", checked)} />
-            <Checkbox label={t("channel.receives_audit_label")} checked={values.receivesAudit} onChange={(checked) => change("receivesAudit", checked)} />
-            <Checkbox label={t("channel.enabled_label")} checked={values.enabled} onChange={(checked) => change("enabled", checked)} />
-          </Checks>
-          <p className="field-help">{t("channel.receives_audit_help")}</p>
-        </>
-      ),
-      summary: () => [
-        { label: t("channel.min_severity_label"), value: t(`alert.severity_${values.minSeverity}`) },
-        { label: t("channel.notify_resolve_label"), value: t(values.notifyResolve ? "channel.on" : "channel.off") },
-        { label: t("channel.receives_audit_label"), value: t(values.receivesAudit ? "channel.on" : "channel.off") },
-        { label: t("channel.enabled_label"), value: t(values.enabled ? "channel.on" : "channel.off") },
-      ],
     },
   ];
-}
-
-function secretSummary(t: Translate, hasSecret: boolean, typed: string, clearing: boolean): string {
-  if (typed !== "") {
-    return t("channel.secret_summary_changed");
-  }
-  if (clearing) {
-    return t("channel.secret_summary_cleared");
-  }
-  return hasSecret ? t("channel.secret_summary_kept") : t("channel.secret_summary_none");
 }
 
 // Le secret de signature d'un webhook, ou le jeton d'un bot Matrix :

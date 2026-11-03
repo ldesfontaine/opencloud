@@ -1,0 +1,15 @@
+// L'onglet des unités systemd d'une machine : des cartes empilées.
+
+.systemd-units {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+// Le filtre par nom et le choix de la vue, côte à côte, l'un sous l'autre sur
+// un écran étroit.
+.systemd-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}

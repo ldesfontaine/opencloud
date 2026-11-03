@@ -44,6 +44,9 @@ const (
 // donné l'empreinte.
 var errPinMismatch = errors.New("certificate does not match the pin")
 
+// errForbidden : l'API a répondu 403, le jeton n'a pas le privilège demandé.
+var errForbidden = errors.New("status 403")
+
 // Client parle à l'API d'un hôte, en lecture. Un client sert un relevé : il ne
 // garde aucune connexion ouverte.
 type Client struct {
@@ -134,7 +137,11 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, into an
 	}
 	defer response.Body.Close()
 	switch {
-	case response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden:
+	case response.StatusCode == http.StatusForbidden:
+		// Le jeton est valide mais n'a pas le droit : une lecture facultative
+		// (les tâches de sauvegarde) le distingue d'un jeton refusé.
+		return fmt.Errorf("%w: %w", ErrUnauthorized, errForbidden)
+	case response.StatusCode == http.StatusUnauthorized:
 		return fmt.Errorf("%w: status %d", ErrUnauthorized, response.StatusCode)
 	case response.StatusCode != http.StatusOK:
 		return fmt.Errorf("%w: status %d", ErrBadResponse, response.StatusCode)

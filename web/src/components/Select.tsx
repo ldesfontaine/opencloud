@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router";
 
 import { useT } from "../i18n/context";
 import {
@@ -58,6 +59,9 @@ export function Select({ value, options, onChange, id, icon, disabled = false, "
   };
 
   const choose = (option: SelectOption) => {
+    if (option.disabled === true) {
+      return;
+    }
     close(true);
     if (option.value !== value) {
       onChange(option.value);
@@ -178,24 +182,48 @@ export function Select({ value, options, onChange, id, icon, disabled = false, "
               </span>
             )}
             <div id={listID} role="listbox" aria-label={ariaLabel} aria-labelledby={ariaLabel === undefined ? id : undefined} className="select-list">
-              {visible.map((option, index) => (
-                <div
-                  key={option.value}
-                  id={optionID(index)}
-                  role="option"
-                  aria-selected={option.value === value}
-                  className={index === menu.active ? "select-option active" : "select-option"}
-                  // Le focus ne quitte pas le déclencheur ou la recherche au clic.
-                  onMouseDown={(event) => event.preventDefault()}
-                  onMouseMove={() => setMenu((current) => (current.active === index ? current : { ...current, active: index }))}
-                  onClick={() => choose(option)}
-                >
-                  <span className="select-option-label">
-                    <OptionText option={option} />
-                  </span>
-                  {option.value === value && <Icon name="check" />}
-                </div>
-              ))}
+              {visible.map((option, index) => {
+                const row = (
+                  <div
+                    key={option.value}
+                    id={optionID(index)}
+                    role="option"
+                    aria-selected={option.value === value}
+                    aria-disabled={option.disabled === true ? true : undefined}
+                    className={optionClass(option, index === menu.active)}
+                    // Le focus ne quitte pas le déclencheur ou la recherche au clic.
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseMove={() => setMenu((current) => (current.active === index ? current : { ...current, active: index }))}
+                    onClick={() => choose(option)}
+                  >
+                    <span className="select-option-label">
+                      <OptionText option={option} />
+                    </span>
+                    {option.value === value && <Icon name="check" />}
+                  </div>
+                );
+                if (option.reason === undefined) {
+                  return row;
+                }
+                // La raison et le lien vivent hors de l'option : l'option grisée
+                // est désactivée pour les lecteurs d'écran, et son lien doit rester actif.
+                return (
+                  <div key={option.value} role="group" className="select-option-group">
+                    {row}
+                    <span className="select-option-reason">
+                      {option.reason}
+                      {option.link !== undefined && (
+                        <>
+                          {" "}
+                          <Link to={option.link.to} onClick={() => close(false)}>
+                            {option.link.label}
+                          </Link>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
               {visible.length === 0 && <div className="select-empty">{t("select.no_result")}</div>}
             </div>
           </div>,
@@ -203,6 +231,17 @@ export function Select({ value, options, onChange, id, icon, disabled = false, "
         )}
     </>
   );
+}
+
+function optionClass(option: SelectOption, active: boolean): string {
+  const classes = ["select-option"];
+  if (active) {
+    classes.push("active");
+  }
+  if (option.disabled === true) {
+    classes.push("select-option-disabled");
+  }
+  return classes.join(" ");
 }
 
 function OptionText({ option }: { option: SelectOption }) {

@@ -245,7 +245,7 @@ func (db *DB) ListActionRuns(ctx context.Context, query action.Query) ([]action.
 		SELECT `+runColumns+`
 		FROM action_runs
 		WHERE (? = '' OR machine_id = ?)`+kindsFilter+`
-		ORDER BY requested_at DESC, id DESC
+		ORDER BY requested_at DESC, rowid DESC
 		LIMIT ?`, args...) // #nosec G202 -- une condition fixe du code, les valeurs sont liées.
 	if err != nil {
 		return nil, fmt.Errorf("list runs: %w", err)
@@ -305,7 +305,7 @@ func (db *DB) lastServiceRun(ctx context.Context, serviceID string, kinds []agen
 	}
 	query := `SELECT ` + runColumns + ` FROM action_runs
 		WHERE service_id = ? AND action IN (` + strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",") + `)` + narrowing + `
-		ORDER BY requested_at DESC, id DESC LIMIT 1` // #nosec G202 -- des conditions fixes, les valeurs sont liées.
+		ORDER BY requested_at DESC, rowid DESC LIMIT 1` // #nosec G202 -- des conditions fixes, les valeurs sont liées.
 	run, err := scanActionRun(db.sql.QueryRowContext(ctx, query, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return action.Run{}, false, nil
@@ -375,7 +375,7 @@ func (db *DB) FindUpdateInFlight(ctx context.Context, since time.Time) (action.R
 	run, err := scanActionRun(db.sql.QueryRowContext(ctx, `
 		SELECT `+runColumns+` FROM action_runs
 		WHERE action IN (?, ?) AND state IN ('queued', 'sent', 'accepted') AND requested_at >= ?
-		ORDER BY requested_at DESC, id DESC LIMIT 1`,
+		ORDER BY requested_at DESC, rowid DESC LIMIT 1`,
 		string(agentwire.KindAgentUpdate), string(agentwire.KindAgentRollback), since.Unix())) // #nosec G202 -- des genres fixes, les valeurs sont liées.
 	if errors.Is(err, sql.ErrNoRows) {
 		return action.Run{}, false, nil

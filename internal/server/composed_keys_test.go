@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
@@ -26,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -113,6 +115,11 @@ func closedKeyLists() []composedKeys {
 		{prefix: "incident.impact_", values: names(status.Impacts())},
 		{prefix: "component.kind_", values: names(status.MemberKinds())},
 		{prefix: "language.", values: names(lang.Codes())},
+		// Une unité systemd se dit par ses trois états ; l'impossibilité de la lire, par sa raison.
+		{prefix: "systemd.load_", values: names(systemdunits.Loads())},
+		{prefix: "systemd.active_", values: names(systemdunits.Actives())},
+		{prefix: "systemd.sub_", values: names(systemdunits.Subs())},
+		{prefix: "systemd.reason_", values: names(systemdunits.Reasons())},
 		// Le menu, Paramètres › Modules et la fiche disent un module et un rôle
 		// par leur libellé, puis par leur phrase.
 		{prefix: "module.", values: allModuleNames()},
@@ -130,9 +137,16 @@ func closedKeyLists() []composedKeys {
 		// Le choix du mode à l'activation : tous sauf « none », qui est l'état de départ.
 		{prefix: "auth.mode_", values: without(names(auth.Modes()), string(auth.ModeNone))},
 		{prefix: "directory.nature_", values: names(directory.Natures())},
+		{prefix: "directory.category_", values: names(directory.Categories())},
 		{prefix: "directory.origin_", values: names(directory.Origins())},
 		{prefix: "directory.provides_", values: names(directory.Capabilities())},
 		{prefix: "directory.declared_by_", values: names(directory.Provenances())},
+		// Un lien : sa nature, sa preuve et le signal qui la fonde.
+		{prefix: "link.", values: []string{"outgoing", "incoming"}},
+		{prefix: "link.nature_", values: []string{string(link.NatureOrder), string(link.NatureConfig), string(link.NatureRoute), string(link.NatureTraffic)}},
+		{prefix: "link.proof_", values: []string{string(link.ProofDeclared), string(link.ProofDeduced), string(link.ProofObserved)}},
+		{prefix: "link.signal_", values: []string{string(link.SignalDependsOn), string(link.SignalContainerLink), string(link.SignalOperator), string(link.SignalPublicURL), string(link.SignalEnvironment), string(link.SignalHostConnection)}},
+		{prefix: "link.source_", values: []string{string(link.KindAccount), string(link.KindAddress)}},
 		{prefix: "gap.state_", values: names(directory.GapStates())},
 		{prefix: "gap.reason_", values: names(directory.GapReasons())},
 		{prefix: "gap.level_", values: names(container.MatchLevels())},
@@ -174,11 +188,11 @@ func closedKeyLists() []composedKeys {
 		// Pourquoi un droit coché n'est pas exerçable : une phrase par raison.
 		{prefix: "machine.capability_unavailable_", values: machine.UnavailableReasons()},
 		// Les plans de sauvegarde : d'où ils prennent, et ce qu'un agent sait produire.
-		{prefix: "backup.source_kind_", values: []string{backup.SourceDatabase, backup.SourceAgent}},
+		{prefix: "backup.source_kind_", values: []string{backup.SourceDatabase, backup.SourceAgent, backup.KindFirewall}},
 		{prefix: "backup.producer_", values: machine.Producers()},
-		{prefix: "backup.inventory_kind_", values: backup.SourceKinds()},
-		{prefix: "backup.inventory_target_kind_", values: backup.TargetKinds()},
-		{prefix: "backup.run_result_", values: names(backup.Results())},
+		{prefix: "backup.source_sub_", values: append(backup.SourceKinds(), agentwire.ResticScopeService)},
+		{prefix: "backup.target_kind_", values: backup.TargetKinds()},
+		{prefix: "backup.path_reason_", values: agentwire.ResticPathReasons()},
 	}
 }
 

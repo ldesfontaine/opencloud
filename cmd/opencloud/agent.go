@@ -57,6 +57,10 @@ func runAgent(args []string) error {
 	stateDir := flags.String("state", defaultAgentStateDir, "répertoire d'état de l'agent")
 	dockerSocket := flags.String("docker-socket", dockerapi.DefaultSocket, "socket du démon Docker de cette machine")
 	caFile := flags.String("ca-file", "", "paquet PEM d'une autorité interne, ajouté au magasin du système pour les sondes")
+	// restic.produce et restic.target : l'agent ne télécharge aucun binaire,
+	// il les cherche ici ou dans son PATH.
+	resticBinary := flags.String("restic", "", "chemin absolu de restic (droits restic.produce et restic.docker) ; vide : cherché dans le PATH")
+	restServerBinary := flags.String("rest-server", "", "chemin absolu de rest-server (droit restic.target) ; vide : cherché dans le PATH")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -88,6 +92,11 @@ func runAgent(args []string) error {
 	// La racine aussi se juge avant l'enrôlement, pour la même raison.
 	if !machine.ValidCapabilityPath(*rootDir) {
 		return &refusal{message: catalogs.For(code).Get("agent.root_invalid")}
+	}
+	for _, binary := range []string{*resticBinary, *restServerBinary} {
+		if binary != "" && !machine.ValidCapabilityPath(binary) {
+			return &refusal{message: catalogs.For(code).Get("agent.binary_invalid")}
+		}
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	root, err := openStateDir(*stateDir)
@@ -126,6 +135,9 @@ func runAgent(args []string) error {
 		DockerSocket: *dockerSocket,
 		Roots:        roots,
 		Logger:       logger,
+
+		ResticBinary:     *resticBinary,
+		RestServerBinary: *restServerBinary,
 
 		ReleaseKey:    releaseKey,
 		HasReleaseKey: keyErr == nil,

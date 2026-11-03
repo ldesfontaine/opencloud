@@ -13,6 +13,7 @@ var (
 	ErrProjectMissing   = refusal.Invalid("deploy.project_missing", "the service has no compose project: it names its folder")
 	ErrNoUnits          = refusal.Invalid("deploy.no_units", "the service has no unit to deploy")
 	ErrUnitNotContainer = refusal.Invalid("deploy.unit_not_container", "a binary unit is not deployed through Docker")
+	ErrProjectShared    = refusal.Invalid("deploy.project_shared", "another declared service uses this compose project: its folder cannot be written for this service alone")
 	ErrVersionUnpinned  = refusal.Invalid("deploy.version_unpinned", "every unit must carry a pinned version")
 	ErrComposeTooLarge  = refusal.Invalid("deploy.compose_too_large", "the generated compose file is larger than an order carries")
 	ErrEnvTooLarge      = refusal.Invalid("deploy.env_too_large", "the .env exceeds 64 KiB")
@@ -64,6 +65,9 @@ type Plan struct {
 	// monte un dossier de données.
 	Compose  string
 	DataDirs []string
+	// Les autres services déclarés de la machine qui ont le même projet
+	// Compose : tant qu'il y en a, aucun geste ne part (ErrProjectShared).
+	SharedWith []string
 	// Le dernier ordre de déploiement du service, quel que soit son état ;
 	// nil s'il n'y en a jamais eu (ou plus : la purge des runs l'a emporté).
 	LastRun *action.Run

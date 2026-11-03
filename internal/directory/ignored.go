@@ -7,17 +7,24 @@ import (
 )
 
 // IgnoreKind dit ce que la clé ignorée désigne parmi ce que la machine
-// montre : tout un projet Compose, ou un conteneur seul par son nom. Jamais
-// un identifiant Docker, que la recréation du conteneur ferait perdre.
+// montre : un service Compose (« projet/service »), tout un projet Compose,
+// ou un conteneur seul par son nom. Jamais un identifiant Docker, que la
+// recréation du conteneur ferait perdre.
 type IgnoreKind string
 
 const (
+	IgnoreComposeService IgnoreKind = "compose_service"
 	IgnoreComposeProject IgnoreKind = "compose_project"
 	IgnoreContainerName  IgnoreKind = "container_name"
 )
 
+// ComposeServiceValue écrit la valeur d'une clé IgnoreComposeService.
+func ComposeServiceValue(project, composeService string) string {
+	return project + "/" + composeService
+}
+
 func IgnoreKinds() []IgnoreKind {
-	return []IgnoreKind{IgnoreComposeProject, IgnoreContainerName}
+	return []IgnoreKind{IgnoreComposeService, IgnoreComposeProject, IgnoreContainerName}
 }
 
 // IgnoredKey est un « présent non déclaré, et c'est voulu » : l'opérateur
@@ -44,13 +51,21 @@ func (k IgnoredKey) Validate() error {
 	if k.MachineID == "" || !slices.Contains(IgnoreKinds(), k.Kind) {
 		return ErrIgnoreInvalid
 	}
-	// Le motif d'un projet Compose est celui qu'un service déclaré lui donne.
-	pattern := containerNamePattern
-	if k.Kind == IgnoreComposeProject {
-		pattern = namePattern
-	}
-	if !pattern.MatchString(k.Value) {
+	if !k.hasValidValue() {
 		return ErrIgnoreInvalid
 	}
 	return nil
+}
+
+// Le motif d'un projet Compose est celui qu'un service déclaré lui donne ;
+// celui d'un service Compose est le nom de l'unité qui le porte.
+func (k IgnoredKey) hasValidValue() bool {
+	switch k.Kind {
+	case IgnoreComposeProject:
+		return namePattern.MatchString(k.Value)
+	case IgnoreComposeService:
+		project, composeService, found := strings.Cut(k.Value, "/")
+		return found && namePattern.MatchString(project) && unitNamePattern.MatchString(composeService)
+	}
+	return containerNamePattern.MatchString(k.Value)
 }

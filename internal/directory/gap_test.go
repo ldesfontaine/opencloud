@@ -176,9 +176,10 @@ func TestGaps_UnitTakesTheWorstContainerAndIsWeakIfOneIs(t *testing.T) {
 	}
 }
 
-func TestGaps_UndeclaredGroupedByKeyAndIgnoredFlagged(t *testing.T) {
+func TestGaps_UndeclaredGroupedByServiceAndIgnoredFlagged(t *testing.T) {
 	declared := []Service{declaredCompose("svc_1", "m1", "nextcloud", "app")}
 	blogWeb := composeContainer("m1", "blog-web-1", "blog", "web")
+	blogWeb2 := composeContainer("m1", "blog-web-2", "blog", "web")
 	blogDB := composeContainer("m1", "blog-db-1", "blog", "db")
 	whoami := aloneContainer("m1", "whoami")
 	elsewhere := aloneContainer("m2", "whoami")
@@ -186,23 +187,44 @@ func TestGaps_UndeclaredGroupedByKeyAndIgnoredFlagged(t *testing.T) {
 	gone.ArchivedAt = time.Unix(1_800_000_000, 0)
 	ignored := []IgnoredKey{{MachineID: "m1", Kind: IgnoreContainerName, Value: "whoami"}}
 
-	report := Gaps(declared, []container.Container{whoami, blogWeb, elsewhere, blogDB, gone}, nil, ignored)
+	report := Gaps(declared, []container.Container{whoami, blogWeb, blogWeb2, elsewhere, blogDB, gone}, nil, ignored)
 
-	if len(report.Undeclared) != 3 {
+	if len(report.Undeclared) != 4 {
 		t.Fatalf("undeclared = %+v", report.Undeclared)
 	}
-	blog, onM1, onM2 := report.Undeclared[0], report.Undeclared[1], report.Undeclared[2]
-	if blog.Key != (IgnoredKey{MachineID: "m1", Kind: IgnoreComposeProject, Value: "blog"}) || blog.Ignored || blog.ServiceID != "" {
-		t.Fatalf("blog = %+v", blog)
+	onM1, db, web, onM2 := report.Undeclared[0], report.Undeclared[1], report.Undeclared[2], report.Undeclared[3]
+	if db.Key != (IgnoredKey{MachineID: "m1", Kind: IgnoreComposeService, Value: "blog/db"}) || db.Project != "blog" || db.ComposeService != "db" || db.Ignored {
+		t.Fatalf("db = %+v", db)
 	}
-	if names := containerNames(blog.Containers); !slices.Equal(names, []string{"blog-db-1", "blog-web-1"}) {
-		t.Fatalf("les conteneurs d'un projet sont par nom: %v", names)
+	if names := containerNames(web.Containers); web.ComposeService != "web" || !slices.Equal(names, []string{"blog-web-1", "blog-web-2"}) {
+		t.Fatalf("les répliques d'un service Compose sont un groupe, par nom: %v", names)
 	}
-	if onM1.Key.Kind != IgnoreContainerName || onM1.Key.Value != "whoami" || !onM1.Ignored {
+	if onM1.Key.Kind != IgnoreContainerName || onM1.Key.Value != "whoami" || !onM1.Ignored || onM1.Project != "" {
 		t.Fatalf("whoami de m1 = %+v", onM1)
 	}
 	if onM2.MachineID != "m2" || onM2.Ignored {
 		t.Fatalf("une clé ignorée sur une machine ne vaut pas pour une autre: %+v", onM2)
+	}
+}
+
+// Une clé de projet posée avant que chaque service ait la sienne continue de
+// tout ignorer, et c'est elle qu'on retire pour cesser d'ignorer.
+func TestGaps_ProjectKeyStillIgnoresItsServices(t *testing.T) {
+	web := composeContainer("m1", "blog-web-1", "blog", "web")
+	db := composeContainer("m1", "blog-db-1", "blog", "db")
+	other := composeContainer("m1", "wiki-web-1", "wiki", "web")
+	project := IgnoredKey{MachineID: "m1", Kind: IgnoreComposeProject, Value: "blog"}
+
+	report := Gaps(nil, []container.Container{web, db, other}, nil, []IgnoredKey{project})
+
+	for _, group := range report.Undeclared {
+		wantIgnored := group.Project == "blog"
+		if group.Ignored != wantIgnored {
+			t.Errorf("%s/%s ignoré = %v", group.Project, group.ComposeService, group.Ignored)
+		}
+		if wantIgnored && group.Key != project {
+			t.Errorf("la clé à retirer est celle du projet : %+v", group.Key)
+		}
 	}
 }
 
@@ -214,24 +236,17 @@ func containerNames(containers []container.Container) []string {
 	return names
 }
 
-// nextcloud-db tourne dans un projet déclaré, sans unité qui le nomme :
-// « Adopter » le met dans ce service.
-func TestGaps_UndeclaredInDeclaredProjectPointsToIt(t *testing.T) {
+// nextcloud-db tourne dans un projet dont un autre service est déclaré : il
+// reste un service à proposer, à part.
+func TestGaps_UndeclaredServiceOfADeclaredProjectIsItsOwnGroup(t *testing.T) {
 	declared := []Service{nextcloudWithRedis()}
 	web := attached(composeContainer("m1", "nextcloud-1", "nextcloud", "nextcloud"), "unit_nextcloud_nextcloud", container.MatchCompose)
 	db := composeContainer("m1", "nextcloud-db-1", "nextcloud", "db")
-	sameNameElsewhere := composeContainer("m2", "nextcloud-db-1", "nextcloud", "db")
 
-	report := Gaps(declared, []container.Container{web, db, sameNameElsewhere}, nil, nil)
+	report := Gaps(declared, []container.Container{web, db}, nil, nil)
 
-	if len(report.Undeclared) != 2 {
+	if len(report.Undeclared) != 1 || report.Undeclared[0].ComposeService != "db" || report.Undeclared[0].Containers[0].ID != db.ID {
 		t.Fatalf("undeclared = %+v", report.Undeclared)
-	}
-	if report.Undeclared[0].ServiceID != "svc_1" || report.Undeclared[0].Containers[0].ID != db.ID {
-		t.Fatalf("m1 = %+v", report.Undeclared[0])
-	}
-	if report.Undeclared[1].ServiceID != "" {
-		t.Fatalf("le projet déclaré sur m1 ne vaut pas pour m2: %+v", report.Undeclared[1])
 	}
 }
 
@@ -261,15 +276,15 @@ func TestGaps_OrphanLabelIsUndeclaredWithItsProblem(t *testing.T) {
 func TestGaps_GroupOfOrphansIsNotAdoptable(t *testing.T) {
 	orphanWeb := labelledTo(composeContainer("m1", "blog-web-1", "blog", "web"), "svc_inconnu", "web")
 	orphanDB := labelledTo(composeContainer("m1", "blog-db-1", "blog", "db"), "svc_inconnu", "db")
-	plain := composeContainer("m1", "blog-cache-1", "blog", "cache")
+	plain := composeContainer("m1", "blog-web-2", "blog", "web")
 	alone := aloneContainer("m1", "whoami")
 
 	onlyOrphans := Gaps(nil, []container.Container{orphanWeb, orphanDB, alone}, nil, nil).Undeclared
-	if len(onlyOrphans) != 2 {
+	if len(onlyOrphans) != 3 {
 		t.Fatalf("undeclared = %+v", onlyOrphans)
 	}
-	blog, whoami := onlyOrphans[0], onlyOrphans[1]
-	if blog.Key.Value != "blog" || blog.Adoptable || len(blog.LabelProblems) != 2 {
+	whoami, blog := onlyOrphans[0], onlyOrphans[1]
+	if blog.Project != "blog" || blog.Adoptable || len(blog.LabelProblems) != 1 {
 		t.Fatalf("blog = %+v", blog)
 	}
 	if whoami.Key.Value != "whoami" || !whoami.Adoptable || len(whoami.LabelProblems) != 0 {

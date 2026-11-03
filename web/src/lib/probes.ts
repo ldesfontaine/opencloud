@@ -2,6 +2,7 @@ import type { Container } from "../api/containers";
 import type { DeclaredService } from "../api/directory";
 import type { Probe, ProbeDay, ProbeKind, ProbeRequest, ProbeStatus } from "../api/probes";
 import { isPublicIP } from "./containers";
+import { describeEvery } from "./time";
 import type { SegmentTone, Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
@@ -150,6 +151,15 @@ export const emptyProbeForm: ProbeFormValues = {
   redirects: "yes",
   useTLS: "no",
 };
+
+// Ce que les réglages repliés d'une sonde acceptent, en clair :
+// « HTTP depuis vps-lyon, chaque minute, 3 échecs avant l'alerte ». Un
+// intervalle qui ne se lit pas (champ vide, en cours de frappe) se dit tel quel.
+export function probeSettingsHint(t: Translate, values: Pick<ProbeFormValues, "kind" | "interval" | "failure">, machineName: string): string {
+  const seconds = Number(values.interval);
+  const every = values.interval.trim() !== "" && Number.isFinite(seconds) ? describeEvery(t, seconds * 1000) : "—";
+  return t("probe.settings_hint", t(`probe.kind_${values.kind}`), machineName, every, values.failure);
+}
 
 // Le formulaire d'édition part de la sonde telle que le serveur la garde.
 // Une sonde TCP n'a ni méthode ni code attendu : le formulaire reprend les

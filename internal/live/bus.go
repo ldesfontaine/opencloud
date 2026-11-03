@@ -168,6 +168,13 @@ func (b *Bus) SSHKeysChanged(string) {
 	b.Publish(TopicMachines)
 }
 
+// Un relevé d'unités systemd se lit avec la machine et avec les services (l'état
+// d'une unité déclarée) : le sujet des machines, puis celui de l'annuaire.
+func (b *Bus) SystemdUnitsChanged(string) {
+	b.Publish(TopicMachines)
+	b.Publish(TopicDirectory)
+}
+
 // Un relevé de l'hôte Proxmox d'une machine se lit avec les machines : même sujet.
 func (b *Bus) ProxmoxChanged(string) {
 	b.Publish(TopicMachines)

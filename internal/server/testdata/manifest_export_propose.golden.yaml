@@ -33,12 +33,6 @@ services:
         image: redis
         version: "7.4"
         updates: watch
-      # Unité proposée depuis un conteneur non déclaré
-      - name: nextcloud-db
-        image: postgres
-        version: "16.4"
-        ports: ["5432:5432"]
-        updates: watch
   # Proposé depuis des conteneurs non déclarés : relisez avant apply
   - machine: vps-paris-1
     name: front
@@ -49,6 +43,18 @@ services:
         image: traefik/whoami
         version: "v1.10"
         container_name: front
+        updates: watch
+  # Proposé depuis des conteneurs non déclarés : relisez avant apply
+  - machine: vps-paris-1
+    name: nextcloud-db
+    nature: application
+    origin: compose
+    compose_project: nextcloud
+    units:
+      - name: nextcloud-db
+        image: postgres
+        version: "16.4"
+        ports: ["5432:5432"]
         updates: watch
 probes: []
 heartbeats: []

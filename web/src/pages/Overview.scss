@@ -32,29 +32,8 @@
 // autres, dont le pied est court, cèdent chacune un peu de place.
 .overview-stats {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.05fr) minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.55fr);
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.05fr) minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.55fr);
   gap: 16px;
-}
-
-// La tuile Alertes est un lien : même dessin, le trait s'appuie au survol.
-a.stat-link {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border-radius: 14px;
-
-  &,
-  &:hover {
-    color: inherit;
-  }
-
-  > .card {
-    flex: 1;
-  }
-
-  &:hover > .card {
-    border-color: var(--line-strong);
-  }
 }
 
 // Une rangée de cartes de machine, quatre de front.

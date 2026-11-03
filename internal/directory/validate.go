@@ -31,6 +31,7 @@ func (d ServiceDefinition) Complete() ServiceDefinition {
 	d.MachineID = strings.TrimSpace(d.MachineID)
 	d.Name = strings.TrimSpace(d.Name)
 	d.Title = strings.TrimSpace(d.Title)
+	d.Category = Category(strings.TrimSpace(string(d.Category)))
 	d.ComposeProject = strings.TrimSpace(d.ComposeProject)
 	d.PublicURL = strings.TrimSpace(d.PublicURL)
 	d.Provides = withoutDuplicates(d.Provides)
@@ -92,6 +93,9 @@ func (d ServiceDefinition) Validate() error {
 	}
 	if !slices.Contains(Natures(), d.Nature) {
 		return ErrNatureInvalid
+	}
+	if d.Category != "" && !slices.Contains(Categories(), d.Category) {
+		return ErrCategoryInvalid
 	}
 	if !slices.Contains(Origins(), d.Origin) {
 		return ErrOriginInvalid

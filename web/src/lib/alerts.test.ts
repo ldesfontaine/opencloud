@@ -363,3 +363,42 @@ describe("renamedAlertLocation", () => {
     expect(renamedAlertLocation("/alertes/resolues")).toEqual({ pathname: "/alertes", hash: "" });
   });
 });
+
+describe("la supervision des sauvegardes", () => {
+  const backupAlert = (kind: Alert["kind"], details: Alert["details"]): Alert => ({
+    id: 1,
+    kind,
+    severity: "attention",
+    status: "open",
+    muted: false,
+    object: { kind: "backup", id: "restic:b1", name: "paperless" },
+    machine_id: "m1",
+    machine_name: "docker1",
+    service_id: "",
+    details,
+    opened_at: "2026-11-02T10:00:00Z",
+    updated_at: "2026-11-02T10:00:00Z",
+    resolved_at: null,
+    acknowledged_at: null,
+  });
+
+  it("un objet de sauvegarde mène à la page Sauvegardes et se tait par sa machine", () => {
+    const alert = backupAlert("backup_stale", {});
+    expect(objectPath(alert.object, "m1")).toBe("/sauvegardes");
+    expect(mutePathOf(alert)).toContain("target_kind=machine");
+    expect(mutePathOf(alert)).toContain("target_id=m1");
+  });
+
+  it("chaque constat a ses trois lignes dans le catalogue", () => {
+    const text = (kind: Alert["kind"], details: Alert["details"]) => describeAlert(t, backupAlert(kind, details), Date.parse("2026-11-02T12:00:00Z"), disks);
+    expect(text("backup_stale", { since: "2026-11-01T00:00:00Z", reason: "failed" }).cause).toContain("alert.backup_stale_failed");
+    expect(text("backup_stale", { since: "2026-11-01T00:00:00Z" }).cause).toContain("alert.backup_stale_none");
+    expect(text("restore_test_stale", { since: "2026-10-01T12:00:00Z", reason: "never_verified" }).cause).toMatch(/^alert.cause_restore_test_stale /);
+    expect(text("restore_test_stale", { since: "2026-10-01T12:00:00Z", reason: "verify_right_missing" }).action).toBe("alert.action_restore_test_stale_right");
+    expect(text("restore_test_stale", { since: "2026-10-01T12:00:00Z" }).action).toBe("alert.action_restore_test_stale");
+    expect(text("source_unprotected", {}).fact).toBe("alert.fact_source_unprotected");
+    expect(text("target_full", { bytes: 300 * 2 ** 20, count: 3 }).cause).toBe("alert.cause_target_full paperless 300 3");
+    expect(text("target_unreachable", { reason: "offline", count: 2 }).cause).toContain("alert.target_unreachable_offline");
+    expect(text("target_unreachable", { reason: "autre", count: 2 }).cause).toContain("alert.target_unreachable_error");
+  });
+});

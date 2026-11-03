@@ -210,7 +210,7 @@ l'écran de première configuration montre la ligne qui l'installe, avec le
 droit d'observer seul, et au-dessus d'elle **la préparation** : le compte
 `opencloud-agent`, son dossier et son binaire. Jouez les deux **sur cette
 machine**, en root, puis installez l'unité de l'agent. La préparation prend le
-binaire du serveur, `/usr/local/bin/opencloud` (v0.5.1 : la version que
+binaire du serveur, `/usr/local/bin/opencloud` (v0.0.1 : la version que
 `opencloud version` affiche) :
 
 ```sh
@@ -219,7 +219,7 @@ useradd --system --home-dir /var/lib/opencloud-agent --shell /usr/sbin/nologin o
 getent group docker >/dev/null && usermod -aG docker opencloud-agent
 install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent
 runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin
-runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 # Le lanceur stable que l'unité lance (à root, hors de bin/) : il ramène l'agent à la version précédente si une mise à jour ne tient pas
 install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
 install -m 0755 -o root -g root /usr/local/bin/opencloud /usr/local/lib/opencloud-agent/opencloud-guard
@@ -309,9 +309,14 @@ Elle sert à deux choses.
 1. **Écrire les adresses** : la commande d'installation d'une machine, l'URL
    de ping d'une tâche. Vide, openCloud les déduit de la
    requête (et de `X-Forwarded-Host` / `-Proto` d'un mandataire de
-   confiance). Si l'adresse paraît locale, la page du jeton le dit :
-   « L'adresse d'openCloud paraît locale : une machine distante ne la
-   joindra pas. Renseignez public_url dans la configuration. »
+   confiance). Si l'adresse paraît locale, la page du jeton et celle de la
+   tâche posent une **note neutre** avec la ligne à écrire :
+   la forme attendue en exemple (`public_url = "https://opencloud.exemple.fr"`,
+   non copiable : l'adresse publique réelle est à mettre dans
+   `/etc/opencloud/config.toml`), puis `sudo systemctl restart
+   opencloud.service`. Un essai local n'est pas une erreur. La note ne devient **rouge** que si la page est lue par une adresse
+   publique alors que `public_url` est locale : la ligne, cette fois à
+   copier, porte l'adresse de la page.
 2. **Reconnaître le nom de l'interface.** Toute requête sur `/api/…` doit
    arriver avec un `Host` connu : l'hôte de
    `public_url`, `localhost`, une adresse IP, ou l'hôte de `listen`.
@@ -726,7 +731,7 @@ domaine de l'expéditeur, pas d'openCloud.
 
 **Paramètres → E-mails** : serveur, port, chiffrement, identifiant,
 mot de passe, adresse d'expéditeur, puis « Envoyer un e-mail de test » vers
-une adresse saisie. Ensuite **Alertes → Canaux → Ajouter un canal**, format
+une adresse saisie. Ensuite **Paramètres → Notifications → Canaux → Ajouter un canal**, format
 « E-mail », jusqu'à 10 destinataires.
 
 | Chiffrement | Port | Quand |
@@ -929,9 +934,16 @@ détail, les refus et le journal d'audit :
 
 Dans l'interface : Machines → **Ajouter une machine**, un nom en lettres
 minuscules, chiffres et tirets, et les **droits** de l'agent à cocher.
-openCloud affiche une seule fois la ligne à coller, et au-dessus d'elle la
-**préparation** de la machine (étape 2). Avec les droits par défaut
-(`probe.lan` coché, voir ci-dessous), la ligne porte `-rights` :
+openCloud affiche une seule fois **cinq blocs à coller**, dans l'ordre, chacun
+avec son bouton Copier : le binaire (téléchargé et vérifié par sa somme SHA-256), la **préparation** (étape 2),
+l'enrôlement (étape 3), l'unité (étape 4) et, si un droit écrit ailleurs que dans
+l'état de l'agent, les dossiers qu'il autorise (le drop-in `droits.conf`, étape 4).
+Tous se jouent **en root** (`su -` ou `sudo -i`) et aucun n'a besoin de `sudo`,
+qu'un hôte Proxmox n'a pas : l'enrôlement prend le compte de l'agent par `runuser`.
+Ce qui suit explique ces blocs ; la page, elle, suffit seule. Un ré-enrôlement en
+ajoute un premier : arrêter l'agent et supprimer `identity.json`. Avec les droits
+par défaut (`probe.lan` coché, voir ci-dessous), la ligne d'enrôlement porte
+`-rights` :
 
 ```sh
 printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://opencloud.example.org -rights observe,probe.lan
@@ -1008,14 +1020,14 @@ scp bin/opencloud root@machine:/tmp/opencloud          # bin/opencloud-arm64 pou
 Puis, **sur la machine, en root**, la préparation que la page du jeton affiche
 au-dessus de la ligne d'installation. Pour un agent qui déploie
 (`docker.deploy`) et reçoit des sauvegardes (`backup.receive=/srv/backups`),
-la version v0.5.1 donne :
+la version v0.0.1 donne :
 
 ```sh
 useradd --system --home-dir /var/lib/opencloud-agent --shell /usr/sbin/nologin opencloud-agent
 getent group docker >/dev/null && usermod -aG docker opencloud-agent
 install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent
 runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin
-runuser -u opencloud-agent -- install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+runuser -u opencloud-agent -- install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
 install -m 0755 -o root -g root /tmp/opencloud /usr/local/lib/opencloud-agent/opencloud-guard
 test ! -L /srv/workspace && install -d -m 0755 -o opencloud-agent -g opencloud-agent /srv/workspace # docker.deploy
@@ -1040,7 +1052,7 @@ test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-age
   openCloud n'envoie aucune mise à jour à l'agent.
 - **Le binaire** est copié dans `bin/` de l'état de l'agent, et le lien `current`
   désigne celui qui tourne : c'est ce qui permet à l'agent de se mettre à jour
-  seul (voir [Mettre à jour](#mettre-à-jour)). `v0.5.1` est la version du
+  seul (voir [Mettre à jour](#mettre-à-jour)). `v0.0.1` est la version du
   serveur : l'agent doit parler son protocole. Le lien n'est posé que si
   `install` a réussi, pour ne jamais viser un fichier absent. **Pas de lien
   `/usr/local/bin/opencloud`.** `/tmp/opencloud` doit être lisible par le
@@ -1057,8 +1069,8 @@ test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-age
 - **Une ligne `install -d` par dossier où un droit coché écrit**, au nom du
   compte : la racine des services (`/srv/workspace`) pour `docker.deploy` et
   `docker.update`, le dossier de `backup.receive` en `0700`, ceux de
-  `files.write`. `observe` seul, `probe.lan`, `agent.update` et `backup.produce`
-  n'en demandent aucun (le dossier de production est sous l'état de l'agent,
+  `files.write`. `observe` seul, `probe.lan`, `observe.env`, `agent.update`, `backup.produce` et
+  `restic.docker` n'en demandent aucun (le dossier de production est sous l'état de l'agent,
   créé sous le compte). Un droit dont le dossier n'appartient pas au compte est signalé
   « indisponible » sur la fiche, et l'agent refuse l'ordre en le disant
   (`path_denied`) : ne créez pas le dossier à sa place en root.
@@ -1201,7 +1213,7 @@ dédié, il ne lit pas celles des autres comptes, et ne doit pas recevoir
 **Un droit qui écrit ailleurs que dans l'état** (« Recevoir des sauvegardes »,
 « Déployer » et « Mettre à jour un service Docker ») demande un fichier de
 plus : l'unité n'écrit que dans son état (`ProtectSystem=strict`), le dossier
-du droit doit être autorisé. La page du jeton donne le fichier ; par exemple
+du droit doit être autorisé. La dernière étape de la page du jeton donne le fichier ; par exemple
 pour `/srv/backups` (le dossier est déjà créé, au compte de l'agent, par la
 préparation de l'étape 2) :
 
@@ -1283,7 +1295,7 @@ safe`) ; sur une machine neuve :
 ```sh
 # Le binaire (copié en /tmp/opencloud, étape 2) et l'état, à root
 install -d -m 0700 /var/lib/opencloud-agent /var/lib/opencloud-agent/bin
-install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1 && ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 # Les dossiers des droits, à root (les mêmes qu'à l'étape 2, sans « -o … -g … »)
 install -d -m 0755 /srv/workspace
 # L'enrôlement : la ligne de l'écran, sans « -u opencloud-agent »
@@ -1373,6 +1385,12 @@ un hôte Proxmox se lit ». La machine doit d'abord être ajoutée à openCloud
    (ou le jeton `opencloud@pve!lecture`), rôle **`PVEAuditor`**, *Propagate*
    coché. Ce rôle ne donne que `Sys.Audit`, `VM.Audit`, `Datastore.Audit` et
    leurs semblables : lire, jamais modifier.
+
+`PVEAuditor` lit les VM et les stockages, **pas les sauvegardes** : si le jeton
+ne les lit pas, l'onglet Hyperviseur le dit (« Inconnue » sur chaque VM) et
+donne les deux commandes `pveum` à coller, sur le stockage seulement.
+`docs/projet/22-fonctionnement.md`, « Lire les sauvegardes », dit ce que ce
+droit ouvre.
 
 La même chose en ligne de commande, sur l'hôte Proxmox :
 
@@ -1480,13 +1498,13 @@ systemctl restart opencloud
 # L'agent a son binaire dans son état (bin/), sur la machine openCloud comme
 # ailleurs : depuis la fiche (voir plus bas), ou à la main, sous son compte
 # (bin/ est à lui : root n'y écrit pas). Ailleurs, le binaire copié en /tmp/opencloud.
-runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1
-runuser -u opencloud-agent -- ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1
+runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 systemctl restart opencloud-agent
 ```
 
 `install` remplace le binaire pendant que le service tourne (vérifié ici) ;
-le nouveau prend effet au redémarrage. `v0.5.1` est la version installée
+le nouveau prend effet au redémarrage. `v0.0.1` est la version installée
 (`opencloud version`). Un agent gardé en root ([Garder l'agent en
 root](#garder-lagent-en-root)) : les mêmes lignes sans `runuser -u opencloud-agent --`. Sur une machine
 que l'agent met à jour seul, le binaire de `bin/` n'a pas de lien
@@ -1502,6 +1520,17 @@ vous lui donniez le droit : fiche › **Ré-enrôler**, cochez
 « Sonder le réseau local », rejouez la ligne sur la machine (la machine et son
 historique restent). Rien n'est coché à votre place.
 
+**Lire l'environnement des conteneurs (`observe.env`) est refusé par défaut.**
+Pour que la carte **Liens** d'un service montre les liens qu'une image annonce
+dans son environnement (`DB_HOST=db`), cochez sous « Avancé : droits de
+l'agent » **« Lire l'environnement des conteneurs »**, machine par machine. Sur
+une machine déjà enrôlée : fiche d'un service › carte **Liens** › **Ré-enrôler
+avec « Lire l'environnement… »** (ou fiche › **Ré-enrôler**), puis rejouez la
+ligne sur la machine. L'agent ne garde que les noms des autres conteneurs de la
+machine : ni variable ni valeur ne quitte la machine ni n'est stockée. Les
+valeurs passent par sa mémoire, comme la socket Docker qu'il a déjà. Le détail
+est dans `docs/projet/22-fonctionnement.md` (« Les liens de l'environnement »).
+
 ### Mettre à jour les agents depuis openCloud
 
 Une fois le serveur à jour, les autres machines se mettent à jour **depuis la
@@ -1510,9 +1539,9 @@ fiche**, sans y entrer. Le serveur n'envoie que **sa propre version**, signée :
 ```sh
 # Sur le serveur : télécharger la version (Télécharger, ci-dessus), la vérifier,
 # puis l'importer dans la bibliothèque de versions du serveur
-# Le dossier doit être lisible par le compte opencloud (/tmp/v0.5.1, pas /root/…)
+# Le dossier doit être lisible par le compte opencloud (/tmp/v0.6.0, pas /root/…)
 opencloud release verify opencloud-linux-amd64          # dans le dossier de la version
-runuser -u opencloud -- opencloud release import /tmp/v0.5.1
+runuser -u opencloud -- opencloud release import /tmp/v0.6.0
 ```
 
 Il faut un binaire qui embarque la clé de version (la première version
@@ -1604,24 +1633,33 @@ root qui a `sudo`. Prérequis : l'unité est celle de ce dépôt, avec son
 `ExecStart=/var/lib/opencloud-agent/bin/current agent …` (voir [Déplacer
 l'état](#déplacer-létat-de-lagent-installé-avant-le-22-octobre-2026) sinon).
 
-Le binaire à poser est celui de ce serveur : vérifiez-le (`opencloud release
-verify`, [Télécharger](#télécharger)), copiez-le sur la machine, puis :
+La fiche de la machine (onglet Agent) donne ce bloc à coller, **téléchargement
+et vérification de la somme SHA-256 du binaire compris** : rien n'est à copier
+d'avance. Elle le propose **en root, sans `sudo`** quand la machine est un hôte
+Proxmox VE (Debian sans `sudo`) ou que son agent dit que `sudo` manque ; l'autre
+variante, avec `sudo`, reste au choix. Les lignes, avec `sudo` (en root, retirez
+`sudo` et remplacez `sudo -u opencloud-agent` par `runuser -u opencloud-agent --`) :
 
 ```sh
-scp opencloud-linux-amd64 vous@machine:/tmp/opencloud          # arm64 pour une machine arm64
-# Sur la machine :
+# Sur la machine : le binaire de cette version, vérifié, dans /tmp/opencloud
+(cd "$(mktemp -d)" &&
+base=https://github.com/ldesfontaine/opencloud/releases/download/v0.6.0 &&
+arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') &&
+curl -fLO "$base/opencloud-linux-$arch" -fLO "$base/SHA256SUMS" &&
+sha256sum -c --ignore-missing SHA256SUMS &&
+install -m 0755 "opencloud-linux-$arch" /tmp/opencloud)
 sudo systemctl stop opencloud-agent.service
 sudo install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
 sudo install -m 0755 -o root -g root /tmp/opencloud /usr/local/lib/opencloud-agent/opencloud-guard
-sudo -u opencloud-agent install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1
-sudo -u opencloud-agent ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+sudo -u opencloud-agent install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1
+sudo -u opencloud-agent ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 sudo sed -i 's|^ExecStart=/var/lib/opencloud-agent/bin/current |ExecStart=/usr/local/lib/opencloud-agent/opencloud-guard guard -state /var/lib/opencloud-agent |' /etc/systemd/system/opencloud-agent.service
 systemctl cat opencloud-agent.service | grep '^ExecStart='
 sudo systemctl daemon-reload
 sudo systemctl start opencloud-agent.service
 ```
 
-(`v0.5.1` : le numéro que `opencloud version` affiche pour ce binaire.) La
+(`v0.0.1` : le numéro que `opencloud version` affiche pour ce binaire.) La
 ligne `sed` garde les options de l'agent (`-ca-file`, `-allow-plain`…) ; la
 rejouer ne change rien. N'ajoutez **pas** de lien `bin/previous` à la main : il
 naît à la première mise à jour.
@@ -1739,7 +1777,7 @@ deux cas, ne gardez pas l'ancien état : ré-enrôlez la machine. L'agent le
 refuserait de toute façon (`identity.json` d'un autre compte : `state dir is
 not safe`).
 
-Puis le binaire de l'agent, `v0.5.1` étant ce que `opencloud version` affiche.
+Puis le binaire de l'agent, `v0.0.1` étant ce que `opencloud version` affiche.
 Les liens de `bin/` sont relatifs : ils ont suivi le déplacement.
 
 - **Une autre machine, dont l'agent lançait déjà `…/bin/current`** : le lien
@@ -1754,8 +1792,8 @@ Les liens de `bin/` sont relatifs : ils ont suivi le déplacement.
   de `bin/`) :
 
   ```sh
-  install -D -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1
-  ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+  install -D -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1
+  ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
   ln -sfn /var/lib/opencloud-agent/bin/current /usr/local/bin/opencloud
   ```
 
@@ -1763,8 +1801,8 @@ Les liens de `bin/` sont relatifs : ils ont suivi le déplacement.
   `/usr/local/bin/opencloud` (c'est le binaire du serveur), et plus de drop-in.
 
   ```sh
-  install -D -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.5.1
-  ln -sfn opencloud-v0.5.1 /var/lib/opencloud-agent/bin/current
+  install -D -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1
+  ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
   rm /etc/systemd/system/opencloud-agent.service.d/machine-opencloud.conf
   ```
 
@@ -1774,7 +1812,7 @@ d'abord (une copie du binaire, à root), sans quoi l'unité ne démarre pas :
 
 ```sh
 install -d -m 0755 -o root -g root /usr/local/lib/opencloud-agent
-install -m 0755 -o root -g root /var/lib/opencloud-agent/bin/opencloud-v0.5.1 /usr/local/lib/opencloud-agent/opencloud-guard
+install -m 0755 -o root -g root /var/lib/opencloud-agent/bin/opencloud-v0.0.1 /usr/local/lib/opencloud-agent/opencloud-guard
 install -m 0644 docs/installation/opencloud-agent.service /etc/systemd/system/opencloud-agent.service
 # Les options notées au début (-allow-plain, -ca-file, -docker-socket), en fin de ligne, par exemple :
 sed -i 's|^ExecStart=.*|& -ca-file /etc/ssl/ca-interne.pem|' /etc/systemd/system/opencloud-agent.service
@@ -1901,7 +1939,7 @@ mêmes `chown -h`, à `root:root`, puis `userdel opencloud-agent`.
 
 ## Sauvegarder et restaurer
 
-**La sauvegarde intégrée.** Administration → **Sauvegardes** envoie chaque
+**La sauvegarde intégrée.** **Sauvegardes** envoie chaque
 nuit (après 3 h, heure du serveur) un instantané chiffré de la base, avec
 `secret.key` et `server.key`, à l'agent d'une **autre machine**. openCloud n'en
 garde aucune copie. Trois gestes, dans l'ordre :
@@ -1942,8 +1980,8 @@ déploiement.
 
 | Où | Quoi | Perte |
 | --- | --- | --- |
-| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), jetons d'API et authentification, et le journal d'audit (Administration → Journal : qui a fait quoi, un an), que les canaux « Recevoir le journal » (Alertes › Canaux) reçoivent aussi : cochez-en un, une base effacée n'efface plus la trace. `opencloud auth disable` et `opencloud secrets forget` s'y inscrivent sous le compte qui les lance |
-| Serveur, `state_dir` | `secret.key` | La clé des secrets de la base : sans elle, la base garde ses données mais perd le mot de passe du relais, l'URL et le secret des canaux, les URL de ping, les jetons des hôtes Proxmox (voir [Clé perdue](#clé-perdue)) |
+| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), jetons d'API et authentification, et le journal d'audit (Journal : qui a fait quoi, un an), que les canaux « Recevoir le journal » (Paramètres → Notifications → Canaux) reçoivent aussi : cochez-en un, une base effacée n'efface plus la trace. `opencloud auth disable` et `opencloud secrets forget` s'y inscrivent sous le compte qui les lance |
+| Serveur, `state_dir` | `secret.key` | La clé des secrets de la base : sans elle, la base garde ses données mais perd le mot de passe du relais, l'URL et le secret des canaux, les URL de ping, les jetons des hôtes Proxmox, les mots de passe des dépôts restic (voir [Clé perdue](#clé-perdue)) |
 | Serveur, `state_dir` | `server.key` | La clé qui signe les ordres aux agents, tirée au premier démarrage : chaque agent a épinglé sa moitié publique. Sans elle, `serve` en tire une neuve et **chaque agent refuse les ordres** (`bad_signature`) jusqu'à son ré-enrôlement ; l'observation continue. Qui l'a commande toutes les machines : même soin que `secret.key` |
 | Serveur | `/etc/opencloud/config.toml` | La configuration |
 | Chaque machine | `/var/lib/opencloud-agent/identity.json` | Sa clé : il faudra ré-enrôler |
@@ -2252,6 +2290,7 @@ Elle écrit une clé neuve et **efface ce que l'ancienne chiffrait** :
 | L'URL et le secret des canaux d'alerte (webhook, Matrix) | Les canaux sont **désactivés** et vidés : ressaisir l'URL et le secret de chacun, puis le réactiver. Un canal e-mail reste actif mais n'envoie rien tant que le mot de passe du relais n'est pas ressaisi |
 | Le jeton de chaque tâche | Chaque tâche reçoit un **nouveau jeton** : l'ancienne URL de ping ne répond plus, remplacez-la dans les crons |
 | Le secret du jeton de chaque hôte Proxmox | Il est **vidé** : l'hôte reste déclaré et garde son dernier relevé, mais ne se relit plus (« Proxmox refuse le jeton »). Redéclarez-le avec le même jeton, ou un neuf : Machines → la machine → Hyperviseur → **Modifier** |
+| Les mots de passe des dépôts restic | Ils sont **vidés** en base, liens retirés compris. Chaque source garde les siens et sauvegarde encore ; la cible ne purge plus ces dépôts (« mots de passe perdus avec la clé »), et un lien retiré puis redéclaré ne rouvre plus son ancien dépôt |
 
 Tout le reste de la base reste. La commande affiche le nombre de canaux
 désactivés, de jetons renouvelés et de jetons Proxmox effacés. Elle **garde l'ancienne clé** sous
@@ -2378,7 +2417,7 @@ jour](#mettre-à-jour)).
 
 ### 3. Le plan
 
-Administration → **Sauvegardes** → Plans → **Ajouter un plan** :
+**Sauvegardes** → Plans → **Ajouter un plan** :
 
 | Champ | Valeur |
 | --- | --- |
@@ -2503,7 +2542,7 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | `secrets finish-server-key` : « ces machines ont encore la clé précédente » | Leur agent ne s'est pas reconnecté depuis la rotation | Attendre leur connexion (redémarrer l'agent au besoin), ou `-force` et les ré-enrôler |
 | Agent : `tls: failed to verify certificate` | Certificat auto-signé sans `-pin` | `-pin`, ou un certificat reconnu |
 | « L'agent n'a pas le droit de lire la socket Docker de cette machine. » (`docker_denied`) | Le compte de l'agent n'est pas dans le groupe `docker`, ou y a été mis après le démarrage de l'agent : un groupe se lit au démarrage du processus | `usermod -aG docker opencloud-agent` puis `systemctl restart opencloud-agent`. Le groupe `docker` équivaut à root ([ce que cela donne](#le-groupe-docker-équivaut-à-root)) ; sinon, [garder l'agent en root](#garder-lagent-en-root) |
-| Agent : `WARN rights not exercisable` au journal, un droit « indisponible » sur la fiche de la machine, un ordre « Refusé » avec la même raison | Un droit coché que le compte de l'agent ne peut pas exercer : `docker_denied` (socket fermée au compte, ligne ci-dessus), `docker_missing` (pas de Docker, ou pas de `/usr/bin/docker`), `path_denied` (le dossier du droit, ou celui qui le contient, n'appartient pas au compte : la préparation ne l'a pas créé, ou une machine passée sous le compte n'a pas eu son `chown`), `path_unwritable` (l'unité ne l'ouvre pas : `ReadWritePaths=`), `not_self_updatable` (`bin/` n'appartient pas au compte) ; pour `backup.produce`, `sudo_missing` (pas de `sudo`), `producer_missing` (le script de root, ou `/usr/bin/vzdump`, manque) et `sudo_denied` (la règle `sudoers` manque, ou l'unité n'a pas son drop-in `produce.conf`) | `path_denied` : `chown -h opencloud-agent:opencloud-agent <dossier>` ([Passer un agent installé en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte) dit lesquels), puis `systemctl restart opencloud-agent` ; `path_unwritable` : le drop-in `droits.conf` ; `not_self_updatable` : `chown -hR opencloud-agent:opencloud-agent /var/lib/opencloud-agent` ; `sudo_missing` : `apt install sudo` ; `producer_missing` et `sudo_denied` : rejouer la préparation de la page du jeton (les six lignes de [`backup.produce` équivaut à root](#backupproduce-équivaut-à-root)), puis `systemctl restart opencloud-agent`, car le drop-in ne se lit qu'au démarrage de l'unité |
+| Agent : `WARN rights not exercisable` au journal, un droit « indisponible » sur la fiche de la machine, un ordre « Refusé » avec la même raison | Un droit coché que le compte de l'agent ne peut pas exercer : `docker_denied` (socket fermée au compte, ligne ci-dessus), `docker_missing` (pas de Docker, ou pas de `/usr/bin/docker`), `path_denied` (le dossier du droit, ou celui qui le contient, n'appartient pas au compte : la préparation ne l'a pas créé, ou une machine passée sous le compte n'a pas eu son `chown`), `path_unwritable` (l'unité ne l'ouvre pas : `ReadWritePaths=`), `not_self_updatable` (`bin/` n'appartient pas au compte) ; pour `backup.produce`, `sudo_missing` (pas de `sudo`), `producer_missing` (le script de root, ou `/usr/bin/vzdump`, manque) et `sudo_denied` (la règle `sudoers` manque, ou l'unité n'a pas son drop-in `produce.conf`) ; pour `restic.docker`, `docker_denied`, `docker_missing` (socket Docker et binaire `docker`) et `restic_missing` ; pour `restic.target`, `restic.produce`, `restic.verify`, `restic.browse` et `restic.restore`, `rest_server_missing` (la cible seule) et `restic_missing` (le binaire n'est ni dans le PATH de l'agent ni au chemin déclaré par `-rest-server` ou `-restic` : l'agent ne télécharge rien) | `path_denied` : `chown -h opencloud-agent:opencloud-agent <dossier>` ([Passer un agent installé en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte) dit lesquels), puis `systemctl restart opencloud-agent` ; `path_unwritable` : le drop-in `droits.conf` ; `not_self_updatable` : `chown -hR opencloud-agent:opencloud-agent /var/lib/opencloud-agent` ; `sudo_missing` : `apt install sudo` ; `producer_missing` et `sudo_denied` : rejouer la préparation de la page du jeton (les six lignes de [`backup.produce` équivaut à root](#backupproduce-équivaut-à-root)), puis `systemctl restart opencloud-agent`, car le drop-in ne se lit qu'au démarrage de l'unité ; `rest_server_missing`, `restic_missing` : installer le binaire (paquet de la distribution ou version publiée, somme vérifiée par l'opérateur), puis `systemctl restart opencloud-agent` |
 | Un plan de VM : « La VM 5012 n'a pas été sauvegardée : Le producteur de sauvegarde a échoué… » (`backup.target_failed:5012:producer_failed`) | `vzdump` a échoué sur la VM, ou n'a rien écrit. La carte du plan ne montre **pas** sa sortie d'erreur : seule une raison fermée y figure | Fiche de la **machine source** (l'hôte) › Ordres › l'ordre « Produire une sauvegarde » en échec : les dernières lignes de la sortie d'erreur de `vzdump` y sont (VM verrouillée, stockage, numéro inconnu…). Rien n'a été envoyé |
 | Même plan : `upload_failed` | L'archive n'est pas arrivée sur la machine openCloud. Le plus courant : Traefik coupe un envoi plus long que son `readTimeout` (60 s par défaut en v3). Sinon la ligne `upload:` de l'ordre donne le code du serveur (`parcel_too_large`, `disk_full`) | [Régler le `readTimeout` de l'entrée](#les-envois-darchives), puis relancer ; pour `disk_full` côté serveur, libérer le disque de `state_dir` (1 Gio libre de plus que l'archive) |
 | Même plan : `disk_full` | L'**hôte** a moins de 1 Gio libre sous `/var/lib/opencloud-agent`, ou n'a pas la place pour l'archive : `produce/` en garde deux copies (le flux de `vzdump` et l'archive chiffrée) | Libérer le disque de l'état de l'agent ([l'espace disque](#lespace-disque-le-temps)), puis relancer |

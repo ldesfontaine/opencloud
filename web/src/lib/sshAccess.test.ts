@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { SSHAccount, SSHKey, SSHReport } from "../api/sshkeys";
-import { buildKeyAccess, buildMachineAccess, filterKeys, isComplete, summarizeAccess } from "./sshAccess";
+import { buildKeyAccess, buildMachineAccess, filterKeys, isComplete, needsGesture, summarizeAccess } from "./sshAccess";
 
 const fpA = "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8";
 const fpB = "SHA256:Qa1b2c3d4e5f6g7h8i9j0KLMNOPQRSTUVWXYZabcdef";
@@ -90,12 +90,18 @@ test("une machine pas relevée, tronquée ou en partie illisible n'est pas lue e
   expect(isComplete(report("a", [account("u", [], { truncated: true })]))).toBe(false);
 });
 
-test("le résumé compte les clés, root, faibles, uniques et les machines mal lues", () => {
+test("un compte illisible est normal (en partie), un fichier non sûr demande un geste", () => {
+  expect(needsGesture(report("a", [account("u", [], { state: "denied" })]))).toBe(false);
+  expect(needsGesture(report("a", [account("u", [], { state: "unsafe" })]))).toBe(true);
+  expect(needsGesture(report("a", [account("u", [], { state: "too_large" })]))).toBe(true);
+});
+
+test("le résumé compte les clés, root, faibles, uniques, les machines lues en partie et celles à corriger", () => {
   const reports = [
     report("a", [root([key(fpA)]), account("u", [key(fpB, "", { type: "ssh-rsa", bits: 2048 }), key(fpC)])]),
     report("b", [account("u", [key(fpC)])]),
     report("c", [], { reported_at: null }),
   ];
 
-  expect(summarizeAccess(buildKeyAccess(reports), reports)).toEqual({ keys: 3, privileged: 1, weak: 1, single: 2, incomplete: 1 });
+  expect(summarizeAccess(buildKeyAccess(reports), reports)).toEqual({ keys: 3, privileged: 1, weak: 1, single: 2, incomplete: 0, partial: 1 });
 });

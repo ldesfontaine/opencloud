@@ -1,9 +1,11 @@
-import type { Capability, DeclaredService, Nature, Origin, Project, ProposalResponse, ServiceLinks, ServiceRequest, ServiceUnit, UpdatePolicy } from "../api/directory";
+import type { Capability, Category, DeclaredService, Nature, Origin, Project, ProposalResponse, ServiceBindings, ServiceRequest, ServiceUnit, UpdatePolicy } from "../api/directory";
 import type { Translate } from "../i18n/context";
 
 // Les listes fermées du serveur, dans l'ordre des formulaires. Un test Go
 // vérifie que chaque valeur a son libellé dans les deux langues.
 export const natures: readonly Nature[] = ["application", "infra"];
+// Dans l'ordre du menu : « Application » ne vient qu'en dernier, quand rien ne dit mieux.
+export const categories: readonly Category[] = ["web", "sso", "database", "security", "monitoring", "application"];
 export const origins: readonly Origin[] = ["compose", "container", "binary"];
 export const capabilities: readonly Capability[] = ["sso", "proxy", "tls", "backup-target"];
 export const updatePolicies: readonly UpdatePolicy[] = ["watch", "hold", "ignore"];
@@ -31,6 +33,8 @@ export interface ServiceFormValues {
   name: string;
   title: string;
   nature: Nature;
+  // Vide : le type se déduit de l'image.
+  category: Category | "";
   origin: Origin;
   composeProject: string;
   publicURL: string;
@@ -52,6 +56,7 @@ export function emptyServiceForm(): ServiceFormValues {
     name: "",
     title: "",
     nature: "application",
+    category: "",
     origin: "compose",
     composeProject: "",
     publicURL: "",
@@ -83,6 +88,7 @@ export function serviceFormOf(service: DeclaredService): ServiceFormValues {
     name: service.name,
     title: service.title,
     nature: service.nature,
+    category: service.category,
     origin: service.origin,
     composeProject: service.compose_project,
     publicURL: service.public_url,
@@ -92,16 +98,16 @@ export function serviceFormOf(service: DeclaredService): ServiceFormValues {
   };
 }
 
-// Le formulaire part de ce que le serveur propose pour « Adopter » : la
+// Le formulaire part de ce que le serveur propose pour un conteneur : la
 // forme du corps de la création, que le formulaire reprend sans la
-// reconstruire. Les unités gardées d'un service déjà déclaré y portent leur
-// identifiant, les ajoutées n'en ont pas.
+// reconstruire.
 export function serviceFormOfDefinition(definition: ProposalResponse["definition"]): ServiceFormValues {
   return {
     machineID: definition.machine_id,
     name: definition.name,
     title: definition.title,
     nature: definition.nature,
+    category: definition.category,
     origin: definition.origin,
     composeProject: definition.compose_project,
     publicURL: definition.public_url,
@@ -116,7 +122,7 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
       systemdUnit: unit.systemd_unit,
       ports: formatUnitPorts(unit.ports),
       dataPath: unit.data_path,
-      // Une unité ajoutée par la proposition n'en porte pas : elle se suit.
+      // Une unité proposée n'en porte pas : elle se suit.
       updatePolicy: unit.update_policy ?? "watch",
     })),
     projectIDs: [...definition.project_ids],
@@ -124,43 +130,19 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
 }
 
 // « Accepter » écrit la proposition telle quelle, sans la repasser par le
-// formulaire : une création quand elle déclare un service neuf, la
-// modification de ce service quand son projet Compose est déjà déclaré (l'id
-// qu'elle porte). Le corps est celui que l'assistant enverrait sans y toucher.
-export function acceptanceOf(proposal: ProposalResponse): { id: string | undefined; body: ServiceRequest } {
-  return {
-    id: proposal.service_id === "" ? undefined : proposal.service_id,
-    body: serviceRequestOf(serviceFormOfDefinition(proposal.definition)),
-  };
+// formulaire : le corps est celui que l'assistant enverrait sans y toucher.
+export function acceptanceOf(proposal: ProposalResponse): ServiceRequest {
+  return serviceRequestOf(serviceFormOfDefinition(proposal.definition));
 }
 
 // Les valeurs dont part le formulaire d'un service, ou null tant qu'il faut
-// attendre. En édition : le service tel qu'il est gardé, ou la proposition
-// d'adoption quand elle le vise (elle y ajoute les unités qui manquent), une
-// fois la proposition arrivée ou refusée. En création : la proposition, si
-// elle déclare un service neuf ; une proposition qui vise un service déjà
-// déclaré redirige vers son édition, la page s'en charge.
-export function serviceFormStart(
-  editedID: string | undefined,
-  service: DeclaredService | null,
-  proposal: ProposalResponse | null,
-  awaitingProposal: boolean,
-): ServiceFormValues | null {
-  if (editedID !== undefined) {
-    if (service === null || awaitingProposal) {
-      return null;
-    }
-    // Une proposition pour un autre service n'est pas la nôtre : le service
-    // tel qu'il est gardé fait foi.
-    if (proposal !== null && proposal.service_id === editedID) {
-      return serviceFormOfDefinition(proposal.definition);
-    }
+// attendre. En édition : le service tel qu'il est gardé. En création : la
+// proposition pour le conteneur choisi, si elle est arrivée.
+export function serviceFormStart(service: DeclaredService | null, proposal: ProposalResponse | null): ServiceFormValues | null {
+  if (service !== null) {
     return serviceFormOf(service);
   }
-  if (proposal === null || proposal.service_id !== "") {
-    return null;
-  }
-  return serviceFormOfDefinition(proposal.definition);
+  return proposal === null ? null : serviceFormOfDefinition(proposal.definition);
 }
 
 export function parsePorts(text: string): string[] {
@@ -190,6 +172,7 @@ export function serviceRequestOf(values: ServiceFormValues): ServiceRequest {
     name: values.name,
     title: values.title,
     nature: values.nature,
+    category: values.category,
     origin: values.origin,
     compose_project: isCompose ? values.composeProject : "",
     public_url: values.publicURL,
@@ -233,9 +216,11 @@ export function unitSummary(unit: UnitFormValues, origin: Origin): string {
 
 // Les réglages techniques d'une unité (version, ports, dossier de données,
 // empreinte, politique) sont-ils remplis ? Le pli « Avancé » s'ouvre alors :
-// ce qu'une proposition a rempli ne reste pas caché.
-export function hasAdvancedUnitValues(unit: UnitFormValues): boolean {
-  return [unit.version, unit.ports, unit.dataPath, unit.digest].some((value) => value.trim() !== "") || unit.updatePolicy !== "watch";
+// ce qu'une proposition a rempli ne reste pas caché. Le port d'un binaire n'y
+// est pas : il se demande à côté de l'unité.
+export function hasAdvancedUnitValues(unit: UnitFormValues, origin: Origin): boolean {
+  const ports = origin === "binary" ? "" : unit.ports;
+  return [unit.version, ports, unit.dataPath, unit.digest].some((value) => value.trim() !== "") || unit.updatePolicy !== "watch";
 }
 
 export function toggled<Value>(values: readonly Value[], value: Value): Value[] {
@@ -249,6 +234,6 @@ export function directorySubtitle(t: Translate, count: number): string {
   return count === 1 ? t("directory.subtitle_one") : t("directory.subtitle", count);
 }
 
-export function hasLinks(links: ServiceLinks): boolean {
+export function hasBindings(links: ServiceBindings): boolean {
   return links.probes.length > 0 || links.components.length > 0;
 }

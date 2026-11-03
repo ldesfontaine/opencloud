@@ -57,6 +57,12 @@ const (
 	KindProxmoxShutdown       Kind = "proxmox.vm.shutdown"
 	KindProxmoxSnapshot       Kind = "proxmox.vm.snapshot"
 	KindProxmoxSnapshotDelete Kind = "proxmox.vm.snapshot_delete"
+	// Une requête de restic relayée par le serveur à l'agent de la cible
+	// (ResticRelayRequest) : non signée, comme une observation, parce que la
+	// cible la rejuge (restic.Allow) et que rest-server, en écriture seule,
+	// décide en dernier. Elle ne passe que chez un agent qui porte
+	// restic.target.
+	KindResticRelay Kind = "restic_relay"
 )
 
 // ServerKeyParams sont les paramètres de agent.server_key : la clé publique
@@ -68,7 +74,8 @@ type ServerKeyParams struct {
 // OrderKinds rend les genres d'ordres, signés et journalisés.
 func OrderKinds() []Kind {
 	return []Kind{KindAgentPing, KindAgentUpdate, KindAgentRollback, KindServerKey, KindBackupReceive, KindBackupPrune, KindBackupProduce, KindDockerDeploy, KindDockerUpdate,
-		KindProxmoxStart, KindProxmoxShutdown, KindProxmoxSnapshot, KindProxmoxSnapshotDelete}
+		KindProxmoxStart, KindProxmoxShutdown, KindProxmoxSnapshot, KindProxmoxSnapshotDelete,
+		KindResticTargetSetup, KindResticUserAdd, KindResticUserRemove, KindResticProvision, KindResticBackup, KindResticRetain, KindResticVerify, KindResticBrowse, KindResticRestore}
 }
 
 func (k Kind) IsOrder() bool {
@@ -86,6 +93,7 @@ type Command struct {
 	Probes *probe.Assignment
 	Images *update.Assignment
 	Order  *SignedOrder
+	Relay  *ResticRelayRequest
 }
 
 func LogsCommand(request container.LogRequest) Command {
@@ -102,6 +110,11 @@ func ProbesCommand(assignment probe.Assignment) Command {
 
 func ImagesCommand(assignment update.Assignment) Command {
 	return Command{Kind: KindImages, Images: &assignment}
+}
+
+// ResticRelayCommand porte une requête relayée à l'agent de la cible.
+func ResticRelayCommand(request ResticRelayRequest) Command {
+	return Command{Kind: KindResticRelay, Relay: &request}
 }
 
 // OrderCommand porte un ordre signé ; son genre est celui du corps signé.
@@ -139,6 +152,15 @@ func (c Command) Encode() (event string, data []byte, err error) {
 		if c.Images == nil {
 			return "", nil, fmt.Errorf("%s: %w", c.Kind, ErrEmptyCommand)
 		}
+	case c.Kind == KindResticRelay:
+		content = c.Relay
+		if c.Relay == nil {
+			return "", nil, fmt.Errorf("%s: %w", c.Kind, ErrEmptyCommand)
+		}
+		// Le serveur ne pousse pas ce que l'agent jetterait.
+		if err := c.Relay.Validate(); err != nil {
+			return "", nil, fmt.Errorf("%s: %w", c.Kind, err)
+		}
 	default:
 		return "", nil, fmt.Errorf("%q: %w", c.Kind, ErrUnknownCommand)
 	}
@@ -162,6 +184,13 @@ func DecodeObservation(event string, data []byte) (Command, error) {
 	case KindImages:
 		command.Images = &update.Assignment{}
 		err = json.Unmarshal(data, command.Images)
+	case KindResticRelay:
+		command.Relay = &ResticRelayRequest{}
+		err = json.Unmarshal(data, command.Relay)
+		// Les bornes se rejugent à l'arrivée : l'agent ne relaie rien d'hors forme.
+		if err == nil {
+			err = command.Relay.Validate()
+		}
 	default:
 		return Command{}, fmt.Errorf("%q: %w", event, ErrUnknownCommand)
 	}

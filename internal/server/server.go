@@ -25,16 +25,19 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
+	"github.com/ldesfontaine/opencloud/internal/policy"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/reader"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/restic"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server/agentapi"
 	pingapi "github.com/ldesfontaine/opencloud/internal/server/ping" // ping : l'aide des tests du même nom
@@ -42,6 +45,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/web"
 )
@@ -159,6 +163,28 @@ type DirectoryService interface {
 	Ignore(ctx context.Context, key directory.IgnoredKey) error
 	Unignore(ctx context.Context, key directory.IgnoredKey) error
 	ContainerLink(ctx context.Context, item container.Container) (directory.ContainerLink, error)
+	// Les unités systemd relevées : celles d'une machine avec le service
+	// déclaré qui les porte, l'état des unités binaires déclarées, et la
+	// proposition pour une unité non déclarée.
+	MachineUnits(ctx context.Context, machineID string) (systemdunits.Snapshot, []directory.MachineUnit, error)
+	ObservedUnits(ctx context.Context, services []directory.Service) (map[string]directory.UnitObservation, error)
+	ProposeUnit(ctx context.Context, machineID, unitName string) (directory.Proposal, error)
+	// Les liens des instances d'un service, et ceux que l'opérateur écrit ou
+	// retire. Un lien tiré d'une configuration d'outil ne se retire pas.
+	ServiceLinks(ctx context.Context, serviceID string) ([]directory.ServiceLink, error)
+	RunsInContainers(ctx context.Context, serviceID string) (machineID string, runs bool, err error)
+	DeclareLink(ctx context.Context, definition directory.LinkDefinition) (link.Link, error)
+	RemoveLink(ctx context.Context, id string) error
+	ConfirmLink(ctx context.Context, id string) error
+	DismissLink(ctx context.Context, id string) error
+	RestoreLink(ctx context.Context, id string) error
+}
+
+// Ce que le serveur attend du composant link : la lecture des liens stockés,
+// pour la carte Réseau de la vue d'ensemble. L'écriture passe par l'annuaire,
+// qui sait nommer les extrémités.
+type LinkService interface {
+	List(ctx context.Context, machineID string) ([]link.Link, error)
 }
 
 // Ce que le serveur attend du composant manifest : le fichier de l'annuaire,
@@ -288,14 +314,28 @@ type SSHKeysService interface {
 	Matrix(ctx context.Context) ([]sshkeys.Snapshot, error)
 }
 
+// Ce que le serveur attend du composant systemdunits : le relevé d'une machine
+// et celui de toutes, pour l'état des unités déclarées. Le signal de l'agent
+// l'écrit (agentapi).
+type SystemdUnitsService interface {
+	Record(ctx context.Context, machineID string, report systemdunits.Report) error
+	Machine(ctx context.Context, machineID string) (systemdunits.Snapshot, error)
+	All(ctx context.Context) ([]systemdunits.Snapshot, error)
+}
+
 // Ce que le serveur attend du composant proxmox : déclarer et retirer l'hôte
 // d'une machine. Ce que la fiche lit passe par le Reader.
 type ProxmoxService interface {
 	Declare(ctx context.Context, machineID string, definition proxmox.Definition) error
 	Remove(ctx context.Context, machineID string) error
+	// Refresh relit l'hôte tout de suite ; un refus de l'hôte se garde sur sa fiche.
+	Refresh(ctx context.Context, machineID string) error
 	// Act envoie à l'agent de l'hôte le geste sur un invité (démarrer, arrêter,
 	// instantané) et rend l'ordre écrit.
 	Act(ctx context.Context, machineID string, vmid int, verb proxmox.Verb, snapshot string) (action.Run, error)
+	// Networks rend les cartes réseau des invités du dernier relevé d'un hôte,
+	// par numéro d'invité : la carte du réseau en tire les zones.
+	Networks(machineID string) map[int][]proxmox.NIC
 }
 
 // Ce que le serveur attend du composant firewall : déclarer, redéclarer et
@@ -304,6 +344,8 @@ type FirewallService interface {
 	Declare(ctx context.Context, definition firewall.Definition) (string, error)
 	Redeclare(ctx context.Context, id string, definition firewall.Definition) error
 	Remove(ctx context.Context, id string) error
+	// Policy traduit la fiche vers le modèle des échanges (internal/policy).
+	Policy(view firewall.View) (policy.Model, error)
 }
 
 // Ce que le serveur attend du composant backup : les gestes de la page
@@ -316,9 +358,24 @@ type Backups interface {
 	SavePlan(ctx context.Context, definition backup.PlanDefinition) (backup.Plan, error)
 	DeletePlan(ctx context.Context, subject string) error
 	RunNow(ctx context.Context, subject string) (action.Run, error)
-	// Inventory et Runs sont des lectures : l'inventaire calculé et l'historique.
-	Inventory(ctx context.Context) (backup.Inventory, error)
+	// Runs est une lecture : l'historique des exécutions.
 	Runs(ctx context.Context, query backup.RunQuery) ([]backup.RunRecord, error)
+}
+
+// Ce que le serveur attend du composant restic : l'aperçu de la page
+// Sauvegardes, les cibles et les sauvegardes restic. Le relais et le signal
+// passent par agentapi.
+type ResticService interface {
+	Overview(ctx context.Context) (restic.Overview, error)
+	SetupTarget(ctx context.Context, machineID string, setup restic.TargetSetup) (restic.TargetRecord, error)
+	RemoveTarget(ctx context.Context, machineID string) error
+	CreateBackup(ctx context.Context, definition restic.Definition) (restic.Backup, error)
+	UpdateBackup(ctx context.Context, sourceID, id, name string, retention restic.Retention, confirmName string) (restic.Backup, error)
+	DeleteBackup(ctx context.Context, sourceID, id string) error
+	RunNow(ctx context.Context, sourceID, id string) (action.Run, error)
+	VerifyNow(ctx context.Context, sourceID, id string) (action.Run, error)
+	Browse(ctx context.Context, sourceID, id string, request restic.BrowseRequest) (agentwire.ResticBrowseReport, error)
+	Restore(ctx context.Context, sourceID, id string, request restic.RestoreRequest) (action.Run, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.
@@ -355,9 +412,12 @@ type Server struct {
 	auth         AuthService
 	actions      ActionService
 	sshKeys      SSHKeysService
+	systemd      SystemdUnitsService
+	links        LinkService
 	proxmox      ProxmoxService
 	firewalls    FirewallService
 	backups      Backups
+	restic       ResticService
 	deploy       Deployer
 	live         Live
 	logStreams   atomic.Int32
@@ -428,6 +488,12 @@ type Options struct {
 	Actions ActionService
 	// SSHKeys garde le relevé des clés SSH autorisées ; voir api_sshkeys.go.
 	SSHKeys SSHKeysService
+	// Systemd garde le relevé des unités systemd ; voir api_systemd.go.
+	Systemd SystemdUnitsService
+	// HostConnections garde qui joint les ports de l'hôte ; le signal l'écrit.
+	HostConnections agentapi.HostConnectionsService
+	// Links garde les liens entre instances ; voir api_links.go.
+	Links LinkService
 	// Roles garde ce que l'agent reconnaît sur sa machine ; le signal l'écrit.
 	Roles agentapi.RolesService
 	// Host garde où tourne la machine et ses disques ; le signal l'écrit.
@@ -438,6 +504,13 @@ type Options struct {
 	Firewalls FirewallService
 	// Backups pilote la page Sauvegardes ; voir api_backups.go.
 	Backups Backups
+	// Restic rend l'aperçu de la page Sauvegardes et ses gestes restic ; voir
+	// api_restic.go. ResticAgent écrit la section restic du signal et les
+	// résultats des sauvegardes ; ResticRelay est le relais des sources qui ne
+	// joignent pas leur cible.
+	Restic      ResticService
+	ResticAgent agentapi.ResticService
+	ResticRelay agentapi.RelayBroker
 	// Deploy déploie les services déclarés ; voir api_deploy.go.
 	Deploy Deployer
 	Live   Live
@@ -499,9 +572,12 @@ func New(opts Options) (*Server, error) {
 		auth:           opts.Auth,
 		actions:        opts.Actions,
 		sshKeys:        opts.SSHKeys,
+		systemd:        opts.Systemd,
+		links:          opts.Links,
 		proxmox:        opts.Proxmox,
 		firewalls:      opts.Firewalls,
 		backups:        opts.Backups,
+		restic:         opts.Restic,
 		deploy:         opts.Deploy,
 		live:           opts.Live,
 		authLimit:      ratelimit.NewBySource(authAttemptRate, authAttemptBurst, authIdle),
@@ -522,18 +598,22 @@ func New(opts Options) (*Server, error) {
 		server.verbDenyLimit.SetClock(opts.Clock)
 	}
 	server.agent = agentapi.New(agentapi.Options{
-		Logger:        opts.Logger,
-		Machines:      opts.Machines,
-		Resources:     opts.Resources,
-		Containers:    opts.Containers,
-		Probes:        opts.Probes,
-		Updates:       opts.Updates,
-		Actions:       opts.Actions,
-		SSHKeys:       opts.SSHKeys,
-		Roles:         opts.Roles,
-		Host:          opts.Host,
-		ClientAddress: server.clientAddress,
-		Clock:         opts.Clock,
+		Logger:          opts.Logger,
+		Machines:        opts.Machines,
+		Resources:       opts.Resources,
+		Containers:      opts.Containers,
+		Probes:          opts.Probes,
+		Updates:         opts.Updates,
+		Actions:         opts.Actions,
+		SSHKeys:         opts.SSHKeys,
+		Systemd:         opts.Systemd,
+		HostConnections: opts.HostConnections,
+		Roles:           opts.Roles,
+		Host:            opts.Host,
+		Restic:          opts.ResticAgent,
+		Relay:           opts.ResticRelay,
+		ClientAddress:   server.clientAddress,
+		Clock:           opts.Clock,
 	})
 	server.pings = pingapi.New(pingapi.Options{
 		Logger:        opts.Logger,

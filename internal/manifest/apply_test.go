@@ -817,5 +817,5 @@ probes:
 `)
 	b.requireRefused(t, data, true, manifest.KeyKeyFromPruned)
 	// Sans --prune, c'est le conflit que la base refuserait à l'écriture.
-	b.requireRefused(t, data, false, "directory.compose_project_taken")
+	b.requireRefused(t, data, false, "directory.compose_service_taken")
 }

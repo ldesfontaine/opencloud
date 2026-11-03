@@ -127,6 +127,16 @@
     box-shadow: var(--shadow-1);
   }
 
+  // Le point d'un module sans objet : à configurer. Même trait que le
+  // compteur, sans chiffre.
+  .to-configure {
+    margin-left: auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
   .count {
     margin-left: auto;
     font-family: var(--mono);

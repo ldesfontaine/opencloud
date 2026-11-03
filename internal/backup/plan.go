@@ -27,6 +27,11 @@ func (d *PlanDefinition) Complete() {
 		d.Keep = DefaultKeep
 	}
 	d.Name = strings.TrimSpace(d.Name)
+	// L'export d'un pare-feu part de la machine openCloud : le formulaire
+	// n'a pas à la nommer.
+	if d.SourceKind == SourceAgent && d.Producer == ProducerOPNsense && d.SourceMachineID == "" {
+		d.SourceMachineID = machine.LocalID
+	}
 }
 
 // Validate rend le premier refus d'un plan, sans rien lire de la base : la
@@ -63,6 +68,9 @@ func (d PlanDefinition) validateAgentSource() error {
 	}
 	if d.SourceMachineID == "" {
 		return ErrSourceMachineUnknown
+	}
+	if d.Producer == ProducerOPNsense {
+		return d.validateFirewallExport()
 	}
 	if !slices.Contains(machine.Producers(), d.Producer) {
 		return ErrProducerUnknown

@@ -301,3 +301,82 @@ func TestProxmox_TheSecretIsSealedAndBoundToItsMachine(t *testing.T) {
 		t.Fatalf("a sealed token copied to another machine: %v", err)
 	}
 }
+
+// Un stockage illisible faute de droit se garde sur sa ligne (migration 035), se rend sur
+// l'hôte, et fait « inconnue » (jamais « aucune ») chaque invité sans archive
+// connue. Un relevé qui échoue ensuite ne l'efface pas ; un relevé réussi le réécrit.
+func TestProxmox_BlindStoragesSurviveAFailureAndMakeBackupsUnknown(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	seedProxmoxMachines(t, db)
+	declareProxmox(t, db, "https://pve.lan:8006")
+
+	reading := sampleReading()
+	reading.Storages = append(reading.Storages,
+		proxmox.Storage{Node: "pve", Name: "pi-sauvegardes", Type: "nfs", Content: []string{"backup"}, Active: true, BackupsUnreadable: true},
+		proxmox.Storage{Node: "pve", Name: "nas", Type: "nfs", Content: []string{"backup"}, Active: true, BackupsUnreadable: true})
+	if err := db.ReplaceProxmoxReading(ctx, "pve-host", reading, proxmoxAt); err != nil {
+		t.Fatal(err)
+	}
+	view, err := db.GetProxmoxView(ctx, "pve-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(view.Host.BlindStorages, []string{"nas", "pi-sauvegardes"}) || view.Host.LastError != "" {
+		t.Fatalf("host: %+v", view.Host)
+	}
+	unknown := map[int]bool{}
+	for _, guest := range view.Guests {
+		unknown[guest.VMID] = guest.BackupUnknown
+	}
+	// 5012 a des archives lisibles : elles restent vraies. 200 n'en a aucune connue.
+	if unknown[5012] || !unknown[200] {
+		t.Errorf("unknown backups: %v", unknown)
+	}
+
+	if err := db.NoteProxmoxFailure(ctx, "pve-host", "proxmox.unreachable"); err != nil {
+		t.Fatal(err)
+	}
+	view, _ = db.GetProxmoxView(ctx, "pve-host")
+	if view.Host.LastError != "proxmox.unreachable" || !reflect.DeepEqual(view.Host.BlindStorages, []string{"nas", "pi-sauvegardes"}) {
+		t.Errorf("a failure must keep the blind storages: %+v", view.Host)
+	}
+	summaries, err := db.ProxmoxSummaries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary := summaries["pve-host"]; summary.LastError != "proxmox.unreachable" || !summary.BackupBlind {
+		t.Errorf("summary: %+v", summary)
+	}
+
+	if err := db.ReplaceProxmoxReading(ctx, "pve-host", sampleReading(), proxmoxAt); err != nil {
+		t.Fatal(err)
+	}
+	view, _ = db.GetProxmoxView(ctx, "pve-host")
+	if view.Host.LastError != "" || len(view.Host.BlindStorages) != 0 || view.Guests[0].BackupUnknown {
+		t.Errorf("a clean reading must clear both: %+v", view.Host)
+	}
+}
+
+func TestProxmox_TheInventoryKnowsWhenArchivesCouldNotBeRead(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	seedProxmoxMachines(t, db)
+	declareProxmox(t, db, "https://pve.lan:8006")
+	reading := sampleReading()
+	reading.Storages = append(reading.Storages, proxmox.Storage{Node: "pve", Name: "nas", Type: "nfs", Content: []string{"backup"}, Active: true, BackupsUnreadable: true})
+	if err := db.ReplaceProxmoxReading(ctx, "pve-host", reading, proxmoxAt); err != nil {
+		t.Fatal(err)
+	}
+	guests, err := db.ListObservedGuests(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := map[int]bool{}
+	for _, guest := range guests {
+		unknown[guest.VMID] = guest.ArchivesUnknown
+	}
+	if len(guests) != 2 || unknown[5012] || !unknown[200] {
+		t.Errorf("observed guests: %v", unknown)
+	}
+}

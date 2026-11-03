@@ -58,6 +58,8 @@ var secretColumns = []secretColumn{
 	{table: "heartbeats", column: "token_sealed"},
 	{table: "machine_proxmox", column: "token_secret", keyColumn: "machine_id"},
 	{table: "firewalls", column: "api_secret"},
+	{table: "restic_links", column: "rest_password"},
+	{table: "restic_links", column: "repo_password"},
 }
 
 func settingsPasswordScope() seal.Scope {
@@ -250,6 +252,9 @@ type Forgotten struct {
 	ProxmoxHosts int
 	// Firewalls : les pare-feu dont le secret d'API est à ressaisir.
 	Firewalls int
+	// ResticLinks : les liens restic dont les mots de passe sont perdus. Les
+	// sources gardent les leurs ; le serveur ne purge plus ces dépôts.
+	ResticLinks int
 }
 
 // ForgetSecrets est la sortie de secours d'une clé perdue : ce qui était
@@ -257,7 +262,8 @@ type Forgotten struct {
 // démarre. Le mot de passe du relais est vidé ; chaque canal qui portait une
 // URL ou un secret est vidé et désactivé ; chaque tâche reçoit un nouveau
 // jeton ; chaque hôte Proxmox et chaque pare-feu perd son secret et reste déclaré, son
-// prochain relevé dira « refusé » jusqu'à ce qu'on le redéclare. Le Sealer doit
+// prochain relevé dira « refusé » jusqu'à ce qu'on le redéclare ; chaque lien
+// restic perd ses mots de passe (restic.ErrLinkSecretLost). Le Sealer doit
 // déjà être celui de la nouvelle clé.
 func (db *DB) ForgetSecrets(ctx context.Context, newToken func() (string, error)) (Forgotten, error) {
 	if db.sealer == nil {
@@ -297,6 +303,14 @@ func (db *DB) ForgetSecrets(ctx context.Context, newToken func() (string, error)
 		forgotten.Firewalls, err = countAffected(result)
 		if err != nil {
 			return fmt.Errorf("count forgotten firewalls: %w", err)
+		}
+		result, err = tx.ExecContext(ctx, `UPDATE restic_links SET rest_password = '', repo_password = '' WHERE rest_password <> '' OR repo_password <> ''`)
+		if err != nil {
+			return fmt.Errorf("forget restic link passwords: %w", err)
+		}
+		forgotten.ResticLinks, err = countAffected(result)
+		if err != nil {
+			return fmt.Errorf("count forgotten restic links: %w", err)
 		}
 		return nil
 	})

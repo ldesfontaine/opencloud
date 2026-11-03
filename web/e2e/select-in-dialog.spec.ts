@@ -16,6 +16,11 @@ for (const window of windows) {
     await page.goto(window.url);
     const dialog = page.locator("dialog[open]");
     await expect(dialog).toBeVisible();
+    // Les menus d'un assistant d'un écran sont sous « Réglages » : le pli s'ouvre d'abord.
+    const settings = dialog.locator("details.fold > summary").first();
+    if (await settings.isVisible()) {
+      await settings.click();
+    }
     const count = await exerciseSelects(page, dialog, findings);
     expect(count).toBeGreaterThan(0);
     expect(findings.unknown()).toEqual([]);

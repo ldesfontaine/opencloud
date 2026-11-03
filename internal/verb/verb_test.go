@@ -3,6 +3,7 @@ package verb
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -154,5 +155,34 @@ func TestDefault_ParamsMatchTheRoutePath(t *testing.T) {
 		if got := PathParams(v.Route); !slices.Equal(got, v.Params) {
 			t.Errorf("%s: params %v, route says %v", v.ID, v.Params, got)
 		}
+	}
+}
+
+// Le cadrage #366 : un jeton lance, vérifie, parcourt et restaure à côté ;
+// il ne crée, ne modifie ni ne supprime une cible, une sauvegarde ou une
+// rétention. La liste est exacte : un verbe restic de plus fait échouer ce
+// test, et c'est à Lucas de le décider.
+func TestDefault_ResticVerbsAreTheFourOfTheTicketAndNoWrite(t *testing.T) {
+	want := []string{"restic.backup.run", "restic.backup.verify", "restic.backup.restore", "restic.backup.browse"}
+	var got []string
+	for _, offered := range Default.All() {
+		if strings.HasPrefix(offered.ID, "restic.") {
+			got = append(got, offered.ID)
+		}
+		route := strings.ToLower(offered.Route)
+		for _, forbidden := range []string{"retain", "forget", "prune", "restic-target", "retention"} {
+			if strings.Contains(route, forbidden) {
+				t.Errorf("%s : la route %s ouvre %s à un jeton", offered.ID, offered.Route, forbidden)
+			}
+		}
+		if strings.HasPrefix(offered.ID, "restic.") && strings.HasPrefix(offered.Route, "PUT ") {
+			t.Errorf("%s : un verbe restic ne modifie rien", offered.ID)
+		}
+		if strings.HasPrefix(offered.ID, "restic.") && strings.HasPrefix(offered.Route, "DELETE ") {
+			t.Errorf("%s : un verbe restic ne supprime rien", offered.ID)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("verbes restic %v, attendus %v", got, want)
 	}
 }

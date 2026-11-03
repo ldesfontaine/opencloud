@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/credential"
+
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -340,7 +342,7 @@ func TestEvents_NeverCarryTheSecretNorTheAddress(t *testing.T) {
 			t.Errorf("detail %s=%s", key, value)
 		}
 	}
-	if event.Details["host"] != "pve.lan:8006" || event.Details["token_id"] != testTokenID {
+	if event.Details["host"] != "pve.lan:8006" || event.Details["token_id"] != credential.Mask(testTokenID) {
 		t.Errorf("details: %v", event.Details)
 	}
 }

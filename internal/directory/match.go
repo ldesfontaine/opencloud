@@ -28,7 +28,8 @@ import (
 // n'arrive qu'à un conteneur Compose dont le nom est aussi déclaré par un
 // service « conteneur seul » : celui-ci paraît alors « déclaré absent ».
 // Plusieurs conteneurs d'une même unité sont admis (répliques). Une unité
-// binaire ne rapproche jamais rien. Un conteneur archivé n'est pas considéré :
+// binaire ne rapproche aucun conteneur : elle se rapproche du relevé systemd de sa
+// machine (ObserveUnits, units.go). Un conteneur archivé n'est pas considéré :
 // il garde le rattachement qu'il avait.
 //
 // Un label ne fait que chercher : il ne crée ni ne modifie jamais rien dans

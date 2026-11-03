@@ -1,13 +1,16 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,13 +29,16 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/hostconn"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/restic"
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/settings"
@@ -40,6 +46,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/verbrequest"
 )
@@ -49,6 +56,7 @@ var testNow = servertest.Now()
 
 type testServer struct {
 	*Server
+	hostConns  *hostconn.Service
 	machines   *machine.Service
 	heartbeats *heartbeat.Service
 	resources  *resource.Service
@@ -67,12 +75,16 @@ type testServer struct {
 	journal    *audit.Recorder
 	actions    *action.Service
 	backups    *backup.Service
+	restic     *restic.Service
+	relay      *restic.Broker
 	proxmox    *proxmox.Service
 	firewalls  *firewall.Service
 	state      *os.Root
-	bus        *live.Bus
-	publicBus  *live.Bus
-	db         *store.DB
+	// logs garde ce que le serveur a journalisé : le banc de non-fuite le lit.
+	logs      *logBuffer
+	bus       *live.Bus
+	publicBus *live.Bus
+	db        *store.DB
 }
 
 // Le serveur de test tourne sur le vrai composant machine et une vraie base
@@ -113,7 +125,8 @@ func asOperator(next http.Handler) http.Handler {
 func newFirstSetupServer(t *testing.T) *testServer {
 	t.Helper()
 	root, db := storetest.OpenWithStateDir(t)
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logs := &logBuffer{}
+	logger := slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, logs), nil))
 	bus := live.New()
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(func() time.Time { return testNow })
@@ -142,6 +155,11 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	declared.SetObserved(containers, updates)
 	declared.SetRematcher(containers)
 	containers.SetUnits(declared)
+	links := link.New(db, logger)
+	links.SetClock(func() time.Time { return testNow })
+	links.SetWatcher(bus)
+	declared.SetLinker(links)
+	containers.SetLinks(links)
 	// Les réponses figées datent d'avant la fin de support : le serveur de
 	// test démarre avec le réglage coupé, et les tests qui le regardent
 	// l'activent. Qu'il soit activé sur une installation neuve se vérifie
@@ -192,6 +210,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	heartbeats.SetAuditor(journal)
 	probes.SetAuditor(journal)
 	declared.SetAuditor(journal)
+	links.SetAuditor(journal)
 	statusPage.SetAuditor(journal)
 	alerts.SetAuditor(journal)
 	apiTokens.SetAuditor(journal)
@@ -229,15 +248,35 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	deployer := deploy.New(db, declared, machines, db, actions, logger)
 	sshKeys := sshkeys.New(db, logger)
 	sshKeys.SetClock(func() time.Time { return testNow })
+	systemd := systemdunits.New(db, logger)
+	systemd.SetClock(func() time.Time { return testNow })
+	systemd.SetWatcher(bus)
+	declared.SetUnits(systemd)
+	hostConns := hostconn.New()
+	hostConns.SetClock(func() time.Time { return testNow })
+	hostConns.SetWatcher(bus)
+	declared.SetObserver(hostConns)
 	roles := role.New(db, logger)
 	roles.SetWatcher(bus)
 	hypervisors := proxmox.New(db, machines, logger)
 	hypervisors.SetClock(func() time.Time { return testNow })
 	hypervisors.SetLifetime(lifetime)
+	// Restic, branché comme dans serve : l'aperçu lit aussi ce que backup sait,
+	// le relais vérifie la preuve de la source et pousse par le serveur.
+	resticBackups := restic.New(db, machines, logger)
+	resticBackups.SetClock(func() time.Time { return testNow })
+	resticBackups.SetSender(actions)
+	resticBackups.SetInventory(backups)
+	resticBackups.SetWatcher(bus)
+	resticBackups.SetAuditor(journal)
+	resticBackups.SetAlerter(alerts)
+	resticBackups.SetLifetime(lifetime)
+	relay := restic.NewBroker(machines, db, nil, logger)
 	t.Cleanup(func() {
 		stopServer()
 		backups.WaitBackground()
 		hypervisors.WaitBackground()
+		resticBackups.WaitBackground()
 	})
 	hypervisors.SetWatcher(bus)
 	hypervisors.SetAuditor(journal)
@@ -246,36 +285,44 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	firewalls.SetWatcher(bus)
 	firewalls.SetAuditor(journal)
 	firewalls.SetConnector(firewall.KindOPNsense, opnsense.New)
+	firewalls.SetTranslator(firewall.KindOPNsense, opnsense.Policy)
+	backups.SetFirewalls(firewalls)
 	server, err := New(Options{
-		Logger:       logger,
-		Version:      "v0.0.1",
-		Reader:       db,
-		Settings:     preferences,
-		Machines:     machines,
-		Heartbeats:   heartbeats,
-		Resources:    resources,
-		Containers:   containers,
-		Probes:       probes,
-		Directory:    declared,
-		Manifest:     newTestManifest(declared, probes, heartbeats, db, bus, logger),
-		Updates:      updates,
-		Lifecycle:    lifecycles,
-		Status:       statusPage,
-		Alerts:       alerts,
-		Notifier:     notifier,
-		APITokens:    apiTokens,
-		VerbRequests: requests,
-		Auth:         operator,
-		Actions:      actions,
-		SSHKeys:      sshKeys,
-		Roles:        roles,
-		Host:         machines,
-		Proxmox:      hypervisors,
-		Firewalls:    firewalls,
-		Backups:      backups,
-		Deploy:       deployer,
-		Live:         bus,
-		PublicLive:   publicBus,
+		Logger:          logger,
+		Version:         "v0.0.1",
+		Reader:          db,
+		Settings:        preferences,
+		Machines:        machines,
+		Heartbeats:      heartbeats,
+		Resources:       resources,
+		Containers:      containers,
+		Probes:          probes,
+		Directory:       declared,
+		Manifest:        newTestManifest(declared, probes, heartbeats, db, bus, logger),
+		Updates:         updates,
+		Lifecycle:       lifecycles,
+		Status:          statusPage,
+		Alerts:          alerts,
+		Notifier:        notifier,
+		APITokens:       apiTokens,
+		VerbRequests:    requests,
+		Auth:            operator,
+		Actions:         actions,
+		SSHKeys:         sshKeys,
+		Systemd:         systemd,
+		HostConnections: hostConns,
+		Links:           links,
+		Roles:           roles,
+		Host:            machines,
+		Proxmox:         hypervisors,
+		Firewalls:       firewalls,
+		Backups:         backups,
+		Restic:          resticBackups,
+		ResticAgent:     resticBackups,
+		ResticRelay:     relay,
+		Deploy:          deployer,
+		Live:            bus,
+		PublicLive:      publicBus,
 		// httptest donne Host: example.com à ses requêtes : c'est l'hôte
 		// d'écoute de ce serveur, donc un Host reconnu.
 		Listen: "example.com:80",
@@ -289,7 +336,27 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	probes.SetCommander(server)
 	updates.SetCommander(server)
 	actions.SetCommander(server)
-	return &testServer{actions: actions, backups: backups, proxmox: hypervisors, firewalls: firewalls, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, requests: requests, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
+	relay.SetPusher(server)
+	return &testServer{logs: logs, restic: resticBackups, relay: relay, actions: actions, backups: backups, proxmox: hypervisors, firewalls: firewalls, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, requests: requests, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db, hostConns: hostConns}
+}
+
+// logBuffer recueille le journal du serveur de test, écrit par plusieurs
+// goroutines.
+type logBuffer struct {
+	mu      sync.Mutex
+	content bytes.Buffer
+}
+
+func (b *logBuffer) Write(line []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.content.Write(line)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.content.String()
 }
 
 // testServerKey lit une clé du serveur figée, posée dans un fichier comme

@@ -20,6 +20,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
+	"github.com/ldesfontaine/opencloud/internal/hostconn"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -27,9 +28,11 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/restic"
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/wait"
 )
@@ -85,6 +88,11 @@ type Options struct {
 	// vraie machine. Non exporté, pour la même raison que readSSHKeys.
 	detectRoles func() role.Report
 	readHost    func(ctx context.Context) hostinfo.Report
+	// readUnits relève les unités systemd ; nil vaut la vraie machine.
+	readUnits func(ctx context.Context) systemdunits.Report
+	// readConnections lit la table des connexions de l'hôte ; nil vaut la vraie
+	// machine.
+	readConnections func() hostconn.Report
 	// GuardVersion est la version du lanceur stable sous lequel l'agent tourne
 	// (GuardVersionFromEnv), 0 s'il n'en a pas : l'agent ne rapporte alors pas
 	// de retour arrière, et refuse de basculer son lien.
@@ -99,6 +107,11 @@ type Options struct {
 	SampleInterval time.Duration
 	// DockerSocket est la socket du démon ; vide vaut celle de Docker.
 	DockerSocket string
+	// ResticBinary et RestServerBinary sont les chemins que l'opérateur a
+	// déclarés (-restic, -rest-server) ; vides, l'agent les cherche dans son
+	// PATH. Il ne les télécharge jamais.
+	ResticBinary     string
+	RestServerBinary string
 	// Roots est le magasin contre lequel les sondes de cette machine
 	// vérifient une chaîne. nil vaut le magasin du système : c'est la
 	// machine qui sonde qui juge, avec les autorités qu'elle connaît.
@@ -157,7 +170,10 @@ func Run(ctx context.Context, opts Options) error {
 	// Le veilleur Docker aussi ; ses rapports attendent dans le leur.
 	observed := &reports{}
 	docker := dockerapi.New(opts.DockerSocket)
-	watcher := dockerwatch.New(docker, observed, dockerwatch.Options{Logger: opts.Logger})
+	// L'environnement des conteneurs ne se lit que par observe.env, lu une fois
+	// ici comme probe.lan : changer le droit, c'est ré-enrôler.
+	readEnvironment := machine.HasCapability(identity.Capabilities(), machine.CapabilityObserveEnv)
+	watcher := dockerwatch.New(docker, observed, dockerwatch.Options{Logger: opts.Logger, ReadEnvironment: readEnvironment})
 	go watcher.Run(ctx)
 	// Les images de la machine se vérifient contre leur registre, avec le
 	// trousseau Docker de la machine ; les constats attendent aussi.
@@ -194,6 +210,13 @@ func Run(ctx context.Context, opts Options) error {
 		updated.Store(true)
 		stop()
 	}
+	// restic : les binaires déclarés, le relais par le serveur pour la source,
+	// et rest-server relancé si la machine est une cible déjà préparée.
+	orders.useResticBinaries(opts.ResticBinary, opts.RestServerBinary)
+	orders.restic.source.relay = func(target string) (restic.ProxyConfig, error) {
+		return client.resticRelayConfig(identity, target)
+	}
+	orders.startRestic(ctx)
 	// Une production coupée net a laissé de quoi remplir le disque dans produce/.
 	if err := clearProduceDir(opts.StateDir); err != nil {
 		opts.Logger.Warn("clear produce dir", "error", err)
@@ -220,8 +243,25 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	hostReported := &hostReports{}
 	go hostLoop(ctx, readMachineHost, hostReported, hostPeriod, opts.Logger)
+	// Les unités systemd : relevées de même, en lecture seule, à part du flux.
+	readMachineUnits := opts.readUnits
+	if readMachineUnits == nil {
+		readMachineUnits = readUnits
+	}
+	unitsReported := &unitReports{}
+	go unitsLoop(ctx, readMachineUnits, unitsReported, unitsPeriod, opts.Logger)
+	// Qui joint les ports de l'hôte : la table des connexions, lue de même.
+	readHostConnections := opts.readConnections
+	if readHostConnections == nil {
+		readHostConnections = readConnections
+	}
+	connectionsReported := &connectionReports{}
+	go connectionsLoop(ctx, readHostConnections, connectionsReported, connectionsPeriod, connectionsHeartbeat, opts.Logger)
+	// La cible ou la source restic : relue à part du flux, comme les rôles.
+	resticReported := &resticReports{}
+	go resticLoop(ctx, orders, resticReported, resticPeriod, opts.Logger)
 	err = keepConnected(ctx, client, identity, &pending{
-		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported, host: hostReported,
+		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported, roles: roleReported, host: hostReported, units: unitsReported, connections: connectionsReported, restic: resticReported,
 		logs: watcher, probes: prober, updates: updater, orders: orders, outcome: outcome,
 	}, catalogs.For(identity.Language), opts)
 	if updated.Load() {
@@ -242,10 +282,14 @@ type pending struct {
 	sshKeys  *sshReports
 	roles    *roleReports
 	host     *hostReports
-	logs     container.LogSource
-	probes   probe.Assignable
-	updates  update.Assignable
-	orders   *orderRunner
+	units    *unitReports
+	// connections : qui joint les ports de l'hôte.
+	connections *connectionReports
+	restic      *resticReports
+	logs        container.LogSource
+	probes      probe.Assignable
+	updates     update.Assignable
+	orders      *orderRunner
 	// La mise à jour en attente de confirmation et ce que le lanceur a fait ;
 	// nil tolérée.
 	outcome *updateOutcome
@@ -413,6 +457,9 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	pending.sshKeys.markReplayed()
 	pending.roles.markReplayed()
 	pending.host.markReplayed()
+	pending.units.markReplayed()
+	pending.connections.markReplayed()
+	pending.restic.markReplayed()
 
 	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, pending.orders, opts.Logger)
 	lost := make(chan error, 1)
@@ -449,14 +496,17 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 func signal(ctx context.Context, client *Client, session string, pending *pending, logger *slog.Logger) error {
 	for {
 		sent := signalBatch{
-			readings:   pending.readings.take(resource.MaxReadingsPerSignal),
-			containers: pending.reports.take(),
-			probes:     pending.results.take(),
-			images:     pending.images.take(),
-			actions:    pending.actions.take(),
-			sshKeys:    pending.sshKeys.take(),
-			roles:      pending.roles.take(),
-			host:       pending.host.take(),
+			readings:    pending.readings.take(resource.MaxReadingsPerSignal),
+			containers:  pending.reports.take(),
+			probes:      pending.results.take(),
+			images:      pending.images.take(),
+			actions:     pending.actions.take(),
+			sshKeys:     pending.sshKeys.take(),
+			roles:       pending.roles.take(),
+			host:        pending.host.take(),
+			units:       pending.units.take(),
+			connections: pending.connections.take(),
+			restic:      pending.restic.take(),
 		}
 		rejected, err := client.Signal(ctx, session, sent.request())
 		var refused *ServerError
@@ -491,18 +541,21 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 
 // Ce qu'un signal emporte, section par section.
 type signalBatch struct {
-	readings   []sampler.Reading
-	containers *container.Report
-	probes     *probe.Report
-	images     *update.Report
-	actions    *agentwire.ActionReport
-	sshKeys    *sshkeys.Report
-	roles      *role.Report
-	host       *hostinfo.Report
+	readings    []sampler.Reading
+	containers  *container.Report
+	probes      *probe.Report
+	images      *update.Report
+	actions     *agentwire.ActionReport
+	sshKeys     *sshkeys.Report
+	roles       *role.Report
+	host        *hostinfo.Report
+	units       *systemdunits.Report
+	connections *hostconn.Report
+	restic      *agentwire.ResticReport
 }
 
 func (b signalBatch) request() agentwire.SignalRequest {
-	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys, Roles: b.roles, Host: b.host}
+	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys, Roles: b.roles, Host: b.host, SystemdUnits: b.units, HostConnections: b.connections, Restic: b.restic}
 }
 
 // restoreAfter remet dans le tampon les sections qui suivent celle
@@ -541,6 +594,12 @@ func (b signalBatch) restore(pending *pending, section string) {
 		pending.roles.restore(b.roles)
 	case agentwire.SectionHost:
 		pending.host.restore(b.host)
+	case agentwire.SectionSystemd:
+		pending.units.restore(b.units)
+	case agentwire.SectionHostConnections:
+		pending.connections.restore(b.connections)
+	case agentwire.SectionRestic:
+		pending.restic.restore(b.restic)
 	}
 }
 

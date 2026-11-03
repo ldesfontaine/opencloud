@@ -200,6 +200,7 @@ function NavItem({ entry }: { entry: MenuEntry }) {
       <Icon name={entry.icon} />
       <span>{t(entry.label)}</span>
       {counter && <span className={counter.hot ? "count hot" : "count"}>{counter.value}</span>}
+      {entry.toConfigure && !counter && <span className="to-configure" role="img" aria-label={t("nav.to_configure")} title={t("nav.to_configure")} />}
     </NavLink>
   );
 }

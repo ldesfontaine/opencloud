@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import { saveJob, useJob, type JobResponse } from "../../api/jobs";
 import { useMachines, type Machine } from "../../api/machines";
 import { Note } from "../../components/Card";
+import { SettingsFold } from "../../components/Disclosure";
 import { Failure } from "../../components/Failure";
 import { Field, Input } from "../../components/Field";
 import { MachineSelect } from "../../components/MachineSelect";
@@ -11,13 +12,13 @@ import { Wizard, type WizardStep } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
-import { emptyJobForm, jobFormOf, jobRequestOf, type JobFormValues } from "../../lib/jobs";
+import { emptyJobForm, jobFormOf, jobRequestOf, jobSettingsHint, type JobFormValues } from "../../lib/jobs";
 import { isFormModified } from "../../lib/modal";
 
 // « Surveiller une tâche » : la fenêtre de la liste des tâches, à l'adresse
-// /taches/nouvelle, ou de la fiche d'une tâche, à /taches/:id/modifier. Une
-// étape (le nom, la machine, tous les combien elle doit pinger) puis le
-// récapitulatif. En édition, l'assistant s'ouvre sur le récapitulatif ; il ne
+// /taches/nouvelle, ou de la fiche d'une tâche, à /taches/:id/modifier. Un
+// seul écran : le nom et tous les combien elle doit pinger, puis Créer. La
+// machine et la grâce sont repliées sous « Réglages ». En édition, il ne
 // touche ni l'identifiant ni le jeton. Le serveur valide et répond par la clé
 // du refus.
 export function JobWizard() {
@@ -63,6 +64,7 @@ export function JobWizard() {
 
 function stepsOf(t: Translate, form: ReturnType<typeof useForm<JobFormValues, JobResponse>>, machines: Pick<Machine, "id" | "name" | "kind">[]): WizardStep[] {
   const { values, change } = form;
+  const machineName = machines.find((machine) => machine.id === values.machineID)?.name ?? null;
   return [
     {
       id: "job",
@@ -82,25 +84,19 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<JobFormValues, Jo
               required
             />
           </Field>
-          <Field label={t("job.machine_label")} htmlFor="job-machine" help={t("job.machine_help")}>
-            <MachineSelect id="job-machine" machines={machines} value={values.machineID} onChange={(machineID) => change("machineID", machineID)} noneLabel={t("job.machine_none")} />
+          <Field label={t("job.interval_label")} htmlFor="job-interval" help={t("job.interval_help")}>
+            <Input id="job-interval" mono type="number" value={values.interval} onChange={(event) => change("interval", event.target.value)} min={1} max={10080} required />
           </Field>
-          <div className="grid-2">
-            <Field label={t("job.interval_label")} htmlFor="job-interval" help={t("job.interval_help")}>
-              <Input id="job-interval" mono type="number" value={values.interval} onChange={(event) => change("interval", event.target.value)} min={1} max={10080} required />
+          <SettingsFold hint={jobSettingsHint(t, values, machineName)}>
+            <Field label={t("job.machine_label")} htmlFor="job-machine" help={t("job.machine_help")}>
+              <MachineSelect id="job-machine" machines={machines} value={values.machineID} onChange={(machineID) => change("machineID", machineID)} noneLabel={t("job.machine_none")} />
             </Field>
             <Field label={t("job.grace_label")} htmlFor="job-grace" help={t("job.grace_help")}>
-              <Input id="job-grace" mono type="number" value={values.grace} onChange={(event) => change("grace", event.target.value)} min={0} max={10080} required />
+              <Input id="job-grace" mono type="number" value={values.grace} onChange={(event) => change("grace", event.target.value)} min={0} max={10080} />
             </Field>
-          </div>
+          </SettingsFold>
         </>
       ),
-      summary: () => [
-        { label: t("job.name_label"), value: values.name },
-        { label: t("job.machine_label"), value: machines.find((machine) => machine.id === values.machineID)?.name ?? t("job.machine_none") },
-        { label: t("job.interval_label"), value: values.interval, mono: true },
-        { label: t("job.grace_label"), value: values.grace, mono: true },
-      ],
     },
   ];
 }

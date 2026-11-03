@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -48,6 +49,8 @@ type orderRunner struct {
 	produce produceTools
 	// Le jeton local et l'API de Proxmox, que les ordres proxmox.vm.* touchent.
 	proxmox proxmoxTools
+	// La cible et la source restic, que les ordres restic.* touchent.
+	restic *resticTools
 	// Ce que la machine répond au compte de l'agent : Docker, les dossiers, son
 	// propre dossier bin/. Les mêmes questions que le rapport des droits
 	// indisponibles ; un ordre est refusé, avant d'écrire, sur la même raison.
@@ -64,11 +67,16 @@ func newOrderRunner(stateDir *os.Root, identity Identity, version, dockerSocket 
 		_, reason := readProxmoxToken(stateDir)
 		return reason
 	}
-	return &orderRunner{
+	runner := &orderRunner{
 		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
 		worker: newOrderWorker(), fetch: &fetcher{}, updater: updater, docker: newDockerTools(checks), checks: checks,
-		produce: newProduceTools(stateDir), proxmox: newProxmoxTools(stateDir),
+		produce: newProduceTools(stateDir), proxmox: newProxmoxTools(stateDir), restic: newResticTools(stateDir, logger),
 	}
+	if dockerSocket == "" {
+		dockerSocket = dockerapi.DefaultSocket
+	}
+	runner.restic.source.inventory = dockerapi.New(dockerSocket)
+	return runner
 }
 
 // receive juge et exécute un ordre, un à la fois : deux ordres arrivés
@@ -181,6 +189,22 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 		return r.acceptDocker(body, false)
 	case agentwire.KindDockerUpdate:
 		return r.acceptDocker(body, true)
+	case agentwire.KindResticTargetSetup:
+		return r.resticTargetSetup(body), nil
+	case agentwire.KindResticUserAdd, agentwire.KindResticUserRemove:
+		return r.resticUser(body), nil
+	case agentwire.KindResticProvision:
+		return r.resticProvision(body), nil
+	case agentwire.KindResticBackup:
+		return r.acceptResticBackup(body)
+	case agentwire.KindResticRetain:
+		return r.acceptResticRetain(body)
+	case agentwire.KindResticVerify:
+		return r.acceptResticVerify(body)
+	case agentwire.KindResticBrowse:
+		return r.acceptResticBrowse(body)
+	case agentwire.KindResticRestore:
+		return r.acceptResticRestore(body)
 	}
 	r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
 	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}, nil

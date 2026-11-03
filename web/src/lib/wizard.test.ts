@@ -8,6 +8,7 @@ import {
   isSummary,
   moveTo,
   previousPosition,
+  startPosition,
   stepMark,
   summaryPosition,
   type StepValidator,
@@ -24,6 +25,14 @@ test("le récapitulatif vient après la dernière étape", () => {
 test("la création part de la première étape, la modification du récapitulatif", () => {
   expect(initialPosition("create", 3)).toBe(0);
   expect(initialPosition("edit", 3)).toBe(3);
+});
+
+test("un lien peut ouvrir une modification sur son étape, jamais une création", () => {
+  const ids = ["identity", "units", "projects"];
+  expect(startPosition("edit", ids, "units")).toBe(1);
+  expect(startPosition("edit", ids, "inconnue")).toBe(3);
+  expect(startPosition("edit", ids, undefined)).toBe(3);
+  expect(startPosition("create", ids, "units")).toBe(0);
 });
 
 test("Suivant avance d'une étape quand la courante est bonne", () => {

@@ -10,8 +10,9 @@ import (
 )
 
 // Read fait un relevé complet : la version, les VM, les stockages, puis, pour
-// chaque stockage actif qui reçoit des sauvegardes, la dernière archive de
-// chaque VM. Au premier échec rien n'est rendu : un relevé à moitié lu
+// chaque stockage actif qui reçoit des sauvegardes et que le jeton sait lister,
+// la dernière archive de chaque VM ; un stockage que le jeton ne sait pas lister
+// est marqué BackupsUnreadable, jamais lu comme vide. Au premier échec rien n'est rendu : un relevé à moitié lu
 // remplacerait du vrai par du faux.
 func (c *Client) Read(ctx context.Context) (Reading, error) {
 	version, err := c.Version(ctx)
@@ -26,17 +27,30 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 	if err != nil {
 		return Reading{}, err
 	}
-	if err := c.readGuestMACs(ctx, guests); err != nil {
+	if err := c.readGuestNICs(ctx, guests); err != nil {
 		return Reading{}, err
 	}
 	cluster, err := c.readClusterName(ctx)
 	if err != nil {
 		return Reading{}, err
 	}
+	jobs, jobsUnreadable, err := c.BackupJobs(ctx)
+	if err != nil {
+		return Reading{}, err
+	}
 	seen := map[int]archives{}
+	gate := newBackupGate(c)
 	for _, storage := range storages {
 		// Un stockage hors ligne répond par une erreur : il n'a rien à dire.
-		if !storage.Active || !storage.AcceptsBackups() {
+		if !storage.Active || !storage.AcceptsBackups() || !storageIDPattern.MatchString(storage.Name) {
+			continue
+		}
+		// Sans les droits, Proxmox répond 200 et une liste vide : on ne la lit pas.
+		sees, err := gate.sees(ctx, storage.Name)
+		if err != nil {
+			return Reading{}, err
+		}
+		if !sees {
 			continue
 		}
 		entries, err := c.Backups(ctx, storage.Node, storage.Name)
@@ -57,7 +71,10 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 			guests[index].BackupTotalBytes = found.totalBytes
 		}
 	}
-	return Reading{Version: version, Cluster: cluster, Guests: guests, Storages: storages}, nil
+	for index := range storages {
+		storages[index].BackupsUnreadable = slices.Contains(gate.blind, storages[index].Name)
+	}
+	return Reading{Version: version, Cluster: cluster, Guests: guests, Storages: storages, Jobs: jobs, JobsUnreadable: jobsUnreadable}, nil
 }
 
 // archives est ce que les stockages gardent d'une VM : la plus récente, le

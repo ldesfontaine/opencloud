@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/restic"
 )
 
 // Text est ce qu'une alerte dit, dans la langue de l'interface : le fait,
@@ -82,8 +83,54 @@ func describe(catalog lang.Catalog, alert Alert, now time.Time, escape func(stri
 		return text(catalog, "agent_rolled_back", nil, []any{machine, details.Target, catalog.Get("alert.rollback_cause_" + rollbackCauseOf(details))})
 	case KindDiskFull:
 		return text(catalog, "disk_full", []any{details.Percent}, []any{details.MountPoint, machine, diskThresholdOf(details)})
+	case KindBackupStale:
+		age := formatAge(catalog, now.Sub(details.Since))
+		return text(catalog, "backup_stale", []any{age}, []any{object, machine, age, catalog.Get("alert.backup_stale_" + staleReasonOf(details))})
+	case KindRestoreTestStale:
+		return describeRestoreTestStale(catalog, object, machine, details, formatAge(catalog, now.Sub(details.Since)))
+	case KindSourceUnprotected:
+		return text(catalog, "source_unprotected", nil, []any{object, machine})
+	case KindTargetFull:
+		return text(catalog, "target_full", nil, []any{object, details.Bytes >> 20, details.Count})
+	case KindTargetUnreachable:
+		return Text{
+			Fact:   catalog.Get("alert.fact_target_unreachable"),
+			Cause:  catalog.Format("alert.cause_target_unreachable", object, catalog.Get("alert.target_unreachable_"+unreachableReasonOf(details)), details.Count),
+			Action: catalog.Get("alert.action_target_unreachable"),
+		}
 	}
 	return Text{Fact: string(alert.Kind), Cause: object}
+}
+
+// describeRestoreTestStale : depuis quand aucun test n'a réussi ; le geste dépend de ce qui retient la vérification (le droit de la cible, ou
+// rien : la nuit la rejoue).
+func describeRestoreTestStale(catalog lang.Catalog, object, machine string, details Details, age string) Text {
+	action := "alert.action_restore_test_stale"
+	if details.Reason == restic.ReasonVerifyRightMissing || details.Reason == restic.ReasonVerifyRightUnavailable {
+		action = "alert.action_restore_test_stale_right"
+	}
+	return Text{
+		Fact:   catalog.Format("alert.fact_restore_test_stale", age),
+		Cause:  catalog.Format("alert.cause_restore_test_stale", object, machine, age),
+		Action: catalog.Get(action),
+	}
+}
+
+// staleReasonOf : le dernier essai a échoué, a été refusé, ou rien n'a abouti.
+func staleReasonOf(details Details) string {
+	if details.Reason == "failed" || details.Reason == "refused" {
+		return details.Reason
+	}
+	return "none"
+}
+
+// unreachableReasonOf : une cible hors ligne, arrêtée ou en erreur ; une
+// raison inconnue se dit comme une erreur.
+func unreachableReasonOf(details Details) string {
+	if details.Reason == restic.ReasonTargetOffline || details.Reason == restic.ReasonTargetStopped {
+		return details.Reason
+	}
+	return restic.ReasonTargetError
 }
 
 // rollbackCauseOf : la cause que dit l'alerte ; une cause inconnue se dit comme

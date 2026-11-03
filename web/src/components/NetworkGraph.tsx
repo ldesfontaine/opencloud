@@ -159,6 +159,9 @@ function edgeKey(placed: PlacedEdge): string {
 
 function EdgePath({ placed, hot }: { placed: PlacedEdge; hot: boolean }) {
   const classes = ["netgraph-edge", placed.edge.kind];
+  if (placed.edge.stale === true) {
+    classes.push("stale");
+  }
   if (hot) {
     classes.push("hot");
   }

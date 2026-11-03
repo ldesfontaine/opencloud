@@ -82,8 +82,12 @@ func (b reachBench) request(t *testing.T, verbID, machineID string) (method, pat
 	if found.TargetsGuest() {
 		path = strings.ReplaceAll(path, "{vmid}", strconv.Itoa(reachGuests[verbID]))
 	}
+	// Une sauvegarde restic se nomme sous sa machine : celle d'une autre
+	// machine n'y est pas trouvée.
+	path = strings.ReplaceAll(path, "{backup}", "sauvegarde-"+machineID)
 	body = "{}"
-	if verbID == "proxmox.vm.snapshot_delete" {
+	switch verbID {
+	case "proxmox.vm.snapshot_delete":
 		body = `{"snapshot":"oc-20261021-120000"}`
 	}
 	return method, path, body
@@ -155,6 +159,8 @@ func TestReach_EveryActionRouteIsJudgedOnItsMachine(t *testing.T) {
 	for _, offered := range verb.Default.All() {
 		t.Run(offered.ID, func(t *testing.T) {
 			bearer, token := bench.issueReachToken(t, "limité-"+offered.ID, []string{offered.ID}, apitoken.Reach{OnlyMachines: true, Machines: []string{reachA}})
+			// Un jeton par verbe : le plafond des jetons tiendrait moins de verbes.
+			t.Cleanup(func() { _ = bench.apiTokens.Revoke(context.Background(), token.ID) })
 
 			inScope := bench.call(t, offered.ID, reachA, bearer)
 			requireInScope(t, "machine A", inScope)

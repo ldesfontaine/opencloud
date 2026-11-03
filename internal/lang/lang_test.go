@@ -193,7 +193,7 @@ func TestLoad_ExpandsPlaceholders(t *testing.T) {
 			}
 		}
 		// La ligne que l'agent cite quand le jeton manque est celle de l'installation.
-		if got := catalog.Get("agent.token_missing"); !strings.Contains(got, "sudo -u "+brand.AgentAccount+" "+brand.AgentCurrentPath+" agent") {
+		if got := catalog.Get("agent.token_missing"); !strings.Contains(got, "runuser -u "+brand.AgentAccount+" -- "+brand.AgentCurrentPath+" agent") {
 			t.Errorf("%s: agent.token_missing = %q, want the install line", code, got)
 		}
 		if got := catalog.Get("machine.prepare_docker_note"); !strings.Contains(got, brand.AgentAccount) {
@@ -221,15 +221,15 @@ func TestLoad_NoPlaceholderLeft(t *testing.T) {
 
 func TestExpand_RejectsUnknownPlaceholder(t *testing.T) {
 	for _, value := range []string{"{produt} est là", "ouvert {", "fermé }"} {
-		if _, err := expand(value); err == nil {
+		if _, err := expand(value, nil); err == nil {
 			t.Errorf("expand(%q) accepted a stray brace", value)
 		}
 	}
-	got, err := expand("{product} : {command}")
+	got, err := expand("{product} : {command}", nil)
 	if err != nil || got != brand.ProductName+" : "+brand.Command {
 		t.Errorf("expand known = %q, %v", got, err)
 	}
-	got, err = expand("{label_prefix}service")
+	got, err = expand("{label_prefix}service", nil)
 	if err != nil || got != brand.LabelPrefix+"service" {
 		t.Errorf("expand label prefix = %q, %v", got, err)
 	}

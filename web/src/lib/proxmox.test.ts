@@ -4,7 +4,11 @@ import type { Agent, Machine } from "../api/machines";
 import type { ProxmoxGuest, ProxmoxStorage } from "../api/proxmox";
 import type { Translate } from "../i18n/context";
 import {
+  allocationShares,
   backupLabel,
+  backupTone,
+  groupGuests,
+  storageBackupState,
   detectedProxmox,
   emptyProxmoxForm,
   gestureBlockText,
@@ -21,7 +25,6 @@ import {
   proxmoxFormOf,
   readErrorLabel,
   resourcesLabel,
-  sortedGuests,
   sortedStorages,
   storagePercent,
   suggestedProxmoxURL,
@@ -31,7 +34,7 @@ import {
 const t: Translate = (key, ...args) => (args.length === 0 ? key : `${key}(${args.join("|")})`);
 
 function guest(vmid: number, over: Partial<ProxmoxGuest> = {}): ProxmoxGuest {
-  return { vmid, kind: "qemu", name: `vm${vmid}`, status: "running", template: false, node: "pve", cpus: 2, max_memory: 2 * 1024 ** 3, max_disk: 0, linked_machine_id: null, last_backup_at: null, last_backup_bytes: 0, own_snapshots: [], ...over };
+  return { vmid, kind: "qemu", name: `vm${vmid}`, status: "running", template: false, node: "pve", cpus: 2, max_memory: 2 * 1024 ** 3, max_disk: 0, linked_machine_id: null, last_backup_at: null, last_backup_bytes: 0, last_backup_storage: "", backup_unknown: false, own_snapshots: [], ...over };
 }
 
 function storage(name: string, node: string, over: Partial<ProxmoxStorage> = {}): ProxmoxStorage {
@@ -53,10 +56,27 @@ test("la raison du dernier relevé est une phrase du catalogue, la réponse inat
   expect(readErrorLabel(t, "autre")).toBe("proxmox.bad_response");
 });
 
-test("les VM se rangent par numéro, les modèles à la suite", () => {
-  const ordered = sortedGuests([guest(9000, { template: true }), guest(300), guest(100)]);
-  expect(ordered.map((entry) => entry.vmid)).toEqual([100, 300, 9000]);
-  expect(sortedGuests([guest(5), guest(2, { template: true }), guest(1)]).map((entry) => entry.vmid)).toEqual([1, 5, 2]);
+test("les VM se rangent par état : en marche, arrêtées, modèles à part, chacun par numéro", () => {
+  const groups = groupGuests([guest(9000, { template: true, status: "stopped" }), guest(300), guest(202, { status: "stopped" }), guest(100, { status: "paused" }), guest(201, { status: "stopped" })]);
+  expect(groups.live.map((entry) => entry.vmid)).toEqual([100, 300]);
+  expect(groups.stopped.map((entry) => entry.vmid)).toEqual([201, 202]);
+  expect(groups.templates.map((entry) => entry.vmid)).toEqual([9000]);
+});
+
+test("les jauges comparent une VM à la plus grosse de l'hôte, modèles exclus", () => {
+  const big = guest(1, { cpus: 4, max_memory: 8 * 1024 ** 3, max_disk: 100 });
+  const small = guest(2, { cpus: 1, max_memory: 2 * 1024 ** 3, max_disk: 25 });
+  const template = guest(9000, { template: true, cpus: 64, max_memory: 512 * 1024 ** 3, max_disk: 10_000 });
+  expect(allocationShares(small, [big, small, template])).toEqual({ cpus: 25, memory: 25, disk: 25 });
+  expect(allocationShares(big, [big, small, template])).toEqual({ cpus: 100, memory: 100, disk: 100 });
+  expect(allocationShares(guest(3, { max_disk: 0 }), [guest(3, { max_disk: 0 })]).disk).toBe(0);
+});
+
+test("un stockage dit s'il reçoit les sauvegardes et si le jeton les voit", () => {
+  expect(storageBackupState(storage("nfs", "pve"), [])).toBe("readable");
+  expect(storageBackupState(storage("nfs", "pve"), ["nfs"])).toBe("blind");
+  expect(storageBackupState(storage("nfs", "pve"), ["autre"])).toBe("readable");
+  expect(storageBackupState(storage("local-lvm", "pve", { content: ["images"] }), ["local-lvm"])).toBe("none");
 });
 
 test("les stockages se rangent par nœud puis par nom", () => {
@@ -70,9 +90,21 @@ test("l'usage d'un stockage est un pour cent entier, nul quand il n'a pas de tai
   expect(storagePercent({ used: 200, total: 100 })).toBe(100);
 });
 
-test("une sauvegarde dit sa date et sa taille, ou qu'il n'y en a aucune", () => {
-  expect(backupLabel(t, "fr", null, 0, 0)).toBe("machine.proxmox_no_backup");
-  expect(backupLabel(t, "fr", "2026-10-01T03:00:00Z", 233 * 1024 ** 2, Date.parse("2026-10-24T12:00:00Z"))).toContain("machine.proxmox_backup_value(");
+test("une sauvegarde dit sa date et sa taille, qu'il n'y en a aucune, ou qu'on ne sait pas", () => {
+  expect(backupLabel(t, "fr", { at: null, bytes: 0, unknown: false }, 0)).toBe("machine.proxmox_no_backup");
+  expect(backupLabel(t, "fr", { at: null, bytes: 0, unknown: true }, 0)).toBe("machine.proxmox_backup_unknown");
+  expect(backupLabel(t, "fr", { at: "2026-10-01T03:00:00Z", bytes: 233 * 1024 ** 2, unknown: false }, Date.parse("2026-10-24T12:00:00Z"))).toContain("machine.proxmox_backup_value(");
+});
+
+test("le ton d'une sauvegarde : récente va, ancienne attire l'attention, perdue danger, inconnue neutre", () => {
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  const at = (hoursAgo: number) => ({ at: new Date(now - hoursAgo * 3_600_000).toISOString(), bytes: 1, unknown: false });
+  expect(backupTone(at(9), now)).toBe("ok");
+  expect(backupTone(at(48), now)).toBe("ok");
+  expect(backupTone(at(80), now)).toBe("warn");
+  expect(backupTone(at(24 * 20), now)).toBe("danger");
+  expect(backupTone({ at: null, bytes: 0, unknown: false }, now)).toBe("warn");
+  expect(backupTone({ at: null, bytes: 0, unknown: true }, now)).toBe("neutral");
 });
 
 test("les ressources allouées entiers sans décimale, fractionnaires avec une", () => {
@@ -193,7 +225,7 @@ test("l'avancement d'un geste : envoyé, accepté par l'agent, fait, ou échoué
 
 test("formulaire de l'hôte : neuf avec l'adresse proposée, ou rempli sans le secret", () => {
   expect(emptyProxmoxForm("https://10.0.0.2:8006")).toEqual({ apiURL: "https://10.0.0.2:8006", tokenID: "", tokenSecret: "", pin: "" });
-  expect(proxmoxFormOf({ api_url: "https://pve:8006", token_id: "lecteur@pve!lecture", pin: "AB:CD" })).toEqual({ apiURL: "https://pve:8006", tokenID: "lecteur@pve!lecture", tokenSecret: "", pin: "AB:CD" });
+  expect(proxmoxFormOf({ api_url: "https://pve:8006", pin: "AB:CD" })).toEqual({ apiURL: "https://pve:8006", tokenID: "", tokenSecret: "", pin: "AB:CD" });
 });
 
 test("isProxmoxFormModified : l'adresse proposée seule n'est pas une saisie", () => {

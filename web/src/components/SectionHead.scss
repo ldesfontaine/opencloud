@@ -2,11 +2,15 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   margin-bottom: 12px;
 }
 
+// La phrase garde au moins 260 px : sur un téléphone, ce qui est à droite
+// (un filtre, un menu) passe dessous au lieu de l'écraser en colonne.
 .section-head-text {
+  flex: 1 1 260px;
   min-width: 0;
 
   // L'étiquette de section pose déjà son espacement de barre latérale :

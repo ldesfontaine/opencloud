@@ -9,6 +9,12 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/counts")).not.toContain("resources");
   });
 
+  it("relit les baux d'un pare-feu quand une machine change : ils désignent des machines", () => {
+    expect(topicsOf("/api/firewalls/fw1/leases")).toEqual(["firewalls", "machines"]);
+    expect(topicsOf("/api/firewalls/fw1/rules")).toEqual(["firewalls"]);
+    expect(topicsOf("/api/firewalls/fw1/flows")).toEqual(["firewalls"]);
+  });
+
   it("sends the declared directory to its own topic, though its path says services", () => {
     expect(topicsOf("/api/directory/services")).toEqual(["directory"]);
     expect(topicsOf("/api/directory/services/svc_1")).toEqual(["directory"]);
@@ -30,8 +36,8 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/directory/services/svc_1")).toEqual(["directory"]);
   });
 
-  it("rereads an adoption proposal only when the directory changes", () => {
-    expect(topicsOf("/api/directory/proposal?container=abc")).toEqual(["directory"]);
+  it("never rereads an adoption proposal by itself: the write it proposes would make it a 409", () => {
+    expect(topicsOf("/api/directory/proposal?container=abc")).toEqual([]);
   });
 
   it("rereads a container sheet when the directory changes, but not its sub-paths or the list", () => {
@@ -44,6 +50,7 @@ describe("topicsOf", () => {
   it("rereads the SSH keys with the machines", () => {
     expect(topicsOf("/api/ssh-keys")).toEqual(["machines"]);
     expect(topicsOf("/api/machines/m1/ssh-keys")).toEqual(["machines"]);
+    expect(topicsOf("/api/machines/m1/systemd-units")).toEqual(["machines"]);
   });
 
   it("rereads the orders of a machine on their own topic", () => {
@@ -63,8 +70,8 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/backups")).toEqual(["backups", "actions"]);
   });
 
-  it("rereads the backup inventory when the machines or the containers it crosses change", () => {
-    expect(topicsOf("/api/backups/inventory")).toEqual(["backups", "actions", "machines", "containers"]);
+  it("rereads the backup overview when the machines, containers or services it crosses change", () => {
+    expect(topicsOf("/api/backups/overview")).toEqual(["backups", "actions", "machines", "containers", "directory"]);
   });
 
   it("keeps the observed containers on the containers topic", () => {
@@ -131,5 +138,15 @@ describe("bumpVersions", () => {
     expect(next.alerts).toBe(2);
     expect(next.machines).toBe(1);
     expect(topics.every((topic) => before[topic] === 0)).toBe(true);
+  });
+});
+
+describe("topicsOf, la carte du réseau", () => {
+  it("se relit quand une machine, un conteneur, l'annuaire ou un pare-feu change", () => {
+    expect(topicsOf("/api/network")).toEqual(expect.arrayContaining(["machines", "containers", "directory", "firewalls"]));
+  });
+
+  it("l'onglet Réseau d'une machine ne suit toujours que les conteneurs", () => {
+    expect(topicsOf("/api/machines/abc/network")).toEqual(["containers"]);
   });
 });

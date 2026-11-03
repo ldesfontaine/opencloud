@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
@@ -47,6 +48,10 @@ func newBench(t *testing.T) *bench {
 	b.tracker = container.New(db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	b.tracker.SetClock(func() time.Time { return b.now })
 	b.tracker.SetWatcher(b)
+	// Les liens d'ordre vont dans la même base : le réseau les relit.
+	links := link.New(db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	links.SetClock(func() time.Time { return b.now })
+	b.tracker.SetLinks(links)
 	return b
 }
 

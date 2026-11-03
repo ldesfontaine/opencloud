@@ -61,5 +61,8 @@ var (
 
 	ErrTooMany = refusal.Conflict("verb_request.too_many", "too many requests awaiting a confirmation for this token")
 	ErrExpired = refusal.Conflict("verb_request.expired", "the request expired before it was confirmed")
-	ErrDecided = refusal.Conflict("verb_request.already_decided", "the request was already confirmed or rejected")
+	// Le verbe a quitté le registre depuis le dépôt de la demande : elle est
+	// refusée, rien n'est rejoué.
+	ErrVerbRemoved = refusal.Conflict("verb_request.verb_removed", "the verb of the request is no longer offered: the request is refused")
+	ErrDecided     = refusal.Conflict("verb_request.already_decided", "the request was already confirmed or rejected")
 )

@@ -1,12 +1,25 @@
-import type { BackupObserved, BackupPlan, BackupRun, BackupSource, BackupSourceKind, Backups, PlanRequest } from "../api/backups";
+import type { BackupDestination, BackupPlan, BackupSourceKind, PlanRequest } from "../api/backups";
 import type { ProxmoxGuest } from "../api/proxmox";
 import type { Translate } from "../i18n/context";
+import { reenrollPath, rightOfRefusal, type Unfit } from "./rights";
 
 // Les adresses de la page et de ses fenêtres.
 export const backupsPath = "/sauvegardes";
 export const keyringPath = `${backupsPath}/cle`;
 export const newDestinationPath = `${backupsPath}/destinations/nouvelle`;
 export const newPlanPath = `${backupsPath}/plans/nouveau`;
+export const newResticBackupPath = `${backupsPath}/nouvelle`;
+export const newTargetPath = `${backupsPath}/cibles/nouvelle`;
+
+// La fenêtre « Faire d'une machine une cible », la machine choisie d'avance.
+export function newTargetPathFor(machineID: string): string {
+  return `${newTargetPath}?machine=${encodeURIComponent(machineID)}`;
+}
+
+// Une sauvegarde restic se nomme par sa machine source et son identifiant.
+export function editResticPath(machineID: string, backupID: string): string {
+  return `${backupsPath}/restic/${encodeURIComponent(machineID)}/${encodeURIComponent(backupID)}/modifier`;
+}
 
 export function editPlanPath(subject: string): string {
   return `${backupsPath}/plans/${encodeURIComponent(subject)}/modifier`;
@@ -32,20 +45,35 @@ export function passphraseProblem(first: string, second: string): string | null 
 // Le sujet de la base, et ce qu'un agent sait produire (la liste du serveur,
 // machine.Producers).
 const databaseSubject = "database";
-export const sourceKinds: readonly BackupSourceKind[] = ["database", "agent"];
 export const producers = ["proxmox-vzdump"] as const;
+
+// Le producteur que le serveur joue lui-même (backup.ProducerOPNsense) : la
+// configuration d'un pare-feu déclaré. Le formulaire en fait une troisième
+// source ; la requête reste « agent », sur la machine openCloud.
+const firewallProducer = "opnsense-config";
+const firewallSourcePrefix = "firewall:";
+
+// Les sources du formulaire : la requête n'en connaît que deux (database, agent).
+export type PlanFormKind = BackupSourceKind | "firewall";
+export const sourceKinds: readonly PlanFormKind[] = ["database", "agent", "firewall"];
+
+export function isFirewallPlan(plan: Pick<BackupPlan, "source_kind" | "producer">): boolean {
+  return plan.source_kind === "agent" && plan.producer === firewallProducer;
+}
+
+// L'identifiant du pare-feu d'une source de l'aperçu (« firewall:<id> »).
+export function firewallIdOf(sourceKey: string): string {
+  return sourceKey.slice(firewallSourcePrefix.length);
+}
+
+// Un plan neuf d'un pare-feu : l'assistant s'ouvre sur lui.
+export function newFirewallPlanPath(firewallID: string): string {
+  return `${newPlanPath}?firewall=${encodeURIComponent(firewallID)}`;
+}
 
 // Le sujet d'un plan : le mot qui préfixe ses fichiers sur la destination.
 // Le serveur le juge de même ; ici, pour dire pourquoi avant d'envoyer.
 const subjectPattern = /^[a-z0-9][a-z0-9-]{0,39}$/;
-
-// La base est sauvegardée quand une clé existe et que le plan de la base a
-// sa destination : sinon la page le dit, en tête. Les autres plans ne
-// comptent pas : ils sauvegardent autre chose.
-export function isBackedUp(backups: Backups): boolean {
-  const plan = backups.plans.find((candidate) => candidate.source_kind === "database");
-  return backups.keyring !== null && plan !== undefined && backups.destinations.some((destination) => destination.id === plan.destination_id);
-}
 
 // Le titre d'un plan : son libellé, à défaut son sujet ; la base, qui n'a
 // pas de libellé, porte celui que le catalogue lui donne.
@@ -61,6 +89,9 @@ export function planTitle(plan: BackupPlan, databaseLabel: string): string {
 export function sourceLabel(t: Translate, plan: BackupPlan): string {
   if (plan.source_kind === "database") {
     return t("backup.source_kind_database");
+  }
+  if (isFirewallPlan(plan)) {
+    return t("backup.source_firewall", plan.source_machine_name);
   }
   const selector = plan.selector === "all" ? t("backup.selector_all") : t("backup.selector_some", plan.selector);
   return t("backup.source_agent", plan.source_machine_name, t(`backup.producer_${plan.producer}`), selector);
@@ -92,6 +123,20 @@ export function passSummary(t: Translate, plan: Pick<BackupPlan, "last_targets_o
     return null;
   }
   return `${t("backup.targets_ok", plan.last_targets_ok)} · ${t("backup.targets_failed", plan.last_targets_failed)}`;
+}
+
+// Le droit qui manque derrière la dernière erreur d'un plan, et la machine dont
+// l'agent doit l'avoir : la source pour produire, la destination pour recevoir.
+// null quand l'erreur n'est pas un droit manquant.
+export function lastErrorRight(plan: Pick<BackupPlan, "last_error" | "source_machine_id">, destination: Pick<BackupDestination, "machine_id" | "path"> | undefined): { machineID: string; right: string; path?: string } | null {
+  const named = plan.last_error.split(":right_missing:")[1] ?? rightOfRefusal(plan.last_error);
+  if (named === null || named === undefined) {
+    return null;
+  }
+  if (named === "backup.receive") {
+    return destination === undefined ? null : { machineID: destination.machine_id, right: named, path: destination.path };
+  }
+  return plan.source_machine_id === "" ? null : { machineID: plan.source_machine_id, right: named };
 }
 
 // Les invités qu'un plan peut prendre : ni modèle (vzdump n'en sauvegarde
@@ -127,7 +172,7 @@ export function toggleSelectorId(selector: string, vmid: number, checked: boolea
 export interface PlanFormValues {
   subject: string;
   name: string;
-  kind: BackupSourceKind;
+  kind: PlanFormKind;
   machine: string;
   producer: string;
   selector: string;
@@ -135,9 +180,19 @@ export interface PlanFormValues {
   keep: string;
 }
 
+// Ce que le sélecteur vaut en changeant de source : « all » pour des invités,
+// aucun pare-feu choisi d'avance, rien pour la base. Un sélecteur d'une source
+// ne vaut rien pour une autre (« all » n'est pas un pare-feu).
+export function kindPatch(kind: PlanFormKind): Pick<PlanFormValues, "kind" | "selector"> {
+  return { kind, selector: kind === "agent" ? "all" : "" };
+}
+
 // Un plan neuf : la base d'abord tant qu'elle n'a pas son plan, ensuite une
 // source agent (la base n'en a qu'un).
-export function emptyPlanForm(hasDatabasePlan: boolean): PlanFormValues {
+export function emptyPlanForm(hasDatabasePlan: boolean, firewall?: { id: string; name: string }): PlanFormValues {
+  if (firewall !== undefined) {
+    return { ...emptyPlanForm(hasDatabasePlan), kind: "firewall", subject: subjectOfName(firewall.name), selector: firewall.id };
+  }
   return {
     subject: "",
     name: "",
@@ -150,13 +205,27 @@ export function emptyPlanForm(hasDatabasePlan: boolean): PlanFormValues {
   };
 }
 
+// Le sujet que l'assistant propose pour un pare-feu : son nom en minuscules,
+// chiffres et tirets (le plan se nomme comme lui par défaut).
+function subjectOfName(name: string): string {
+  const slug = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
+  return slug === "" || slug === databaseSubject ? "pare-feu" : slug;
+}
+
 export function planFormOf(plan: BackupPlan): PlanFormValues {
   return {
     subject: plan.subject,
     name: plan.name,
-    kind: plan.source_kind,
+    kind: isFirewallPlan(plan) ? "firewall" : plan.source_kind,
     machine: plan.source_machine_id,
-    producer: plan.producer === "" ? producers[0] : plan.producer,
+    producer: plan.producer === "" || plan.producer === firewallProducer ? producers[0] : plan.producer,
     selector: plan.selector === "" ? "all" : plan.selector,
     destination: plan.destination_id,
     keep: String(plan.keep),
@@ -164,8 +233,8 @@ export function planFormOf(plan: BackupPlan): PlanFormValues {
 }
 
 // Les sources qu'un plan neuf peut prendre : la base n'a qu'un plan.
-export function sourceKindsFor(hasDatabasePlan: boolean): readonly BackupSourceKind[] {
-  return hasDatabasePlan ? ["agent"] : sourceKinds;
+export function sourceKindsFor(hasDatabasePlan: boolean): readonly PlanFormKind[] {
+  return hasDatabasePlan ? ["agent", "firewall"] : sourceKinds;
 }
 
 // Pourquoi le sujet ne passe pas, en clé du catalogue ; null s'il passe. La
@@ -174,7 +243,7 @@ export function sourceKindsFor(hasDatabasePlan: boolean): readonly BackupSourceK
 // porte déjà ce sujet).
 export function subjectProblem(values: PlanFormValues, taken: readonly string[] = []): string | null {
   const subject = values.kind === "database" ? databaseSubject : values.subject;
-  if (values.kind === "agent" && (!subjectPattern.test(subject) || subject === databaseSubject)) {
+  if (values.kind !== "database" && (!subjectPattern.test(subject) || subject === databaseSubject)) {
     return "backup.plan_invalid";
   }
   return taken.includes(subject) ? "backup.plan_subject_taken" : null;
@@ -182,77 +251,57 @@ export function subjectProblem(values: PlanFormValues, taken: readonly string[] 
 
 // Le sujet et le corps de l'écriture. Une base n'a ni machine, ni
 // producteur, ni sélecteur : le serveur les refuse s'ils sont là.
+// Un pare-feu part de la machine openCloud : le serveur la pose (source_machine_id vide).
 export function planRequestOf(values: PlanFormValues, destination: string): { subject: string; request: PlanRequest } {
-  const isAgent = values.kind === "agent";
+  const isDatabase = values.kind === "database";
+  const isFirewall = values.kind === "firewall";
   return {
-    subject: isAgent ? values.subject : databaseSubject,
+    subject: isDatabase ? databaseSubject : values.subject,
     request: {
       name: values.name.trim(),
-      source_kind: values.kind,
-      source_machine_id: isAgent ? values.machine : "",
-      producer: isAgent ? values.producer : "",
-      selector: isAgent ? values.selector.trim() : "",
+      source_kind: isDatabase ? "database" : "agent",
+      source_machine_id: values.kind === "agent" ? values.machine : "",
+      producer: isDatabase ? "" : isFirewall ? firewallProducer : values.producer,
+      selector: isDatabase ? "" : values.selector.trim(),
       destination_id: destination,
       keep: Number(values.keep),
     },
   };
 }
 
-// À quel point une source est protégée : rien ne la sauvegarde, Proxmox seul en
-// garde des archives, ou un plan du serveur la couvre. L'inventaire montre
-// d'abord celles dont rien ne répond.
-type Protection = "none" | "observed" | "covered";
-
-export function protectionOf(source: BackupSource): Protection {
-  if (source.covered_by.length > 0) {
-    return "covered";
+// Une destination dont l'agent n'a plus le droit de recevoir ici ne convient
+// pas à un plan : elle reste dans la liste, grisée, avec la raison et le lien
+// qui y remédie. « unknown » (droits pas encore rapportés) laisse choisir.
+export function unfitDestination(t: Translate, destination: Pick<BackupDestination, "machine_id" | "path" | "right">): Unfit | null {
+  if (destination.right === "missing") {
+    return { reason: t("backup.right_missing"), link: { to: reenrollPath(destination.machine_id, { name: "backup.receive", path: destination.path }), label: t("machine.reenroll_with_right") } };
   }
-  return source.observed === null ? "none" : "observed";
-}
-
-// La dernière sauvegarde d'une source : la plus récente entre la dernière
-// exécution réussie d'un plan et la plus récente archive vue sur un stockage
-// Proxmox. null quand ni l'une ni l'autre n'existe.
-interface LastBackup {
-  at: string;
-  bytes: number | null;
-  // La cible : la destination du plan, ou le stockage Proxmox.
-  target: string;
-  origin: "plan" | "observed";
-}
-
-export function lastBackupOf(source: BackupSource): LastBackup | null {
-  const planned = source.last_ok === null ? null : plannedBackup(source.last_ok);
-  const observed = source.observed === null ? null : observedBackup(source.observed);
-  if (planned === null || observed === null) {
-    return planned ?? observed;
+  if (destination.right === "unavailable") {
+    return { reason: t("backup.right_unavailable"), link: { to: `/machines/${destination.machine_id}`, label: t("machine.fit_open") } };
   }
-  return Date.parse(observed.at) > Date.parse(planned.at) ? observed : planned;
+  return null;
 }
 
-function plannedBackup(run: BackupRun): LastBackup {
-  return { at: run.finished_at, bytes: run.size_bytes, target: run.destination_name, origin: "plan" };
+// La fenêtre de l'explorateur d'une sauvegarde restic : sa source et son identifiant.
+export function browsePath(machineID: string, backupID: string): string {
+  return `${backupsPath}/parcourir/${encodeURIComponent(machineID)}/${encodeURIComponent(backupID)}`;
 }
 
-function observedBackup(observed: BackupObserved): LastBackup {
-  return { at: observed.last_at, bytes: observed.last_bytes, target: observed.storage, origin: "observed" };
+// Les trois nombres que la fenêtre « Modifier » règle (nuits, semaines, mois).
+export interface RetentionCounts {
+  keep_daily: string;
+  keep_weekly: string;
+  keep_monthly: string;
 }
 
-// Le dernier essai d'un plan quand il n'a pas réussi : plus récent que la
-// dernière réussite, ou sans réussite. null quand tout va bien (ou rien tenté).
-export function failedAttemptOf(source: BackupSource): BackupRun | null {
-  const last = source.last_run;
-  if (last === null || last.result === "ok") {
-    return null;
-  }
-  return source.last_ok === null || Date.parse(last.finished_at) > Date.parse(source.last_ok.finished_at) ? last : null;
+// Baisser une rétention fait purger davantage : l'écran demande alors le nom
+// de la sauvegarde, et le serveur le redemande (restic.retention_confirm_name).
+// Une hausse ou un simple renommage ne demande rien.
+export function lowersRetention(before: RetentionCounts, after: RetentionCounts): boolean {
+  return (["keep_daily", "keep_weekly", "keep_monthly"] as const).some((key) => Number(after[key]) < Number(before[key]));
 }
 
-// La raison d'une ligne de l'historique : la clé d'un refus se traduit telle
-// quelle, un mot fermé passe par le décodeur des ordres.
-export function runReasonText(t: Translate, reason: string, describeReason: (reason: string) => string): string {
-  if (reason === "") {
-    return "";
-  }
-  return reason.startsWith("backup.") ? t(reason) : describeReason(reason);
+// Le nom est tapé tel quel, comme pour effacer une machine.
+export function canSaveRetention(lowered: boolean, backupName: string, typedName: string): boolean {
+  return !lowered || typedName === backupName;
 }

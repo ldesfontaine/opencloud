@@ -17,6 +17,7 @@ import type { DiskThresholds } from "../api/session";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 import { daysUntil } from "./certificates";
+import { backupsPath } from "./backups";
 import { probePath } from "./probes";
 import { fromLocalInput } from "./status";
 import { formatClock, formatDuration, since } from "./time";
@@ -100,7 +101,52 @@ export function describeAlert(t: Translate, alert: Alert, now: number, disks: Di
       return lines(t, alert.kind, [], [machine, details.target ?? "", t(`alert.rollback_cause_${details.reason ?? "timeout"}`)]);
     case "disk_full":
       return lines(t, alert.kind, [details.percent ?? 0], [details.mount_point ?? object, machine, details.threshold ?? disks.attention]);
+    case "backup_stale":
+      return backupStaleText(t, alert, now);
+    case "restore_test_stale":
+      return restoreTestStaleText(t, alert, now);
+    case "source_unprotected":
+      return lines(t, alert.kind, [], [object, machine]);
+    case "target_full":
+      return lines(t, alert.kind, [], [object, Math.floor((details.bytes ?? 0) / 2 ** 20), details.count ?? 0]);
+    case "target_unreachable":
+      return {
+        fact: t("alert.fact_target_unreachable"),
+        cause: t("alert.cause_target_unreachable", object, t(`alert.target_unreachable_${unreachableReasons.includes(details.reason ?? "") ? details.reason : "error"}`), details.count ?? 0),
+        action: t("alert.action_target_unreachable"),
+      };
   }
+}
+
+// Les raisons d'une cible injoignable (restic.ReasonTarget*) ; une autre se
+// dit comme une erreur de rest-server.
+const unreachableReasons = ["offline", "stopped", "error"];
+
+function ageSince(t: Translate, alert: Alert, now: number): string {
+  return formatDuration(t, alert.details.since ? since(alert.details.since, now) : 0);
+}
+
+function backupStaleText(t: Translate, alert: Alert, now: number): AlertText {
+  const age = ageSince(t, alert, now);
+  const reason = alert.details.reason === "failed" || alert.details.reason === "refused" ? alert.details.reason : "none";
+  return {
+    fact: t("alert.fact_backup_stale", age),
+    cause: t("alert.cause_backup_stale", alert.object.name, alert.machine_name !== "" ? alert.machine_name : t("alert.no_machine"), age, t(`alert.backup_stale_${reason}`)),
+    action: t("alert.action_backup_stale"),
+  };
+}
+
+// La cible sans le droit a un autre geste : la ré-enrôler.
+function restoreTestStaleText(t: Translate, alert: Alert, now: number): AlertText {
+  const age = ageSince(t, alert, now);
+  const machine = alert.machine_name !== "" ? alert.machine_name : t("alert.no_machine");
+  const reason = alert.details.reason ?? "";
+  const blocked = reason === "verify_right_missing" || reason === "verify_right_unavailable";
+  return {
+    fact: t("alert.fact_restore_test_stale", age),
+    cause: t("alert.cause_restore_test_stale", alert.object.name, machine, age),
+    action: t(blocked ? "alert.action_restore_test_stale_right" : "alert.action_restore_test_stale"),
+  };
 }
 
 function lines(t: Translate, kind: AlertKind, factArgs: (string | number)[], causeArgs: (string | number)[]): AlertText {
@@ -240,7 +286,8 @@ export function filterChoicesOf(alerts: Alert[], chosen: AlertFilter): FilterCho
   };
 }
 
-// Où mène un objet : sa fiche ; un volume, sa machine.
+// Où mène un objet : sa fiche ; un volume, sa machine ; une sauvegarde, une
+// source ou une cible, la page Sauvegardes.
 export function objectPath(object: AlertObject, machineID: string): string | null {
   switch (object.kind) {
     case "machine":
@@ -253,6 +300,8 @@ export function objectPath(object: AlertObject, machineID: string): string | nul
       return probePath(object.id);
     case "volume":
       return machineID !== "" ? `/machines/${machineID}` : null;
+    case "backup":
+      return backupsPath;
   }
 }
 
@@ -373,6 +422,14 @@ export const emptyMuteForm: MuteFormValues = {
 
 // Seul un objet du répertoire peut s'annoncer : une page de statut n'en
 // montre pas d'autres.
+// Ce que les réglages repliés d'un silence acceptent, en clair : « tous les
+// types, dès maintenant ».
+export function muteSettingsHint(t: Translate, values: Pick<MuteFormValues, "kind" | "startsAt">): string {
+  const kind = values.kind === "" ? t("silence.hint_kind_any") : t(`alert.kind_${values.kind}`);
+  const start = values.startsAt === "" ? t("silence.hint_start_now") : t("silence.hint_start_at", values.startsAt.replace("T", " "));
+  return `${kind}, ${start}`;
+}
+
 export function canAnnounce(values: Pick<MuteFormValues, "targetKind" | "targetID">): boolean {
   return values.targetID !== "" && announceableKinds.includes(values.targetKind);
 }
@@ -408,6 +465,7 @@ export function channelPathOf(id: number | string): string {
 function muteTargetOf(alert: Pick<Alert, "kind" | "object" | "machine_id" | "machine_name" | "service_id">): { kind: AlertKind | ""; targetKind: MuteTargetKind; targetID: string; targetName: string } {
   switch (alert.object.kind) {
     case "volume":
+    case "backup":
       return { kind: alert.kind, targetKind: "machine", targetID: alert.machine_id, targetName: alert.machine_name };
     case "container":
       if (alert.service_id !== "") {
@@ -457,6 +515,17 @@ export const emptyChannelForm: ChannelFormValues = {
   receivesAudit: false,
   enabled: true,
 };
+
+// Ce que les réglages repliés d'un canal acceptent, en clair : « dès Attention,
+// avec les résolutions ».
+export function channelSettingsHint(t: Translate, values: Pick<ChannelFormValues, "minSeverity" | "notifyResolve" | "receivesAudit" | "enabled">): string {
+  return [
+    t("channel.hint_from", t(`alert.severity_${values.minSeverity}`)),
+    t(values.notifyResolve ? "channel.hint_resolve_on" : "channel.hint_resolve_off"),
+    ...(values.receivesAudit ? [t("channel.hint_audit")] : []),
+    ...(values.enabled ? [] : [t("channel.hint_disabled")]),
+  ].join(", ");
+}
 
 // Un webhook n'a pas de destination : le champ part vide.
 export function channelFormOf(channel: Channel): ChannelFormValues {

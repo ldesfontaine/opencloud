@@ -19,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/hostconn"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -26,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/role"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
+	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -203,6 +205,10 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	session, err := h.machines.Connect(r.Context(), authenticated, h.clientAddress(r),
 		r.Header.Get(agentwire.HeaderAgentVersion), r.Header.Get(agentwire.HeaderAgentRights),
 		r.Header.Get(agentwire.HeaderAgentAccount), r.Header.Get(agentwire.HeaderAgentUnavailable))
+	if errors.Is(err, machine.ErrAgentRevoked) {
+		h.writeAuthError(w, err)
+		return
+	}
 	if err != nil {
 		h.logger.Error("connect", "machine_id", authenticated.ID, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")
@@ -392,7 +398,7 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	keep(agentwire.SectionReadings, h.resources.Record(ctx, machineID, request.Readings), resource.ErrReadingInvalid, resource.ErrTooManyReadings)
 	// Un agent plus vieux n'envoie pas toutes les sections : rien à écrire.
 	if request.Services != nil {
-		keep(agentwire.SectionServices, h.containers.Record(ctx, machineID, *request.Services), container.ErrReportInvalid)
+		keep(agentwire.SectionServices, h.containers.Record(ctx, machineID, h.withinRights(ctx, machineID, *request.Services)), container.ErrReportInvalid)
 	}
 	if request.Probes != nil {
 		keep(agentwire.SectionProbes, h.probes.Record(ctx, machineID, *request.Probes), probe.ErrReportInvalid)
@@ -412,7 +418,43 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	if request.Host != nil {
 		keep(agentwire.SectionHost, h.recordHost(ctx, machineID, *request.Host), hostinfo.ErrReportInvalid)
 	}
+	if request.SystemdUnits != nil {
+		keep(agentwire.SectionSystemd, h.recordSystemdUnits(ctx, machineID, *request.SystemdUnits), systemdunits.ErrReportInvalid)
+	}
+	if request.HostConnections != nil {
+		keep(agentwire.SectionHostConnections, h.recordHostConnections(ctx, machineID, *request.HostConnections), hostconn.ErrReportInvalid)
+	}
+	if request.Restic != nil {
+		keep(agentwire.SectionRestic, h.recordRestic(ctx, machineID, *request.Restic), agentwire.ErrResticReportInvalid)
+	}
 	return rejected, failed
+}
+
+// recordHostConnections garde qui joint les ports de l'hôte ; sans composant,
+// la section est refusée.
+func (h *Handler) recordHostConnections(ctx context.Context, machineID string, report hostconn.Report) error {
+	if h.hostConns == nil {
+		return hostconn.ErrReportInvalid
+	}
+	return h.hostConns.Record(ctx, machineID, report)
+}
+
+// recordRestic écrit la section restic ; sans composant, la section est
+// refusée.
+func (h *Handler) recordRestic(ctx context.Context, machineID string, report agentwire.ResticReport) error {
+	if h.restic == nil {
+		return agentwire.ErrResticReportInvalid
+	}
+	return h.restic.RecordReport(ctx, machineID, report)
+}
+
+// recordSystemdUnits écrit le relevé des unités systemd ; sans composant, la
+// section est refusée.
+func (h *Handler) recordSystemdUnits(ctx context.Context, machineID string, report systemdunits.Report) error {
+	if h.systemd == nil {
+		return systemdunits.ErrReportInvalid
+	}
+	return h.systemd.Record(ctx, machineID, report)
 }
 
 // recordHost écrit où tourne la machine et ses disques ; sans composant, la
@@ -448,7 +490,15 @@ func (h *Handler) recordActions(ctx context.Context, machineID string, report ag
 	if h.actions == nil {
 		return action.ErrReportInvalid
 	}
-	return h.actions.Record(ctx, machineID, report)
+	if err := h.actions.Record(ctx, machineID, report); err != nil {
+		return err
+	}
+	// Le bilan d'une sauvegarde restic (chemin, raison, octets) va au
+	// composant restic, une fois le rapport jugé par action.
+	if h.restic == nil {
+		return nil
+	}
+	return h.restic.RecordResults(ctx, machineID, report.Results)
 }
 
 // firstRejected rend la clé de la première section refusée, dans l'ordre
@@ -644,4 +694,20 @@ func (h *Handler) uploadParcel(w http.ResponseWriter, r *http.Request) {
 func isSHA256Hex(text string) bool {
 	decoded, err := hex.DecodeString(text)
 	return err == nil && len(decoded) == sha256.Size && text == hex.EncodeToString(decoded)
+}
+
+// withinRights retire du rapport des conteneurs ce que les droits de l'agent ne
+// couvrent pas : l'environnement des conteneurs sans observe.env. La borne est
+// reposée ici parce qu'un agent n'est pas une preuve (étude services-modèle
+// §2.4) ; un doute sur ses droits la ferme.
+func (h *Handler) withinRights(ctx context.Context, machineID string, report container.Report) container.Report {
+	if !report.HasEnvironment() {
+		return report
+	}
+	status, err := h.machines.Get(ctx, machineID)
+	if err == nil && machine.HasCapability(status.Agent.Capabilities, machine.CapabilityObserveEnv) {
+		return report
+	}
+	h.logger.Warn("agent sent environment links without the right, dropped", "machine_id", machineID)
+	return report.WithoutEnvironment()
 }

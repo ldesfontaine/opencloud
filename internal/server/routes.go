@@ -61,18 +61,23 @@ func (s *Server) routes() []route {
 		{"GET", "/api/machines/{id}/network", s.getMachineNetwork},
 		{"GET", "/api/machines/{id}/probes", s.listMachineProbes},
 		{"GET", "/api/machines/{id}/ssh-keys", s.getMachineSSHKeys},
+		{"GET", "/api/machines/{id}/systemd-units", s.getMachineSystemdUnits},
 		{"GET", "/api/machines/{id}/proxmox", s.getMachineProxmox},
 		{"PUT", "/api/machines/{id}/proxmox", s.setMachineProxmox},
 		// Un retrait en action et non en DELETE /api/machines/{id}/proxmox : ce
 		// motif recoupe DELETE /api/machines/tokens/{id} (tokens/proxmox), et le
 		// multiplexeur de Go refuse deux motifs dont aucun n'est plus précis.
 		{"POST", "/api/machines/{id}/actions/remove-proxmox", s.removeMachineProxmox},
+		// Relire l'hôte tout de suite : après avoir collé les commandes pveum de la
+		// fiche, l'opérateur n'attend pas les cinq minutes du relevé.
+		{"POST", "/api/machines/{id}/actions/refresh-proxmox", s.refreshMachineProxmox},
 		// Une route par geste et non un joker : le registre des verbes associe un
 		// verbe à une route, un joker rendrait la liste blanche d'un jeton floue.
 		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/start", s.actOnProxmoxGuest(proxmox.VerbStart)},
 		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/shutdown", s.actOnProxmoxGuest(proxmox.VerbShutdown)},
 		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot", s.actOnProxmoxGuest(proxmox.VerbSnapshot)},
 		{"POST", "/api/machines/{id}/proxmox/guests/{vmid}/actions/snapshot-delete", s.actOnProxmoxGuest(proxmox.VerbSnapshotDelete)},
+		{"POST", "/api/certificate/inspect", s.inspectCertificate},
 		{"GET", "/api/firewalls", s.listFirewalls},
 		{"POST", "/api/firewalls", s.createFirewall},
 		{"GET", "/api/firewalls/{id}", s.getFirewall},
@@ -81,6 +86,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/firewalls/{id}/rules", s.listFirewallRules},
 		{"GET", "/api/firewalls/{id}/interfaces", s.listFirewallInterfaces},
 		{"GET", "/api/firewalls/{id}/leases", s.listFirewallLeases},
+		{"GET", "/api/firewalls/{id}/flows", s.listFirewallFlows},
 		{"GET", "/api/ssh-keys", s.getSSHKeyMatrix},
 		{"GET", "/api/network", s.listNetworks},
 		{"GET", "/api/containers", s.listContainers},
@@ -94,6 +100,7 @@ func (s *Server) routes() []route {
 		{"PUT", "/api/directory/services/{id}", s.updateDeclaredService},
 		{"DELETE", "/api/directory/services/{id}", s.deleteDeclaredService},
 		{"GET", "/api/directory/services/{id}/delete-plan", s.getDeclaredServiceDeletePlan},
+		{"GET", "/api/directory/services/{id}/links", s.getServiceLinks},
 		{"GET", "/api/directory/services/{id}/deploy-plan", s.getDeployPlan},
 		{"POST", "/api/directory/services/{id}/actions/deploy", s.deployService},
 		{"POST", "/api/directory/services/{id}/actions/redeploy", s.redeployService},
@@ -105,6 +112,11 @@ func (s *Server) routes() []route {
 		{"PUT", "/api/directory/projects/{id}", s.updateProject},
 		{"DELETE", "/api/directory/projects/{id}", s.deleteProject},
 		{"GET", "/api/directory/projects/{id}/delete-plan", s.getProjectDeletePlan},
+		{"POST", "/api/directory/links", s.createLink},
+		{"DELETE", "/api/directory/links/{id}", s.deleteLink},
+		{"POST", "/api/directory/links/{id}/actions/confirm", s.confirmLink},
+		{"POST", "/api/directory/links/{id}/actions/dismiss", s.dismissLink},
+		{"POST", "/api/directory/links/{id}/actions/restore", s.restoreLink},
 		{"GET", "/api/directory/gaps", s.getDirectoryGaps},
 		{"GET", "/api/directory/proposal", s.getDirectoryProposal},
 		{"POST", "/api/directory/ignored", s.ignoreKey},
@@ -181,7 +193,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/actions", s.listActions},
 		{"GET", "/api/agents/server-key", s.getServerKey},
 		{"GET", "/api/backups", s.getBackups},
-		{"GET", "/api/backups/inventory", s.getBackupInventory},
+		{"GET", "/api/backups/overview", s.getBackupOverview},
 		{"GET", "/api/backups/runs", s.getBackupRuns},
 		{"POST", "/api/backups/keyring", s.createBackupKeyring},
 		{"POST", "/api/backups/destinations", s.createBackupDestination},
@@ -189,6 +201,18 @@ func (s *Server) routes() []route {
 		{"PUT", "/api/backups/plans/{subject}", s.saveBackupPlan},
 		{"DELETE", "/api/backups/plans/{subject}", s.deleteBackupPlan},
 		{"POST", "/api/backups/plans/{subject}/actions/run", s.runBackup},
+		// Restic : une cible est une machine, une sauvegarde part d'une machine
+		// source. La machine est dans le chemin : la portée d'un jeton se juge
+		// sur elle, comme pour les gestes Proxmox.
+		{"POST", "/api/machines/{id}/actions/restic-target-setup", s.setupResticTarget},
+		{"POST", "/api/machines/{id}/actions/restic-target-remove", s.removeResticTarget},
+		{"POST", "/api/machines/{id}/restic-backups", s.createResticBackup},
+		{"PUT", "/api/machines/{id}/restic-backups/{backup}", s.updateResticBackup},
+		{"DELETE", "/api/machines/{id}/restic-backups/{backup}", s.deleteResticBackup},
+		{"POST", "/api/machines/{id}/restic-backups/{backup}/actions/run", s.runResticBackup},
+		{"POST", "/api/machines/{id}/restic-backups/{backup}/actions/verify", s.verifyResticBackup},
+		{"POST", "/api/machines/{id}/restic-backups/{backup}/actions/browse", s.browseResticBackup},
+		{"POST", "/api/machines/{id}/restic-backups/{backup}/actions/restore", s.restoreResticBackup},
 		{anyMethod, "/api/", s.apiUnknown},
 	}
 	add := func(method, pattern string, handler http.HandlerFunc) {
@@ -209,7 +233,7 @@ var apiTokenRoutes = []string{
 	"GET /api/machines", "GET /api/machines/{id}", "GET /api/machines/{id}/network", "GET /api/machines/{id}/resources",
 	"GET /api/machines/{id}/proxmox",
 	"GET /api/firewalls", "GET /api/firewalls/{id}", "GET /api/firewalls/{id}/rules",
-	"GET /api/firewalls/{id}/interfaces", "GET /api/firewalls/{id}/leases",
+	"GET /api/firewalls/{id}/interfaces", "GET /api/firewalls/{id}/leases", "GET /api/firewalls/{id}/flows",
 	"GET /api/containers", "GET /api/containers/{id}", "GET /api/containers/{id}/logs",
 	"GET /api/directory/services", "GET /api/directory/gaps", "GET /api/manifest/export",
 	"GET /api/jobs", "GET /api/jobs/{id}",
@@ -217,7 +241,7 @@ var apiTokenRoutes = []string{
 	"GET /api/directory/projects", "GET /api/directory/projects/{id}", "GET /api/status/components", "GET /api/status/incidents",
 	"GET /api/alerts", "GET /api/alerts/{id}", "GET /api/alerts/channels",
 	"GET /api/audit", "GET /api/actions", "GET /api/agent-updates",
-	"GET /api/backups/inventory", "GET /api/backups/runs",
+	"GET /api/backups/overview", "GET /api/backups/runs",
 	"GET /api/token/verbs",
 }
 

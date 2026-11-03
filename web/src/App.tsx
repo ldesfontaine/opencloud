@@ -17,8 +17,12 @@ import { IncidentModal } from "./pages/availability/IncidentModal";
 import { PublicPage } from "./pages/availability/PublicPage";
 import { Backups } from "./pages/Backups";
 import { DestinationModal } from "./pages/backups/DestinationModal";
+import { ExplorerModal } from "./pages/backups/Explorer";
 import { KeyringModal } from "./pages/backups/KeyringModal";
 import { PlanWizard } from "./pages/backups/PlanWizard";
+import { ResticEditModal } from "./pages/backups/ResticEditModal";
+import { ResticWizard } from "./pages/backups/ResticWizard";
+import { TargetModal } from "./pages/backups/TargetModal";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
 import { FirewallPage } from "./pages/Firewall";
@@ -35,6 +39,7 @@ import { ReenrollMachine } from "./pages/machines/ReenrollMachine";
 import { ProbeWizard } from "./pages/probes/ProbeWizard";
 import { ProjectWizard } from "./pages/services/ProjectWizard";
 import { ServiceWizard } from "./pages/services/ServiceWizard";
+import { LinkModal } from "./pages/services/LinkModal";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
 import { ProbePage } from "./pages/Probe";
@@ -106,6 +111,7 @@ export function App() {
         <Route path="services/annuaire/journal/:id" element={<ApplyDetail />} />
         <Route path="services/annuaire/:id" element={<DeclaredServicePage />}>
           <Route path="modifier" element={<ServiceWizard />} />
+          <Route path="liens/nouveau" element={<LinkModal />} />
         </Route>
         <Route path="services/projets" element={<Services tab="projets" />}>
           <Route path="nouveau" element={<ProjectWizard />} />
@@ -135,6 +141,10 @@ export function App() {
         {/* L'ancien nom de la page : les liens enregistrés suivent, chemin, query et ancre gardés. */}
         <Route path="domaines/*" element={<ProbesRedirect />} />
         <Route path="sauvegardes" element={<Backups />}>
+          <Route path="nouvelle" element={<ResticWizard />} />
+          <Route path="cibles/nouvelle" element={<TargetModal />} />
+          <Route path="restic/:machineId/:backupId/modifier" element={<ResticEditModal />} />
+          <Route path="parcourir/:machineId/:backupId" element={<ExplorerModal />} />
           <Route path="cle" element={<KeyringModal />} />
           <Route path="destinations/nouvelle" element={<DestinationModal />} />
           <Route path="plans/nouveau" element={<PlanWizard />} />
@@ -144,6 +154,7 @@ export function App() {
           <Route path="nouveau" element={<FirewallWizard />} />
         </Route>
         <Route path="pare-feu/:id" element={<FirewallPage />}>
+          <Route path="flux" element={null} />
           <Route path="modifier" element={<FirewallWizard />} />
         </Route>
         <Route path="taches" element={<Jobs />}>

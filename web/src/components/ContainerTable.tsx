@@ -5,6 +5,8 @@ import { useI18n } from "../i18n/context";
 import { formatPublishedPorts, type Filter } from "../lib/containers";
 import { formatBytes, formatCPU } from "../lib/units";
 import { updateAvailable, updateLabel } from "../lib/updates";
+import { Choice } from "./Choice";
+import { ImageName } from "./ImageName";
 import { Pill, ContainerPill } from "./Pill";
 import { Subject, Table } from "./Table";
 import "./ServiceTable.scss";
@@ -14,16 +16,7 @@ const filters: Filter[] = ["all", "active", "stopped"];
 
 export function ContainerFilter({ value, onChange }: { value: Filter; onChange: (filter: Filter) => void }) {
   const { t } = useI18n();
-  return (
-    <span className="seg" role="radiogroup" aria-label={t("services.col_state")}>
-      {filters.map((filter) => (
-        <label key={filter}>
-          <input type="radio" name="container-filter" checked={value === filter} onChange={() => onChange(filter)} />
-          <span>{t(`services.filter_${filter}`)}</span>
-        </label>
-      ))}
-    </span>
-  );
+  return <Choice label={t("services.col_state")} name="container-filter" choices={filters} value={value} text={(filter) => t(`services.filter_${filter}`)} onChange={onChange} />;
 }
 
 // Le tableau de la direction artistique : icône, nom et groupe, image en
@@ -61,7 +54,7 @@ export function ContainerTable({ containers }: { containers: Container[] }) {
               </td>
               <td className="num wide-only">
                 <span className="image-cell">
-                  {container.image}
+                  <ImageName image={container.image} />
                   {updateAvailable(container) && container.image_check !== null && (
                     <Pill tone="accent" dot={false}>
                       {updateLabel(t, container.image_check)}

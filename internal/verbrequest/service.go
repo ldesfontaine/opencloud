@@ -137,8 +137,19 @@ func (s *Service) ListPending(ctx context.Context) ([]Request, error) {
 
 // Confirm prend la demande pour la rejouer : elle passe à « confirmée » avant
 // que la route ne s'exécute, d'un seul geste, et une seconde confirmation
-// reçoit ErrDecided. Le service ne rejoue rien lui-même.
-func (s *Service) Confirm(ctx context.Context, id string) (Request, error) {
+// reçoit ErrDecided. Le service ne rejoue rien lui-même. offered dit si le
+// registre propose encore le verbe : sinon (un verbe retiré depuis le dépôt
+// de la demande), la demande est refusée et ErrVerbRemoved rendu, sans rien
+// rejouer.
+func (s *Service) Confirm(ctx context.Context, id string, offered func(verb string) bool) (Request, error) {
+	s.Sweep(ctx)
+	request, err := s.store.GetVerbRequest(ctx, id)
+	if err == nil && request.State == StateAwaiting && !offered(request.Verb) {
+		if _, err := s.Reject(ctx, id); err != nil {
+			return Request{}, err
+		}
+		return Request{}, ErrVerbRemoved
+	}
 	return s.decide(ctx, id, StateConfirmed)
 }
 

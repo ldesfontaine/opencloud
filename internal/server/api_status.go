@@ -166,7 +166,7 @@ func timeOrZero(at *time.Time) time.Time {
 
 // statusPublicURL rend l'adresse publique d'une page : /statut/<slug>.
 func (s *Server) statusPublicURL(r *http.Request, slug string) string {
-	base, _ := s.resolvePublicURL(r)
+	base := s.resolvePublicURL(r).URL
 	return base + statusPath + "/" + slug
 }
 

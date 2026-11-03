@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router";
 
 import { useMachineContainers } from "../api/containers";
@@ -15,12 +15,12 @@ import { CertificateList } from "../components/Certificate";
 import { DeleteMachineDialog } from "../components/DeleteMachineDialog";
 import { Failure } from "../components/Failure";
 import { MachineHead, Tabs } from "../components/MachineHead";
-import { McpChip } from "../components/McpChip";
 import { MachineHypervisor } from "../components/MachineHypervisor";
 import { MachineIdentity } from "../components/MachineIdentity";
 import { MachineStorage } from "../components/MachineStorage";
 import { MachineTodoCard } from "../components/MachineTodoCard";
 import { MachineSSHKeys } from "../components/MachineSSHKeys";
+import { MachineSystemdUnits } from "../components/MachineSystemdUnits";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
 import { RoleCard } from "../components/RoleCard";
@@ -30,11 +30,14 @@ import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
 import { SupportDetails } from "../components/SupportBlock";
 import { ContainerPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
+import { useAgentHint } from "../hooks/useAgentHint";
 import { useNow } from "../hooks/useNow";
+import { useScrollToHash } from "../hooks/useScrollToHash";
 import { useT } from "../i18n/context";
 import { renamedMachineTabs, resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
 import { lifecycleHasDetails } from "../lib/lifecycle";
+import { lacksSudo } from "../lib/rights";
 import { describeAccount, describeCapability, isArchived, unavailableRights } from "../lib/machines";
 import { formatWhen } from "../lib/time";
 import { NotFound } from "./NotFound";
@@ -77,12 +80,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
   const now = useNow();
   const resources = useMachineResources(tab === "" ? current.id : null);
   // Un lien « détail du support » mène à son ancre sur la page même.
-  const { hash } = useLocation();
-  useEffect(() => {
-    if (hash !== "") {
-      document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
-    }
-  }, [hash]);
+  useScrollToHash();
   return (
     <div className="machine-page">
       <PageHead title={current.name} actions={<Actions machine={current} />} />
@@ -100,12 +98,12 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
               <ResourceStats current={resources.data} />
               <ResourceHistory machineID={current.id} />
               <MachineStorage machine={current} current={resources.data} />
-              {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
+              {current.lifecycle !== undefined && (lifecycleHasDetails(current.lifecycle) || current.lifecycle.status === "pending") && <SystemSupport lifecycle={current.lifecycle} />}
               <RoleCard machine={current} />
             </>
           ) : tab === "agent" ? (
             <>
-              <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} now={now} />
+              <AgentCard machineID={current.id} agent={current.agent} updateLast={current.update_last} withoutSudo={lacksSudo(current)} now={now} />
               <ActionsCard machineID={current.id} agent={current.agent} />
             </>
           ) : tab === "services" ? (
@@ -114,6 +112,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
             <NetworkView machineID={current.id} />
           ) : tab === "ssh" ? (
             <MachineSSHKeys machine={current} />
+          ) : tab === "systemd" ? (
+            <MachineSystemdUnits machineID={current.id} />
           ) : tab === "hyperviseur" ? (
             <MachineHypervisor machine={current} />
           ) : tab === "journaux" ? (
@@ -133,7 +133,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
 }
 
 // Le détail du support du système : l'état et sa phrase sont dans l'en-tête,
-// la carte garde le reste (branches, lecture, source).
+// la carte garde le reste (branches, lecture, source). Tant que la source n'a
+// pas été lue, elle seule le dit, en une ligne.
 function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
   const t = useT();
   return (
@@ -141,7 +142,7 @@ function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
       <Card>
         <CardHeader title={t("lifecycle.title_system")} />
         <CardBody gap={8}>
-          <SupportDetails lifecycle={lifecycle} />
+          {lifecycle.status === "pending" ? <span className="secondary">{t("lifecycle.reading")}</span> : <SupportDetails lifecycle={lifecycle} />}
         </CardBody>
       </Card>
     </div>
@@ -152,7 +153,7 @@ function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
 // droits, tels qu'il les rapporte et tels que sa commande d'installation les
 // demandait. Il applique ceux de son fichier ; les changer, c'est le
 // ré-enrôler, dans la fenêtre du même nom.
-function AgentCard({ machineID, agent, updateLast, now }: { machineID: string; agent: Agent | null; updateLast: boolean; now: number }) {
+function AgentCard({ machineID, agent, updateLast, withoutSudo, now }: { machineID: string; agent: Agent | null; updateLast: boolean; withoutSudo: boolean; now: number }) {
   const t = useT();
   if (agent === null) {
     return (
@@ -172,7 +173,7 @@ function AgentCard({ machineID, agent, updateLast, now }: { machineID: string; a
       <CardBody gap={10}>
         {agent.revoked_at !== null && <Note tone="danger">{t("machine.agent_revoked", formatWhen(agent.revoked_at, now))}</Note>}
         <KeyValue label={t("machine.field_agent")} value={agent.version} mono />
-        {agent.revoked_at === null && <AgentUpdate machineID={machineID} agent={agent} updateLast={updateLast} />}
+        {agent.revoked_at === null && <AgentUpdate machineID={machineID} agent={agent} updateLast={updateLast} withoutSudo={withoutSudo} />}
         <KeyValue label={t("machine.field_agent_enrolled")} value={formatWhen(agent.enrolled_at, now)} />
         <KeyValue label={t("machine.agent_account")} value={account ?? t("machine.agent_account_unreported")} mono={account !== null} />
         {agent.run_as?.uid === 0 && <p className="secondary">{t("machine.agent_account_root_note")}</p>}
@@ -321,6 +322,7 @@ function MachineLogs({ machineID }: { machineID: string }) {
 // elle). C'est aussi un verbe : un agent peut le demander, l'opérateur confirme.
 function Actions({ machine }: { machine: Machine }) {
   const t = useT();
+  const agentHint = useAgentHint();
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState(false);
   const archived = isArchived(machine);
@@ -330,9 +332,8 @@ function Actions({ machine }: { machine: Machine }) {
       <Button icon="refresh" to={`/machines/${machine.id}/reenroller`}>
         {t("machine.reenroll")}
       </Button>
-      <Button variant="danger" icon="x" onClick={() => setDeleting(true)}>
+      <Button variant="danger" icon="x" title={agentHint("DELETE /api/machines/{id}")} onClick={() => setDeleting(true)}>
         {t("machine.delete")}
-        <McpChip route="DELETE /api/machines/{id}" />
       </Button>
       {deleting && (
         <DeleteMachineDialog

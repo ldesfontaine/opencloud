@@ -41,9 +41,12 @@ async function fillEmptyFields(scope: Locator): Promise<void> {
 }
 
 // Ferme la fenêtre par « Annuler », en répondant « abandonner » si elle
-// demande avant de perdre la saisie.
+// demande avant de perdre la saisie. Une fenêtre en lecture seule (l'explorateur
+// de fichiers) n'a rien à annuler : son pied porte « Fermer ».
 async function cancelDialog(dialog: Locator): Promise<void> {
-  await dialog.getByRole("button", { name: label("modal.cancel"), exact: true }).first().click({ timeout: 3000 });
+  const cancel = dialog.getByRole("button", { name: label("modal.cancel"), exact: true }).first();
+  const close = dialog.locator(".modal-foot").getByRole("button", { name: label("modal.close"), exact: true });
+  await ((await cancel.count()) > 0 ? cancel : close).click({ timeout: 3000 });
   const abandon = dialog.getByText(label("modal.abandon_question"));
   if (await abandon.isVisible().catch(() => false)) {
     // La question remplace le pied : son bouton de confirmation est le premier.
@@ -126,6 +129,35 @@ async function walkWizard(page: Page, dialog: Locator, findings: Findings): Prom
   findings.add(`l'assistant n'atteint pas le récapitulatif en ${maxSteps} étapes`);
 }
 
+// Un assistant d'un seul écran : ses menus, ses champs, puis chaque pli
+// « Réglages » ouvert avec ses menus et ses champs. Il reste prêt à écrire :
+// l'action finale est là et active (le geste d'écrire est joué par
+// u3-assistants-courts.spec.ts, sur des données qu'il crée).
+async function walkOneScreen(page: Page, dialog: Locator, findings: Findings): Promise<void> {
+  await exerciseSelects(page, dialog, findings);
+  await fillEmptyFields(dialog);
+  const closedFolds = dialog.locator("details.fold:not([open]) > summary");
+  for (let guard = 0; guard < maxSteps && (await closedFolds.count()) > 0; guard++) {
+    await closedFolds.first().click();
+    await exerciseSelects(page, dialog, findings);
+    await fillEmptyFields(dialog);
+  }
+  const submit = dialog.locator("form.wizard-modal button[type=submit]");
+  if (!(await submit.isEnabled())) {
+    findings.add("l'assistant d'un écran n'offre pas son action finale");
+  }
+  findings.done.wizards++;
+}
+
+// Sans barre d'étapes, l'assistant tient en un écran.
+async function walkAnyWizard(page: Page, dialog: Locator, findings: Findings): Promise<void> {
+  if ((await dialog.locator(".wizard-bar").count()) === 0) {
+    await walkOneScreen(page, dialog, findings);
+    return;
+  }
+  await walkWizard(page, dialog, findings);
+}
+
 // Une fenêtre ouverte : ses menus déroulants, ses infobulles, puis, selon sa
 // nature, un assistant mené au récapitulatif ou un formulaire rempli. Elle se
 // referme par « Annuler ».
@@ -134,10 +166,15 @@ export async function exploreDialog(page: Page, findings: Findings): Promise<voi
   await dialog.waitFor({ state: "visible", timeout: 3000 });
   findings.done.dialogs++;
   if ((await dialog.locator(".wizard").count()) > 0) {
-    await walkWizard(page, dialog, findings);
+    await walkAnyWizard(page, dialog, findings);
   } else {
     await fillEmptyFields(dialog);
     await exerciseSelects(page, dialog, findings);
+    // Un choix peut ouvrir l'assistant : « Déclarer un service » commence par
+    // le choix d'un conteneur, qui remplit l'assistant.
+    if ((await dialog.locator(".wizard").count()) > 0) {
+      await walkAnyWizard(page, dialog, findings);
+    }
   }
   await exerciseTips(dialog, findings);
   if (await dialog.isVisible()) {

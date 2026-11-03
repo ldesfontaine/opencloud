@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -14,21 +15,25 @@ import (
 // Un service déclaré tel que le front le lit : des faits, les listes
 // fermées en mots ; les libellés se traduisent dans le navigateur.
 type declaredServiceJSON struct {
-	ID             string     `json:"id"`
-	MachineID      string     `json:"machine_id"`
-	MachineName    string     `json:"machine_name"`
-	Name           string     `json:"name"`
-	Title          string     `json:"title"`
-	Nature         string     `json:"nature"`
-	Origin         string     `json:"origin"`
-	ComposeProject string     `json:"compose_project"`
-	PublicURL      string     `json:"public_url"`
-	DeclaredBy     string     `json:"declared_by"`
-	Provides       []string   `json:"provides"`
-	Units          []unitJSON `json:"units"`
-	ProjectIDs     []string   `json:"project_ids"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID          string `json:"id"`
+	MachineID   string `json:"machine_id"`
+	MachineName string `json:"machine_name"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Nature      string `json:"nature"`
+	// category : la correction de l'opérateur, vide si elle se déduit ;
+	// category_deduced : ce que l'image en dit, toujours posée.
+	Category        string     `json:"category"`
+	CategoryDeduced string     `json:"category_deduced"`
+	Origin          string     `json:"origin"`
+	ComposeProject  string     `json:"compose_project"`
+	PublicURL       string     `json:"public_url"`
+	DeclaredBy      string     `json:"declared_by"`
+	Provides        []string   `json:"provides"`
+	Units           []unitJSON `json:"units"`
+	ProjectIDs      []string   `json:"project_ids"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 type unitJSON struct {
@@ -47,6 +52,9 @@ type unitJSON struct {
 	// Ce que l'opérateur veut des mises à jour de l'image : watch, hold,
 	// ignore.
 	UpdatePolicy string `json:"update_policy"`
+	// Ce que le relevé des unités systemd dit d'une unité binaire ; nul pour
+	// une unité conteneur.
+	Observed *observedUnitJSON `json:"observed"`
 }
 
 // La fiche d'un service déclaré dit en plus ce qui le lie : tant que des
@@ -100,10 +108,12 @@ type projectsResponse struct {
 // ce que le serveur pose (identifiant, provenance, dates). Une unité qui
 // garde son identifiant reste la même.
 type declaredServiceRequest struct {
-	MachineID      string        `json:"machine_id"`
-	Name           string        `json:"name"`
-	Title          string        `json:"title"`
-	Nature         string        `json:"nature"`
+	MachineID string `json:"machine_id"`
+	Name      string `json:"name"`
+	Title     string `json:"title"`
+	Nature    string `json:"nature"`
+	// Vide : la catégorie se déduit de l'image.
+	Category       string        `json:"category"`
 	Origin         string        `json:"origin"`
 	ComposeProject string        `json:"compose_project"`
 	PublicURL      string        `json:"public_url"`
@@ -148,22 +158,42 @@ func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
 	provides := httpx.ConvertAll(found.Provides, func(capability directory.Capability) string { return string(capability) })
 	units := httpx.ConvertAll(found.Units, unitToJSON)
 	return declaredServiceJSON{
-		ID:             found.ID,
-		MachineID:      found.MachineID,
-		MachineName:    found.MachineName,
-		Name:           found.Name,
-		Title:          found.Title,
-		Nature:         string(found.Nature),
-		Origin:         string(found.Origin),
-		ComposeProject: found.ComposeProject,
-		PublicURL:      found.PublicURL,
-		DeclaredBy:     string(found.DeclaredBy),
-		Provides:       provides,
-		Units:          units,
-		ProjectIDs:     orEmpty(found.ProjectIDs),
-		CreatedAt:      found.CreatedAt.UTC(),
-		UpdatedAt:      found.UpdatedAt.UTC(),
+		ID:              found.ID,
+		MachineID:       found.MachineID,
+		MachineName:     found.MachineName,
+		Name:            found.Name,
+		Title:           found.Title,
+		Nature:          string(found.Nature),
+		Category:        string(found.Category),
+		CategoryDeduced: string(found.DeducedCategory()),
+		Origin:          string(found.Origin),
+		ComposeProject:  found.ComposeProject,
+		PublicURL:       found.PublicURL,
+		DeclaredBy:      string(found.DeclaredBy),
+		Provides:        provides,
+		Units:           units,
+		ProjectIDs:      orEmpty(found.ProjectIDs),
+		CreatedAt:       found.CreatedAt.UTC(),
+		UpdatedAt:       found.UpdatedAt.UTC(),
 	}
+}
+
+// observedServices écrit les services pour le front, chaque unité binaire avec
+// ce que le relevé de sa machine en dit : un seul relevé lu pour toute la liste.
+func (s *Server) observedServices(ctx context.Context, services []directory.Service) ([]declaredServiceJSON, error) {
+	observed, err := s.directory.ObservedUnits(ctx, services)
+	if err != nil {
+		return nil, err
+	}
+	written := httpx.ConvertAll(services, declaredServiceToJSON)
+	for index := range written {
+		for position := range written[index].Units {
+			if observation, ok := observed[written[index].Units[position].ID]; ok {
+				written[index].Units[position].Observed = observedUnitOf(observation)
+			}
+		}
+	}
+	return written, nil
 }
 
 func unitToJSON(unit directory.Unit) unitJSON {
@@ -262,6 +292,7 @@ func declaredServiceDefinition(request declaredServiceRequest) directory.Service
 		Name:           request.Name,
 		Title:          request.Title,
 		Nature:         directory.Nature(request.Nature),
+		Category:       directory.Category(request.Category),
 		Origin:         directory.Origin(request.Origin),
 		ComposeProject: request.ComposeProject,
 		PublicURL:      request.PublicURL,
@@ -277,8 +308,11 @@ func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := declaredServicesResponse{Services: httpx.ConvertAll(found, declaredServiceToJSON)}
-	s.writeAPI(w, http.StatusOK, response)
+	services, err := s.observedServices(r.Context(), found)
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, declaredServicesResponse{Services: services})
 }
 
 func (s *Server) getDeclaredService(w http.ResponseWriter, r *http.Request) {
@@ -290,7 +324,11 @@ func (s *Server) getDeclaredService(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, declaredServiceDetailJSON{declaredServiceJSON: declaredServiceToJSON(found), Links: linksToJSON(links)})
+	observed, err := s.observedServices(r.Context(), []directory.Service{found})
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, declaredServiceDetailJSON{declaredServiceJSON: observed[0], Links: linksToJSON(links)})
 }
 
 // L'opérateur déclare le service, ses unités et ce qu'il fournit ; le
@@ -304,7 +342,11 @@ func (s *Server) createDeclaredService(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusCreated, declaredServiceToJSON(created))
+	observed, err := s.observedServices(r.Context(), []directory.Service{created})
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, observed[0])
 }
 
 // L'édition remplace la définition entière : les unités dont le corps
@@ -318,7 +360,11 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, directory.ErrNotFound) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(updated))
+	observed, err := s.observedServices(r.Context(), []directory.Service{updated})
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, observed[0])
 }
 
 // Supprimer un service que des sondes ou des composants de statut visent

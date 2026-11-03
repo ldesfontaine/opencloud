@@ -36,6 +36,8 @@ const (
 	ObjectService         ObjectKind = "service"
 	ObjectUnit            ObjectKind = "unit"
 	ObjectIgnoredKey      ObjectKind = "ignored_key"
+	// Un lien entre deux instances, écrit par l'opérateur.
+	ObjectLink            ObjectKind = "link"
 	ObjectProbe           ObjectKind = "probe"
 	ObjectHeartbeat       ObjectKind = "heartbeat"
 	ObjectStatusComponent ObjectKind = "status_component"
@@ -55,18 +57,22 @@ const (
 	ObjectBackupPlan        ObjectKind = "backup_plan"
 	// Un pare-feu déclaré, lu en lecture seule.
 	ObjectFirewall ObjectKind = "firewall"
+	// Une cible restic (une machine qui lance rest-server en ajout seul), et
+	// une sauvegarde restic d'une source vers elle.
+	ObjectResticTarget ObjectKind = "restic_target"
+	ObjectResticBackup ObjectKind = "restic_backup"
 	// La demande qu'un jeton dépose pour un verbe à confirmation.
 	ObjectVerb ObjectKind = "verb"
 )
 
 func ObjectKinds() []ObjectKind {
 	return []ObjectKind{
-		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
+		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey, ObjectLink,
 		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident,
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectAPIToken, ObjectSecrets, ObjectAction,
 		ObjectBackupKeyring, ObjectBackupDestination, ObjectBackupPlan,
-		ObjectFirewall, ObjectVerb,
+		ObjectFirewall, ObjectVerb, ObjectResticTarget, ObjectResticBackup,
 	}
 }
 
@@ -120,6 +126,14 @@ const (
 
 	IgnoredKeyCreate Action = "ignored_key.create"
 	IgnoredKeyDelete Action = "ignored_key.delete"
+
+	LinkCreate Action = "link.create"
+	LinkDelete Action = "link.delete"
+	// Les trois gestes sur un lien déduit : confirmé (il devient déclaré),
+	// écarté, rétabli.
+	LinkConfirm Action = "link.confirm"
+	LinkDismiss Action = "link.dismiss"
+	LinkRestore Action = "link.restore"
 
 	ProbeCreate Action = "probe.create"
 	ProbeUpdate Action = "probe.update"
@@ -192,6 +206,29 @@ const (
 	// Une sauvegarde lancée, par l'opérateur ou par la règle de la nuit.
 	BackupPlanRun Action = "backup_plan.run"
 
+	// Une cible restic posée ou retirée : l'adresse, le port et le dossier,
+	// jamais un mot de passe. Une sauvegarde restic déclarée, changée, retirée
+	// ou lancée (par l'opérateur ou la règle de la nuit) : la source, la cible
+	// et ce qui part, jamais l'empreinte du mot de passe REST.
+	ResticTargetSetup  Action = "restic_target.setup"
+	ResticTargetRemove Action = "restic_target.remove"
+	ResticBackupCreate Action = "restic_backup.create"
+	ResticBackupUpdate Action = "restic_backup.update"
+	ResticBackupDelete Action = "restic_backup.delete"
+	// Une rétention baissée, après la saisie du nom de la sauvegarde : les
+	// comptes d'avant et d'après.
+	ResticBackupRetentionLower Action = "restic_backup.retention_lower"
+	ResticBackupRun            Action = "restic_backup.run"
+	// Le dépôt d'une sauvegarde vérifié par sa cible (restic.verify), à la
+	// main ou par la règle de la nuit : jamais le mot de passe du dépôt.
+	ResticBackupVerify Action = "restic_backup.verify"
+	// Les sauvegardes parcourues dans l'explorateur : l'instantané et le
+	// dossier lus, jamais un nom de fichier ni le mot de passe du dépôt.
+	ResticBackupBrowse Action = "restic_backup.browse"
+	// Une restauration lancée depuis l'écran ou par un jeton : l'instantané, le
+	// chemin source et le chemin de destination, jamais un mot de passe.
+	ResticBackupRestore Action = "restic_backup.restore"
+
 	// Un pare-feu déclaré, redéclaré ou retiré. Ni la clé ni le secret n'y
 	// figurent : seulement l'hôte de l'API et si l'empreinte est épinglée.
 	FirewallCreate Action = "firewall.create"
@@ -215,6 +252,7 @@ func Actions() []Action {
 		ServiceCreate, ServiceUpdate, ServiceDelete,
 		UnitUpdatePolicy,
 		IgnoredKeyCreate, IgnoredKeyDelete,
+		LinkCreate, LinkDelete, LinkConfirm, LinkDismiss, LinkRestore,
 		ProbeCreate, ProbeUpdate, ProbeDelete, ProbePause, ProbeResume,
 		HeartbeatCreate, HeartbeatUpdate, HeartbeatDelete, HeartbeatPause, HeartbeatResume, HeartbeatRegenerateToken,
 		StatusComponentCreate, StatusComponentUpdate, StatusComponentDelete,
@@ -231,6 +269,7 @@ func Actions() []Action {
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
 		FirewallCreate, FirewallUpdate, FirewallDelete,
 		VerbRequest, VerbReject, VerbExpire,
+		ResticTargetSetup, ResticTargetRemove, ResticBackupCreate, ResticBackupUpdate, ResticBackupDelete, ResticBackupRetentionLower, ResticBackupRun, ResticBackupVerify, ResticBackupBrowse, ResticBackupRestore,
 	}
 }
 
