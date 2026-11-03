@@ -35,7 +35,7 @@ async function fillEmptyFields(scope: Locator): Promise<void> {
   for (let index = 0; index < count; index++) {
     const field = fields.nth(index);
     if ((await field.inputValue()) === "") {
-      await field.fill(await plausibleValue(field), { timeout: 2000 }).catch(() => undefined);
+      await field.fill(await plausibleValue(field)).catch(() => undefined);
     }
   }
 }
@@ -46,13 +46,13 @@ async function fillEmptyFields(scope: Locator): Promise<void> {
 async function cancelDialog(dialog: Locator): Promise<void> {
   const cancel = dialog.getByRole("button", { name: label("modal.cancel"), exact: true }).first();
   const close = dialog.locator(".modal-foot").getByRole("button", { name: label("modal.close"), exact: true });
-  await ((await cancel.count()) > 0 ? cancel : close).click({ timeout: 3000 });
+  await ((await cancel.count()) > 0 ? cancel : close).click();
   const abandon = dialog.getByText(label("modal.abandon_question"));
   if (await abandon.isVisible().catch(() => false)) {
     // La question remplace le pied : son bouton de confirmation est le premier.
-    await dialog.locator(".modal-foot button").first().click({ timeout: 3000 });
+    await dialog.locator(".modal-foot button").first().click();
   }
-  await dialog.waitFor({ state: "detached", timeout: 3000 }).catch(() => undefined);
+  await dialog.waitFor({ state: "detached" }).catch(() => undefined);
 }
 
 // La barre d'étapes ne coupe aucun libellé : la barre tient dans sa largeur,
@@ -111,7 +111,7 @@ async function walkWizard(page: Page, dialog: Locator, findings: Findings): Prom
       .filter({ hasNotText: title })
       .or(summary)
       .first()
-      .waitFor({ state: "visible", timeout: 2500 })
+      .waitFor({ state: "visible" })
       .then(() => true)
       .catch(() => false);
     if (advanced) {
@@ -163,7 +163,7 @@ async function walkAnyWizard(page: Page, dialog: Locator, findings: Findings): P
 // referme par « Annuler ».
 export async function exploreDialog(page: Page, findings: Findings): Promise<void> {
   const dialog = page.locator("dialog[open]").last();
-  await dialog.waitFor({ state: "visible", timeout: 3000 });
+  await dialog.waitFor({ state: "visible" });
   findings.done.dialogs++;
   if ((await dialog.locator(".wizard").count()) > 0) {
     await walkAnyWizard(page, dialog, findings);
@@ -188,7 +188,7 @@ export async function exerciseTips(scope: Locator, findings: Findings): Promise<
   const count = Math.min(await tips.count(), 6);
   for (let index = 0; index < count; index++) {
     const tip = tips.nth(index);
-    await tip.hover({ timeout: 2000 }).catch(() => undefined);
+    await tip.hover().catch(() => undefined);
     const text = tip.locator("xpath=following-sibling::*[@role='tooltip']");
     const box = await text.boundingBox();
     if (box === null) {

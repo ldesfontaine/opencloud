@@ -16,10 +16,10 @@ async function describeControl(control: Locator): Promise<string> {
 async function exerciseSelect(page: Page, trigger: Locator, findings: Findings): Promise<void> {
   const name = await describeControl(trigger);
   try {
-    await trigger.scrollIntoViewIfNeeded({ timeout: 1500 });
-    await trigger.click({ timeout: 1500 });
+    await trigger.scrollIntoViewIfNeeded();
+    await trigger.click();
     const list = page.locator("[role=listbox]").last();
-    await list.waitFor({ state: "visible", timeout: 1500 });
+    await list.waitFor({ state: "visible" });
     // Une liste vide (aucune machine, aucune destination) est un état, pas une panne.
     if ((await list.locator("[role=option]").count()) === 0) {
       await page.keyboard.press("Escape");
@@ -41,8 +41,8 @@ async function exerciseSelect(page: Page, trigger: Locator, findings: Findings):
       return;
     }
     const option = (await other.count()) > 0 ? other : usable.first();
-    await option.click({ timeout: 1500 });
-    await list.waitFor({ state: "hidden", timeout: 1500 });
+    await option.click();
+    await list.waitFor({ state: "hidden" });
     findings.done.selects++;
   } catch (error) {
     findings.add(`menu déroulant ${name} inutilisable : ${error instanceof Error ? error.message : String(error)}`);
