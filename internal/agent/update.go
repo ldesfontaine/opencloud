@@ -458,7 +458,7 @@ func (r *orderRunner) acceptAgentUpdate(body agentwire.OrderBody) (agentwire.Act
 	// refusé avant de télécharger quoi que ce soit.
 	reason := r.updater.refusalReason(r.checks.agentUpdate)
 	if reason != "" {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", reason)
+		r.journal.notAccepted(body, reason)
 		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: reason}, nil
 	}
 	params, readable := readAgentUpdate(body)
@@ -494,7 +494,7 @@ func (u *selfUpdater) refusalReason(judgeBin func() string) string {
 // qui dit au serveur que l'ordre est fait.
 func (r *orderRunner) acceptAgentRollback(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
 	if reason := r.updater.refusalReason(r.checks.agentUpdate); reason != "" {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", reason)
+		r.journal.notAccepted(body, reason)
 		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: reason}, nil
 	}
 	// Le précédent ne se juge que dans le worker, avec la même bascule : un

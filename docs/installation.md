@@ -970,6 +970,10 @@ Pour un hôte Proxmox qui produit ses sauvegardes, `-rights` porte
 `backup.produce=proxmox-vzdump` (un producteur n'est pas un chemin : il se
 nomme).
 
+Les droits `backup.produce` et `restic.produce` demandent en plus des **ancres de
+confiance** (voir [plus bas](#les-ancres-de-confiance)) : sans elles, l'agent
+refuse l'ordre.
+
 Ils s'écrivent dans `identity.json`, la fiche de la machine les montre, et
 **l'agent les applique** : un ordre hors de ses droits est refusé, et le refus
 se lit dans les ordres de la fiche et au journal. Pour les changer : fiche ›
@@ -1133,6 +1137,52 @@ d'un attaquant décidé sur un hôte qui porte ce droit ; il protège des erreur
 des compromissions maladroites. `NoNewPrivileges=false` retire en plus à l'unité
 une protection : c'est la contrepartie de ce droit, et la page du jeton la dit
 dans un encadré. Ne cochez la case que sur l'hôte Proxmox.
+
+#### Les ancres de confiance
+
+Un serveur openCloud compromis signe les ordres qu'il veut. Pour qu'il ne puisse
+pas, par les sauvegardes, copier une VM qu'on ne lui a pas confiée ni rediriger
+une source restic vers une cible à lui, l'agent n'exécute ces ordres que sur ce
+que **vous** avez posé **sur la machine** : ses *ancres de confiance*. Aucun
+ordre d'openCloud ne les écrit.
+
+| Ancre | Ce que l'agent accepte | Utile avec le droit |
+| --- | --- | --- |
+| `backup.recipient` | la clé publique age (`age1…`) pour laquelle il chiffre : 1 à 2 | `backup.produce` |
+| `backup.guest` | les VM et conteneurs qu'il copie : 1 à 32 identifiants | `backup.produce` |
+| `restic.target-cert` | les certificats des cibles restic qu'il accepte (empreinte SHA-256, 64 hexadécimaux) : 1 à 4 | `restic.produce` |
+
+**Sans ancre, l'ordre est refusé** (`anchor_missing:<ancre>` dans les ordres de la
+fiche). Un agent d'avant les ancres (v0.6.0 et avant) ne les applique pas, et ne
+refuse donc rien : la fiche le dit, mettez-le à jour pour qu'il protège.
+
+**À l'installation**, les cases cochées ouvrent des champs (la clé du trousseau de
+sauvegarde est déjà proposée) et l'écran écrit les drapeaux au bout de la ligne
+d'enrôlement, après `-rights` : un drapeau par ancre, des valeurs séparées par des
+virgules, par exemple `-backup-guest 5012,5013` pour deux VM. Ils ne servent qu'au
+premier lancement ; une valeur mal écrite arrête l'agent avant l'enrôlement, sans
+consommer le jeton.
+
+**Ensuite**, une seule commande, **en root** sur la machine : elle réécrit le
+fichier d'identité sans casser ses droits, note le changement au journal du
+système (`journalctl -t opencloud-agent`), et l'agent la prend en compte à
+l'ordre suivant, sans redémarrage.
+
+```sh
+/var/lib/opencloud-agent/bin/current agent trust list
+```
+
+`add <type> <valeur>` et `remove <type> <valeur>` complètent `list` ; le type est
+l'un des noms du tableau. Quand openCloud refuse d'envoyer un ordre (ou que
+l'agent le refuse), l'écran donne la commande `add` exacte, valeur comprise :
+copiez-la. Trois états se lisent sur la fiche de la machine, onglet Agent :
+**posées**, **aucune posée**, **illisibles** (le fichier porte une valeur qui ne se
+lit pas : `list` la montre, `remove` la retire).
+
+Coût : chaque nouvelle VM à sauvegarder, chaque clé de trousseau changée et chaque
+cible dont le certificat est renouvelé demande ce geste de root avant que l'ordre
+passe. Un ré-enrôlement efface le fichier : la fenêtre « Ré-enrôler » redonne les
+ancres posées, la ligne les porte de nouveau.
 
 L'agent juge le droit à chaque ouverture du flux, sans lancer `vzdump` : il
 répond « indisponible » (fiche de la machine, journal `rights not exercisable`)

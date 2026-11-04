@@ -41,7 +41,7 @@ type resticRestoreJob struct {
 func (r *orderRunner) acceptResticRestore(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
 	job, refused := judgeRestore(body, r.identity.Capabilities(), r.checks, r.restic.source.isProvisioned)
 	if refused != nil {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		r.journal.notAccepted(body, refused.Reason)
 		return *refused, nil
 	}
 	return accepted(body), func(ctx context.Context) {

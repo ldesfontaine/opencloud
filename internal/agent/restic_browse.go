@@ -42,12 +42,12 @@ type resticBrowseJob struct {
 func (r *orderRunner) acceptResticBrowse(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
 	dir, isTarget := resticTargetDir(r.identity.Capabilities())
 	if !isTarget {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.RightMissing(machine.CapabilityResticTarget))
+		r.journal.notAccepted(body, agentwire.RightMissing(machine.CapabilityResticTarget))
 		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.RightMissing(machine.CapabilityResticTarget)}, nil
 	}
 	job, refused := judgeBrowse(body, dir, r.checks)
 	if refused != nil {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		r.journal.notAccepted(body, refused.Reason)
 		return *refused, nil
 	}
 	return accepted(body), func(ctx context.Context) {

@@ -125,7 +125,7 @@ dit comment. Une migration de plus part de `002`.
 
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système, rôle choisi), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq`, le compte sous lequel il tourne `run_as_uid` et `run_as_name` (nuls tant qu'il ne l'a pas dit) ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport, et `unavailable`, la raison pour laquelle son compte ne peut pas l'exercer, vide s'il le peut), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système, rôle choisi), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq`, les ancres de confiance locales que l'agent dit tenir `anchors` (texte de l'en-tête ; NULL tant qu'il n'a rien dit), le compte sous lequel il tourne `run_as_uid` et `run_as_name` (nuls tant qu'il ne l'a pas dit) ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport, et `unavailable`, la raison pour laquelle son compte ne peut pas l'exercer, vide s'il le peut), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
 | Où tourne chaque machine, `state_dir` | `opencloud.db` | Le type rapporté (`machines.kind`), la correction de l'opérateur (`kind_override`, `host_override`), les cartes réseau (`machine_interfaces` : nom, adresse MAC), les disques physiques (`machine_block_devices` : nom, modèle, taille, nature, amovible), les pools (`machine_storage_pools` : genre, niveau, état, taille, disques) et les grappes d'hyperviseurs (`hypervisor_clusters`, `machine_proxmox.cluster_id`) | Rien de secret : des noms de noyau et des adresses MAC. Chaque rapport de l'agent remplace les listes ; une machine retirée les emporte (cascade), une grappe sans hôte est retirée |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_lookup` garde son SHA-256 ; le chiffré est dans `token_sealed` | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche. La machine d'une tâche, facultative, est en `restrict` : une machine à laquelle une tâche est rattachée ne se retire pas (409 `machine.has_heartbeats`), on détache la tâche d'abord |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code, issue dont « manquée » : un retard sans exécution) | Purgés : pings après 7 jours, exécutions après 90 jours |
@@ -350,7 +350,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `observe.env` | — | Que l'agent **lise l'environnement des conteneurs Docker** et en tire les liens entre instances de la machine (« Les liens de l'environnement »). **Refusé par défaut** : décoché dans le formulaire, absent des préréglages de rôle, absent de la ligne de la machine openCloud ; il se coche **machine par machine**, sous « Avancé : droits de l'agent », avec sa note. Comme `probe.lan`, aucun ordre ne l'exige : c'est une borne de l'observation, lue **une fois** au démarrage de l'agent. Un agent enrôlé avant ne l'a pas : la carte **Liens** de la fiche d'un service dit que l'environnement n'est pas lu et porte le bouton **Ré-enrôler avec « Lire l'environnement… »** (fenêtre déjà cochée, geste de U1) |
 | `agent.update` | — | Les ordres `agent.update` (mettre à jour l'agent depuis le serveur) et `agent.rollback` (revenir à la version précédente) (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire, et ne le fait que sous le lanceur stable |
 | `restic.target` | Un dossier | Recevoir des sauvegardes restic : l'agent lance et surveille `rest-server` en écriture seule sur ce dossier (« Comment restic sauvegarde »). **Refusé par défaut**, coché par machine |
-| `restic.produce` | — | Lancer restic sur la machine pour sauvegarder un service ou une VM vers une cible. **Refusé par défaut**, coché par machine. Une VM demande aussi `backup.produce` |
+| `restic.produce` | — | Lancer restic sur la machine pour sauvegarder un service ou une VM vers une cible. **Refusé par défaut**, coché par machine. Une VM demande aussi `backup.produce`. Lier la source à une cible (`restic.provision`) demande l'ancre `restic.target-cert` (« Les ancres de confiance locales ») |
 | `restic.docker` | — | Sauvegarder les **volumes nommés** et les **bases** Docker d'un service entier : l'agent lit un volume par le conteneur qui le monte (`docker cp`) et lance l'outil de dump d'une base **dans son conteneur** (`docker exec`). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Équivaut à la socket Docker que l'agent a déjà. Demandé **en plus** de `restic.produce` dès qu'un service porte un volume ou une base ; sans lui, l'ordre est refusé (`right_missing:restic.docker`) |
 | `restic.verify` | — | Vérifier les dépôts que la machine reçoit : `restic check`, puis la relecture **en mémoire** de fichiers du dernier instantané (« Comment restic se vérifie »). **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Demandé **en plus** de `restic.target` ; sans lui, l'ordre est refusé (`right_missing:restic.verify`) et l'écran propose « Ré-enrôler avec ce droit ». Coût : l'agent déchiffre du contenu (rien n'est écrit sur son disque, rien n'est rapporté) ; il détient déjà le mot de passe du dépôt pour la rétention, le droit le dit en clair |
 | `restic.browse` | — | Parcourir les dépôts que la machine reçoit, pour l'explorateur de la page Sauvegardes (« Comment on parcourt une sauvegarde ») : elle lit les **noms, tailles et dates** des fichiers d'un instantané et les rend à openCloud, qui ne les garde pas. **Refusé par défaut**, coché par machine, avec sa note à l'enrôlement. Demandé **en plus** de `restic.target` ; sans lui, l'ordre est refusé (`restic.target_browse_right_missing`) et l'écran propose « Ré-enrôler avec ce droit ». Coût : un nom de fichier est déjà une donnée, et il transite par le serveur le temps de la requête (contenu jamais lu). Ce droit est distinct de `restic.verify` : vérifier ne montre aucun nom |
@@ -358,7 +358,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
-| `backup.produce` | un à quatre **producteurs** (aujourd'hui `proxmox-vzdump`) | Produire une sauvegarde sur cette machine avec ce producteur : `proxmox-vzdump` lance `vzdump` en root par une règle `sudo` étroite (voir plus bas). **Vaut root** pour un agent compromis. Le droit se pose et se juge ici ; l'ordre qui s'en sert est décrit dans « Comment une sauvegarde se fait » |
+| `backup.produce` | un à quatre **producteurs** (aujourd'hui `proxmox-vzdump`) | Produire une sauvegarde sur cette machine avec ce producteur : `proxmox-vzdump` lance `vzdump` en root par une règle `sudo` étroite (voir plus bas). **Vaut root** pour un agent compromis. Le droit se pose et se juge ici ; l'ordre qui s'en sert est décrit dans « Comment une sauvegarde se fait ». Sans ancre `backup.recipient` et `backup.guest` posées par l'administrateur, l'ordre est refusé (« Les ancres de confiance locales ») |
 | `files.write` | un à huit chemins | Écrire des fichiers, dans ces dossiers |
 | `proxmox.power` | — | Démarrer et arrêter proprement (ACPI) une VM ou un conteneur de l'hôte Proxmox, par le jeton local de l'agent (« Comment un hôte Proxmox agit »). Ne se propose que sur une machine où le rôle `proxmox_ve` est détecté |
 | `proxmox.snapshot` | — | Créer un instantané d'une VM de l'hôte et supprimer **ceux que l'agent a créés** (`oc-AAAAMMJJ-HHMMSS`), jamais ceux de l'opérateur. Même condition et même jeton |
@@ -543,6 +543,112 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   agent, l'ancien est révoqué ; la machine et son historique restent. Pas de
   changement signé par une clé de l'opérateur : modifier le fichier à la main
   se voit comme un écart, et c'est le fichier qui s'applique.
+
+### Les ancres de confiance locales
+
+Lot 1 de l'étude « compromission du serveur » (validé par Lucas le 4 novembre
+2026). Le serveur signe les ordres : s'il est compromis, il signe ce qu'il
+veut. Un droit dit **ce que** l'agent sait faire ; une **ancre** dit **sur
+quoi** il le fait. C'est une valeur que seul l'administrateur de la machine
+pose, que l'agent garde dans `identity.json` (`anchors`), rapporte au serveur,
+et qu'**aucun ordre ne peut écrire**.
+
+| Type | Ce qu'il borne | Valeurs | Drapeau du premier lancement | Droit utile |
+| --- | --- | --- | --- | --- |
+| `backup.recipient` | le destinataire age pour lequel `backup.produce` chiffre (`recipient`) | 1 à 2 clés `age1…` | `-backup-recipient` | `backup.produce` |
+| `backup.guest` | la VM ou le conteneur que `proxmox-vzdump` copie (`target`) | 1 à 32 identifiants, sans zéro en tête | `-backup-guest` | `backup.produce` |
+| `restic.target-cert` | le certificat de la cible que `restic.provision` accepte (`certificate`) | 1 à 4 empreintes SHA-256 du certificat (64 hexadécimaux minuscules) | `-restic-target-cert` | `restic.produce` |
+
+- **Un registre, pas des `if`.** `internal/anchor` déclare chaque type une
+  fois : nom, drapeau, droit utile, nombre de valeurs, forme d'une valeur,
+  ordres et paramètres bornés, clés de refus. Le juge des ordres de l'agent
+  l'interroge (`anchor.Judge`) ; le serveur, la ligne d'installation, les
+  drapeaux et la commande locale le lisent aussi. Un test échoue dès qu'un
+  type est ajouté ou retiré sans mise à jour de sa liste attendue. Le lot 2
+  (clés d'opérateur, co-signature) ajoutera un type au même registre, avec la
+  même commande. La clé du serveur épinglée (`server_key`) reste où elle est.
+- **Refus par défaut.** Sans ancre posée, l'ordre borné est refusé ; une
+  valeur hors des ancres aussi ; des ancres illisibles aussi. Le juge de
+  l'agent le dit après le droit et avant d'écrire le rang :
+  `anchor_missing:<type>`, `anchor_outside:<type>`, `anchor_unreadable:<type>`.
+  Les autres ordres (observer, Docker, `agent.update`…) n'en dépendent pas.
+- **Poser une ancre.** Au premier lancement, un drapeau par type, à côté de
+  `-rights` (valeurs séparées par des virgules) : une valeur mal écrite refuse
+  l'agent avant l'enrôlement (code 2, `agent.anchor_invalid`), le jeton n'est
+  pas consommé ; un agent déjà enrôlé les ignore. Ensuite, une seule voie :
+  `opencloud agent trust list | add <type> <valeur> | remove <type> <valeur>`,
+  **en root** (un autre compte : refus, rien n'est écrit). Elle juge l'état
+  comme l'agent (`CheckStateDir`, avec le compte de l'agent pour propriétaire
+  admis : dossier, chaîne de dossiers, fichier d'identité, modes), prend le
+  verrou `identity.json.lock` que l'agent prend aussi, réécrit `identity.json`
+  d'un seul coup en le laissant au compte de l'agent (0600), et **écrit le
+  changement au journal du système** (`syslog`, facilité `authpriv`, lu par
+  journald). Un journal injoignable n'annule pas le changement : la commande
+  le dit.
+- **Pas de redémarrage.** L'agent relit ses ancres **avant chaque ordre**, et
+  ses propres écritures du fichier (le rang, la clé du serveur) gardent celles
+  du disque. Au signal suivant (30 s), s'il voit un écart avec ce qu'il a
+  rapporté, il rouvre le flux pour le redire.
+- **Rapportées au serveur** : en-tête `OpenCloud-Agent-Anchors`
+  (`backup.recipient=age1…,backup.guest=101:102,restic.target-cert=!` ; `!` : le
+  fichier porte des valeurs illisibles ; `none` : rien de posé), à chaque
+  ouverture du flux, gardé dans `agents.anchors` (migration 036 : **NULL** tant
+  que l'agent n'a rien dit). Un texte illisible est ignoré en entier. Le
+  protocole reste en version 2 : un champ de plus, optionnel.
+- **Le serveur n'envoie pas un ordre qu'il sait refusé** (`action.send`, comme
+  pour les droits) : `409 anchor.<type>_{missing,outside,unreadable}`, avec la
+  commande exacte à lancer sur la machine dans le corps (`command`). Un agent
+  qui n'a rien dit de ses ancres (v0.6.0 et avant) ne les applique pas : le
+  serveur ne juge rien pour lui. Un run refusé par l'agent porte la même
+  commande (`fix_command`).
+- **Ce que l'écran montre.** La ligne d'installation et la fenêtre
+  « Ré-enrôler » demandent les ancres des droits cochés (la clé du trousseau est
+  proposée ; un ré-enrôlement efface le fichier, les ancres posées se redonnent)
+  et la ligne porte les drapeaux. La fiche, onglet Agent, montre chaque type
+  dans l'un de ses trois états (**posées**, **aucune posée**, **illisibles**),
+  ou dit que l'agent n'est pas à jour. Le bloc « À faire » signale un droit coché
+  dont l'ancre manque. Partout où une raison `anchor_*` s'affiche, la commande à coller en
+  root l'accompagne (un seul composant, `AnchorFix`) : le refus d'une requête
+  (`command`, `command_exact`), un ordre refusé de la fiche (`fix_command`,
+  `fix_exact`), la carte d'une source de la page Sauvegardes, dont la dernière
+  passe du plan est refusée (`fix_command` de la protection : la VM de la source
+  et la clé du trousseau, refaites en paramètres de l'ordre). Le serveur la
+  calcule (`anchor.FixFor`) : « add <type> <valeur> » quand il connaît la valeur,
+  sinon « trust list » et un lien vers la fiche, onglet Agent. Les textes disent
+  « ordre refusé » sans dire par qui : l'agent le refuse, ou le serveur, qui le
+  sait, ne l'envoie pas.
+- **Le journal local de l'agent** (journald) reçoit, pour chaque ordre reçu,
+  refusé ou fini : `run_id`, `kind`, `seq`, `body_sha256` (le corps tel que
+  signé), `signing_key` (l'empreinte de la clé qui a signé ; absente si la
+  signature est fausse) et les paramètres **non secrets**, d'après une liste
+  blanche de champs par genre (`agentwire.JournalParams`, une entrée pour chaque
+  genre d'ordre, vérifiée par un test). Jamais le secret de l'ordre ni un
+  champ hors de la liste : ni mot de passe, ni clé privée, ni `.env`, ni
+  certificat.
+
+Ce qui protège de quoi, si le serveur est compromis :
+
+| Geste du serveur compromis | Protégé ? | Par quoi |
+| --- | --- | --- |
+| Copier une VM qu'on ne lui a pas confiée (Vaultwarden…) par `backup.produce` | oui | `backup.guest` |
+| La faire chiffrer pour sa propre clé | oui | `backup.recipient` |
+| Rediriger une source restic vers une cible à lui (`restic.provision`) | oui | `restic.target-cert` |
+| Se donner une ancre par un ordre | oui | aucun genre ne les écrit (test sur tous les genres, test statique des écritures) |
+| Effacer ou fausser ses traces côté agent | partiellement | le journal local de l'agent garde ce qui a été signé |
+| La même chose avec un accès **root** à la machine de l'agent | non | root écrit le fichier d'identité : les ancres bornent le serveur, pas la machine |
+| Lire une sauvegarde restic qui passe par son **relais** | non | le serveur détient les mots de passe des dépôts : lot 2 |
+
+Coûts, dits franchement :
+
+- Chaque VM à sauvegarder, chaque clé de trousseau changée, chaque cible dont le
+  certificat est renouvelé demande **un geste de root sur la machine** avant que
+  l'ordre passe. C'est le but ; ce n'est pas gratuit.
+- Un agent v0.6.0 **n'est pas protégé** : il ne les applique pas. La fiche le dit.
+- Aucune ancre n'est posée tant que l'administrateur ne l'a pas fait : une
+  installation qui cochait `backup.produce` voit ses sauvegardes de VM refusées
+  jusqu'à la pose, avec la commande à copier.
+- Un fichier d'identité modifié à la main avec des valeurs fausses ferme
+  l'ordre concerné : état « illisibles », corrigé par `agent trust remove`.
 
 ### Supprimer une machine
 
@@ -1267,7 +1373,7 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 | Sur le fil | un événement SSE à leur nom, au contenu typé (`agentwire.Command`) | l'événement `order` : le corps JSON tel qu'il a été signé, sa signature, l'empreinte de la clé |
 | Signées | **non** : elles ne font que lire, et ne partent que du serveur qui tient le flux | **oui**, Ed25519, par `server.key` |
 | Écrites avant l'envoi | non | oui : le run dans `action_runs`, l'événement `action.order` au journal d'audit |
-| Droits | `observe`, toujours là | celui de son genre (`action.RightOf`), appliqué par l'agent |
+| Droits | `observe`, toujours là | celui de son genre (`action.RightOf`), appliqué par l'agent ; et, pour deux genres, les ancres de confiance locales (« Les ancres de confiance locales ») |
 
 1. **L'opérateur demande** : `POST /api/machines/{id}/actions/ping`, bouton
    « Éprouver l'agent » de la carte Ordres de la fiche. Refus, sans rien
@@ -1296,7 +1402,10 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
    (`wrong_agent`) ; il n'est pas périmé (`expired`) ; son rang dépasse
    strictement le dernier exécuté (`replayed`) ; son genre est connu
    (`unknown_kind`) ; son fichier porte le droit du genre
-   (`right_missing:<droit>`). Il **écrit le rang** dans `identity.json` avant
+   (`right_missing:<droit>`) ; pour `backup.produce` et `restic.provision`, ses
+   paramètres sont dans les ancres de confiance locales posées par
+   l'administrateur de la machine (`anchor_*:<type>`, « Les ancres de confiance
+   locales »). Il **écrit le rang** dans `identity.json` avant
    d'exécuter (`state_unwritable` s'il ne le peut pas) : un rejeu reste
    refusé après un redémarrage. Un refus se rapporte au run que le corps
    nomme ; une enveloppe illisible ne se rapporte pas, elle se journalise.

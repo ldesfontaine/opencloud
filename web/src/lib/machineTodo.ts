@@ -1,8 +1,10 @@
 import type { Machine } from "../api/machines";
 import { agentBehindServer } from "./agentUpdate";
+import { blockingAnchors } from "./anchors";
 import { kindFix, type KindFix } from "./machineKind";
 import { isArchived } from "./machines";
 import { detectedProxmox } from "./proxmox";
+import { heldRights } from "./rights";
 
 // Un fait de la fiche qui demande un geste de l'opérateur. Chacun a son bouton ;
 // la liste est vide quand tout va, et le bloc « À faire » n'est alors pas là.
@@ -10,6 +12,7 @@ export type MachineTodo =
   | { kind: "agent_missing" }
   | { kind: "agent_behind"; serverVersion: string }
   | { kind: "rights_unavailable"; count: number }
+  | { kind: "anchors_blocking"; count: number }
   | { kind: "support_ended" }
   | { kind: "kind_unknown"; fix: KindFix }
   | { kind: "proxmox_to_declare"; version: string }
@@ -34,6 +37,12 @@ export function machineTodos(machine: Machine, all: readonly Machine[], serverVe
   const unavailable = agent.reported_at === null ? 0 : agent.capabilities.filter((capability) => capability.unavailable !== "").length;
   if (unavailable > 0) {
     todos.push({ kind: "rights_unavailable", count: unavailable });
+  }
+  // Un droit coché dont l'ancre de confiance manque ou ne se lit pas : l'agent
+  // refuse l'ordre, et seule la machine peut poser l'ancre.
+  const blocking = blockingAnchors(agent.anchors, heldRights(agent).map((right) => right.name));
+  if (blocking.length > 0) {
+    todos.push({ kind: "anchors_blocking", count: blocking.length });
   }
   if (machine.lifecycle?.status === "eol") {
     todos.push({ kind: "support_ended" });

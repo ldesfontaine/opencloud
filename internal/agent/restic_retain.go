@@ -48,7 +48,7 @@ func (r *orderRunner) acceptResticRetain(body agentwire.OrderBody) (agentwire.Ac
 	dir, _ := resticTargetDir(r.identity.Capabilities())
 	job, refused := r.restic.target.judgeRetain(body, dir, r.checks)
 	if refused != nil {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		r.journal.notAccepted(body, refused.Reason)
 		return *refused, nil
 	}
 	return accepted(body), func(ctx context.Context) {

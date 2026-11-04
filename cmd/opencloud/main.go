@@ -14,7 +14,8 @@ const usage = `Usage : {command} <commande> [options]
 
 Commandes :
   serve     démarre le serveur web (option -config)
-  agent     tourne sur une machine gérée (options -server -lang -pin -allow-plain -state ; jeton d'enrôlement sur l'entrée standard)
+  agent     tourne sur une machine gérée (options -server -lang -pin -allow-plain -state ; jeton d'enrôlement sur l'entrée standard) ;
+            agent trust list | add | remove : les ancres de confiance locales de l'agent, en root (option -state)
   guard     lanceur stable de l'agent : lance bin/current et revient à la version
             précédente si une mise à jour n'est pas confirmée (option -state)
   auth      status | disable : état de l'authentification de l'interface,

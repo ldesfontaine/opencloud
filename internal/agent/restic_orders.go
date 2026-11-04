@@ -105,9 +105,9 @@ func (r *orderRunner) resticProvision(body agentwire.OrderBody) agentwire.Action
 // rapport : la fiche voit le changement sans attendre la période.
 func (r *orderRunner) finishRestic(body agentwire.OrderBody, output []agentwire.OutputLine, err error) agentwire.ActionResult {
 	if err != nil {
-		r.logger.Warn("order failed", "run_id", body.RunID, "kind", string(body.Kind), "error", err)
+		r.journal.failed(body, err)
 	} else {
-		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+		r.journal.executed(body)
 	}
 	r.restic.nudge()
 	result := resultOf(body.RunID, output, err)
@@ -127,7 +127,7 @@ func (r *orderRunner) acceptResticBackup(body agentwire.OrderBody) (agentwire.Ac
 		refused = &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonResticNotProvisioned}
 	}
 	if refused != nil {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		r.journal.notAccepted(body, refused.Reason)
 		return *refused, nil
 	}
 	return accepted(body), func(ctx context.Context) {

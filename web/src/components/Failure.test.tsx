@@ -38,3 +38,19 @@ test("le droit que le refus ne nomme pas vient de l'écran", () => {
   expect(render(refused, { machineID: "m1" })).not.toContain("<a ");
   expect(render(refused, { machineID: "m1", right: "files.write" })).toContain('href="/machines/m1/reenroller?droit=files.write"');
 });
+
+test("sans valeur connue, la commande est « trust list » et un lien mène à la fiche, onglet Agent", () => {
+  const refused = new ApiError(409, "anchor.restic_target_cert_missing", { command: "/x agent trust list" });
+  const markup = render(refused, { machineID: "m3" });
+  expect(markup).toContain("/x agent trust list");
+  expect(markup).toContain('href="/machines/m3/agent"');
+  expect(render(new ApiError(409, "a", { command: "/x agent trust add a b", command_exact: true }), { machineID: "m3" })).not.toContain("<a ");
+});
+
+test("un refus par ancre locale montre la commande à lancer en root sur la machine", () => {
+  const refused = new ApiError(409, "anchor.backup_guest_missing", { error: "anchor.backup_guest_missing", command: "/var/lib/opencloud-agent/bin/current agent trust add backup.guest 5012" });
+  const markup = render(refused);
+  expect(markup).toContain("anchor.backup_guest_missing");
+  expect(markup).toContain("anchor.run_command");
+  expect(markup).toContain("/var/lib/opencloud-agent/bin/current agent trust add backup.guest 5012");
+});

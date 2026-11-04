@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -33,7 +37,7 @@ func TestInstallCommand_KeepsTheTokenOutOfEveryExecutedArgv(t *testing.T) {
 			t.Fatalf("token %q has characters that need escaping", token)
 		}
 		for _, code := range []lang.Code{lang.French, lang.English} {
-			command := installCommand("https://opencloud.example.org", token, code, nil)
+			command := installCommand("https://opencloud.example.org", token, code, nil, nil)
 			builtin, executed, piped := strings.Cut(command, " | ")
 			if !piped || builtin != "printf '%s\\n' '"+token+"'" {
 				t.Fatalf("the token must only follow printf: %q", command)
@@ -43,7 +47,7 @@ func TestInstallCommand_KeepsTheTokenOutOfEveryExecutedArgv(t *testing.T) {
 			}
 		}
 	}
-	if command := installCommand("https://x", "oc_abc", lang.English, nil); !strings.HasSuffix(command, " -lang en") {
+	if command := installCommand("https://x", "oc_abc", lang.English, nil, nil); !strings.HasSuffix(command, " -lang en") {
 		t.Fatalf("language missing: %q", command)
 	}
 }
@@ -52,7 +56,7 @@ func TestInstallCommand_KeepsTheTokenOutOfEveryExecutedArgv(t *testing.T) {
 // observe seul ne s'écrit pas, c'est le défaut de l'agent.
 func TestInstallCommand_CarriesTheCheckedRights(t *testing.T) {
 	observeOnly := []machine.Capability{{Name: machine.CapabilityObserve}}
-	if command := installCommand("https://x", "oc_abc", lang.French, observeOnly); strings.Contains(command, "-rights") {
+	if command := installCommand("https://x", "oc_abc", lang.French, observeOnly, nil); strings.Contains(command, "-rights") {
 		t.Fatalf("observe alone must not be written: %q", command)
 	}
 	checked, err := machine.NormalizeCapabilities([]machine.Capability{
@@ -62,7 +66,7 @@ func TestInstallCommand_CarriesTheCheckedRights(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := installCommand("https://x", "oc_abc", lang.French, checked)
+	command := installCommand("https://x", "oc_abc", lang.French, checked, nil)
 	if !strings.HasSuffix(command, " -rights observe,agent.update,files.write=/opt/site:/srv/workspace") {
 		t.Fatalf("rights missing or misplaced: %q", command)
 	}
@@ -72,7 +76,7 @@ func TestInstallCommand_CarriesTheCheckedRights(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command := installCommand("https://x", "oc_abc", lang.French, local); !strings.HasSuffix(command, " -rights observe,probe.lan") {
+	if command := installCommand("https://x", "oc_abc", lang.French, local, nil); !strings.HasSuffix(command, " -rights observe,probe.lan") {
 		t.Fatalf("probe.lan missing: %q", command)
 	}
 }
@@ -747,5 +751,82 @@ func TestAPI_OfferLocalEnrollment_UntilTheOpenCloudMachineHasAnAgent(t *testing.
 	}
 	if !strings.Contains(stepCommand(first.Steps, stepPrepare), " /usr/local/bin/opencloud ") || stepCommand(first.Steps, stepPrepare) != stepCommand(second.Steps, stepPrepare) {
 		t.Fatalf("the openCloud machine installs the binary of the server: %q", stepCommand(first.Steps, stepPrepare))
+	}
+}
+
+// Les ancres de confiance passent en drapeaux, un par type du registre, et
+// seulement quand le droit qu'elles bornent est coché : sans lui, l'agent ne
+// les lirait pour rien.
+func TestInstallCommand_CarriesTheAnchorsOfTheCheckedRights(t *testing.T) {
+	produce, err := machine.ParseCapabilities("backup.produce=proxmox-vzdump")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipient := "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
+	anchors := map[string][]string{
+		"backup.recipient": {recipient}, "backup.guest": {"101", "102"}, "restic.target-cert": {strings.Repeat("ab", 32)},
+	}
+	command := installCommand("https://x", "oc_abc", lang.French, produce, anchors)
+	if !strings.HasSuffix(command, " -backup-recipient "+recipient+" -backup-guest 101,102") {
+		t.Fatalf("flags missing or misplaced: %q", command)
+	}
+	if strings.Contains(command, "restic-target-cert") {
+		t.Fatalf("restic.produce is not checked, its anchor has no use: %q", command)
+	}
+	if command := installCommand("https://x", "oc_abc", lang.French, produce, nil); strings.Contains(command, " -backup-") {
+		t.Fatalf("no value, no flag: %q", command)
+	}
+	restic, _ := machine.ParseCapabilities("restic.produce")
+	if command := installCommand("https://x", "oc_abc", lang.French, restic, anchors); !strings.HasSuffix(command, " -restic-target-cert "+strings.Repeat("ab", 32)) {
+		t.Fatalf("restic flag: %q", command)
+	}
+}
+
+func TestMachineToken_RefusesAnchorsOutsideTheRegistry(t *testing.T) {
+	server := newTestServer(t)
+	produce := []map[string]any{{"name": "backup.produce", "paths": []string{"proxmox-vzdump"}}}
+	tooMany := []string{strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64), strings.Repeat("d", 64), strings.Repeat("e", 64)}
+	for name, anchors := range map[string]map[string][]string{
+		"unknown kind":  {"nothing.here": {"x"}},
+		"bad guest":     {"backup.guest": {"0101"}},
+		"duplicate":     {"backup.guest": {"101", "101"}},
+		"bad recipient": {"backup.recipient": {"AGE-SECRET-KEY-1QQQQ"}}, // gitleaks:allow -- une fausse clé privée, refusée comme destinataire.
+		"too many":      {"restic.target-cert": tooMany},
+	} {
+		response := callAPI(server.Server, http.MethodPost, "/api/machines/tokens", map[string]any{"name": "pve", "role": "generic", "capabilities": produce, "anchors": anchors})
+		if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "machine.anchor_invalid") {
+			t.Errorf("%s: %d %s", name, response.Code, response.Body)
+		}
+	}
+	valid := callAPI(server.Server, http.MethodPost, "/api/machines/tokens", map[string]any{"name": "pve", "role": "generic", "capabilities": produce, "anchors": map[string][]string{"backup.guest": {"101"}}})
+	if valid.Code != http.StatusCreated || !strings.Contains(valid.Body.String(), "-backup-guest 101") {
+		t.Fatalf("valid anchors: %d %s", valid.Code, valid.Body)
+	}
+}
+
+// Un refus par ancre rend sa clé et la commande qui le lèverait, avec un 409 :
+// l'écran montre la commande à lancer sur la machine.
+func TestFailed_AnAnchorRefusalCarriesItsKeyAndCommand(t *testing.T) {
+	server := newTestServer(t)
+	params := `{"producer":"proxmox-vzdump","target":"5012","recipient":"age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"}`
+	finding := anchor.Judge(anchor.FromFile(map[string][]string{"backup.recipient": {"age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"}}), "backup.produce", []byte(params))
+	if finding == nil {
+		t.Fatal("expected a finding")
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/anything", nil)
+	wrapped := fmt.Errorf("send backup.produce: %w", &anchor.Refused{Finding: *finding})
+	if !server.Server.failed(recorder, request, wrapped, nil) {
+		t.Fatal("a refusal is a failure")
+	}
+	var body struct {
+		Error   string `json:"error"`
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.Code != http.StatusConflict || body.Error != "anchor.backup_guest_missing" || !strings.HasSuffix(body.Command, " agent trust add backup.guest 5012") {
+		t.Fatalf("%d %+v", recorder.Code, body)
 	}
 }

@@ -134,6 +134,15 @@ func OpenStreamWithRights(t *testing.T, handler http.Handler, machineID string, 
 	})
 }
 
+// OpenStreamWithAnchors ouvre le flux d'un agent qui dit tenir ces ancres de
+// confiance locales (« none », « backup.guest=101:102 »), comme l'en-tête les écrit.
+func OpenStreamWithAnchors(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey, anchors string) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
+	t.Helper()
+	return openStream(t, handler, machineID, private, func(request *http.Request) {
+		request.Header.Set(agentwire.HeaderAgentAnchors, anchors)
+	})
+}
+
 func openStream(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey, tune func(*http.Request)) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
 	t.Helper()
 	live := httptest.NewServer(handler)

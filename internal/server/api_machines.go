@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -90,6 +91,46 @@ type agentJSON struct {
 	// L'agent revient seul à sa version d'avant si une mise à jour n'est pas
 	// confirmée ; sans cela, le serveur ne lui en envoie aucune.
 	RollbackCapable bool `json:"rollback_capable"`
+	// Les ancres de confiance locales que l'agent dit tenir.
+	Anchors anchorsJSON `json:"anchors"`
+}
+
+// Les ancres d'un agent : reported est faux chez un agent d'avant les ancres,
+// qui ne les applique pas ; sinon chaque type du registre dit son état.
+type anchorsJSON struct {
+	Reported bool             `json:"reported"`
+	Kinds    []anchorKindJSON `json:"kinds"`
+}
+
+// state : "set" (des valeurs), "none" (rien de posé : l'ordre est refusé) ou
+// "unreadable" (le fichier de l'agent porte des valeurs qui ne se lisent pas).
+type anchorKindJSON struct {
+	Name   string   `json:"name"`
+	Right  string   `json:"right"`
+	Max    int      `json:"max"`
+	State  string   `json:"state"`
+	Values []string `json:"values"`
+}
+
+const (
+	anchorStateSet        = "set"
+	anchorStateNone       = "none"
+	anchorStateUnreadable = "unreadable"
+)
+
+func anchorsToJSON(state anchor.State) anchorsJSON {
+	kinds := make([]anchorKindJSON, 0, len(anchor.Kinds()))
+	for _, kind := range anchor.Kinds() {
+		entry := anchorKindJSON{Name: kind.Name, Right: kind.Right, Max: kind.Max, State: anchorStateNone, Values: orEmpty(state.Values[kind.Name])}
+		switch {
+		case state.Unreadable[kind.Name]:
+			entry.State = anchorStateUnreadable
+		case len(entry.Values) > 0:
+			entry.State = anchorStateSet
+		}
+		kinds = append(kinds, entry)
+	}
+	return anchorsJSON{Reported: state.Reported, Kinds: kinds}
 }
 
 type capabilityJSON struct {
@@ -130,12 +171,16 @@ type tokenRequest struct {
 	Role string `json:"role"`
 	// Les droits cochés ; observe s'y ajoute toujours.
 	Capabilities []capabilityJSON `json:"capabilities"`
+	// Les ancres de confiance locales à poser au premier lancement, par type
+	// (anchor.Kinds) ; la ligne d'installation les porte en drapeaux.
+	Anchors map[string][]string `json:"anchors"`
 }
 
 // Ré-enrôler, avec les droits du nouvel agent ; absents, ceux du jeton de
 // l'agent courant.
 type reenrollRequest struct {
-	Capabilities *[]capabilityJSON `json:"capabilities"`
+	Capabilities *[]capabilityJSON   `json:"capabilities"`
+	Anchors      map[string][]string `json:"anchors"`
 }
 
 // Le jeton en clair, une seule fois, avec les étapes à jouer sur la machine.
@@ -195,6 +240,7 @@ func agentToJSON(agent machine.Agent) *agentJSON {
 		ServerKeyFingerprint: agent.ServerKeyFingerprint,
 		RunAs:                accountToJSON(agent.RunAs),
 		RollbackCapable:      agent.CanRollBack(),
+		Anchors:              anchorsToJSON(agent.Anchors),
 	}
 }
 
@@ -416,11 +462,14 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	capabilities := httpx.ConvertAll(request.Capabilities, capabilityFromJSON)
+	if s.failed(w, r, machine.ValidateAnchors(request.Anchors), nil) {
+		return
+	}
 	cleartext, token, err := s.machines.CreateToken(r.Context(), request.Name, role, capabilities)
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext, installTarget{})
+	s.writeToken(w, r, token, cleartext, installTarget{anchors: request.Anchors})
 }
 
 func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string, target installTarget) {
@@ -454,7 +503,7 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 // Le binaire est celui de l'état de l'agent, pas /usr/local/bin/opencloud : un
 // lien root vers un fichier que le compte de l'agent peut remplacer serait une
 // escalade sur une machine sans Docker.
-func installCommand(publicURL, token string, code lang.Code, capabilities []machine.Capability) string {
+func installCommand(publicURL, token string, code lang.Code, capabilities []machine.Capability, anchors map[string][]string) string {
 	command := "printf '%s\\n' '" + token + "' | runuser -u " + brand.AgentAccount + " -- " + brand.AgentCurrentPath +
 		" agent -server " + publicURL
 	if code != lang.Default {
@@ -463,7 +512,24 @@ func installCommand(publicURL, token string, code lang.Code, capabilities []mach
 	if rights := machine.FormatCapabilities(capabilities); rights != "" && rights != machine.CapabilityObserve {
 		command += " -rights " + rights
 	}
-	return command
+	return command + installAnchorFlags(capabilities, anchors)
+}
+
+// installAnchorFlags écrit les drapeaux d'ancres, un par type du registre dont
+// le droit est coché et dont l'opérateur a donné des valeurs. Sans valeur, le
+// drapeau manque : l'agent refusera l'ordre (refus par défaut), et la fiche dira
+// la commande qui pose l'ancre. Les valeurs ont la forme du type (lettres
+// minuscules et chiffres) : elles passent sans guillemets.
+func installAnchorFlags(capabilities []machine.Capability, anchors map[string][]string) string {
+	var flags string
+	for _, kind := range anchor.Kinds() {
+		values := anchors[kind.Name]
+		if len(values) == 0 || !machine.HasCapability(capabilities, kind.Right) {
+			continue
+		}
+		flags += " -" + kind.Flag + " " + anchor.FormatList(values)
+	}
+	return flags
 }
 
 // Les commandes à jouer une fois, en root, avant la ligne d'installation : le
@@ -665,11 +731,14 @@ func (s *Server) reenrollMachine(w http.ResponseWriter, r *http.Request) {
 	if request.Capabilities != nil {
 		capabilities = httpx.ConvertAll(*request.Capabilities, capabilityFromJSON)
 	}
+	if s.failed(w, r, machine.ValidateAnchors(request.Anchors), nil) {
+		return
+	}
 	cleartext, token, err := s.machines.CreateReenrollToken(r.Context(), r.PathValue("id"), capabilities)
 	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext, installTarget{local: token.MachineID == machine.LocalID, reenroll: true})
+	s.writeToken(w, r, token, cleartext, installTarget{local: token.MachineID == machine.LocalID, reenroll: true, anchors: request.Anchors})
 }
 
 // La ligne d'installation de l'agent de la machine openCloud, tant qu'elle

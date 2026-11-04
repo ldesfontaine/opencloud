@@ -214,6 +214,10 @@ export interface BackupProtection {
   state: ProtectionState;
   // Un mot fermé, ou la clé d'un refus.
   reason: string;
+  // Une ancre de confiance locale a fait refuser l'ordre : la commande à lancer
+  // en root sur la machine source, et si elle pose la valeur de l'ordre.
+  fix_command?: string;
+  fix_exact?: boolean;
   last_at: string | null;
   // La dernière réussite, même quand le dernier essai a échoué.
   last_success_at: string | null;

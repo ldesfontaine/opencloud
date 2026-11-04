@@ -7,6 +7,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/backup"
@@ -193,6 +194,9 @@ func closedKeyLists() []composedKeys {
 		{prefix: "backup.source_sub_", values: append(backup.SourceKinds(), agentwire.ResticScopeService)},
 		{prefix: "backup.target_kind_", values: backup.TargetKinds()},
 		{prefix: "backup.path_reason_", values: agentwire.ResticPathReasons()},
+		{prefix: "anchor.label_", values: anchorKeys()},
+		{prefix: "anchor.help_", values: anchorKeys()},
+		{prefix: "anchor.state_", values: []string{"set", "none", "unreadable"}},
 	}
 }
 
@@ -208,6 +212,16 @@ func capabilityKeys() []string {
 	out := make([]string, 0, len(machine.CapabilityNames()))
 	for _, name := range machine.CapabilityNames() {
 		out = append(out, strings.ReplaceAll(name, ".", "_"))
+	}
+	return out
+}
+
+// anchorKeys : le nom d'un type d'ancre devient le suffixe de ses clés
+// (« restic.target-cert » : « restic_target_cert »), comme le front le compose.
+func anchorKeys() []string {
+	out := make([]string, 0, len(anchor.Names()))
+	for _, name := range anchor.Names() {
+		out = append(out, strings.NewReplacer(".", "_", "-", "_").Replace(name))
 	}
 	return out
 }

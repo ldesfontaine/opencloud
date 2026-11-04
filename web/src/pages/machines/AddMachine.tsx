@@ -13,6 +13,7 @@ import { WizardBar } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useRoles, useT } from "../../i18n/context";
+import { anchorsOf } from "../../lib/anchors";
 import { capabilitiesOf, emptyMachineForm, isMachineFormModified, rolePatch, tokenPageState, type TokenPageState } from "../../lib/machines";
 import { EnrollFlow } from "./EnrollFlow";
 
@@ -39,7 +40,7 @@ export function AddMachine() {
   const create = (event: FormEvent) => {
     event.preventDefault();
     const rights = capabilitiesOf(values);
-    action.run(() => createMachineToken(values.name, values.role, rights), {
+    action.run(() => createMachineToken(values.name, values.role, rights, anchorsOf(values.anchors, values.rights)), {
       topic: "all",
       onDone: (created) => {
         setKnownIDs((machines.data?.machines ?? []).map((machine) => machine.id));

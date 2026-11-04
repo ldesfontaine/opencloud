@@ -1,9 +1,15 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/restic"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
@@ -88,6 +94,11 @@ type overviewProtectionJSON struct {
 	Parts []overviewPartResultJSON `json:"parts"`
 	// restic : la vérification du dépôt par sa cible ; null pour les autres.
 	Verify *overviewVerifyJSON `json:"verify"`
+	// Quand reason est un refus d'ancre de confiance locale : la commande à lancer
+	// en root sur la machine source, et si elle pose la valeur de l'ordre (faux :
+	// « trust list »). Vide sinon.
+	FixCommand string `json:"fix_command,omitempty"`
+	FixExact   bool   `json:"fix_exact,omitempty"`
 }
 
 // La vérification du dépôt d'une sauvegarde restic : state est sent,
@@ -225,18 +236,31 @@ func (s *Server) getBackupOverview(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
+	recipient := s.keyringRecipient(r.Context())
 	s.writeAPI(w, http.StatusOK, backupOverviewJSON{
-		Sources:  httpx.ConvertAll(overview.Sources, overviewSourceToJSON),
+		Sources:  httpx.ConvertAll(overview.Sources, func(source restic.Source) overviewSourceJSON { return overviewSourceToJSON(source, recipient) }),
 		Targets:  httpx.ConvertAll(overview.Targets, overviewTargetToJSON),
 		Machines: httpx.ConvertAll(overview.Machines, overviewMachineToJSON),
 	})
 }
 
-func overviewSourceToJSON(source restic.Source) overviewSourceJSON {
+// keyringRecipient rend la clé publique du trousseau, vide sans trousseau : la
+// commande qui pose l'ancre d'une sauvegarde de VM la porte.
+func (s *Server) keyringRecipient(ctx context.Context) string {
+	overview, err := s.backups.Overview(ctx)
+	if err != nil || overview.Keyring == nil {
+		return ""
+	}
+	return overview.Keyring.Recipient
+}
+
+func overviewSourceToJSON(source restic.Source, recipient string) overviewSourceJSON {
 	out := overviewSourceJSON{
 		Key: source.Key, Kind: source.Kind, Name: source.Name, MachineID: source.MachineID, MachineName: source.MachineName,
 		ServiceID: stringOrNil(source.ServiceID), Driver: source.Driver, UsedBy: orEmpty(source.UsedBy),
-		ObservedUnknown: source.ObservedUnknown, Protections: httpx.ConvertAll(source.Protections, overviewProtectionToJSON),
+		ObservedUnknown: source.ObservedUnknown, Protections: httpx.ConvertAll(source.Protections, func(protection restic.Protection) overviewProtectionJSON {
+			return overviewProtectionToJSON(protection, source, recipient)
+		}),
 		Parts: httpx.ConvertAll(source.Parts, func(part restic.SourcePart) overviewSourcePartJSON {
 			return overviewSourcePartJSON{Kind: part.Kind, Name: part.Name, Engine: part.Engine}
 		}),
@@ -248,9 +272,32 @@ func overviewSourceToJSON(source restic.Source) overviewSourceJSON {
 	return out
 }
 
-func overviewProtectionToJSON(protection restic.Protection) overviewProtectionJSON {
+// protectionFix rend la commande qui lève le refus d'ancre qu'une protection
+// porte comme raison. Le plan par archives a refusé un ordre backup.produce dont
+// les paramètres se refont : la VM de la source, la clé du trousseau. Les autres
+// origines (restic) n'ont pas la valeur : « trust list ».
+func protectionFix(protection restic.Protection, source restic.Source, recipient string) (command string, exact bool) {
+	name, ok := agentwire.AnchorOfReason(protection.Reason)
+	if !ok {
+		return "", false
+	}
+	if protection.Origin != restic.OriginArchive || source.VMID == 0 {
+		return anchor.FixFor(name, "", nil)
+	}
+	params, err := json.Marshal(agentwire.BackupProduceParams{
+		Producer: machine.ProducerProxmoxVzdump, Target: strconv.Itoa(source.VMID), Recipient: recipient,
+	})
+	if err != nil {
+		return anchor.FixFor(name, "", nil)
+	}
+	return anchor.FixFor(name, string(agentwire.KindBackupProduce), params)
+}
+
+func overviewProtectionToJSON(protection restic.Protection, source restic.Source, recipient string) overviewProtectionJSON {
+	fix, exact := protectionFix(protection, source, recipient)
 	retention := protection.Retention
 	out := overviewProtectionJSON{
+		FixCommand: fix, FixExact: exact,
 		Origin: protection.Origin, ID: protection.ID, Name: protection.Name, Scope: protection.Scope,
 		TargetMachineID: protection.TargetMachineID, TargetMachineName: protection.TargetMachineName, Storage: protection.Storage,
 		ArchiveStorage: protection.ArchiveStorage, State: protection.State, Reason: protection.Reason, LastAt: httpx.TimeOrNil(protection.LastAt),

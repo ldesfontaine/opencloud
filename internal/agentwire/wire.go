@@ -54,6 +54,11 @@ const (
 	// jugés avant chaque ouverture du flux. Absent quand tout est réalisable,
 	// et chez un agent plus vieux.
 	HeaderAgentUnavailable = brand.HeaderPrefix + "Agent-Unavailable"
+	// Les ancres de confiance locales que l'agent lit dans son fichier
+	// (anchor.State.Format), redites à chaque ouverture du flux : « none » quand
+	// aucune n'est posée. Absent chez un agent plus vieux, qui n'applique pas
+	// d'ancres : le serveur ne juge alors rien.
+	HeaderAgentAnchors = brand.HeaderPrefix + "Agent-Anchors"
 	// La version du retour arrière que l'agent sait faire, un entier : posée
 	// seulement s'il tourne sous le lanceur stable (brand.AgentGuardEnv). Absent
 	// chez un agent plus vieux ou qui n'est pas migré : le serveur refuse

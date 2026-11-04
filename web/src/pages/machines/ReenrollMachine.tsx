@@ -10,12 +10,13 @@ import { WizardBar } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT } from "../../i18n/context";
+import { anchorFieldsOf, anchorsOf, emptyAnchorFields } from "../../lib/anchors";
 import { capabilitiesOf, isRightsModified, rightsFormOf, tokenPageState, type RightsValues, type TokenPageState } from "../../lib/machines";
 import { detectedProxmox } from "../../lib/proxmox";
 import { wantedRightOf, withWantedRight } from "../../lib/rights";
 import { EnrollFlow } from "./EnrollFlow";
 
-const noRights: RightsValues = { rights: [], backupPath: "", writePaths: "", resticPath: "" };
+const noRights: RightsValues = { rights: [], backupPath: "", writePaths: "", resticPath: "", anchors: emptyAnchorFields };
 
 // « Ré-enrôler » : la fenêtre de la fiche d'une machine, à l'adresse
 // /machines/:id/reenroller. Ré-enrôler est aussi la seule façon de changer les
@@ -39,7 +40,8 @@ function ReenrollDialog({ machine }: { machine: Machine }) {
   const requested = machine.agent?.requested ?? [];
   const [search] = useSearchParams();
   const wanted = wantedRightOf(search);
-  const form = useForm(noRights, { source: requested, fill: (source) => withWantedRight(rightsFormOf(source), wanted) });
+  const heldAnchors = anchorFieldsOf(machine.agent?.anchors);
+  const form = useForm(noRights, { source: requested, fill: (source) => withWantedRight(rightsFormOf(source, heldAnchors), wanted) });
   const { values } = form;
   const action = useAction();
   const [token, setToken] = useState<TokenPageState | null>(null);
@@ -55,7 +57,7 @@ function ReenrollDialog({ machine }: { machine: Machine }) {
 
   const create = () => {
     const rights = capabilitiesOf(values);
-    action.run(() => reenrollMachine(machine.id, rights), {
+    action.run(() => reenrollMachine(machine.id, rights, anchorsOf(values.anchors, values.rights)), {
       topic: "all",
       onDone: (created) => {
         setPreviousAgentID(machine.agent?.id ?? null);
@@ -68,7 +70,7 @@ function ReenrollDialog({ machine }: { machine: Machine }) {
     <Modal
       title={title}
       onClose={close}
-      dirty={form.isFilled && isRightsModified(values, withWantedRight(rightsFormOf(requested), wanted))}
+      dirty={form.isFilled && isRightsModified(values, withWantedRight(rightsFormOf(requested, heldAnchors), wanted))}
       wide
       actions={
         <>

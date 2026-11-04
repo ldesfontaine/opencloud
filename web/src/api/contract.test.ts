@@ -12,7 +12,7 @@ import type { Firewall, FirewallCounts, FirewallDetail, FirewallFlowsResponse, F
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
-import type { Account, Agent, Capability, Machine, MachineHost, MachineRole, MachinesResponse, ReportedCapability } from "./machines";
+import type { Account, Agent, AgentAnchors, AnchorKind, Capability, Machine, MachineHost, MachineRole, MachinesResponse, ReportedCapability } from "./machines";
 import type { MachineStorage, PhysicalDisk, StoragePool } from "./storage";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
@@ -129,6 +129,10 @@ const machine = shape<Machine>("Machine", {
     capabilities_differ: value,
     run_as: shape<Account>("Account", { uid: value, name: value }),
     rollback_capable: value,
+    anchors: shape<AgentAnchors>("AgentAnchors", {
+      reported: value,
+      kinds: shape<AnchorKind>("AnchorKind", { name: value, right: value, max: value, state: value, values: value }),
+    }),
   }),
   lifecycle: optional(lifecycle),
   roles: shape<MachineRole>("MachineRole", { name: value, version: value }),
@@ -950,6 +954,8 @@ const actionRun = shape<ActionRun>("ActionRun", {
   not_after: value,
   finished_at: value,
   output: shape<RunLine>("RunLine", { at: value, stream: value, line: value }),
+  fix_command: optional(value),
+  fix_exact: optional(value),
 });
 
 const actions = shape<ActionsResponse>("ActionsResponse", { runs: actionRun });
@@ -1019,6 +1025,8 @@ const backupProtection = shape<BackupProtection>("BackupProtection", {
   archive_storage: value,
   state: value,
   reason: value,
+  fix_command: optional(value),
+  fix_exact: optional(value),
   last_at: value,
   last_success_at: value,
   next_at: value,

@@ -46,6 +46,14 @@ func CheckStateDir(opened *os.Root, path string) error {
 	if euid < 0 || euid > math.MaxUint32 {
 		return fmt.Errorf("state dir is not safe: effective uid %d is out of range", euid)
 	}
+	// #nosec G115 -- borné juste au-dessus.
+	return checkStateDirFor(opened, path, uint32(euid))
+}
+
+// checkStateDirFor fait le jugement de CheckStateDir pour un propriétaire
+// donné : celui que root accepte quand « agent trust » écrit le fichier d'un
+// autre compte, le compte de l'agent.
+func checkStateDirFor(opened *os.Root, path string, owner uint32) error {
 	// Pas de filepath.Abs : il nettoie « lien/.. » à la lettre, le noyau
 	// remonte depuis la cible. Le chemin se suit comme le noyau le suit.
 	if !filepath.IsAbs(path) {
@@ -55,8 +63,6 @@ func CheckStateDir(opened *os.Root, path string) error {
 		}
 		path = wd + string(filepath.Separator) + path
 	}
-	// #nosec G115 -- borné juste au-dessus.
-	owner := uint32(euid)
 	resolved, err := checkChain(path, lstatOwner, os.Readlink, owner)
 	if err != nil {
 		return err
@@ -75,6 +81,13 @@ func CheckStateDir(opened *os.Root, path string) error {
 		return fmt.Errorf("state dir is not safe: %s changed between its opening and its check", path)
 	}
 	return checkStateFile(opened, filepath.Join(resolved, identityFile), identityFile, owner)
+}
+
+// CheckStateDirOwnedBy est CheckStateDir pour un administrateur qui n'est pas le
+// compte de l'agent : le dossier et le fichier d'identité doivent appartenir à
+// root ou à ce compte (owner), avec les mêmes modes.
+func CheckStateDirOwnedBy(opened *os.Root, path string, owner uint32) error {
+	return checkStateDirFor(opened, path, owner)
 }
 
 // checkStateFile juge le fichier qui porte les droits : à root ou à l'agent,

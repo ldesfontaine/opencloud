@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
@@ -43,6 +44,8 @@ type Store interface {
 	RecordServerKey(ctx context.Context, agentID, fingerprint string) error
 	RecordRootDir(ctx context.Context, agentID, root string) error
 	RecordRollbackVersion(ctx context.Context, agentID string, version int) error
+	// RecordAnchors garde le texte des ancres que l'agent a dit ; "" ne change rien.
+	RecordAnchors(ctx context.Context, agentID, anchors string) error
 	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) error
 	SetRole(ctx context.Context, machineID string, role Role) error
 	// SetPlacement pose la correction de type et l'hôte désigné par l'opérateur ;
@@ -574,6 +577,18 @@ func (s *Service) NoteRollbackVersion(ctx context.Context, agentID, reported str
 		version = 0
 	}
 	return s.store.RecordRollbackVersion(ctx, agentID, version)
+}
+
+// NoteAnchors garde les ancres de confiance locales que l'agent dit tenir,
+// redites à chaque ouverture du flux. Rien (un agent d'avant) n'écrit rien :
+// le serveur ne juge alors aucun ordre par les ancres. Un texte qui ne se lit
+// pas est ignoré en entier, comme des droits illisibles.
+func (s *Service) NoteAnchors(ctx context.Context, agentID, reported string) error {
+	if _, err := anchor.Parse(reported); err != nil {
+		s.logger.Warn("agent anchors unreadable", "agent_id", agentID, "error", err)
+		reported = ""
+	}
+	return s.store.RecordAnchors(ctx, agentID, reported)
 }
 
 // SetUpdateLast pose ou retire « à mettre à jour en dernier » : la machine

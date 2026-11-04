@@ -236,6 +236,8 @@ describe("le chemin direct ou relais", () => {
   it("traduit une clé de refus telle quelle, un mot fermé par le décodeur des ordres", () => {
     expect(protectionReasonText(t, "restic.source_right_missing", () => "decoded")).toBe("restic.source_right_missing");
     expect(protectionReasonText(t, "timeout", (reason) => `decoded ${reason}`)).toBe("decoded timeout");
+    expect(protectionReasonText(t, "anchor_missing:backup.guest", (reason) => `decoded ${reason}`)).toBe("decoded anchor_missing:backup.guest");
+    expect(protectionReasonText(t, "right_missing:backup.produce", (reason) => `decoded ${reason}`)).toBe("decoded right_missing:backup.produce");
     expect(protectionReasonText(t, "", () => "decoded")).toBe("");
   });
 });

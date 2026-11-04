@@ -7,6 +7,7 @@ import { deleteMachine, useMachines, type Agent, type Machine } from "../api/mac
 import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
 import { ActionsCard } from "../components/ActionsCard";
+import { AgentAnchors } from "../components/AgentAnchors";
 import { AgentUpdate } from "../components/AgentUpdate";
 import { AgentGate } from "../components/AgentGate";
 import { Button } from "../components/Button";
@@ -196,6 +197,7 @@ function AgentCard({ machineID, agent, updateLast, withoutSudo, now }: { machine
           </Note>
         )}
         <p className="secondary">{t("machine.agent_rights_note")}</p>
+        <AgentAnchors agent={agent} />
       </CardBody>
     </Card>
   );

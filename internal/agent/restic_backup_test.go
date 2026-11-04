@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/restic"
 )
@@ -147,6 +148,9 @@ type resticBench struct {
 	agentKey ed25519.PrivateKey
 	root     string
 	seq      int64
+	// withoutTrust : le banc ne pose pas l'ancre du certificat avant un
+	// restic.provision (les tests des ancres).
+	withoutTrust bool
 }
 
 func newResticBench(t *testing.T, rights ...string) *resticBench {
@@ -190,6 +194,13 @@ func (b *resticBench) run(t *testing.T, kind agentwire.Kind, params any) []agent
 // serveur l'envoie (action.SendWithSecret).
 func (b *resticBench) runWithSecret(t *testing.T, kind agentwire.Kind, params, secret any) []agentwire.ActionResult {
 	t.Helper()
+	// L'administrateur de la machine a posé l'empreinte de la cible que ce
+	// banc lie ; les tests des ancres n'utilisent pas ce raccourci.
+	if provision, ok := params.(agentwire.ResticProvisionParams); ok && kind == agentwire.KindResticProvision && !b.withoutTrust {
+		if fingerprint := fingerprintOfPEM(provision.Certificate); fingerprint != "" {
+			b.trust(t, map[string][]string{anchor.ResticTargetCert: {fingerprint}})
+		}
+	}
 	b.seq++
 	body := longOrder(b.seq, kind, params)
 	if secret != nil {

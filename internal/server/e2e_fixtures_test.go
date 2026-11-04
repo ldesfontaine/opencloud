@@ -87,6 +87,7 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2EProxmox(t, ts)
 	seedE2ELinks(t, ts)
 	seedE2ERestic(t, ts)
+	seedE2EAnchors(t, ts)
 }
 
 // seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
@@ -440,6 +441,81 @@ const (
 	e2ePiHost   = "192.0.2.10"
 	e2ePiPort   = 8000
 )
+
+// Les ancres de confiance locales (internal/anchor) : pve-ancres, un hôte dont
+// l'administrateur n'a posé aucune ancre (ses ordres de sauvegarde sont refusés,
+// l'écran donne la commande) ; pve-illisible, dont le fichier porte des valeurs
+// qui ne se lisent pas. pve et les autres machines n'ont rien dit de leurs
+// ancres : des agents d'avant, que le serveur ne juge pas.
+const (
+	e2eAnchorsNoneID   = "aaaaaaaa-1111-4222-8333-444444444444"
+	e2eAnchorsBrokenID = "bbbbbbbb-1111-4222-8333-555555555555"
+)
+
+func seedE2EAnchors(t *testing.T, ts *testServer) {
+	t.Helper()
+	rights := "observe,restic.produce,backup.produce=proxmox-vzdump"
+	// Sa version lit le préfixe de backup.prune : il peut aussi être destination.
+	enrolled, _ := ts.enroll(t, "pve-ancres", e2eAnchorsNoneID)
+	none, err := ts.machines.Connect(context.Background(), enrolled, "192.0.2.30", "v0.6.0", rights+",backup.receive=/srv/sauvegardes", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := e2eConnect(t, ts, "pve-illisible", e2eAnchorsBrokenID, rights)
+	for id, reported := range map[string]string{e2eAnchorsNoneID: "none", e2eAnchorsBrokenID: "backup.recipient=!,backup.guest=!,restic.target-cert=!"} {
+		found, err := ts.machines.Get(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ts.machines.NoteAnchors(context.Background(), found.Agent.ID, reported); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// pve-ancres peut sauvegarder ses VM avec restic : l'assistant l'offre, et
+	// son envoi se heurte aux ancres.
+	api := newFakeProxmox(t)
+	api.setGuestName("compta")
+	request := api.request(pveTokenSecret)
+	request.TokenID = pveFullTokenID
+	if got := putProxmox(ts, e2eAnchorsNoneID, request); got.Code != http.StatusOK {
+		t.Fatalf("proxmox pve-ancres: %d %s", got.Code, got.Body.String())
+	}
+	for _, id := range []string{e2eAnchorsNoneID, e2eAnchorsBrokenID} {
+		if _, err := ts.db.ReplaceHostReport(context.Background(), id, machine.KindPhysical, hostinfo.Report{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	go e2eIgnoreOrders(none)
+	go e2eIgnoreOrders(broken)
+
+	// Un plan de sauvegarde de la VM 5012 de pve-ancres : sa dernière passe est
+	// refusée par les ancres (le serveur n'envoie pas l'ordre), la page
+	// Sauvegardes dit pourquoi et donne la commande.
+	created := callAPI(ts.Server, http.MethodPost, "/api/backups/destinations", map[string]any{"name": "sauvegardes-ancres", "machine_id": e2eAnchorsNoneID, "path": "/srv/sauvegardes"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("destination pve-ancres: %d %s", created.Code, created.Body.String())
+	}
+	var destination backupDestinationJSON
+	decodeAPI(t, created, &destination)
+	plan := map[string]any{
+		"name": "compta", "source_kind": "agent", "source_machine_id": e2eAnchorsNoneID, "producer": "proxmox-vzdump",
+		"selector": "5012", "destination_id": destination.ID, "keep": 7,
+	}
+	if got := callAPI(ts.Server, http.MethodPut, "/api/backups/plans/compta", plan); got.Code != http.StatusOK {
+		t.Fatalf("plan compta: %d %s", got.Code, got.Body.String())
+	}
+	// La passe de la nuit : la première cible est refusée par les ancres (le
+	// serveur n'envoie pas l'ordre) et la ligne de l'historique garde la raison.
+	ts.backups.RunIfDue(context.Background())
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(callAPI(ts.Server, http.MethodGet, "/api/backups/overview", nil).Body.String(), `"fix_command"`) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("la passe de compta n'a pas été refusée par les ancres")
+}
 
 // seedE2ERestic remplit la page Sauvegardes : une cible restic en marche, une
 // sauvegarde de service passée en direct, une autre par le relais (pve-nord ne

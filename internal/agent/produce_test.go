@@ -22,6 +22,7 @@ import (
 	"filippo.io/age"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -124,7 +125,16 @@ func newProduceRig(t *testing.T) *produceRig {
 	done := make(chan struct{})
 	go func() { b.runner.worker.run(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
-	return &produceRig{orderBench: b, server: server, identity: testIdentity(t)}
+	rig := &produceRig{orderBench: b, server: server, identity: testIdentity(t)}
+	rig.trustTheKeyringAndTheGuest(t)
+	return rig
+}
+
+// trustTheKeyringAndTheGuest : l'administrateur de la machine a posé la clé du
+// trousseau et la VM que les tests sauvegardent.
+func (b *produceRig) trustTheKeyringAndTheGuest(t *testing.T) {
+	t.Helper()
+	b.trust(t, map[string][]string{anchor.BackupRecipient: {b.identity.Recipient().String()}, anchor.BackupGuest: {"5012"}})
 }
 
 func (b *produceRig) useProducer(chosen producer) {
@@ -393,8 +403,21 @@ func TestBackupProduce_TheJudgeRefusesBeforeRunningAnything(t *testing.T) {
 		params := produceParams(b.identity)
 		change(&params)
 		wantReason, wantState := agentwire.ReasonBadOrder, agentwire.ActionFailed
-		if name == "an unknown nothing" {
+		switch {
+		case name == "an unknown nothing":
 			wantReason, wantState = agentwire.RightMissing(machine.CapabilityBackupProduce), agentwire.ActionRefused
+		// Une clé ou une VM qui n'a pas la forme du type ne peut être dans
+		// aucune ancre : le juge des ancres la refuse avant même la forme, et la
+		// forme (readBackupProduce) la refuserait encore, vérifié plus bas.
+		case strings.Contains(name, "target") || strings.Contains(name, "recipient") || strings.Contains(name, "private key"):
+			finding := anchor.Judge(b.storedAnchors(t), "backup.produce", mustJSON(t, params))
+			if finding == nil {
+				t.Fatalf("%s: the anchors let it through", name)
+			}
+			wantReason, wantState = agentwire.AnchorRefusal(*finding), agentwire.ActionRefused
+			if _, bad := readBackupProduce(longOrder(seq+1, agentwire.KindBackupProduce, params), b.runner.identity.Capabilities(), b.runner.produce.producers); bad == nil || bad.Reason != agentwire.ReasonBadOrder {
+				t.Errorf("%s: the shape check must still refuse it: %+v", name, bad)
+			}
 		}
 		seq++
 		if got := refused(seq, params); got.State != wantState || got.Reason != wantReason {
@@ -532,6 +555,7 @@ func TestBackupProduce_AProduceDirThatIsALinkIsNeverEmptied(t *testing.T) {
 	if err := b.stateDir.WriteFile("identity.json", []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	b.trustTheKeyringAndTheGuest(t)
 	if err := os.Symlink(".", b.produceDir()); err != nil {
 		t.Fatal(err)
 	}

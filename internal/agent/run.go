@@ -97,6 +97,10 @@ type Options struct {
 	// (GuardVersionFromEnv), 0 s'il n'en a pas : l'agent ne rapporte alors pas
 	// de retour arrière, et refuse de basculer son lien.
 	GuardVersion int
+	// Anchors sont les ancres de confiance locales posées au premier lancement
+	// (un drapeau par type, internal/anchor) ; l'identité les garde ensuite, et
+	// seul « agent trust » les change.
+	Anchors map[string][]string
 	// RootDir est la racine des services déployés (-root-dir), pour le premier
 	// lancement ; l'identité la garde ensuite. Vide : brand.WorkspaceRoot.
 	RootDir string
@@ -364,6 +368,7 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 		return Identity{}, err
 	}
 	identity.RootDir = opts.RootDir
+	identity.Anchors = opts.Anchors
 	client, err := NewClient(identity.Server, identity.Pin, opts.Version, opts.AllowPlain)
 	if err != nil {
 		return Identity{}, err
@@ -387,6 +392,9 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 		"server_key", identity.ServerKeyFingerprint())
 	return identity, nil
 }
+
+// errAnchorsChanged ferme le flux pour le rouvrir avec les ancres du fichier.
+var errAnchorsChanged = errors.New("anchors changed on disk")
 
 func keepConnected(ctx context.Context, client *Client, identity Identity, pending *pending, text lang.Catalog, opts Options) error {
 	delay := minBackoff
@@ -439,6 +447,10 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	// Le compte et la machine ont pu changer depuis la dernière ouverture : un
 	// dossier rendu, un groupe docker ajouté. Les droits se jugent à neuf.
 	pending.judgeRights(streamCtx, client, identity, opts.Logger)
+	// Les ancres aussi : une pose locale (agent trust) entre deux flux est dite
+	// à l'ouverture du suivant.
+	reportedAnchors := pending.orders.currentAnchors()
+	client.SetAnchors(reportedAnchors)
 	stream, err := client.OpenStream(streamCtx, identity)
 	if err != nil {
 		return err
@@ -476,6 +488,12 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 		case <-ticker.C:
 			if err := signal(ctx, client, stream.Session, pending, opts.Logger); err != nil {
 				return err
+			}
+			// Une ancre posée ou retirée à la main : le flux se rouvre pour que
+			// le serveur la sache, sans quoi il refuserait encore l'ordre.
+			if pending.orders.currentAnchors().Format() != reportedAnchors.Format() {
+				opts.Logger.Info("anchors changed on disk, reopening the stream to report them")
+				return errAnchorsChanged
 			}
 		case <-pending.actions.ready:
 			// La réponse à un ordre part sans attendre le prochain signal.

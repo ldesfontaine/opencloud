@@ -45,7 +45,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     capabilities_differ: false,
     server_key_fingerprint: "",
     run_as: null,
-    rollback_capable: true,
+    rollback_capable: true, anchors: { reported: false, kinds: [] },
     ...over,
   };
 }
@@ -95,7 +95,7 @@ test("un agent migré a le bouton de mise à jour et celui du retour arrière", 
 
 test("un agent pas migré ne se met pas à jour : la fiche dit pourquoi et donne les lignes à coller", () => {
   offer = { current: "v0.0.2", target: "v0.0.3", arch: "amd64", available: false, reason: "rollback_unavailable" };
-  const markup = render({ agent: agent({ rollback_capable: false }) });
+  const markup = render({ agent: agent({ rollback_capable: false, anchors: { reported: false, kinds: [] } }) });
   expect(markup).toContain("machine.agent_update_reason_rollback_unavailable");
   expect(markup).toContain("machine.agent_migration_title");
   expect(markup).toContain("sudo install guard");
@@ -107,12 +107,12 @@ test("un agent pas migré ne se met pas à jour : la fiche dit pourquoi et donne
 
 test("sans sudo (un hôte Proxmox), le bloc de migration se propose en root, avec l'autre au choix", () => {
   offer = { current: "v0.0.2", target: "v0.0.3", arch: "amd64", available: false, reason: "rollback_unavailable" };
-  const root = render({ agent: agent({ rollback_capable: false }), withoutSudo: true });
+  const root = render({ agent: agent({ rollback_capable: false, anchors: { reported: false, kinds: [] } }), withoutSudo: true });
   expect(root).toContain("runuser -u agent -- install guard");
   expect(root).not.toContain("sudo install guard");
   expect(root).toContain("machine.agent_migration_root_hint");
   expect(root).toContain("machine.agent_migration_sudo");
-  const sudo = render({ agent: agent({ rollback_capable: false }), withoutSudo: false });
+  const sudo = render({ agent: agent({ rollback_capable: false, anchors: { reported: false, kinds: [] } }), withoutSudo: false });
   expect(sudo).toContain("sudo install guard");
   expect(sudo).not.toContain("machine.agent_migration_root_hint");
 });
