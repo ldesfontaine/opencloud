@@ -15,7 +15,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     capabilities_differ: false,
     server_key_fingerprint: "",
     run_as: null,
-    rollback_capable: true,
+    rollback_capable: true, anchors: { reported: false, kinds: [] },
     ...over,
   };
 }
@@ -50,6 +50,23 @@ test("les droits cochés que le compte ne peut pas exercer se comptent, sauf tan
   ];
   expect(machineTodos(machine({ agent: agent({ capabilities: blocked }) }), [], "v0.4.2")).toEqual([{ kind: "rights_unavailable", count: 1 }]);
   expect(machineTodos(machine({ agent: agent({ capabilities: blocked, reported_at: null }) }), [], "v0.4.2")).toEqual([]);
+});
+
+test("un droit coché dont l'ancre manque ou ne se lit pas se signale, sauf chez un agent d'avant les ancres", () => {
+  const kinds = [
+    { name: "backup.recipient", right: "backup.produce", max: 2, state: "set" as const, values: ["age1x"] },
+    { name: "backup.guest", right: "backup.produce", max: 32, state: "none" as const, values: [] },
+    { name: "restic.target-cert", right: "restic.produce", max: 4, state: "unreadable" as const, values: [] },
+  ];
+  const held = [
+    { name: "backup.produce", paths: ["proxmox-vzdump"], unavailable: "" },
+    { name: "restic.produce", paths: [], unavailable: "" },
+  ];
+  const todos = (reported: boolean, capabilities = held) => machineTodos(machine({ agent: agent({ capabilities, anchors: { reported, kinds } }) }), [], "v0.4.2");
+  expect(todos(true)).toEqual([{ kind: "anchors_blocking", count: 2 }]);
+  // Le droit n'est pas coché : l'ancre ne bloque rien.
+  expect(todos(true, [])).toEqual([]);
+  expect(todos(false)).toEqual([]);
 });
 
 test("la fin de support et le type inconnu se signalent, un type corrigé non", () => {

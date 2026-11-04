@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -16,7 +17,7 @@ import (
 const machineSelect = `SELECT m.id, m.name, m.hostname, m.address, m.os, m.arch, m.created_at, m.update_last, m.role,
 		m.kind, m.kind_override, m.host_override,
 		a.id, a.public_key, a.version, a.root_dir, a.enrolled_at, a.last_seen_at, a.revoked_at,
-		a.server_key_fingerprint, a.run_as_uid, a.run_as_name, t.requested_capabilities, a.rollback_version
+		a.server_key_fingerprint, a.run_as_uid, a.run_as_name, t.requested_capabilities, a.rollback_version, a.anchors
 	FROM machines m
 	LEFT JOIN agents a ON a.id = (
 		SELECT id FROM agents WHERE machine_id = m.id
@@ -121,6 +122,20 @@ func (db *DB) RecordRollbackVersion(ctx context.Context, agentID string, version
 	result, err := db.sql.ExecContext(ctx, `UPDATE agents SET rollback_version = ? WHERE id = ?`, version, agentID)
 	if err != nil {
 		return fmt.Errorf("record rollback version: %w", err)
+	}
+	return notFoundIfNoRow(result, machine.ErrNotFound)
+}
+
+// RecordAnchors note les ancres que l'agent dit tenir à l'ouverture du flux ;
+// un texte vide les efface (NULL : l'agent n'a rien dit).
+func (db *DB) RecordAnchors(ctx context.Context, agentID, anchors string) error {
+	var stored any
+	if anchors != "" {
+		stored = anchors
+	}
+	result, err := db.sql.ExecContext(ctx, `UPDATE agents SET anchors = ? WHERE id = ?`, stored, agentID)
+	if err != nil {
+		return fmt.Errorf("record anchors: %w", err)
 	}
 	return notFoundIfNoRow(result, machine.ErrNotFound)
 }
@@ -401,8 +416,9 @@ func scanMachine(row scanner) (machine.Machine, error) {
 	var publicKey []byte
 	var enrolledAt, lastSeenAt, revokedAt, runAsUID sql.NullInt64
 	var rollbackVersion sql.NullInt64
+	var anchors sql.NullString
 	err := row.Scan(&m.ID, &m.Name, &m.Hostname, &m.Address, &m.OS, &m.Arch, &createdAt, &m.UpdateLast, &role, &kind, &kindOverride, &hostOverride,
-		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &serverKey, &runAsUID, &runAsName, &requested, &rollbackVersion)
+		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &serverKey, &runAsUID, &runAsName, &requested, &rollbackVersion, &anchors)
 	if err != nil {
 		return machine.Machine{}, err
 	}
@@ -422,6 +438,8 @@ func scanMachine(row scanner) (machine.Machine, error) {
 	if runAsUID.Valid {
 		m.Agent.RunAs = &machine.Account{UID: runAsUID.Int64, Name: runAsName.String}
 	}
+	// Des ancres illisibles en base valent « pas rapportées » : rien n'est jugé.
+	m.Agent.Anchors, _ = anchor.Parse(anchors.String)
 	// Une liste illisible en base ne se montre pas : il n'y a rien à comparer.
 	if requested.String != "" {
 		m.Agent.Requested, _ = machine.ParseCapabilities(requested.String)

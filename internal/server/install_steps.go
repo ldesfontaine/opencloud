@@ -28,6 +28,8 @@ const (
 type installTarget struct {
 	local    bool
 	reenroll bool
+	// Les ancres de confiance locales que la ligne d'enrôlement pose.
+	anchors map[string][]string
 }
 
 // installSteps donne les étapes : l'arrêt de l'agent en place (un
@@ -46,7 +48,7 @@ func installSteps(publicURL, token string, code lang.Code, capabilities []machin
 	}
 	steps = append(steps,
 		installStepJSON{ID: stepPrepare, Command: installPreparation(capabilities, version.Number(), target.local)},
-		installStepJSON{ID: stepEnroll, Command: installCommand(publicURL, token, code, capabilities)},
+		installStepJSON{ID: stepEnroll, Command: installCommand(publicURL, token, code, capabilities, target.anchors)},
 		installStepJSON{ID: stepUnit, Command: installUnit()},
 	)
 	if rights := installRights(capabilities); rights != "" {

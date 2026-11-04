@@ -1,0 +1,51 @@
+.agent-anchors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+
+  h4 {
+    margin: 0;
+    font-size: 14px;
+    color: var(--ink);
+  }
+}
+
+.anchor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+  }
+
+  .mono {
+    overflow-wrap: anywhere;
+    color: var(--ink-2);
+  }
+}
+
+// Les champs d'ancres du formulaire des droits : un groupe à part, sous les cases.
+.anchor-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+
+  legend {
+    padding: 0 6px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+}

@@ -38,6 +38,9 @@ export interface ActionRun {
   not_after: string;
   finished_at: string | null;
   output: RunLine[];
+  // La commande à lancer en root sur la machine quand une ancre de confiance
+  // locale a fait refuser l'ordre ; absente sinon.
+  fix_command?: string;
 }
 
 export interface ActionsResponse {

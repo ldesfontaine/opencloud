@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 )
@@ -73,6 +74,17 @@ func (f *fakeStore) RecordRollbackVersion(_ context.Context, agentID string, ver
 	for id, m := range f.machines {
 		if m.Agent.ID == agentID {
 			m.Agent.RollbackVersion = version
+			f.machines[id] = m
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeStore) RecordAnchors(_ context.Context, agentID, anchors string) error {
+	for id, m := range f.machines {
+		if m.Agent.ID == agentID {
+			m.Agent.Anchors, _ = anchor.Parse(anchors)
 			f.machines[id] = m
 			return nil
 		}

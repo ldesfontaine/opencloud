@@ -24,9 +24,31 @@ const (
 // déjà posé à cet endroit par un autre compte (son propriétaire, ses
 // descripteurs ouverts) n'est jamais réutilisé, même quand l'appelant est root.
 func WriteAtomic(root *os.Root, name string, data []byte, perm os.FileMode) error {
+	return writeAtomic(root, name, data, perm, nil)
+}
+
+// Owner est le compte à qui un fichier écrit par root doit appartenir.
+type Owner struct {
+	UID, GID int
+}
+
+// WriteAtomicOwned fait comme WriteAtomic, et donne le fichier à owner avant
+// qu'il n'apparaisse sous son nom : root qui remplace un fichier d'un autre
+// compte ne le lui rend pas illisible, même un instant.
+func WriteAtomicOwned(root *os.Root, name string, data []byte, perm os.FileMode, owner Owner) error {
+	return writeAtomic(root, name, data, perm, &owner)
+}
+
+func writeAtomic(root *os.Root, name string, data []byte, perm os.FileMode, owner *Owner) error {
 	temp := uniqueTempName(name)
 	if err := writeTemp(root, temp, data, perm, os.O_EXCL); err != nil {
 		return err
+	}
+	if owner != nil {
+		if err := root.Chown(temp, owner.UID, owner.GID); err != nil {
+			discard(root, nil, temp)
+			return fmt.Errorf("chown temp file: %w", err)
+		}
 	}
 	if err := root.Rename(temp, name); err != nil {
 		discard(root, nil, temp)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -25,7 +26,9 @@ import (
 // signature est de cette clé ; le corps se lit ; il vise cette machine et
 // cet agent ; il n'est pas périmé ; son rang dépasse le dernier exécuté ;
 // son genre est connu ; le fichier de l'agent porte le droit qu'il exige
-// (action.RightOf). Sinon il est refusé, et le refus est rapporté. Les
+// (action.RightOf) ; ses paramètres sont dans les ancres de confiance locales
+// que le registre de internal/anchor lui applique. Sinon il est refusé, et le
+// refus est rapporté. Les
 // commandes d'observation ne passent pas ici : elles exigent observe, que le
 // fichier porte toujours (machine.NormalizeCapabilities l'ajoute).
 type orderRunner struct {
@@ -33,7 +36,9 @@ type orderRunner struct {
 	version  string
 	results  *actionResults
 	logger   *slog.Logger
-	now      func() time.Time
+	// journal écrit les lignes locales des ordres (journal.go).
+	journal *orderJournal
+	now     func() time.Time
 	// Les ordres longs, que le juge accepte puis confie à worker ; fetch
 	// leur donne les colis du serveur.
 	worker *orderWorker
@@ -75,6 +80,7 @@ func newOrderRunner(stateDir *os.Root, identity Identity, version, dockerSocket 
 	if dockerSocket == "" {
 		dockerSocket = dockerapi.DefaultSocket
 	}
+	runner.journal = newOrderJournal(func() *slog.Logger { return runner.logger })
 	runner.restic.source.inventory = dockerapi.New(dockerSocket)
 	return runner
 }
@@ -92,15 +98,21 @@ func (r *orderRunner) receive(data []byte) {
 	}
 	body, reason := r.judge(signed)
 	if reason != "" {
-		r.refuse(runIDOf(signed.Body), reason)
+		r.refuse(signed, body, reason)
 		return
 	}
+	r.journal.received(body, "")
 	result, job := r.execute(body)
 	// « accepté » part avant que le worker ne puisse finir : la réponse
 	// finale ne le précède jamais.
 	r.results.push(result)
-	if job != nil && !r.worker.submit(job) {
-		r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonBusy)
+	if job == nil {
+		// Un ordre fait tout de suite n'a plus de ligne à dire.
+		r.journal.forget(body.RunID)
+		return
+	}
+	if !r.worker.submit(job) {
+		r.journal.refused(body, agentwire.ReasonBusy)
 		r.results.push(agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBusy})
 	}
 }
@@ -119,6 +131,7 @@ func (r *orderRunner) judge(signed agentwire.SignedOrder) (agentwire.OrderBody, 
 	if err := json.Unmarshal(signed.Body, &body); err != nil || body.RunID == "" {
 		return agentwire.OrderBody{}, agentwire.ReasonBadOrder
 	}
+	r.journal.remember(body.RunID, factsOf(signed.Body, r.identity.ServerKey))
 	switch {
 	case body.MachineID != r.identity.MachineID:
 		return body, agentwire.ReasonWrongMachine
@@ -135,10 +148,41 @@ func (r *orderRunner) judge(signed agentwire.SignedOrder) (agentwire.OrderBody, 
 	if !known || !machine.HasCapability(r.identity.Capabilities(), right) {
 		return body, agentwire.RightMissing(right)
 	}
+	// Les ancres de confiance locales : le registre dit quels paramètres de
+	// quels ordres elles bornent. Relues du disque à chaque ordre, pour
+	// qu'une ancre posée par « agent trust » vaille tout de suite.
+	if finding := anchor.Judge(r.reloadAnchors(), string(body.Kind), body.Params); finding != nil {
+		return body, agentwire.AnchorRefusal(*finding)
+	}
 	if !r.keepSeq(body.Seq) {
 		return body, agentwire.ReasonStateUnwritable
 	}
 	return body, ""
+}
+
+// reloadAnchors relit les ancres du fichier d'identité et rend ce que l'agent
+// en applique. Un fichier qui ne se lit pas garde les ancres connues : ce que
+// l'agent a appliqué jusque-là ne s'élargit jamais sur une erreur de lecture.
+// Appelé sous le verrou de l'agent.
+func (r *orderRunner) reloadAnchors() anchor.State {
+	// Sans dossier d'état (les bancs de la boucle du flux), l'identité en mémoire fait foi.
+	if r.stateDir == nil {
+		return r.identity.AnchorState()
+	}
+	if stored, err := LoadIdentity(r.stateDir); err == nil {
+		r.identity.Anchors = stored.Anchors
+	} else {
+		r.logger.Warn("reload anchors", "error", err)
+	}
+	return r.identity.AnchorState()
+}
+
+// currentAnchors rend les ancres du fichier, pour l'ouverture du flux et pour
+// savoir si une pose locale demande de la rouvrir.
+func (r *orderRunner) currentAnchors() anchor.State {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.reloadAnchors()
 }
 
 // keepSeq écrit le nouveau rang ; un échec d'écriture laisse l'ancien en
@@ -146,11 +190,12 @@ func (r *orderRunner) judge(signed agentwire.SignedOrder) (agentwire.OrderBody, 
 func (r *orderRunner) keepSeq(seq int64) bool {
 	updated := r.identity
 	updated.LastOrderSeq = seq
-	if err := SaveIdentity(r.stateDir, updated); err != nil {
+	saved, err := saveKeepingAnchors(r.stateDir, updated)
+	if err != nil {
 		r.logger.Error("keep order seq", "seq", seq, "error", err)
 		return false
 	}
-	r.identity = updated
+	r.identity = saved
 	return true
 }
 
@@ -166,7 +211,7 @@ func (r *orderRunner) keepSeq(seq int64) bool {
 func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
 	switch body.Kind {
 	case agentwire.KindAgentPing:
-		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+		r.journal.executed(body)
 		return agentwire.ActionResult{
 			RunID: body.RunID, State: agentwire.ActionSucceeded,
 			Output: []agentwire.OutputLine{{Stream: "stdout", Line: "pong " + r.version}},
@@ -206,7 +251,7 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 	case agentwire.KindResticRestore:
 		return r.acceptResticRestore(body)
 	}
-	r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
+	r.journal.refused(body, agentwire.ReasonNotImplemented)
 	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}, nil
 }
 
@@ -227,7 +272,7 @@ func accepted(body agentwire.OrderBody) agentwire.ActionResult {
 func (r *orderRunner) acceptBackupReceive(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
 	params, granted, refused := readBackupReceive(body, r.coversBackupPath(), r.checks.writable)
 	if refused != nil {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		r.journal.notAccepted(body, refused.Reason)
 		return *refused, nil
 	}
 	return accepted(body), func(ctx context.Context) {
@@ -239,7 +284,7 @@ func (r *orderRunner) acceptBackupReceive(body agentwire.OrderBody) (agentwire.A
 func (r *orderRunner) acceptBackupPrune(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
 	params, granted, refused := readBackupPrune(body, r.coversBackupPath(), r.checks.writable)
 	if refused != nil {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		r.journal.notAccepted(body, refused.Reason)
 		return *refused, nil
 	}
 	return accepted(body), func(context.Context) {
@@ -255,7 +300,7 @@ func (r *orderRunner) acceptBackupPrune(body agentwire.OrderBody) (agentwire.Act
 func (r *orderRunner) acceptBackupProduce(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
 	job, refused := readBackupProduce(body, r.identity.Capabilities(), r.produce.producers)
 	if refused != nil {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		r.journal.notAccepted(body, refused.Reason)
 		return *refused, nil
 	}
 	return accepted(body), func(ctx context.Context) {
@@ -270,7 +315,7 @@ func (r *orderRunner) acceptBackupProduce(body agentwire.OrderBody) (agentwire.A
 func (r *orderRunner) acceptProxmox(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
 	job, refused := r.proxmox.readProxmoxOrder(body)
 	if refused != nil {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		r.journal.notAccepted(body, refused.Reason)
 		return *refused, nil
 	}
 	return accepted(body), func(ctx context.Context) {
@@ -285,7 +330,7 @@ func (r *orderRunner) acceptProxmox(body agentwire.OrderBody) (agentwire.ActionR
 func (r *orderRunner) acceptDocker(body agentwire.OrderBody, update bool) (agentwire.ActionResult, func(ctx context.Context)) {
 	job, refused := readDockerOrder(body, r.identity.Root(), update)
 	if refused != nil {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		r.journal.notAccepted(body, refused.Reason)
 		return *refused, nil
 	}
 	return accepted(body), func(ctx context.Context) {
@@ -298,9 +343,9 @@ func (r *orderRunner) acceptDocker(body agentwire.OrderBody, update bool) (agent
 // le job : ni le résultat ni le journal ne le portent.
 func (r *orderRunner) finishDocker(body agentwire.OrderBody, output []agentwire.OutputLine, err error) {
 	if err != nil {
-		r.logger.Warn("order failed", "run_id", body.RunID, "kind", string(body.Kind), "error", err)
+		r.journal.failed(body, err)
 	} else {
-		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+		r.journal.executed(body)
 	}
 	r.results.push(dockerResultOf(body.RunID, output, err))
 }
@@ -308,9 +353,9 @@ func (r *orderRunner) finishDocker(body agentwire.OrderBody, output []agentwire.
 // finishLong rapporte la fin d'un ordre long.
 func (r *orderRunner) finishLong(body agentwire.OrderBody, output []agentwire.OutputLine, err error) {
 	if err != nil {
-		r.logger.Warn("order failed", "run_id", body.RunID, "kind", string(body.Kind), "error", err)
+		r.journal.failed(body, err)
 	} else {
-		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+		r.journal.executed(body)
 	}
 	r.results.push(resultOf(body.RunID, output, err))
 }
@@ -320,9 +365,9 @@ func (r *orderRunner) finishLong(body agentwire.OrderBody, output []agentwire.Ou
 // envoi qui échoue est « échoué ».
 func (r *orderRunner) finishProduce(body agentwire.OrderBody, output []agentwire.OutputLine, err error) {
 	if err != nil {
-		r.logger.Warn("order failed", "run_id", body.RunID, "kind", string(body.Kind), "error", err)
+		r.journal.failed(body, err)
 	} else {
-		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+		r.journal.executed(body)
 	}
 	result := resultOf(body.RunID, output, err)
 	if result.State == agentwire.ActionFailed && isUntouched(err) {
@@ -345,11 +390,12 @@ func (r *orderRunner) pinServerKey(body agentwire.OrderBody) agentwire.ActionRes
 	}
 	updated := r.identity
 	updated.ServerKey = key
-	if err := SaveIdentity(r.stateDir, updated); err != nil {
+	saved, err := saveKeepingAnchors(r.stateDir, updated)
+	if err != nil {
 		r.logger.Error("pin server key", "run_id", body.RunID, "error", err)
 		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonStateUnwritable}
 	}
-	r.identity = updated
+	r.identity = saved
 	fingerprint := agentwire.KeyFingerprint(key)
 	r.logger.Info("server key pinned", "run_id", body.RunID, "server_key", fingerprint)
 	return agentwire.ActionResult{
@@ -366,8 +412,17 @@ func (r *orderRunner) serverKey() []byte {
 	return r.identity.ServerKey
 }
 
-func (r *orderRunner) refuse(runID, reason string) {
-	r.logger.Warn("order refused", "run_id", runID, "reason", reason)
+// refuse dit le refus d'un ordre : au journal local, avec ce qu'on en sait
+// (les empreintes du corps signé, les paramètres si le corps se lit), et au
+// serveur s'il y a un run à qui répondre.
+func (r *orderRunner) refuse(signed agentwire.SignedOrder, body agentwire.OrderBody, reason string) {
+	runID := body.RunID
+	if runID != "" {
+		r.journal.received(body, reason)
+	} else {
+		runID = runIDOf(signed.Body)
+		r.logger.Warn("order refused", "run_id", runID, "reason", reason, "body_sha256", factsOf(signed.Body, nil).bodySHA256)
+	}
 	if runID == "" {
 		return
 	}

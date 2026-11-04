@@ -3,6 +3,7 @@ import type { Agent } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useT, type Translate } from "../i18n/context";
+import { anchorLabelKey, anchorOfReason } from "../lib/anchors";
 import { capabilityLabelKey } from "../lib/machines";
 import { reenrollPath } from "../lib/rights";
 import type { Tone } from "../lib/tone";
@@ -10,6 +11,7 @@ import { formatWhen } from "../lib/time";
 import { AgentGate } from "./AgentGate";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "./Card";
+import { TokenBox } from "./Copy";
 import { Failure } from "./Failure";
 import { MissingRightButton } from "./MissingRight";
 import { Pill } from "./Pill";
@@ -138,6 +140,12 @@ function RunRow({ run, now }: { run: ActionRun; now: number }) {
       <td>
         <Pill tone={stateTones[run.state]}>{t(`action.state_${run.state}`)}</Pill>
         {run.reason !== "" && <div className="secondary">{reasonText(t, run.reason)}</div>}
+        {run.fix_command !== undefined && run.fix_command !== "" && (
+          <div>
+            <p className="secondary">{t("anchor.run_command")}</p>
+            <TokenBox value={run.fix_command} />
+          </div>
+        )}
         {missing !== null && run.machine_id !== null && <MissingRightButton machineID={run.machine_id} right={missing} />}
         {run.reason === "server_key_missing" && run.machine_id !== null && <ReenrollButton machineID={run.machine_id} />}
         {output !== "" && <pre className="secondary">{output}</pre>}
@@ -155,6 +163,11 @@ function missingRightOf(reason: string): string | null {
 
 // La raison d'un refus ; right_missing porte après « : » le droit qui manque.
 export function reasonText(t: Translate, reason: string): string {
+  // Une ancre de confiance locale a fait refuser l'ordre : la phrase nomme le type.
+  const anchored = anchorOfReason(reason);
+  if (anchored !== null) {
+    return t(`action.reason_anchor_${anchored.why}`, t(anchorLabelKey(anchored.name)));
+  }
   const [code, right] = reason.split(":");
   if (right !== undefined) {
     return t(`action.reason_${code}`, t(capabilityLabelKey(right)));

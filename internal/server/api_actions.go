@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
@@ -43,6 +45,9 @@ type actionRunJSON struct {
 	NotAfter    time.Time     `json:"not_after"`
 	FinishedAt  *time.Time    `json:"finished_at"`
 	Output      []runLineJSON `json:"output"`
+	// La commande à lancer en root sur la machine quand une ancre de confiance
+	// locale a fait refuser l'ordre (anchor_*:<type>) ; vide sinon.
+	FixCommand string `json:"fix_command,omitempty"`
 }
 
 type runLineJSON struct {
@@ -71,7 +76,8 @@ func actionRunToJSON(run action.Run) actionRunJSON {
 		params = json.RawMessage("{}")
 	}
 	return actionRunJSON{
-		ID: run.ID, Kind: string(run.Kind), Params: params,
+		FixCommand: fixCommandOf(run),
+		ID:         run.ID, Kind: string(run.Kind), Params: params,
 		MachineID: stringOrNil(run.MachineID), MachineName: run.MachineName, AgentID: stringOrNil(run.AgentID),
 		ServiceID: stringOrNil(run.ServiceID),
 		State:     string(run.State), Reason: run.Reason, Seq: run.Seq,
@@ -79,6 +85,16 @@ func actionRunToJSON(run action.Run) actionRunJSON {
 		FinishedAt: httpx.TimeOrNil(run.FinishedAt),
 		Output:     httpx.ConvertAll(run.Output, runLineToJSON),
 	}
+}
+
+// fixCommandOf rend la commande qui poserait l'ancre dont l'agent a refusé
+// l'ordre, calculée de ses paramètres ; vide pour tout autre run.
+func fixCommandOf(run action.Run) string {
+	name, ok := agentwire.AnchorOfReason(run.Reason)
+	if !ok {
+		return ""
+	}
+	return anchor.CommandFor(name, string(run.Kind), json.RawMessage(run.Params))
 }
 
 func runLineToJSON(line action.LogLine) runLineJSON {

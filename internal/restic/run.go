@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
@@ -278,19 +276,13 @@ func runReason(state action.State, reason string) string {
 	return agentReason(reason)
 }
 
-// agentReason garde une raison de la liste fermée, avec le droit nommé pour
-// « right_missing:<droit> ».
+// agentReason garde une raison de la liste fermée (avec le droit ou l'ancre
+// nommés après « : »), tout autre texte devient « unknown ».
 func agentReason(reason string) string {
 	if reason == "" {
 		return ""
 	}
-	if capability, found := strings.CutPrefix(reason, agentwire.ReasonRightMissing+":"); found {
-		if slices.Contains(machine.CapabilityNames(), capability) {
-			return reason
-		}
-		return reasonUnknown
-	}
-	if slices.Contains(agentwire.RefusalReasons(), reason) {
+	if agentwire.IsReportedReason(reason) {
 		return reason
 	}
 	return reasonUnknown

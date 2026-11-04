@@ -1,5 +1,8 @@
+import { useBackups } from "../api/backups";
 import { useT } from "../i18n/context";
+import { anchorHelpKey, anchorKindsFor, anchorLabelKey, withKeyringRecipient } from "../lib/anchors";
 import { alwaysGranted, capabilityLabelKey, offeredCapabilities, toggleRight, type RightsValues } from "../lib/machines";
+import "./AgentAnchors.scss";
 import { Note } from "./Card";
 import { Checkbox, Checks, Field, Input } from "./Field";
 
@@ -18,6 +21,14 @@ export function RightsFields({
   proxmoxDetected: boolean;
 }) {
   const t = useT();
+  // La clé du trousseau de sauvegarde : cochée, backup.produce la propose comme
+  // ancre de chiffrement, que l'opérateur peut corriger.
+  const recipient = useBackups().data?.keyring?.recipient;
+  const toggle = (name: string) => {
+    const rights = toggleRight(values.rights, name);
+    update({ rights, anchors: rights.includes("backup.produce") ? withKeyringRecipient(values.anchors, recipient) : values.anchors });
+  };
+  const anchorKinds = anchorKindsFor(values.rights);
   return (
     <>
       <Field label={t("machine.rights_label")} help={t("machine.rights_help")} tip={t("machine.rights_tip")}>
@@ -28,7 +39,7 @@ export function RightsFields({
               label={t(capabilityLabelKey(name))}
               checked={name === alwaysGranted || values.rights.includes(name)}
               disabled={name === alwaysGranted}
-              onChange={() => update({ rights: toggleRight(values.rights, name) })}
+              onChange={() => toggle(name)}
             />
           ))}
         </Checks>
@@ -79,6 +90,24 @@ export function RightsFields({
             required
           />
         </Field>
+      )}
+      {anchorKinds.length > 0 && (
+        <fieldset className="anchor-fields">
+          <legend>{t("anchor.form_title")}</legend>
+          <p className="secondary">{t("anchor.form_help")}</p>
+          {anchorKinds.map((kind) => (
+            <Field key={kind.name} label={t(anchorLabelKey(kind.name))} htmlFor={`anchor-${kind.name}`} help={`${t(anchorHelpKey(kind.name))} ${t("anchor.form_values_help")}`}>
+              <Input
+                id={`anchor-${kind.name}`}
+                mono
+                type="text"
+                value={values.anchors[kind.name] ?? ""}
+                onChange={(event) => update({ anchors: { ...values.anchors, [kind.name]: event.target.value } })}
+                autoComplete="off"
+              />
+            </Field>
+          ))}
+        </fieldset>
       )}
     </>
   );

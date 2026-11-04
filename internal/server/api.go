@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
@@ -19,6 +20,9 @@ const maxAPIBody = 64 << 10
 // traduit ; sinon un code court (not_found, bad_json, internal).
 type apiError struct {
 	Error string `json:"error"`
+	// La commande à lancer sur la machine pour lever le refus d'une ancre de
+	// confiance locale (anchor.Refused) ; absente pour les autres refus.
+	Command string `json:"command,omitempty"`
 }
 
 const (
@@ -89,6 +93,11 @@ func (s *Server) failed(w http.ResponseWriter, r *http.Request, err, notFound er
 		var refused *deletion.RefusedError
 		if errors.As(err, &refused) {
 			s.writeAPI(w, refusalStatus(err), deletionRefusalJSON{Error: key, Plan: deletionPlanToJSON(refused.Plan)})
+			return true
+		}
+		var anchored *anchor.Refused
+		if errors.As(err, &anchored) {
+			s.writeAPI(w, refusalStatus(err), apiError{Error: key, Command: anchored.Command()})
 			return true
 		}
 		s.writeAPIError(w, refusalStatus(err), key)

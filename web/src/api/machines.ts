@@ -108,7 +108,33 @@ export interface Agent {
   // L'agent revient seul à sa version d'avant si une mise à jour n'est pas
   // confirmée ; sans cela, le serveur ne lui en envoie aucune.
   rollback_capable: boolean;
+  // Les ancres de confiance locales que l'agent dit tenir.
+  anchors: AgentAnchors;
 }
+
+// L'état d'un type d'ancre sur une machine : des valeurs posées, rien de posé
+// (l'ordre qu'il borne est refusé), ou un fichier dont les valeurs ne se
+// lisent pas (refusé aussi, autrement corrigé).
+type AnchorState = "set" | "none" | "unreadable";
+
+// Un type d'ancre du registre du serveur (internal/anchor), tel qu'un agent le
+// tient : right est le droit dont l'ordre est borné.
+export interface AnchorKind {
+  name: string;
+  right: string;
+  max: number;
+  state: AnchorState;
+  values: string[];
+}
+
+// reported est faux chez un agent d'avant les ancres : il ne les applique pas.
+export interface AgentAnchors {
+  reported: boolean;
+  kinds: AnchorKind[];
+}
+
+// Les ancres à poser à l'installation, par type d'ancre.
+export type Anchors = Record<string, string[]>;
 
 export interface PendingToken {
   id: string;
@@ -157,8 +183,8 @@ export function useMachines(wanted = true): Resource<MachinesResponse> {
 
 // Un jeton à usage unique pour enrôler une machine neuve, avec les droits
 // cochés ; observe s'y ajoute toujours.
-export async function createMachineToken(name: string, role: RoleID, capabilities: Capability[]): Promise<TokenResponse> {
-  return api.send<TokenResponse>(route("POST /api/machines/tokens"), { name, role, capabilities });
+export async function createMachineToken(name: string, role: RoleID, capabilities: Capability[], anchors: Anchors): Promise<TokenResponse> {
+  return api.send<TokenResponse>(route("POST /api/machines/tokens"), { name, role, capabilities, anchors });
 }
 
 // Change le rôle de la machine, donc ses modules ; ses droits ne bougent pas.
@@ -184,8 +210,8 @@ export async function offerLocalEnrollment(): Promise<TokenResponse> {
 
 // Un nouveau jeton pour le même identifiant de machine, avec les droits de son
 // nouvel agent : c'est ainsi qu'on change ceux d'un agent.
-export async function reenrollMachine(id: string, capabilities: Capability[]): Promise<TokenResponse> {
-  return api.send<TokenResponse>(route("POST /api/machines/{id}/actions/reenroll", { id }), { capabilities });
+export async function reenrollMachine(id: string, capabilities: Capability[], anchors: Anchors): Promise<TokenResponse> {
+  return api.send<TokenResponse>(route("POST /api/machines/{id}/actions/reenroll", { id }), { capabilities, anchors });
 }
 
 // Supprimer la machine : effacée avec son historique, ou, avec keepHistory,

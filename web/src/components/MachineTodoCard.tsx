@@ -37,6 +37,8 @@ function todoText(t: Translate, todo: MachineTodo): string {
   switch (todo.kind) {
     case "agent_behind":
       return t("machine.todo_agent_behind", todo.serverVersion);
+    case "anchors_blocking":
+      return todo.count === 1 ? t("machine.todo_anchors_blocking_one") : t("machine.todo_anchors_blocking", todo.count);
     case "rights_unavailable":
       return todo.count === 1 ? t("machine.todo_rights_unavailable_one") : t("machine.todo_rights_unavailable", todo.count);
     case "proxmox_to_declare":
@@ -59,6 +61,7 @@ function todoTarget(machineID: string, todo: MachineTodo): string {
       return `${base}/reenroller`;
     case "agent_behind":
     case "rights_unavailable":
+    case "anchors_blocking":
       return `${base}/agent`;
     case "support_ended":
       return `${base}#support`;

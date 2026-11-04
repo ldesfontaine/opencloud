@@ -18,7 +18,7 @@ function agentWith(requested: string[], reported: { name: string; unavailable?: 
     capabilities_differ: false,
     server_key_fingerprint: "",
     run_as: null,
-    rollback_capable: true,
+    rollback_capable: true, anchors: { reported: false, kinds: [] },
   } satisfies Agent;
 }
 
@@ -37,14 +37,14 @@ test("wantedRightOf : seul un droit de la liste fermée, hors observe, se coche"
 });
 
 test("withWantedRight : coche le droit sans doublon et ajoute son chemin à ceux qui y sont", () => {
-  const values = { rights: ["probe.lan", "backup.receive"], backupPath: "/srv/a", writePaths: "", resticPath: "" };
+  const values = { rights: ["probe.lan", "backup.receive"], backupPath: "/srv/a", writePaths: "", resticPath: "", anchors: {} };
   expect(withWantedRight(values, null)).toBe(values);
   expect(withWantedRight(values, { name: "agent.update", path: "" }).rights).toEqual(["probe.lan", "backup.receive", "agent.update"]);
-  expect(withWantedRight(values, { name: "backup.receive", path: "/srv/b" })).toEqual({ rights: ["probe.lan", "backup.receive"], backupPath: "/srv/a, /srv/b", writePaths: "", resticPath: "" });
+  expect(withWantedRight(values, { name: "backup.receive", path: "/srv/b" })).toEqual({ rights: ["probe.lan", "backup.receive"], backupPath: "/srv/a, /srv/b", writePaths: "", resticPath: "", anchors: {} });
   expect(withWantedRight(values, { name: "backup.receive", path: "/srv/a" }).backupPath).toBe("/srv/a");
-  expect(withWantedRight({ rights: [], backupPath: "", writePaths: "", resticPath: "" }, { name: "files.write", path: "/srv/w" })).toEqual({ rights: ["files.write"], backupPath: "", writePaths: "/srv/w", resticPath: "" });
+  expect(withWantedRight({ rights: [], backupPath: "", writePaths: "", resticPath: "", anchors: {} }, { name: "files.write", path: "/srv/w" })).toEqual({ rights: ["files.write"], backupPath: "", writePaths: "/srv/w", resticPath: "", anchors: {} });
   // Un seul dossier pour une cible restic : le voulu remplace l'ancien.
-  expect(withWantedRight({ rights: [], backupPath: "", writePaths: "", resticPath: "/srv/old" }, { name: "restic.target", path: "/srv/restic" }).resticPath).toBe("/srv/restic");
+  expect(withWantedRight({ rights: [], backupPath: "", writePaths: "", resticPath: "/srv/old", anchors: {} }, { name: "restic.target", path: "/srv/restic" }).resticPath).toBe("/srv/restic");
 });
 
 test("rightOfRefusal : les refus qui nomment leur droit", () => {

@@ -42,6 +42,7 @@ export function withWantedRight(values: RightsValues, wanted: WantedRight | null
   }
   const rights = values.rights.includes(wanted.name) ? values.rights : [...values.rights, wanted.name];
   return {
+    ...values,
     rights,
     backupPath: wanted.name === "backup.receive" ? addPath(values.backupPath, wanted.path) : values.backupPath,
     writePaths: wanted.name === "files.write" ? addPath(values.writePaths, wanted.path) : values.writePaths,

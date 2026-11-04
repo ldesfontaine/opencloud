@@ -2,6 +2,7 @@ import type { Account, Agent, Capability, Machine, ReportedCapability, RoleID, T
 import type { SessionRole } from "../api/session";
 import type { Translate } from "../i18n/context";
 import type { SelectOption } from "./select";
+import { areAnchorsModified, emptyAnchorFields, type AnchorFields } from "./anchors";
 import { seenAgo } from "./time";
 
 // Le sous-titre des pages qui comptent les machines : rien, une, plusieurs.
@@ -26,6 +27,8 @@ export interface RightsValues {
   writePaths: string;
   // Le dossier des dépôts d'une cible restic : un seul.
   resticPath: string;
+  // Les ancres de confiance locales à poser à l'installation (lib/anchors.ts).
+  anchors: AnchorFields;
 }
 
 // Le formulaire d'une machine neuve : l'opérateur la nomme et coche les
@@ -39,7 +42,7 @@ interface MachineFormValues extends RightsValues {
 // Le rôle générique d'abord, et probe.lan coché d'emblée : les sondes d'une
 // machine visent d'abord son réseau local ; l'opérateur le décoche s'il veut
 // les en empêcher. C'est le préréglage de ce rôle (machine.RolePreset).
-export const emptyMachineForm: MachineFormValues = { name: "", role: "generic", rights: ["probe.lan"], backupPath: "", writePaths: "", resticPath: "" };
+export const emptyMachineForm: MachineFormValues = { name: "", role: "generic", rights: ["probe.lan"], backupPath: "", writePaths: "", resticPath: "", anchors: emptyAnchorFields };
 
 // Choisir un rôle coche d'avance ses droits, tels que le serveur les dit à la
 // session ; l'opérateur les ajuste ensuite sous « Avancé ».
@@ -52,25 +55,27 @@ export function rolePatch(role: RoleID, roles: readonly SessionRole[]): Pick<Mac
 // demande alors s'il faut l'abandonner.
 export function isMachineFormModified(values: MachineFormValues): boolean {
   const sameRights = values.rights.length === emptyMachineForm.rights.length && values.rights.every((right) => emptyMachineForm.rights.includes(right));
-  return values.name.trim() !== "" || values.role !== emptyMachineForm.role || values.backupPath.trim() !== "" || values.writePaths.trim() !== "" || values.resticPath.trim() !== "" || !sameRights;
+  return values.name.trim() !== "" || values.role !== emptyMachineForm.role || values.backupPath.trim() !== "" || values.writePaths.trim() !== "" || values.resticPath.trim() !== "" || !sameRights || areAnchorsModified(values.anchors, emptyAnchorFields);
 }
 
 // Les droits ont changé depuis ceux d'origine (l'ordre des cases n'y compte pas) :
 // fermer la fenêtre du ré-enrôlement demande alors s'il faut les abandonner.
 export function isRightsModified(values: RightsValues, initial: RightsValues): boolean {
   const sameRights = values.rights.length === initial.rights.length && values.rights.every((right) => initial.rights.includes(right));
-  return !sameRights || values.backupPath.trim() !== initial.backupPath.trim() || values.writePaths.trim() !== initial.writePaths.trim() || values.resticPath.trim() !== initial.resticPath.trim();
+  return !sameRights || values.backupPath.trim() !== initial.backupPath.trim() || values.writePaths.trim() !== initial.writePaths.trim() || values.resticPath.trim() !== initial.resticPath.trim() || areAnchorsModified(values.anchors, initial.anchors);
 }
 
 // Les droits d'un agent en valeurs du formulaire : ce que son jeton
-// demandait, pour les changer.
-export function rightsFormOf(capabilities: Capability[]): RightsValues {
+// demandait, pour les changer, avec les ancres qu'il tient (un ré-enrôlement
+// efface son fichier : elles se redonnent).
+export function rightsFormOf(capabilities: Capability[], anchors: AnchorFields = emptyAnchorFields): RightsValues {
   const pathsOf = (name: string) => capabilities.find((capability) => capability.name === name)?.paths ?? [];
   return {
     rights: capabilities.map((capability) => capability.name).filter((name) => name !== alwaysGranted),
     backupPath: pathsOf("backup.receive").join(", "),
     writePaths: pathsOf("files.write").join(", "),
     resticPath: pathsOf("restic.target").join(", "),
+    anchors,
   };
 }
 

@@ -38,3 +38,11 @@ test("le droit que le refus ne nomme pas vient de l'écran", () => {
   expect(render(refused, { machineID: "m1" })).not.toContain("<a ");
   expect(render(refused, { machineID: "m1", right: "files.write" })).toContain('href="/machines/m1/reenroller?droit=files.write"');
 });
+
+test("un refus par ancre locale montre la commande à lancer en root sur la machine", () => {
+  const refused = new ApiError(409, "anchor.backup_guest_missing", { error: "anchor.backup_guest_missing", command: "/var/lib/opencloud-agent/bin/current agent trust add backup.guest 5012" });
+  const markup = render(refused);
+  expect(markup).toContain("anchor.backup_guest_missing");
+  expect(markup).toContain("anchor.run_command");
+  expect(markup).toContain("/var/lib/opencloud-agent/bin/current agent trust add backup.guest 5012");
+});

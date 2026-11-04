@@ -5,8 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // OrderBody est ce que la clé du serveur signe : quel ordre, pour quelle
@@ -207,9 +211,57 @@ const (
 	ReasonPathNotInSnapshot = "path_not_in_snapshot"
 )
 
+// Les raisons d'un refus par ancre de confiance locale (internal/anchor) :
+// aucune ancre posée, ancres illisibles, ou valeur de l'ordre hors des ancres.
+// Elles portent après « : » le type d'ancre, comme right_missing porte le droit.
+const (
+	ReasonAnchorMissing    = "anchor_missing"
+	ReasonAnchorUnreadable = "anchor_unreadable"
+	ReasonAnchorOutside    = "anchor_outside"
+)
+
+// AnchorRefusal rend la raison d'un ordre refusé par une ancre.
+func AnchorRefusal(finding anchor.Finding) string {
+	reason := ReasonAnchorOutside
+	switch finding.Why {
+	case anchor.WhyMissing:
+		reason = ReasonAnchorMissing
+	case anchor.WhyUnreadable:
+		reason = ReasonAnchorUnreadable
+	}
+	return reason + ":" + finding.Kind.Name
+}
+
 // RightMissing rend la raison d'un ordre refusé faute du droit nommé.
 func RightMissing(right string) string {
 	return ReasonRightMissing + ":" + right
+}
+
+// AnchorOfReason rend le type d'ancre qu'une raison « anchor_*:<type> » nomme.
+func AnchorOfReason(reason string) (string, bool) {
+	for _, prefix := range []string{ReasonAnchorMissing, ReasonAnchorUnreadable, ReasonAnchorOutside} {
+		if name, found := strings.CutPrefix(reason, prefix+":"); found {
+			_, known := anchor.Lookup(name)
+			return name, known
+		}
+	}
+	return "", false
+}
+
+// IsReportedReason dit si une raison que l'agent rapporte est de la liste
+// fermée : une raison nue, ou « right_missing:<droit> » et
+// « anchor_*:<ancre> » avec un droit ou un type d'ancre connu.
+func IsReportedReason(reason string) bool {
+	if right, found := strings.CutPrefix(reason, ReasonRightMissing+":"); found {
+		return slices.Contains(machine.CapabilityNames(), right)
+	}
+	if _, found := AnchorOfReason(reason); found {
+		return true
+	}
+	if strings.Contains(reason, ":") && strings.HasPrefix(reason, "anchor_") {
+		return false
+	}
+	return slices.Contains(RefusalReasons(), reason)
 }
 
 // RefusalReasons rend la liste, dans l'ordre où l'agent juge.
@@ -217,6 +269,7 @@ func RefusalReasons() []string {
 	return []string{
 		ReasonServerKeyMissing, ReasonBadSignature, ReasonBadOrder, ReasonWrongMachine,
 		ReasonWrongAgent, ReasonExpired, ReasonReplayed, ReasonUnknownKind, ReasonRightMissing,
+		ReasonAnchorMissing, ReasonAnchorUnreadable, ReasonAnchorOutside,
 		ReasonStateUnwritable, ReasonNotImplemented, ReasonPathOutsideRight, ReasonPathUnwritable,
 		ReasonDownloadFailed, ReasonDigestMismatch, ReasonNotAgeFile, ReasonBusy,
 		ReasonNotSelfUpdatable, ReasonReleaseKeyMissing, ReasonSignatureInvalid, ReasonVersionMismatch,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
@@ -268,9 +269,12 @@ func (p *agentPass) begin(ctx context.Context, target string) (*targetRun, error
 // sendFailure dit, pour une cible, pourquoi un ordre n'a pas pu partir. Le
 // refus d'origine reste dans la chaîne : le plan le note, l'appelant le lit.
 func sendFailure(err error, capability string) error {
+	var refused *anchor.Refused
 	switch {
 	case errors.Is(err, action.ErrMachineOffline):
 		return &targetFailure{reason: action.ReasonUndelivered, cause: err}
+	case errors.As(err, &refused):
+		return &targetFailure{reason: agentwire.AnchorRefusal(refused.Finding), cause: err}
 	case errors.Is(err, action.ErrRightMissing):
 		return &targetFailure{reason: agentwire.RightMissing(capability), cause: err}
 	}
@@ -526,11 +530,7 @@ func runReason(run action.Run) string {
 	return reasonUnknown
 }
 
-// isAgentReason : une raison que l'agent sait dire, avec le droit nommé pour
-// « right_missing:<droit> ».
+// isAgentReason : une raison que l'agent sait dire.
 func isAgentReason(reason string) bool {
-	if capability, found := strings.CutPrefix(reason, agentwire.ReasonRightMissing+":"); found {
-		return slices.Contains(machine.CapabilityNames(), capability)
-	}
-	return slices.Contains(agentwire.RefusalReasons(), reason)
+	return agentwire.IsReportedReason(reason)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -259,6 +260,11 @@ func (s *Service) send(ctx context.Context, order ServiceOrder) (Run, error) {
 	}
 	if !target.Agent.ReportedAt.IsZero() && !coversOrder(target.Agent.Capabilities, kind, params) {
 		return Run{}, ErrRightMissing
+	}
+	// Une ancre que l'agent a dit tenir et que l'ordre ne satisfait pas : il le
+	// refuserait, la commande qui la pose est dans le refus.
+	if finding := anchor.JudgeReported(target.Agent.Anchors, string(kind), params); finding != nil {
+		return Run{}, &anchor.Refused{Finding: *finding}
 	}
 	if !target.Online {
 		return Run{}, ErrMachineOffline

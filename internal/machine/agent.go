@@ -3,6 +3,7 @@ package machine
 import (
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
@@ -40,6 +41,10 @@ type Agent struct {
 	ServerKeyFingerprint string
 	// La version du retour arrière que l'agent dit savoir faire ; 0 : aucun.
 	RollbackVersion int
+	// Les ancres de confiance locales que l'agent dit tenir ; Reported faux
+	// tant qu'il n'a rien dit (un agent d'avant les ancres, qui ne les applique
+	// pas).
+	Anchors anchor.State
 }
 
 // CanRollBack dit si l'agent revient seul à sa version d'avant quand une

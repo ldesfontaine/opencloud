@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -97,6 +98,13 @@ type Client struct {
 	unavailable string
 	// Le retour arrière que l'agent sait faire (0 : aucun).
 	rollback int
+	// Les ancres de confiance locales du fichier de l'agent, redites de même.
+	anchors string
+}
+
+// SetAnchors fixe les ancres que l'agent rapporte à l'ouverture du flux.
+func (c *Client) SetAnchors(state anchor.State) {
+	c.anchors = state.Format()
 }
 
 // SetAccount fixe le compte que l'agent dit à l'ouverture du flux.
@@ -276,6 +284,9 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	}
 	if c.unavailable != "" {
 		request.Header.Set(agentwire.HeaderAgentUnavailable, c.unavailable)
+	}
+	if c.anchors != "" {
+		request.Header.Set(agentwire.HeaderAgentAnchors, c.anchors)
 	}
 	if c.rollback > 0 {
 		request.Header.Set(agentwire.HeaderAgentRollback, strconv.Itoa(c.rollback))

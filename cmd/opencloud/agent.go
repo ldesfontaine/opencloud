@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/ldesfontaine/opencloud/internal/agent"
+	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -44,6 +45,9 @@ func (r *refusal) Error() string {
 // l'entrée standard et s'enrôle ; les suivants relisent l'identité et se
 // connectent.
 func runAgent(args []string) error {
+	if len(args) > 0 && args[0] == "trust" {
+		return runAgentTrust(args[1:], os.Stdout)
+	}
 	flags := flag.NewFlagSet("agent", flag.ContinueOnError)
 	server := flags.String("server", "", "adresse d'"+brand.ProductName+", premier lancement seulement")
 	// -token n'existe que pour être refusé avec une phrase claire, plutôt que
@@ -61,6 +65,12 @@ func runAgent(args []string) error {
 	// il les cherche ici ou dans son PATH.
 	resticBinary := flags.String("restic", "", "chemin absolu de restic (droits restic.produce et restic.docker) ; vide : cherché dans le PATH")
 	restServerBinary := flags.String("rest-server", "", "chemin absolu de rest-server (droit restic.target) ; vide : cherché dans le PATH")
+	// Un drapeau par type d'ancre de confiance locale, premier lancement
+	// seulement : la liste vient du registre, pas d'ici.
+	anchorFlags := map[string]*string{}
+	for _, kind := range anchor.Kinds() {
+		anchorFlags[kind.Name] = flags.String(kind.Flag, "", "ancres "+kind.Name+" posées à l'installation (valeurs séparées par des virgules), premier lancement seulement")
+	}
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -88,6 +98,11 @@ func runAgent(args []string) error {
 	capabilities, err := machine.ParseCapabilities(*rights)
 	if err != nil {
 		return &refusal{message: catalogs.For(code).Get("agent.rights_invalid")}
+	}
+	// Les ancres aussi : une valeur mal écrite ne doit pas consommer le jeton.
+	anchors, badAnchor := parseAnchorFlags(anchorFlags)
+	if badAnchor != nil {
+		return &refusal{message: catalogs.For(code).Format("agent.anchor_invalid", badAnchor.Flag, badAnchor.Max)}
 	}
 	// La racine aussi se juge avant l'enrôlement, pour la même raison.
 	if !machine.ValidCapabilityPath(*rootDir) {
@@ -130,6 +145,7 @@ func runAgent(args []string) error {
 		AllowPlain:   *allowPlain,
 		Language:     code,
 		Rights:       capabilities,
+		Anchors:      anchors,
 		RootDir:      *rootDir,
 		Version:      version.Number(),
 		DockerSocket: *dockerSocket,
@@ -164,6 +180,22 @@ func explainStateDirError(err error, path string, account machine.Account, text 
 	}
 	label := agent.AccountLabel(account)
 	return &refusal{message: text.Format("agent.state_denied", label, path, label, path)}
+}
+
+// parseAnchorFlags lit les drapeaux d'ancres ; rend le type dont la valeur est
+// mauvaise, le cas échéant.
+func parseAnchorFlags(flags map[string]*string) (map[string][]string, *anchor.Kind) {
+	anchors := map[string][]string{}
+	for _, kind := range anchor.Kinds() {
+		values, err := anchor.ParseList(kind, *flags[kind.Name])
+		if err != nil {
+			return nil, &kind
+		}
+		if len(values) > 0 {
+			anchors[kind.Name] = values
+		}
+	}
+	return anchors, nil
 }
 
 func flagIsSet(flags *flag.FlagSet, name string) bool {
