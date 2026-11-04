@@ -16,7 +16,11 @@ import (
 // enrolledStateDir écrit un état d'agent enrôlé et rend son dossier.
 func enrolledStateDir(t *testing.T) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "state")
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o700); err != nil { // le umask ne décide pas de la garde de l'état
+		t.Fatal(err)
+	}
+	dir := filepath.Join(parent, "state")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

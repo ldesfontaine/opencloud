@@ -58,7 +58,13 @@ func newOrderBenchWithRights(t *testing.T, rights []string) *orderBench {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stateDir, err := os.OpenRoot(t.TempDir())
+	// 0700 explicite : t.TempDir suit le umask, et l'état de l'agent n'est sûr
+	// que fermé aux autres comptes (CheckStateDir).
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stateDir, err := os.OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
