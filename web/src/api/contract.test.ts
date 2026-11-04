@@ -955,6 +955,7 @@ const actionRun = shape<ActionRun>("ActionRun", {
   finished_at: value,
   output: shape<RunLine>("RunLine", { at: value, stream: value, line: value }),
   fix_command: optional(value),
+  fix_exact: optional(value),
 });
 
 const actions = shape<ActionsResponse>("ActionsResponse", { runs: actionRun });
@@ -1024,6 +1025,8 @@ const backupProtection = shape<BackupProtection>("BackupProtection", {
   archive_storage: value,
   state: value,
   reason: value,
+  fix_command: optional(value),
+  fix_exact: optional(value),
   last_at: value,
   last_success_at: value,
   next_at: value,

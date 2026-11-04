@@ -231,12 +231,13 @@ export function pathReasonText(t: Translate, path: BackupPath): string {
 }
 
 // Un refus porte sa clé (« restic.source_right_missing ») ; un mot fermé des
-// ordres passe par leur décodeur.
+// ordres passe par leur décodeur, avec son argument après « : »
+// (« anchor_missing:backup.guest », « right_missing:backup.produce »).
 export function protectionReasonText(t: Translate, reason: string, describeReason: (reason: string) => string): string {
   if (reason === "") {
     return "";
   }
-  return reason.includes(".") ? t(reason) : describeReason(reason);
+  return reason.includes(".") && !reason.includes(":") ? t(reason) : describeReason(reason);
 }
 
 // Le disque d'une cible en trois parts : ce que les sauvegardes y prennent,

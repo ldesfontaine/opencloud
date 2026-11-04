@@ -48,6 +48,8 @@ type actionRunJSON struct {
 	// La commande à lancer en root sur la machine quand une ancre de confiance
 	// locale a fait refuser l'ordre (anchor_*:<type>) ; vide sinon.
 	FixCommand string `json:"fix_command,omitempty"`
+	// La commande pose la valeur de l'ordre ; faux : « trust list ».
+	FixExact bool `json:"fix_exact,omitempty"`
 }
 
 type runLineJSON struct {
@@ -71,13 +73,14 @@ type serverKeyJSON struct {
 }
 
 func actionRunToJSON(run action.Run) actionRunJSON {
+	fix, exact := fixCommandOf(run)
 	params := json.RawMessage(run.Params)
 	if len(params) == 0 {
 		params = json.RawMessage("{}")
 	}
 	return actionRunJSON{
-		FixCommand: fixCommandOf(run),
-		ID:         run.ID, Kind: string(run.Kind), Params: params,
+		FixCommand: fix, FixExact: exact,
+		ID: run.ID, Kind: string(run.Kind), Params: params,
 		MachineID: stringOrNil(run.MachineID), MachineName: run.MachineName, AgentID: stringOrNil(run.AgentID),
 		ServiceID: stringOrNil(run.ServiceID),
 		State:     string(run.State), Reason: run.Reason, Seq: run.Seq,
@@ -87,14 +90,14 @@ func actionRunToJSON(run action.Run) actionRunJSON {
 	}
 }
 
-// fixCommandOf rend la commande qui poserait l'ancre dont l'agent a refusé
-// l'ordre, calculée de ses paramètres ; vide pour tout autre run.
-func fixCommandOf(run action.Run) string {
+// fixCommandOf rend la commande qui lèverait le refus d'une ancre dont l'ordre
+// porte la raison, calculée de ses paramètres ; vide pour tout autre run.
+func fixCommandOf(run action.Run) (command string, exact bool) {
 	name, ok := agentwire.AnchorOfReason(run.Reason)
 	if !ok {
-		return ""
+		return "", false
 	}
-	return anchor.CommandFor(name, string(run.Kind), json.RawMessage(run.Params))
+	return anchor.FixFor(name, string(run.Kind), json.RawMessage(run.Params))
 }
 
 func runLineToJSON(line action.LogLine) runLineJSON {

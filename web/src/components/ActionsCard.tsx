@@ -11,7 +11,7 @@ import { formatWhen } from "../lib/time";
 import { AgentGate } from "./AgentGate";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "./Card";
-import { TokenBox } from "./Copy";
+import { AnchorFix } from "./AnchorFix";
 import { Failure } from "./Failure";
 import { MissingRightButton } from "./MissingRight";
 import { Pill } from "./Pill";
@@ -140,12 +140,7 @@ function RunRow({ run, now }: { run: ActionRun; now: number }) {
       <td>
         <Pill tone={stateTones[run.state]}>{t(`action.state_${run.state}`)}</Pill>
         {run.reason !== "" && <div className="secondary">{reasonText(t, run.reason)}</div>}
-        {run.fix_command !== undefined && run.fix_command !== "" && (
-          <div>
-            <p className="secondary">{t("anchor.run_command")}</p>
-            <TokenBox value={run.fix_command} />
-          </div>
-        )}
+        {run.fix_command !== undefined && run.fix_command !== "" && <AnchorFix command={run.fix_command} exact={run.fix_exact === true} machineID={run.machine_id} />}
         {missing !== null && run.machine_id !== null && <MissingRightButton machineID={run.machine_id} right={missing} />}
         {run.reason === "server_key_missing" && run.machine_id !== null && <ReenrollButton machineID={run.machine_id} />}
         {output !== "" && <pre className="secondary">{output}</pre>}

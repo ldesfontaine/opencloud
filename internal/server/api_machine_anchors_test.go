@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/anchor"
+	"github.com/ldesfontaine/opencloud/internal/restic"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 )
 
@@ -85,5 +87,31 @@ func TestMachine_SaysTheAnchorsItsAgentReports(t *testing.T) {
 	resp.Body.Close()
 	if !none.Reported || stateOf(none, "backup.guest") != "none" {
 		t.Fatalf("none: %+v", none)
+	}
+}
+
+// Une protection dont la dernière passe est refusée par une ancre porte la
+// commande à lancer : exacte pour une VM d'un plan par archives (sa VM, la clé
+// du trousseau), « trust list » sinon (restic : la valeur n'est pas connue).
+func TestProtectionFix_ExactForAnArchivePlanListOtherwise(t *testing.T) {
+	const recipient = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
+	archive := restic.Protection{Origin: restic.OriginArchive, Reason: "anchor_missing:backup.guest"}
+	command, exact := protectionFix(archive, restic.Source{VMID: 5012}, recipient)
+	if !exact || !strings.HasSuffix(command, " agent trust add backup.guest 5012") {
+		t.Fatalf("%q %v", command, exact)
+	}
+	archive.Reason = "anchor_outside:backup.recipient"
+	if command, exact = protectionFix(archive, restic.Source{VMID: 5012}, recipient); !exact || !strings.HasSuffix(command, " agent trust add backup.recipient "+recipient) {
+		t.Fatalf("%q %v", command, exact)
+	}
+	if command, exact = protectionFix(archive, restic.Source{VMID: 5012}, ""); exact || !strings.HasSuffix(command, " agent trust list") {
+		t.Fatalf("no keyring: %q %v", command, exact)
+	}
+	resticOrigin := restic.Protection{Origin: restic.OriginRestic, Reason: "anchor_missing:restic.target-cert"}
+	if command, exact = protectionFix(resticOrigin, restic.Source{VMID: 5012}, recipient); exact || !strings.HasSuffix(command, " agent trust list") {
+		t.Fatalf("restic: %q %v", command, exact)
+	}
+	if command, _ = protectionFix(restic.Protection{Reason: "timeout"}, restic.Source{}, recipient); command != "" {
+		t.Fatalf("another reason has no fix: %q", command)
 	}
 }

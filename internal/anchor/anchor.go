@@ -236,6 +236,7 @@ func (f Finding) Refusal() *refusal.Error {
 
 // Command rend la commande que l'opérateur lance en root sur la machine pour
 // poser l'ancre qui manque. Vide quand la valeur de l'ordre n'est pas lisible.
+// Fix rend toujours une commande.
 func (f Finding) Command() string {
 	if f.Value == "" {
 		return ""
@@ -257,6 +258,17 @@ func CommandFor(kindName, order string, params json.RawMessage) string {
 		return ""
 	}
 	return TrustCommand("add", kind.Name, value)
+}
+
+// FixFor rend la commande à lancer en root pour lever le refus d'un type
+// d'ancre : exacte (« add <type> <valeur> ») quand les paramètres de l'ordre
+// donnent la valeur, sinon « trust list », qui montre ce que l'agent tient, et
+// exact est faux : l'écran ajoute alors un lien vers la fiche de la machine.
+func FixFor(kindName, order string, params json.RawMessage) (command string, exact bool) {
+	if command := CommandFor(kindName, order, params); command != "" {
+		return command, true
+	}
+	return TrustCommand("list", "", ""), false
 }
 
 // TrustCommand écrit la commande locale, telle qu'on la colle. Le binaire est
@@ -477,6 +489,14 @@ type Refused struct {
 
 func (r *Refused) Error() string {
 	return r.Finding.Refusal().Error()
+}
+
+// Fix rend la commande du refus et dit si elle pose la valeur de l'ordre.
+func (r *Refused) Fix() (command string, exact bool) {
+	if command := r.Finding.Command(); command != "" {
+		return command, true
+	}
+	return TrustCommand("list", "", ""), false
 }
 
 // Unwrap laisse refusal.KeyOf lire la clé du type d'ancre.

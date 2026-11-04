@@ -607,7 +607,16 @@ et qu'**aucun ordre ne peut écrire**.
   et la ligne porte les drapeaux. La fiche, onglet Agent, montre chaque type
   dans l'un de ses trois états (**posées**, **aucune posée**, **illisibles**),
   ou dit que l'agent n'est pas à jour. Le bloc « À faire » signale un droit coché
-  dont l'ancre manque. Le refus d'un ordre montre la commande à coller en root.
+  dont l'ancre manque. Partout où une raison `anchor_*` s'affiche, la commande à coller en
+  root l'accompagne (un seul composant, `AnchorFix`) : le refus d'une requête
+  (`command`, `command_exact`), un ordre refusé de la fiche (`fix_command`,
+  `fix_exact`), la carte d'une source de la page Sauvegardes, dont la dernière
+  passe du plan est refusée (`fix_command` de la protection : la VM de la source
+  et la clé du trousseau, refaites en paramètres de l'ordre). Le serveur la
+  calcule (`anchor.FixFor`) : « add <type> <valeur> » quand il connaît la valeur,
+  sinon « trust list » et un lien vers la fiche, onglet Agent. Les textes disent
+  « ordre refusé » sans dire par qui : l'agent le refuse, ou le serveur, qui le
+  sait, ne l'envoie pas.
 - **Le journal local de l'agent** (journald) reçoit, pour chaque ordre reçu,
   refusé ou fini : `run_id`, `kind`, `seq`, `body_sha256` (le corps tel que
   signé), `signing_key` (l'empreinte de la clé qui a signé ; absente si la

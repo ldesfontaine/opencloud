@@ -94,3 +94,20 @@ test("un ordre que les ancres feraient refuser n'est pas envoyé : le refus donn
   await dialog.getByRole("button", { name: label("machine.copy") }).click();
   expect(findings.unknown()).toEqual([]);
 });
+
+test("page Sauvegardes : la dernière passe d'un plan refusée par une ancre dit pourquoi et donne la commande", async ({ page, findings }) => {
+  findings.where = "/sauvegardes (plan compta)";
+  await page.clock.setFixedTime(new Date("2026-09-12T12:00:00Z"));
+  await page.goto("/sauvegardes");
+  const card = page.locator("article.backup-source").filter({ has: page.locator("h3", { hasText: /^compta$/ }) });
+  await card.scrollIntoViewIfNeeded();
+  await expect(card).toContainText(label("backup.status_protection_refused"));
+  // La phrase ne dit pas que seul l'agent refuse : le serveur n'envoie pas l'ordre qu'il sait refusé.
+  await expect(card).toContainText(/Ordre refusé : aucune ancre « Clé de chiffrement de confiance »/);
+  const fix = card.locator(".anchor-fix");
+  await expect(fix).toContainText(label("anchor.run_command"));
+  await expect(fix.locator(".token-box code")).toContainText(/agent trust add backup\.recipient age1[a-z0-9]+/);
+  await fix.getByRole("button", { name: label("machine.copy") }).click();
+  await expect(fix.getByRole("button", { name: new RegExp(`${label("machine.copied")}|${label("machine.copy_failed")}`) })).toBeVisible();
+  expect(findings.unknown()).toEqual([]);
+});

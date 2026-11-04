@@ -23,6 +23,9 @@ type apiError struct {
 	// La commande à lancer sur la machine pour lever le refus d'une ancre de
 	// confiance locale (anchor.Refused) ; absente pour les autres refus.
 	Command string `json:"command,omitempty"`
+	// La commande pose la valeur de l'ordre (faux : « trust list », l'écran
+	// renvoie alors à la fiche de la machine).
+	CommandExact bool `json:"command_exact,omitempty"`
 }
 
 const (
@@ -97,7 +100,8 @@ func (s *Server) failed(w http.ResponseWriter, r *http.Request, err, notFound er
 		}
 		var anchored *anchor.Refused
 		if errors.As(err, &anchored) {
-			s.writeAPI(w, refusalStatus(err), apiError{Error: key, Command: anchored.Command()})
+			command, exact := anchored.Fix()
+			s.writeAPI(w, refusalStatus(err), apiError{Error: key, Command: command, CommandExact: exact})
 			return true
 		}
 		s.writeAPIError(w, refusalStatus(err), key)

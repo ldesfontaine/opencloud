@@ -501,9 +501,9 @@ reason_wrong_agent = "L'ordre visait un autre agent de cette machine (avant un r
 reason_expired = "L'ordre est arrivé après son échéance."
 reason_replayed = "Rang déjà vu : l'agent a pris l'ordre pour un rejeu."
 reason_right_missing = "L'agent n'a pas le droit « %s »."
-reason_anchor_missing = "Aucune ancre « %s » n'est posée sur la machine : l'agent a refusé l'ordre."
-reason_anchor_unreadable = "Les ancres « %s » de la machine sont illisibles : l'agent a refusé l'ordre."
-reason_anchor_outside = "La valeur de l'ordre n'est pas parmi les ancres « %s » de la machine : l'agent l'a refusé."
+reason_anchor_missing = "Ordre refusé : aucune ancre « %s » n'est posée sur la machine (l'agent le refuse, ou {product}, qui le sait, ne l'envoie pas)."
+reason_anchor_unreadable = "Ordre refusé : les ancres « %s » de la machine sont illisibles (l'agent le refuse, ou {product}, qui le sait, ne l'envoie pas)."
+reason_anchor_outside = "Ordre refusé : sa valeur n'est pas parmi les ancres « %s » de la machine (l'agent le refuse, ou {product}, qui le sait, ne l'envoie pas)."
 reason_not_implemented = "L'agent connaît cet ordre mais ne sait pas encore l'exécuter."
 reason_unknown_kind = "L'agent ne connaît pas cet ordre : il est plus ancien que {product}."
 reason_state_unwritable = "L'agent n'a pas pu écrire le rang de l'ordre dans son fichier : il ne l'a pas exécuté."
@@ -3860,6 +3860,7 @@ rest_server_missing = "rest-server n'est pas installé sur la cible : installez-
 link_secret_lost = "Les mots de passe de ce lien ont été perdus avec la clé de {product} : la source sauvegarde encore, la cible ne purge plus ce dépôt."
 
 [anchor]
+see_machine = "Voir ce que l'agent tient (fiche, onglet Agent)"
 cmd_list = "{agent_binary} agent trust list"
 cmd_add = "{agent_binary} agent trust add %s %s"
 title = "Ancres de confiance"

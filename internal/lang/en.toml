@@ -501,9 +501,9 @@ reason_wrong_agent = "The order was for another agent of this machine (before a 
 reason_expired = "The order arrived after its deadline."
 reason_replayed = "Rank already seen: the agent took the order for a replay."
 reason_right_missing = "The agent lacks the « %s » right."
-reason_anchor_missing = "No “%s” anchor is set on the machine: the agent refused the order."
-reason_anchor_unreadable = "The machine’s “%s” anchors cannot be read: the agent refused the order."
-reason_anchor_outside = "The order’s value is not among the machine’s “%s” anchors: the agent refused it."
+reason_anchor_missing = "Order refused: no “%s” anchor is set on the machine (the agent refuses it, or {product}, which knows, does not send it)."
+reason_anchor_unreadable = "Order refused: the machine’s “%s” anchors cannot be read (the agent refuses it, or {product}, which knows, does not send it)."
+reason_anchor_outside = "Order refused: its value is not among the machine’s “%s” anchors (the agent refuses it, or {product}, which knows, does not send it)."
 reason_not_implemented = "The agent knows this order but cannot run it yet."
 reason_unknown_kind = "The agent does not know this order: it is older than {product}."
 reason_state_unwritable = "The agent could not write the order's rank to its file: it did not run it."
@@ -3860,6 +3860,7 @@ rest_server_missing = "rest-server is not installed on the target: install it, t
 link_secret_lost = "The passwords of this link were lost with the {product} key: the source still backs up, the target no longer purges this repository."
 
 [anchor]
+see_machine = "See what the agent holds (sheet, Agent tab)"
 cmd_list = "{agent_binary} agent trust list"
 cmd_add = "{agent_binary} agent trust add %s %s"
 title = "Trust anchors"

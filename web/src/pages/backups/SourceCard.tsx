@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 
 import { type BackupMachine, type BackupOverview, type BackupProtection, type BackupSource } from "../../api/backups";
 import { reasonText } from "../../components/ActionsCard";
+import { AnchorFix } from "../../components/AnchorFix";
 import { Button } from "../../components/Button";
 import { TokenBox } from "../../components/Copy";
 import { Failure } from "../../components/Failure";
@@ -376,6 +377,7 @@ function ProtectionState({ source, protection, machines }: { source: BackupSourc
           </Pill>
           <span>{protectionReasonText(t, protection.reason, (reason) => reasonText(t, reason)) || t("backup.reason_unreported")}</span>
         </div>
+        {protection.fix_command !== undefined && protection.fix_command !== "" && <AnchorFix command={protection.fix_command} exact={protection.fix_exact === true} machineID={source.machine_id} />}
         {right !== null && <MissingRightButton machineID={machineID} right={right} short />}
         {missing !== null && holder !== undefined && <InstallBlock software={missing} machine={holder} />}
       </div>

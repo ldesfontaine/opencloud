@@ -3,7 +3,7 @@ import { useT } from "../i18n/context";
 import { commandOfRefusal } from "../lib/anchors";
 import { rightOfRefusal } from "../lib/rights";
 import { Note } from "./Card";
-import { TokenBox } from "./Copy";
+import { AnchorFix } from "./AnchorFix";
 import { MissingRightButton } from "./MissingRight";
 
 // Où un refus de droit mène : la machine dont l'agent manque du droit, le
@@ -27,13 +27,12 @@ export function Failure({ error, gesture }: { error: ApiError | string | null | 
   const key = typeof error === "string" ? error : errorKey(error);
   // Une ancre de confiance locale a fait refuser l'ordre : le serveur joint la
   // commande que l'administrateur lance sur la machine pour la poser.
-  const command = commandOfRefusal(error);
-  if (command !== null) {
+  const fix = commandOfRefusal(error);
+  if (fix !== null) {
     return (
       <Note tone="danger">
         <p>{t(key)}</p>
-        <p className="secondary">{t("anchor.run_command")}</p>
-        <TokenBox value={command} />
+        <AnchorFix command={fix.command} exact={fix.exact} machineID={gesture?.machineID} />
       </Note>
     );
   }

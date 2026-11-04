@@ -85,7 +85,8 @@ test("une raison d'ordre refusé par une ancre nomme son type", () => {
 });
 
 test("la commande d'un refus vient du corps de la réponse", () => {
-  expect(commandOfRefusal(new ApiError(409, "anchor.backup_guest_missing", { error: "anchor.backup_guest_missing", command: "/x agent trust add backup.guest 101" }))).toBe("/x agent trust add backup.guest 101");
+  expect(commandOfRefusal(new ApiError(409, "anchor.backup_guest_missing", { error: "x", command: "/x agent trust add backup.guest 101", command_exact: true }))).toEqual({ command: "/x agent trust add backup.guest 101", exact: true });
+  expect(commandOfRefusal(new ApiError(409, "x", { command: "/x agent trust list" }))).toEqual({ command: "/x agent trust list", exact: false });
   expect(commandOfRefusal(new ApiError(409, "action.right_missing"))).toBeNull();
   expect(commandOfRefusal(new ApiError(409, "x", { command: "" }))).toBeNull();
   expect(commandOfRefusal("anchor.backup_guest_missing")).toBeNull();

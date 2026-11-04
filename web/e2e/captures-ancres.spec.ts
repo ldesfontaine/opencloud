@@ -40,3 +40,11 @@ test("la fenêtre Ré-enrôler ouverte : les ancres demandées avec le droit", a
   await expect(dialog.getByLabel(label("anchor.label_backup_recipient"))).toHaveValue(/^age1/);
   await shoot(page, "reenroler");
 });
+
+test("la page Sauvegardes : la passe refusée par une ancre, la commande à coller", async ({ page }) => {
+  await open(page, "/sauvegardes");
+  const card = page.locator("article.backup-source").filter({ has: page.locator("h3", { hasText: /^compta$/ }) });
+  await expect(card.locator(".anchor-fix")).toBeVisible();
+  await card.scrollIntoViewIfNeeded();
+  await shoot(page, "sauvegardes");
+});
