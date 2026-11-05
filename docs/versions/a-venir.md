@@ -7,7 +7,8 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 ## L'essentiel
 
 - **Un serveur openCloud compromis ne peut plus exfiltrer de données par les sauvegardes** (lot 1 de l'étude « compromission du serveur », #487) : l'agent n'exécute `backup.produce` et `restic.provision` que sur des **ancres de confiance** que l'administrateur de la machine pose lui-même.
-- **Une migration** (`036`) : **sauvegarde de la base obligatoire** avant la mise à jour.
+- **La mémoire d'une machine en ZFS ne compte plus le cache ZFS** (#328) : un Pi de sauvegarde à 70 % de mémoire « utilisée » dont 9,9 Go d'ARC affiche désormais ce qu'il utilise vraiment, et le cache ZFS apparaît à part sur la fiche.
+- **Deux migrations** (`036`, `038`) : **sauvegarde de la base obligatoire** avant la mise à jour.
 - **Le protocole de l'agent ne change pas** (version `2`) : un agent v0.6.0 reste connecté et continue de tout faire, mais **n'applique pas les ancres**.
 - **Aucune clé de `config.toml` nouvelle.**
 
@@ -33,3 +34,11 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 ## Ce qui n'est pas couvert (lot 2)
 
 Les clés d'opérateur, la co-signature, le verrouillage de la clé du serveur, les plafonds de gestes, les secrets restic et la clé OPNsense hors du serveur. Un serveur compromis qui détient les mots de passe des dépôts lit toujours une sauvegarde restic qui passe par son relais. Un accès root à la machine de l'agent réécrit ses ancres.
+
+## Le cache ZFS dans la mémoire (#328)
+
+- **Avant** : utilisée = `MemTotal − MemAvailable`. Le noyau ne compte pas l'ARC ZFS dans `MemAvailable` : sur un Pi de 16 Go, 11 Go « utilisés » dont 9,9 Go (9,2 Gio) d'ARC, pour 29 Mo de plus gros processus.
+- **Maintenant** : l'agent lit `size` et `c_min` dans `/proc/spl/kstat/zfs/arcstats` et retranche `size − c_min`. `mem_used` porte la valeur corrigée (les seuils d'alerte la lisent) ; `zfs_cache` porte l'ARC entier.
+- **L'écran** : la tuile mémoire de la fiche dit « cache ZFS 9,2 Gio » à côté du pourcentage. Sans ZFS, ou avec un agent ancien : rien de plus, comme avant.
+- **Le protocole de l'agent reste en version `2`** (champ optionnel). Un agent v0.6.0 ne corrige rien : sa mémoire reste fausse sur une machine en ZFS jusqu'à sa mise à jour.
+- **Ce que ça coûte** : l'ARC est retranché en entier au-dessus de son plancher, même s'il ne se vide pas d'un coup ; sous forte pression la valeur peut être un peu basse. L'historique d'avant la mise à jour garde l'ancienne valeur ; la taille du cache n'est gardée que 48 h (le brut), pas dans les moyennes.

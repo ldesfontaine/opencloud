@@ -18,12 +18,12 @@ import "./Resources.scss";
 // raison, jamais un zéro. Les pourcentages sont dans les pieds, dans la
 // couleur qu'avait la jauge (un disque presque plein se voit encore) ; les
 // jauges par volume sont dans la carte Stockage (MachineStorage).
-export function ResourceStats({ current }: { current: Current | null }) {
+export function ResourceStats({ current, failed = false }: { current: Current | null; failed?: boolean }) {
   const { t, language } = useI18n();
   const diskThresholds = useDiskThresholds();
   const now = useNow();
   const sample = current?.available ? current.sample : null;
-  const foot = unavailableFoot(t, now, current);
+  const foot = failed ? t("resource.read_failed") : unavailableFoot(t, now, current);
   const memory = sample ? bytesQuantity(t, language, sample.mem_total) : null;
   const disk = sample ? bytesQuantity(t, language, sample.disk_total) : null;
   const rate = sample ? rateQuantity(t, language, sample.net_rx_per_second + sample.net_tx_per_second) : null;
@@ -51,7 +51,7 @@ export function ResourceStats({ current }: { current: Current | null }) {
         label={t("resource.memory")}
         value={sample && memory ? bytesIn(language, sample.mem_used, sample.mem_total) : "–"}
         unit={memory ? `${memory.unit} / ${memory.value}` : undefined}
-        foot={sample ? toned(t("resource.mem_foot", memPercent, formatBytes(t, language, sample.swap_used), formatBytes(t, language, sample.swap_total)), meterTone(memPercent)) : foot}
+        foot={sample ? toned(memoryFoot(t, language, sample, memPercent), meterTone(memPercent)) : foot}
       />
       <Stat
         compact
@@ -103,6 +103,17 @@ export function DiskVolumes({ disks }: { disks: Disk[] }) {
       })}
     </div>
   );
+}
+
+// Le cache ZFS à part quand l'agent le dit : il est déjà hors du pourcentage,
+// et se rend dès qu'un programme demande de la mémoire.
+function memoryFoot(t: ReturnType<typeof useI18n>["t"], language: ReturnType<typeof useI18n>["language"], sample: Reading, percent: number): string {
+  const swapUsed = formatBytes(t, language, sample.swap_used);
+  const swapTotal = formatBytes(t, language, sample.swap_total);
+  if (sample.zfs_cache === undefined) {
+    return t("resource.mem_foot", percent, swapUsed, swapTotal);
+  }
+  return t("resource.mem_foot_zfs", percent, formatBytes(t, language, sample.zfs_cache), swapUsed, swapTotal);
 }
 
 // Un seul volume : son pourcentage ; plusieurs : leur nombre et le total.

@@ -48,11 +48,11 @@ func (db *DB) InsertSamples(ctx context.Context, machineID string, readings []sa
 		for _, reading := range readings {
 			result, err := tx.ExecContext(ctx, `
 			INSERT OR IGNORE INTO machine_samples (machine_id, sampled_at, cpu_percent, cpu_cores, load_1,
-				mem_used, mem_total, swap_used, swap_total, disk_used, disk_total, net_rx_per_second, net_tx_per_second)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				mem_used, mem_total, swap_used, swap_total, disk_used, disk_total, net_rx_per_second, net_tx_per_second, zfs_cache)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				machineID, reading.SampledAt.Unix(), reading.CPUPercent, reading.CPUCores, reading.Load1,
 				reading.MemUsed, reading.MemTotal, reading.SwapUsed, reading.SwapTotal,
-				reading.DiskUsed, reading.DiskTotal, reading.NetRxPerSecond, reading.NetTxPerSecond)
+				reading.DiskUsed, reading.DiskTotal, reading.NetRxPerSecond, reading.NetTxPerSecond, reading.ZFSCache)
 			if err != nil {
 				return fmt.Errorf("insert sample: %w", err)
 			}
@@ -75,7 +75,7 @@ func (db *DB) InsertSamples(ctx context.Context, machineID string, readings []sa
 
 const latestSampleQuery = `
 	SELECT machine_id, sampled_at, cpu_percent, cpu_cores, load_1, mem_used, mem_total,
-		swap_used, swap_total, disk_used, disk_total, net_rx_per_second, net_tx_per_second
+		swap_used, swap_total, disk_used, disk_total, net_rx_per_second, net_tx_per_second, zfs_cache
 	FROM machine_samples`
 
 // Le dernier échantillon de chaque machine, par ses deux clés.
@@ -236,11 +236,15 @@ func (db *DB) PurgeSamples(ctx context.Context, rawBefore, hourlyBefore, dailyBe
 func scanSample(row scanner) (resource.Sample, error) {
 	var sample resource.Sample
 	var sampledAt int64
+	var zfsCache sql.NullInt64
 	err := row.Scan(&sample.MachineID, &sampledAt, &sample.CPUPercent, &sample.CPUCores, &sample.Load1,
 		&sample.MemUsed, &sample.MemTotal, &sample.SwapUsed, &sample.SwapTotal,
-		&sample.DiskUsed, &sample.DiskTotal, &sample.NetRxPerSecond, &sample.NetTxPerSecond)
+		&sample.DiskUsed, &sample.DiskTotal, &sample.NetRxPerSecond, &sample.NetTxPerSecond, &zfsCache)
 	if err != nil {
 		return resource.Sample{}, err
+	}
+	if zfsCache.Valid {
+		sample.ZFSCache = &zfsCache.Int64
 	}
 	sample.SampledAt = time.Unix(sampledAt, 0).UTC()
 	return sample, nil

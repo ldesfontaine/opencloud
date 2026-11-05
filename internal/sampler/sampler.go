@@ -14,6 +14,9 @@ const defaultProcPath = "/proc"
 // reste est instantané. Les octets sont des octets, les débits par seconde.
 // DiskUsed et DiskTotal font la somme des volumes ; un point d'historique,
 // agrégé, ne porte que cette somme.
+// MemUsed ne compte pas la part de l'ARC ZFS que ZFS rend à la demande ;
+// ZFSCache est la taille entière de l'ARC, nil sans ZFS (et pour un agent
+// qui ne la mesure pas).
 type Reading struct {
 	SampledAt      time.Time `json:"sampled_at"`
 	CPUPercent     float64   `json:"cpu_percent"`
@@ -21,6 +24,7 @@ type Reading struct {
 	Load1          float64   `json:"load_1"`
 	MemUsed        int64     `json:"mem_used"`
 	MemTotal       int64     `json:"mem_total"`
+	ZFSCache       *int64    `json:"zfs_cache,omitempty"`
 	SwapUsed       int64     `json:"swap_used"`
 	SwapTotal      int64     `json:"swap_total"`
 	DiskUsed       int64     `json:"disk_used"`
@@ -77,12 +81,14 @@ func (s *Sampler) Sample(now time.Time) (Reading, bool, error) {
 		return Reading{}, false, nil
 	}
 	elapsed := now.Sub(s.prevAt)
+	used, zfsCache := memoryUsed(memory, s.arcstatsPath())
 	reading := Reading{
 		SampledAt:  now,
 		CPUPercent: cpuPercent(s.prevCPU, cpu),
 		CPUCores:   cpu.cores,
 		Load1:      load,
-		MemUsed:    memory.total - memory.available,
+		MemUsed:    used,
+		ZFSCache:   zfsCache,
 		MemTotal:   memory.total,
 		SwapUsed:   memory.swapTotal - memory.swapFree,
 		SwapTotal:  memory.swapTotal,
@@ -92,6 +98,23 @@ func (s *Sampler) Sample(now time.Time) (Reading, bool, error) {
 	reading.DiskUsed, reading.DiskTotal = sumDisks(reading.Disks)
 	s.remember(cpu, net, now)
 	return reading, true, nil
+}
+
+func (s *Sampler) arcstatsPath() string {
+	return filepath.Join(s.procPath, "spl", "kstat", "zfs", "arcstats")
+}
+
+// memoryUsed est MemTotal − MemAvailable, moins la part de l'ARC ZFS que le
+// noyau ne compte pas comme disponible alors qu'elle se rend (comme htop).
+// Jamais négatif.
+func memoryUsed(memory memCounters, arcstatsPath string) (int64, *int64) {
+	used := memory.total - memory.available
+	arc, ok := readArcstats(arcstatsPath)
+	if !ok {
+		return used, nil
+	}
+	size := arc.size
+	return max(used-arc.reclaimable(), 0), &size
 }
 
 func (s *Sampler) remember(cpu cpuCounters, net netCounters, at time.Time) {

@@ -87,7 +87,7 @@ func TestSample_FirstReadingArmsTheCounters_SecondOneMeasures(t *testing.T) {
 	if reading.CPUPercent != 25 || reading.CPUCores != 2 || reading.Load1 != 0.9 {
 		t.Errorf("cpu %+v", reading)
 	}
-	if reading.MemTotal != 8000000*1024 || reading.MemUsed != 3000000*1024 {
+	if reading.MemTotal != 8000000*1024 || reading.MemUsed != 3000000*1024 || reading.ZFSCache != nil {
 		t.Errorf("memory %+v", reading)
 	}
 	if reading.SwapTotal != 2000000*1024 || reading.SwapUsed != 500000*1024 {
@@ -151,5 +151,78 @@ func TestSample_OnThisMachine_ReadsTheRealProc(t *testing.T) {
 	}
 	if reading.CPUCores == 0 || reading.MemTotal == 0 || reading.DiskTotal == 0 || len(reading.Disks) == 0 {
 		t.Fatalf("empty reading %+v", reading)
+	}
+}
+
+// Un arcstats de Pi de sauvegarde en ZFS : l'ARC pèse 9,9 Go, son plancher
+// est de 100 Mo.
+const arcstats = `13 1 0x01 98 26656 7195180000 123456789
+name                            type data
+hits                            4    123456
+size                            4    9900000000
+c                               4    14000000000
+c_min                           4    100000000
+c_max                           4    14800000000
+`
+
+func TestMemoryUsed_SubtractsTheArcThatZFSGivesBack(t *testing.T) {
+	proc := newFakeProc(t)
+	proc.write("meminfo", meminfo) // utilisé : 3 072 000 000 octets
+	arcPath := filepath.Join(proc.path, "arcstats")
+	memory, err := readMeminfo(filepath.Join(proc.path, "meminfo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Machine sans ZFS : le fichier n'existe pas, rien ne change.
+	used, cache := memoryUsed(memory, arcPath)
+	if used != 3000000*1024 || cache != nil {
+		t.Fatalf("without zfs: used=%d cache=%v", used, cache)
+	}
+	// 3 072 000 000 − (9 900 000 000 − 100 000 000) serait négatif : borné à 0.
+	proc.write("arcstats", arcstats)
+	used, cache = memoryUsed(memory, arcPath)
+	if used != 0 || cache == nil || *cache != 9900000000 {
+		t.Fatalf("arc larger than used: used=%d cache=%v", used, cache)
+	}
+	// Le cas du ticket : 11 Gio « utilisés », dont 9,8 Go d'ARC rendables.
+	memory.available = memory.total - 11*1024*1024*1024
+	used, _ = memoryUsed(memory, arcPath)
+	if want := 11*1024*1024*1024 - 9800000000; used != int64(want) {
+		t.Fatalf("used=%d want %d", used, want)
+	}
+}
+
+func TestReadArcstats_AFileWithoutSizeIsIgnored(t *testing.T) {
+	proc := newFakeProc(t)
+	proc.write("arcstats", "name type data\nc_min 4 100\n")
+	if _, ok := readArcstats(filepath.Join(proc.path, "arcstats")); ok {
+		t.Fatal("accepted a file without size")
+	}
+}
+
+func TestSample_WithZFS_ReportsTheCorrectedMemoryAndTheCache(t *testing.T) {
+	proc := newFakeProc(t)
+	proc.write("stat", statBefore)
+	proc.write("meminfo", "MemTotal: 16000000 kB\nMemAvailable: 5000000 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n")
+	proc.write("loadavg", "0.10 0.10 0.10 1/1 1\n")
+	proc.write("net/dev", netBefore)
+	proc.write("mounts", "tmpfs /run tmpfs rw 0 0\n")
+	if err := os.MkdirAll(filepath.Join(proc.path, "spl", "kstat", "zfs"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	proc.write("spl/kstat/zfs/arcstats", arcstats)
+	sampler := NewAt(proc.path)
+	start := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
+	sampler.Sample(start)
+	reading, ok, err := sampler.Sample(start.Add(10 * time.Second))
+	if !ok || err != nil {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	// 11 000 000 kB utilisés − 9 800 000 000 octets rendables.
+	if want := int64(11000000*1024 - 9800000000); reading.MemUsed != want {
+		t.Errorf("mem used %d want %d", reading.MemUsed, want)
+	}
+	if reading.ZFSCache == nil || *reading.ZFSCache != 9900000000 {
+		t.Errorf("zfs cache %v", reading.ZFSCache)
 	}
 }

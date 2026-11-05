@@ -531,6 +531,7 @@ const reading = shape<ReadingJSON>("Reading", {
   load_1: value,
   mem_used: value,
   mem_total: value,
+  zfs_cache: optional("value"),
   swap_used: value,
   swap_total: value,
   disk_used: value,

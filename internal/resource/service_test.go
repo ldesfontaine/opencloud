@@ -155,6 +155,7 @@ func TestRecord_RefusesWhatAnAgentCannotHaveMeasured(t *testing.T) {
 	cases := map[string]sampler.Reading{
 		"cpu over 100":           {SampledAt: testNow, CPUPercent: 101},
 		"negative":               {SampledAt: testNow, MemUsed: -1},
+		"negative zfs cache":     {SampledAt: testNow, ZFSCache: int64Pointer(-1)},
 		"far future":             {SampledAt: testNow.Add(time.Hour)},
 		"older than raw":         {SampledAt: testNow.Add(-resource.RawRetention - time.Hour)},
 		"no date":                {},
@@ -312,5 +313,30 @@ func TestRemoveMachine_TakesItsSamplesAlong(t *testing.T) {
 	}
 	if _, hourly, _ := b.service.History(ctx, enrolled.ID, "7d"); len(hourly) != 0 {
 		t.Fatalf("hourly survived: %+v", hourly)
+	}
+}
+
+func int64Pointer(value int64) *int64 { return &value }
+
+// Le cache ZFS fait l'aller-retour par la base ; sans ZFS (ou d'un agent
+// ancien) il reste absent, jamais zéro.
+func TestRecord_KeepsTheZFSCacheOnlyWhenTheAgentSentIt(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	withCache := reading(testNow, 1)
+	withCache.ZFSCache = int64Pointer(9_900_000_000)
+	if err := b.service.Record(ctx, machine.LocalID, []sampler.Reading{withCache}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := b.service.Current(ctx, machine.LocalID)
+	if err != nil || current.Sample == nil || current.Sample.ZFSCache == nil || *current.Sample.ZFSCache != 9_900_000_000 {
+		t.Fatalf("with cache: %+v %v", current.Sample, err)
+	}
+	if err := b.service.Record(ctx, machine.LocalID, []sampler.Reading{reading(testNow.Add(10*time.Second), 1)}); err != nil {
+		t.Fatal(err)
+	}
+	current, _ = b.service.Current(ctx, machine.LocalID)
+	if current.Sample == nil || current.Sample.ZFSCache != nil {
+		t.Fatalf("without cache: %+v", current.Sample)
 	}
 }
