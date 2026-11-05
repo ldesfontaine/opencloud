@@ -27,13 +27,13 @@ export function groupByMachine(alerts: Alert[]): AlertGroup[] {
   return groups;
 }
 
-// Ce qu'on peut cocher : les ouvertes que personne n'a acquittées.
+// Ce qu'on peut cocher : les ouvertes que personne n'a lues.
 export function selectableIDs(alerts: Alert[]): number[] {
   return alerts.filter((alert) => alert.status === "open" && alert.acknowledged_at === null).map((alert) => alert.id);
 }
 
 // La sélection ne garde que ce qui est encore cochable : une alerte
-// acquittée ailleurs ou résolue en direct sort d'elle-même.
+// lue ailleurs ou résolue en direct sort d'elle-même.
 // Rend la même sélection quand rien ne sort : React ne relance alors pas
 // le rendu.
 export function keepSelectable(selected: Set<number>, alerts: Alert[]): Set<number> {
@@ -66,7 +66,7 @@ export function coverage(selected: Set<number>, ids: number[]): "all" | "some" |
   return count === ids.length ? "all" : "some";
 }
 
-// Le retour après un acquittement groupé, au nombre près.
+// Le retour après un marquage groupé comme lues, au nombre près.
 export function acknowledgedMessage(t: Translate, acknowledged: number): string {
   if (acknowledged === 0) {
     return t("alerts.acknowledged_none");

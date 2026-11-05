@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { fetchCatalog, fetchSession, saveLanguage, type Catalog, type CertificateThresholds, type DiskThresholds, type Session, type SessionRole } from "../api/session";
+import { fetchCatalog, fetchSession, saveLanguage, type Catalog, type CertificateThresholds, type ResourceName, type ResourceThresholds, type Session, type SessionRole } from "../api/session";
 import { productName } from "../lib/product";
 import { format } from "./format";
 
@@ -15,7 +15,7 @@ interface I18n {
   // le compteur de la vue d'ensemble et la couleur d'une ligne basculent
   // ainsi sur le même chiffre, tenu à un seul endroit.
   certificates: CertificateThresholds;
-  disks: DiskThresholds;
+  thresholds: Record<ResourceName, ResourceThresholds>;
   // Les routes d'écriture qui sont aussi des verbes d'API (puce « MCP »).
   verbRoutes: ReadonlySet<string>;
   // Les rôles d'une machine et les droits qu'ils cochent d'avance.
@@ -75,7 +75,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       language: session.language,
       languages: session.languages,
       certificates: session.certificate_thresholds,
-      disks: session.disk_thresholds,
+      thresholds: session.resource_thresholds,
       verbRoutes: new Set(session.verbs.map((verb) => verb.route)),
       roles: session.roles,
       t,
@@ -116,8 +116,10 @@ export function useCertificateThresholds(): CertificateThresholds {
   return useI18n().certificates;
 }
 
-export function useDiskThresholds(): DiskThresholds {
-  return useI18n().disks;
+// Les seuils globaux de chaque ressource, tels que réglés sous Paramètres. Une
+// machine qui porte ses propres seuils les dit sur sa fiche (api/thresholds).
+export function useThresholds(): Record<ResourceName, ResourceThresholds> {
+  return useI18n().thresholds;
 }
 
 // Les rôles qu'une machine peut recevoir, avec leur préréglage de droits.

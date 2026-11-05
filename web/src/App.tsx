@@ -70,7 +70,7 @@ function ProbesRedirect() {
 // Les canaux et les silences étaient des onglets de /alertes (et leurs
 // formulaires des pages) avant Paramètres › Notifications : un lien d'avant
 // mène à la fenêtre ou à la section qui les porte, avec sa query et son ancre.
-// Les autres onglets (acquittées, résolues) mènent à la boîte.
+// Les autres onglets (lues, résolues) mènent à la boîte.
 function AlertsRedirect() {
   const location = useLocation();
   const target = renamedAlertLocation(location.pathname);

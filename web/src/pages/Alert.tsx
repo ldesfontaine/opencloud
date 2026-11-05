@@ -8,7 +8,7 @@ import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { List } from "../components/Table";
 import { useNow } from "../hooks/useNow";
-import { useDiskThresholds, useT } from "../i18n/context";
+import { useT, useThresholds } from "../i18n/context";
 import { channelPathOf, deliveryFailure, deliveryTones, describeAlert, newChannelPath } from "../lib/alerts";
 import { formatClock } from "../lib/time";
 import { AlertRow } from "./alerts/AlertRow";
@@ -25,9 +25,9 @@ export function AlertPage() {
 function AlertView({ detail, channels }: { detail: AlertResponse; channels: Channel[] }) {
   const t = useT();
   const now = useNow();
-  const disks = useDiskThresholds();
+  const thresholds = useThresholds();
   const alert = detail.alert;
-  const text = describeAlert(t, alert, now, disks);
+  const text = describeAlert(t, alert, now, thresholds);
   const channelName = (channelID: number) => channels.find((channel) => channel.id === channelID)?.name ?? `#${channelID}`;
   return (
     <>

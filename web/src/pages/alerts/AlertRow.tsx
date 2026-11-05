@@ -7,7 +7,7 @@ import { Failure } from "../../components/Failure";
 import { Dot, Pill } from "../../components/Pill";
 import { useAction } from "../../hooks/useAction";
 import { useNow } from "../../hooks/useNow";
-import { useDiskThresholds, useT, type Translate } from "../../i18n/context";
+import { useT, useThresholds, type Translate } from "../../i18n/context";
 import { alertStateTones, describeAlert, mutePathOf, objectPath, severityTones, stateOf } from "../../lib/alerts";
 import { ago } from "../../lib/time";
 import "./Alerts.scss";
@@ -27,13 +27,13 @@ export function AlertRow({
 }) {
   const t = useT();
   const now = useNow();
-  const disks = useDiskThresholds();
+  const thresholds = useThresholds();
   const { refresh } = useRefresh();
   const action = useAction();
-  const text = describeAlert(t, alert, now, disks);
+  const text = describeAlert(t, alert, now, thresholds);
   const state = stateOf(alert);
   const path = objectPath(alert.object, alert.machine_id);
-  // On relit même après un refus : l'alerte a pu être vue ou résolue
+  // On relit même après un refus : l'alerte a pu être lue ou résolue
   // entre-temps, et la ligne doit le dire.
   const acknowledge = () => {
     action.run(() => acknowledgeAlert(alert.id), { onSettled: () => refresh("alerts") });

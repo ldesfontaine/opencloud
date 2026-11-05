@@ -11,7 +11,9 @@ export interface CertificateThresholds {
   danger: number;
 }
 
-export interface DiskThresholds {
+export type ResourceName = "cpu" | "memory" | "disk";
+
+export interface ResourceThresholds {
   attention: number;
   danger: number;
 }
@@ -26,8 +28,9 @@ export interface Session {
   // tient : le compteur et la couleur d'une ligne basculent sur le même
   // chiffre.
   certificate_thresholds: CertificateThresholds;
-  // Les pourcentages à partir desquels un volume alerte, puis s'aggrave.
-  disk_thresholds: DiskThresholds;
+  // Les pourcentages à partir desquels une ressource alerte, puis s'aggrave,
+  // tels que réglés sous Paramètres ; une machine peut porter les siens.
+  resource_thresholds: Record<ResourceName, ResourceThresholds>;
   // Les écritures que le registre des verbes ouvre aux jetons d'API : un
   // bouton qui appelle l'une d'elles porte la puce « MCP ».
   verbs: SessionVerb[];

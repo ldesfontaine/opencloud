@@ -91,7 +91,11 @@ export function ProbeWizard() {
       <p className="secondary">{isEditing ? t("probe.edit_subtitle") : t("probe.new_subtitle")}</p>
       {isEditing && <Note tone="warn">{t("probe.edit_reset_note")}</Note>}
       {existing.error && <Failure error={existing.error} />}
-      {form.isFilled && (isEditing || machines.data !== null) && (
+      {machines.error && machines.data === null && <Failure error={machines.error} />}
+      {/* Les machines d'abord, en édition aussi : « Réglages » s'ouvre au montage
+          quand aucune ne peut sonder, et sans la liste lue il s'ouvrirait sur un
+          « aucune » qui n'en est pas un, puis le premier clic le refermerait. */}
+      {form.isFilled && machines.data !== null && (
         <Wizard
           steps={stepsOf(t, form, machines.data?.machines ?? [], declared.data?.services ?? [])}
           mode={isEditing ? "edit" : "create"}

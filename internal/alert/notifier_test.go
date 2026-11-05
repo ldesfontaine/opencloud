@@ -389,6 +389,9 @@ func TestSweep_ReplaysAFailedDeliveryOnceDue(t *testing.T) {
 // Passé RetrySpan depuis sa réservation, une livraison n'a plus d'essai.
 func TestSweep_AbandonsADeliveryAfterTheRetrySpan(t *testing.T) {
 	f := newFixture(t)
+	// Le rappel d'une alerte de danger non lue partirait avec le même
+	// balayage : ce test ne regarde que le délai des essais.
+	f.SetReminderDelay(func() time.Duration { return 0 })
 	f.notifier(t, lang.English)
 	target := newReceiver(http.StatusInternalServerError)
 	defer target.Close()

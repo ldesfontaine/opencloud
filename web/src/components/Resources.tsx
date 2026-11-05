@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
 
 import { useResourceHistory, type Current, type Disk, type Reading, type WindowName } from "../api/resources";
+import type { ResourceName } from "../api/session";
 import { useNow } from "../hooks/useNow";
-import { useDiskThresholds, useI18n } from "../i18n/context";
+import { useI18n, useThresholds } from "../i18n/context";
 import { fullestFirst } from "../lib/disks";
 import { ago } from "../lib/time";
 import type { StateTone } from "../lib/tone";
@@ -20,7 +21,7 @@ import "./Resources.scss";
 // jauges par volume sont dans la carte Stockage (MachineStorage).
 export function ResourceStats({ current, failed = false }: { current: Current | null; failed?: boolean }) {
   const { t, language } = useI18n();
-  const diskThresholds = useDiskThresholds();
+  const thresholds = useThresholds();
   const now = useNow();
   const sample = current?.available ? current.sample : null;
   const foot = failed ? t("resource.read_failed") : unavailableFoot(t, now, current);
@@ -42,7 +43,7 @@ export function ResourceStats({ current, failed = false }: { current: Current | 
         label={t("resource.cpu")}
         value={sample ? Math.round(sample.cpu_percent) : "–"}
         unit="%"
-        foot={sample ? toned(t("resource.cpu_foot", sample.cpu_cores, formatDecimal(language, sample.load_1)), meterTone(sample.cpu_percent)) : foot}
+        foot={sample ? toned(t("resource.cpu_foot", sample.cpu_cores, formatDecimal(language, sample.load_1)), meterTone(sample.cpu_percent, thresholds.cpu)) : foot}
       />
       <Stat
         compact
@@ -51,7 +52,7 @@ export function ResourceStats({ current, failed = false }: { current: Current | 
         label={t("resource.memory")}
         value={sample && memory ? bytesIn(language, sample.mem_used, sample.mem_total) : "–"}
         unit={memory ? `${memory.unit} / ${memory.value}` : undefined}
-        foot={sample ? toned(memoryFoot(t, language, sample, memPercent), meterTone(memPercent)) : foot}
+        foot={sample ? toned(memoryFoot(t, language, sample, memPercent), meterTone(memPercent, thresholds.memory)) : foot}
       />
       <Stat
         compact
@@ -60,7 +61,7 @@ export function ResourceStats({ current, failed = false }: { current: Current | 
         label={t("resource.disk")}
         value={sample && disk ? bytesIn(language, sample.disk_used, sample.disk_total) : "–"}
         unit={disk ? `${disk.unit} / ${disk.value}` : undefined}
-        foot={sample ? toned(diskFoot(t, sample, volumes.length, diskPercent, foot), meterTone(diskTonePercent, diskThresholds)) : foot}
+        foot={sample ? toned(diskFoot(t, sample, volumes.length, diskPercent, foot), meterTone(diskTonePercent, thresholds.disk)) : foot}
       />
       <Stat
         compact
@@ -85,7 +86,7 @@ function toned(text: string, tone: StateTone | undefined): ReactNode {
 // montage ; le périphérique et les octets sont dans l'info-bulle.
 export function DiskVolumes({ disks }: { disks: Disk[] }) {
   const { t, language } = useI18n();
-  const thresholds = useDiskThresholds();
+  const thresholds = useThresholds().disk;
   return (
     <div className="disk-volumes">
       {fullestFirst(disks).map((disk) => {
@@ -139,18 +140,18 @@ function unavailableFoot(t: ReturnType<typeof useI18n>["t"], now: number, curren
 // côte, chacune son étiquette et son chiffre au-dessus de sa barre.
 export function MachineMeters({ current }: { current: Current | undefined }) {
   const { t } = useI18n();
-  const diskThresholds = useDiskThresholds();
+  const thresholds = useThresholds();
   const sample = current?.available ? current.sample : null;
-  const rows: { key: string; percent: number }[] = sample
+  const rows: { key: string; resource: ResourceName; percent: number }[] = sample
     ? [
-        { key: "resource.cpu", percent: Math.round(sample.cpu_percent) },
-        { key: "resource.memory", percent: percentOf(sample.mem_used, sample.mem_total) },
-        { key: "resource.disk", percent: percentOf(sample.disk_used, sample.disk_total) },
+        { key: "resource.cpu", resource: "cpu", percent: Math.round(sample.cpu_percent) },
+        { key: "resource.memory", resource: "memory", percent: percentOf(sample.mem_used, sample.mem_total) },
+        { key: "resource.disk", resource: "disk", percent: percentOf(sample.disk_used, sample.disk_total) },
       ]
     : [
-        { key: "resource.cpu", percent: 0 },
-        { key: "resource.memory", percent: 0 },
-        { key: "resource.disk", percent: 0 },
+        { key: "resource.cpu", resource: "cpu", percent: 0 },
+        { key: "resource.memory", resource: "memory", percent: 0 },
+        { key: "resource.disk", resource: "disk", percent: 0 },
       ];
   return (
     <div className={sample ? "meters" : "meters meters-unavailable"}>
@@ -160,7 +161,7 @@ export function MachineMeters({ current }: { current: Current | undefined }) {
             <span className="k">{t(row.key)}</span>
             <span className={sample ? "mono" : "muted"}>{sample ? `${row.percent} %` : t("resource.unavailable")}</span>
           </div>
-          <Meter percent={row.percent} tone={sample ? meterTone(row.percent, row.key === "resource.disk" ? diskThresholds : undefined) : undefined} />
+          <Meter percent={row.percent} tone={sample ? meterTone(row.percent, thresholds[row.resource]) : undefined} />
         </div>
       ))}
     </div>

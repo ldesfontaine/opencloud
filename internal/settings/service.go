@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
@@ -21,6 +22,9 @@ type Store interface {
 	// transaction ; rend les réglages écrits.
 	UpdateSettings(ctx context.Context, change func(*Settings)) (Settings, error)
 }
+
+// Le délai du rappel est hors de 0 à alert.MaxReminderHours heures.
+var ErrReminderInvalid = refusal.Invalid("settings.reminder_invalid", "settings: danger reminder invalid")
 
 // Le code est celui du commutateur de langue : la clé existe déjà dans les
 // catalogues.
@@ -94,20 +98,19 @@ func (s *Service) SetMailRelay(ctx context.Context, change MailRelayChange) (mai
 	return written.MailRelay(), nil
 }
 
-func (s *Service) SetDiskThresholds(ctx context.Context, thresholds alert.DiskThresholds) error {
-	if err := thresholds.Validate(); err != nil {
-		return err
+// SetDangerReminderHours règle au bout de combien d'heures une alerte de
+// danger sans lecture est rappelée ; zéro coupe le rappel.
+func (s *Service) SetDangerReminderHours(ctx context.Context, hours int) error {
+	if hours < 0 || hours > alert.MaxReminderHours {
+		return ErrReminderInvalid
 	}
 	_, err := s.store.UpdateSettings(ctx, func(current *Settings) {
-		current.DiskAttentionPercent = thresholds.Attention
-		current.DiskDangerPercent = thresholds.Danger
+		current.DangerReminderHours = hours
 	})
 	if err != nil {
 		return err
 	}
-	s.auditor.Record(ctx, settingsEvent(keyDisk, audit.Details{
-		"attention_percent": strconv.Itoa(thresholds.Attention), "danger_percent": strconv.Itoa(thresholds.Danger),
-	}))
+	s.auditor.Record(ctx, settingsEvent(keyReminder, audit.Details{"hours": strconv.Itoa(hours)}))
 	return nil
 }
 
@@ -145,12 +148,13 @@ func (s *Service) MailRelay(ctx context.Context) (mail.Relay, error) {
 	return current.MailRelay(), nil
 }
 
-func (s *Service) DiskThresholds(ctx context.Context) (alert.DiskThresholds, error) {
+// DangerReminderHours rend le délai du rappel, en heures ; zéro, coupé.
+func (s *Service) DangerReminderHours(ctx context.Context) (int, error) {
 	current, err := s.store.LoadSettings(ctx)
 	if err != nil {
-		return alert.DiskThresholds{}, err
+		return 0, err
 	}
-	return current.DiskThresholds(), nil
+	return current.DangerReminderHours, nil
 }
 
 func (s *Service) LifecycleEnabled(ctx context.Context) (bool, error) {
@@ -188,15 +192,15 @@ func (s *Service) CurrentMailRelay() mail.Relay {
 	return current.MailRelay()
 }
 
-// CurrentDiskThresholds : en échec, les seuils par défaut, pour garder
-// l'alerte en marche.
-func (s *Service) CurrentDiskThresholds() alert.DiskThresholds {
+// CurrentDangerReminder : en échec, le délai du produit, pour que le rappel
+// ne se coupe pas sur une panne de lecture.
+func (s *Service) CurrentDangerReminder() time.Duration {
 	current, err := s.store.LoadSettings(context.Background())
 	if err != nil {
-		s.logger.Warn("read disk thresholds", "error", err)
-		return alert.DefaultDiskThresholds()
+		s.logger.Warn("read danger reminder", "error", err)
+		return alert.DefaultReminderHours * time.Hour
 	}
-	return current.DiskThresholds()
+	return current.DangerReminder()
 }
 
 // CurrentLifecycleEnabled : en échec, coupée, puisqu'on ne sait pas si

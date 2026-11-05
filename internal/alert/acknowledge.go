@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-// Acknowledge note que l'opérateur a vu : l'alerte reste ouverte et sort
+// Acknowledge note que l'opérateur a lu : l'alerte reste ouverte et sort
 // du compteur rouge. Une aggravation la ré-arme.
 func (e *Engine) Acknowledge(ctx context.Context, id int64) (Alert, error) {
 	e.mu.Lock()
@@ -29,10 +29,10 @@ func (e *Engine) Acknowledge(ctx context.Context, id int64) (Alert, error) {
 	return alert, nil
 }
 
-// AcknowledgeMany acquitte une sélection en une écriture. Une alerte
-// résolue, déjà acquittée ou disparue entre l'affichage et le clic est
+// AcknowledgeMany marque une sélection comme lue en une écriture. Une alerte
+// résolue, déjà lue ou disparue entre l'affichage et le clic est
 // passée sans refus : l'opérateur voulait qu'elle ne compte plus, c'est le
-// cas. Rend le nombre d'alertes réellement acquittées.
+// cas. Rend le nombre d'alertes réellement marquées.
 func (e *Engine) AcknowledgeMany(ctx context.Context, ids []int64) (int, error) {
 	unique := uniqueIDs(ids)
 	if len(unique) == 0 {

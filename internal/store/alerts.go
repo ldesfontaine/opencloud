@@ -16,7 +16,7 @@ import (
 // --- Alertes ---
 
 const alertColumns = `a.id, a.kind, a.severity, a.status, a.object_kind, a.object_id, a.object_name,
-	COALESCE(a.machine_id, ''), COALESCE(m.name, ''), COALESCE(a.service_id, ''), a.details, a.opened_at, a.updated_at, a.resolved_at, a.acknowledged_at, a.clear_since`
+	COALESCE(a.machine_id, ''), COALESCE(m.name, ''), COALESCE(a.service_id, ''), a.details, a.opened_at, a.updated_at, a.resolved_at, a.acknowledged_at, a.clear_since, a.notified_at, a.reminded_at`
 
 const alertFrom = ` FROM alerts a LEFT JOIN machines m ON m.id = a.machine_id`
 
@@ -42,12 +42,13 @@ func (db *DB) InsertAlert(ctx context.Context, found alert.Alert) (int64, error)
 	containerID, heartbeatID, probeID := objectColumns(found)
 	result, err := db.sql.ExecContext(ctx, `
 		INSERT INTO alerts (kind, severity, status, object_kind, object_id, object_name,
-			machine_id, service_id, container_id, heartbeat_id, probe_id, details, opened_at, updated_at, resolved_at, acknowledged_at, clear_since)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			machine_id, service_id, container_id, heartbeat_id, probe_id, details, opened_at, updated_at, resolved_at, acknowledged_at, clear_since, notified_at, reminded_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(found.Kind), string(found.Severity), string(found.Status),
 		string(found.Object.Kind), found.Object.ID, found.Object.Name,
 		nullableString(found.MachineID), nullableString(found.ServiceID), containerID, heartbeatID, probeID, string(details),
-		found.OpenedAt.Unix(), found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince))
+		found.OpenedAt.Unix(), found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince),
+		nullableTime(found.NotifiedAt), nullableTime(found.RemindedAt))
 	if err != nil {
 		return 0, fmt.Errorf("insert alert: %w", err)
 	}
@@ -122,10 +123,11 @@ func (db *DB) UpdateAlert(ctx context.Context, found alert.Alert) error {
 	}
 	result, err := db.sql.ExecContext(ctx, `
 		UPDATE alerts SET kind = ?, severity = ?, status = ?, object_name = ?, machine_id = ?, service_id = ?, details = ?, updated_at = ?, resolved_at = ?,
-			acknowledged_at = ?, clear_since = ?
+			acknowledged_at = ?, clear_since = ?, notified_at = ?, reminded_at = ?
 		WHERE id = ?`,
 		string(found.Kind), string(found.Severity), string(found.Status), found.Object.Name, nullableString(found.MachineID), nullableString(found.ServiceID), string(details),
-		found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince), found.ID)
+		found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince),
+		nullableTime(found.NotifiedAt), nullableTime(found.RemindedAt), found.ID)
 	if err != nil {
 		return fmt.Errorf("update alert: %w", err)
 	}
@@ -133,7 +135,7 @@ func (db *DB) UpdateAlert(ctx context.Context, found alert.Alert) error {
 }
 
 // AcknowledgeAlerts n'écrit qu'une instruction, donc une transaction :
-// toute la sélection passe, ou rien. Seules les ouvertes non acquittées
+// toute la sélection passe, ou rien. Seules les ouvertes non lues
 // changent ; le reste est laissé tel quel.
 func (db *DB) AcknowledgeAlerts(ctx context.Context, ids []int64, at time.Time) (int, error) {
 	if len(ids) == 0 {
@@ -188,9 +190,9 @@ func scanAlert(row scanner) (alert.Alert, error) {
 	var found alert.Alert
 	var details string
 	var openedAt, updatedAt int64
-	var resolvedAt, acknowledgedAt, clearSince sql.NullInt64
+	var resolvedAt, acknowledgedAt, clearSince, notifiedAt, remindedAt sql.NullInt64
 	err := row.Scan(&found.ID, &found.Kind, &found.Severity, &found.Status, &found.Object.Kind, &found.Object.ID, &found.Object.Name,
-		&found.MachineID, &found.MachineName, &found.ServiceID, &details, &openedAt, &updatedAt, &resolvedAt, &acknowledgedAt, &clearSince)
+		&found.MachineID, &found.MachineName, &found.ServiceID, &details, &openedAt, &updatedAt, &resolvedAt, &acknowledgedAt, &clearSince, &notifiedAt, &remindedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return alert.Alert{}, alert.ErrNotFound
 	}
@@ -205,6 +207,8 @@ func scanAlert(row scanner) (alert.Alert, error) {
 	found.ResolvedAt = timeOf(resolvedAt)
 	found.AcknowledgedAt = timeOf(acknowledgedAt)
 	found.ClearSince = timeOf(clearSince)
+	found.NotifiedAt = timeOf(notifiedAt)
+	found.RemindedAt = timeOf(remindedAt)
 	return found, nil
 }
 

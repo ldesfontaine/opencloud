@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"time"
+
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/mail"
@@ -11,10 +13,10 @@ import (
 type Settings struct {
 	// Langue de l'interface ; vide tant que l'opérateur n'a rien choisi.
 	Language lang.Code
-	// Les seuils d'alerte du disque, en pourcentage ; zéro tant que
-	// l'opérateur n'a rien réglé, et le moteur prend alors les siens.
-	DiskAttentionPercent int
-	DiskDangerPercent    int
+	// Au bout de combien d'heures une alerte de danger sans lecture est
+	// rappelée ; zéro, le rappel est coupé. Les seuils d'alerte ne sont pas
+	// ici : ils vivent avec le moteur, par ressource et par machine.
+	DangerReminderHours int
 	// Le relais SMTP du canal e-mail. L'API ne renvoie jamais le mot de
 	// passe.
 	MailHost     string
@@ -29,6 +31,13 @@ type Settings struct {
 	LifecycleDisabled bool
 }
 
+// Defaults sont les réglages d'une installation neuve, avant toute ligne en
+// base : tout est vide, sauf le rappel, activé tant que l'opérateur ne l'a pas
+// coupé.
+func Defaults() Settings {
+	return Settings{DangerReminderHours: alert.DefaultReminderHours}
+}
+
 // InterfaceLanguage rend la langue de l'interface : celle du réglage, sinon
 // la langue par défaut.
 func (s Settings) InterfaceLanguage() lang.Code {
@@ -38,10 +47,9 @@ func (s Settings) InterfaceLanguage() lang.Code {
 	return s.Language
 }
 
-// DiskThresholds rend les seuils en vigueur : ceux du réglage, sinon ceux
-// du produit.
-func (s Settings) DiskThresholds() alert.DiskThresholds {
-	return alert.DiskThresholdsOr(s.DiskAttentionPercent, s.DiskDangerPercent)
+// DangerReminder rend le délai du rappel ; zéro, le rappel est coupé.
+func (s Settings) DangerReminder() time.Duration {
+	return time.Duration(s.DangerReminderHours) * time.Hour
 }
 
 // LifecycleEnabled : la fin de support tourne, sauf si l'opérateur l'a

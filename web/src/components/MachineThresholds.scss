@@ -1,0 +1,64 @@
+// Une tuile par ressource : trois colonnes quand la place le permet, une
+// seule sur téléphone.
+.machine-thresholds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.threshold-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+
+  // Le formulaire inséré garde sa mise en page, sans le retrait d'une carte
+  // de réglages.
+  .setting-row {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .setting-block,
+  .setting-foot {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+.threshold-tile-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.threshold-sentence {
+  margin: 0;
+}
+
+.threshold-tile-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+// Une tuile en édition prend toute la rangée : le formulaire ne tient pas dans
+// un tiers de colonne.
+.threshold-tile-editing {
+  grid-column: 1 / -1;
+}
+
+// Un geste long passe à la ligne dans sa tuile au lieu de la déborder.
+.threshold-tile-actions > * {
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  padding-block: 6px;
+  white-space: normal;
+  text-align: left;
+}

@@ -20,6 +20,9 @@ GET /api/agent-migration
 PUT /api/machines/{id}/update-last
 PUT /api/machines/{id}/role
 PUT /api/machines/{id}/placement
+GET /api/machines/{id}/thresholds
+PUT /api/machines/{id}/thresholds/{resource}
+DELETE /api/machines/{id}/thresholds/{resource}
 GET /api/machines/{id}/storage
 POST /api/machines/{id}/actions/check-updates
 GET /api/machines/{id}/resources
@@ -138,8 +141,10 @@ POST /api/settings/api-tokens
 PUT /api/settings/api-tokens/{id}/reach
 DELETE /api/settings/api-tokens/{id}
 GET /api/settings/mcp
-GET /api/settings/disk
-PUT /api/settings/disk
+GET /api/settings/thresholds
+PUT /api/settings/thresholds/{resource}
+GET /api/settings/reminder
+PUT /api/settings/reminder
 GET /api/settings/lifecycle
 PUT /api/settings/lifecycle
 GET /api/settings/mail

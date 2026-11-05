@@ -8,8 +8,9 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 
 - **Un serveur openCloud compromis ne peut plus exfiltrer de données par les sauvegardes** (lot 1 de l'étude « compromission du serveur », #487) : l'agent n'exécute `backup.produce` et `restic.provision` que sur des **ancres de confiance** que l'administrateur de la machine pose lui-même.
 - **La mémoire d'une machine en ZFS ne compte plus le cache ZFS** (#328) : un Pi de sauvegarde à 70 % de mémoire « utilisée » dont 9,9 Go d'ARC affiche désormais ce qu'il utilise vraiment, et le cache ZFS apparaît à part sur la fiche.
-- **Deux migrations** (`036`, `038`) : **sauvegarde de la base obligatoire** avant la mise à jour.
+- **Trois migrations** (`036`, `037`, `038`) : **sauvegarde de la base obligatoire** avant la mise à jour.
 - **Le protocole de l'agent ne change pas** (version `2`) : un agent v0.6.0 reste connecté et continue de tout faire, mais **n'applique pas les ancres**.
+- **Des alertes de processeur et de mémoire**, des **seuils réglables par machine**, « **Lu / Non lu** » à la place d'« acquitter », et un **rappel** des alertes de danger restées sans lecture (#489) : voir plus bas.
 - **Aucune clé de `config.toml` nouvelle.**
 
 ## Les ancres de confiance
@@ -30,6 +31,27 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 - Chaque VM à sauvegarder, chaque clé de trousseau changée, chaque certificat de cible renouvelé demande **un geste de root sur la machine** avant que l'ordre passe.
 - **Une machine qui porte `backup.produce` ou `restic.produce` voit ces ordres refusés une fois son agent mis à jour**, tant qu'aucune ancre n'est posée. Au 4 novembre 2026, aucune machine connue ne porte ces droits (relevé par l'API) : rien ne casse.
 - Un agent v0.6.0 n'est pas protégé tant qu'il n'est pas mis à jour ; la fiche le dit.
+
+## Les alertes de ressources (#489)
+
+| Ressource | Attention | Danger | Fenêtre |
+| --- | --- | --- | --- |
+| Processeur | 95 % | 99 % | moyenne sur 15 min |
+| Mémoire | 90 % | 95 % | moyenne sur 15 min |
+| Disque | 85 % | 95 % | dernière lecture (inchangé) |
+
+- **Une moyenne, pas un pic** : l'alerte s'ouvre quand toute la fenêtre est au-dessus du seuil, se résout 5 points plus bas. Une machine qui vient d'arriver, ou dont l'agent a été coupé, n'alerte pas tant que ses lectures ne couvrent pas la fenêtre.
+- **Un réglage global** (Paramètres › Notifications) et **une surcharge par machine** (sa fiche, carte « Seuils des alertes » : « Plus de tolérance pour cette machine »). Une machine sans surcharge suit le global ; l'écran dit lequel s'applique. Le disque est inclus, et **les seuils du disque déjà réglés sont conservés** (migration `037`).
+- **« Lu / Non lu »** remplace « acquitter » partout où l'opérateur le lit (« Marquer comme lue », « 3 non lues »). Le verbe d'API `alert.acknowledge` ne change pas.
+- **Le rappel** : une alerte de **danger** ouverte, non lue et non tue depuis **12 h** est renvoyée **une seule fois** (« Toujours en cours »). Réglable sous Paramètres (1 à 168 h), **0 le coupe**. À la mise à jour, les alertes déjà ouvertes partent de ce moment : aucun rappel d'un coup.
+- **La valeur « mémoire utilisée »** est celle que l'agent rapporte. Le correctif du cache ZFS (#328) la fera baisser sur les hôtes qui en ont ; les alertes de mémoire en profiteront sans autre changement.
+
+### Ce que ça coûte
+
+- Les jauges de processeur et de mémoire changent de couleur à **95 %** et **90 %** (comme leur alerte), non plus à 85 % : une machine à 88 % de mémoire n'a plus de jauge orange.
+- Une alerte de processeur arrive **15 min après** le début de la charge, par choix : c'est ce qui évite le bruit des pics.
+- Le seuil de retour n'est pas réglable (5 points sous l'attention).
+- Les gestes de seuils sont d'interface : pas de verbe d'API ni de puce `MCP`.
 
 ## Ce qui n'est pas couvert (lot 2)
 

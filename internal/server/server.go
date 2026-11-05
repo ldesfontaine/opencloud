@@ -56,8 +56,8 @@ type SettingsService interface {
 	SetLanguage(ctx context.Context, code lang.Code) error
 	MailRelay(ctx context.Context) (mail.Relay, error)
 	SetMailRelay(ctx context.Context, change settings.MailRelayChange) (mail.Relay, error)
-	DiskThresholds(ctx context.Context) (alert.DiskThresholds, error)
-	SetDiskThresholds(ctx context.Context, thresholds alert.DiskThresholds) error
+	DangerReminderHours(ctx context.Context) (int, error)
+	SetDangerReminderHours(ctx context.Context, hours int) error
 	LifecycleEnabled(ctx context.Context) (bool, error)
 	// SetLifecycleEnabled dit si la fin de support vient d'être rallumée.
 	SetLifecycleEnabled(ctx context.Context, enabled bool) (isTurnedOn bool, err error)
@@ -262,13 +262,17 @@ type StatusService interface {
 }
 
 // Ce que le serveur attend du moteur des alertes : la page (une liste
-// bornée) et la fiche, avec ce qui les tait ; l'acquittement, l'écriture des
+// bornée) et la fiche, avec ce qui les tait ; la lecture d'une alerte, l'écriture des
 // canaux et des fenêtres pour taire. Le reste se lit par le Reader.
 type AlertService interface {
 	List(ctx context.Context, status alert.Status) ([]alert.Alert, error)
 	Get(ctx context.Context, id int64) (alert.Alert, error)
 	Acknowledge(ctx context.Context, id int64) (alert.Alert, error)
 	AcknowledgeMany(ctx context.Context, ids []int64) (int, error)
+	// Les seuils des alertes de ressources : par machine, sinon global.
+	Rules(ctx context.Context, machineID string) ([]alert.Applied, error)
+	SetRule(ctx context.Context, machineID string, rule alert.Rule) error
+	ClearRule(ctx context.Context, machineID string, resource alert.Resource) error
 	CreateChannel(ctx context.Context, definition alert.ChannelDefinition) (alert.Channel, error)
 	UpdateChannel(ctx context.Context, id int64, definition alert.ChannelDefinition) (alert.Channel, error)
 	DeleteChannel(ctx context.Context, id int64) error

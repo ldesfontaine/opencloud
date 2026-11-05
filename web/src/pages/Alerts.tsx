@@ -10,7 +10,7 @@ import { useT } from "../i18n/context";
 import { alertFilterOf, alertsSubtitle, withAlertFilter, type AlertFilter } from "../lib/alerts";
 import { Inbox } from "./alerts/Inbox";
 
-// La page Alertes est une boîte de réception : une seule liste, les non vues
+// La page Alertes est une boîte de réception : une seule liste, les non lues
 // en tête, des filtres plutôt que des onglets. Les canaux et les silences
 // vivent sous Paramètres › Notifications. Tout en direct ; les filtres sont
 // dans l'adresse.

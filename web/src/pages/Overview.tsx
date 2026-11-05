@@ -17,7 +17,7 @@ import { MachineKind } from "../components/MachineKind";
 import { MachineStatePill, Pill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
-import { useCertificateThresholds, useDiskThresholds, useT } from "../i18n/context";
+import { useCertificateThresholds, useT, useThresholds } from "../i18n/context";
 import { describeAlert, mostUrgentAlert } from "../lib/alerts";
 import { certificateTone, daysUntil } from "../lib/certificates";
 import { liveMachines, machineSeen, machinesSubtitle } from "../lib/machines";
@@ -62,13 +62,13 @@ function BackupsTile() {
 }
 
 // La tuile Alertes : le nombre d'ouvertes, puis en pied, sur une ligne
-// tronquée, ce qui reste à acquitter et la plus urgente (son fait et sa
+// tronquée, ce qui reste à lire et la plus urgente (son fait et sa
 // machine ; le texte entier est en infobulle). La liste des alertes ne tient
 // plus sur cette page (#141) : la tuile mène à elle.
 function AlertsTile({ alerts }: { alerts: AlertsResponse | null }) {
   const t = useT();
   const now = useNow();
-  const disks = useDiskThresholds();
+  const thresholds = useThresholds();
   const counts = alerts?.counts;
   let foot: ReactNode = "–";
   if (alerts && counts) {
@@ -77,7 +77,7 @@ function AlertsTile({ alerts }: { alerts: AlertsResponse | null }) {
     } else {
       const lead = counts.unacknowledged > 0 ? t("overview.alerts_unacknowledged", counts.unacknowledged) : t("overview.alerts_acknowledged");
       const urgent = mostUrgentAlert(alerts.alerts);
-      const urgentText = urgent === null ? "" : t("overview.alerts_top", describeAlert(t, urgent, now, disks).fact, urgent.machine_name !== "" ? urgent.machine_name : urgent.object.name);
+      const urgentText = urgent === null ? "" : t("overview.alerts_top", describeAlert(t, urgent, now, thresholds).fact, urgent.machine_name !== "" ? urgent.machine_name : urgent.object.name);
       foot = (
         <span title={urgentText === "" ? lead : `${lead} · ${urgentText}`}>
           {counts.unacknowledged > 0 ? (

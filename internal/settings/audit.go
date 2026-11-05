@@ -12,7 +12,7 @@ import (
 const (
 	keyLanguage  = "language"
 	keyMailRelay = "mail_relay"
-	keyDisk      = "disk"
+	keyReminder  = "danger_reminder"
 	keyLifecycle = "lifecycle"
 )
 

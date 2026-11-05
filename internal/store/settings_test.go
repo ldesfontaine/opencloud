@@ -15,7 +15,7 @@ func TestLoadSettings_FreshDatabase_GivesEmptySettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current != (settings.Settings{}) {
+	if current != settings.Defaults() {
 		t.Fatalf("got %+v", current)
 	}
 }
@@ -24,9 +24,9 @@ func TestUpdateSettings_ThenLoad_RoundTripsEveryKey(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	want := settings.Settings{
-		Language:             lang.English,
-		DiskAttentionPercent: 70, DiskDangerPercent: 85,
-		MailHost: "smtp.example.org", MailPort: 465, MailTLS: "tls", MailUsername: "alerts", MailPassword: "s3cret", MailFrom: "oc@example.org",
+		Language:            lang.English,
+		DangerReminderHours: 24,
+		MailHost:            "smtp.example.org", MailPort: 465, MailTLS: "tls", MailUsername: "alerts", MailPassword: "s3cret", MailFrom: "oc@example.org",
 		LifecycleDisabled: true,
 	}
 	written, err := db.UpdateSettings(ctx, func(current *settings.Settings) { *current = want })
@@ -123,8 +123,30 @@ func TestUpdateSettings_TwoConcurrentWriters_BothValuesSurvive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := settings.Settings{Language: lang.English, MailFrom: fmt.Sprintf("oc%d@example.org", rounds-1)}
+	want := settings.Settings{Language: lang.English, DangerReminderHours: 12, MailFrom: fmt.Sprintf("oc%d@example.org", rounds-1)}
 	if current != want {
 		t.Fatalf("got %+v, want %+v", current, want)
+	}
+}
+
+// Le rappel est activé sur une installation neuve : écrire un autre réglage
+// en premier, quand la ligne n'existe pas encore, ne le coupe pas ; seul un
+// zéro écrit à dessein le coupe.
+func TestUpdateSettings_TheFirstWriteKeepsTheReminderOn_ZeroTurnsItOff(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	written, err := db.UpdateSettings(ctx, func(current *settings.Settings) { current.Language = lang.English })
+	if err != nil || written.DangerReminderHours != 12 {
+		t.Fatalf("first write: %+v, %v", written, err)
+	}
+	loaded, err := db.LoadSettings(ctx)
+	if err != nil || loaded.DangerReminderHours != 12 {
+		t.Fatalf("after the first write: %+v, %v", loaded, err)
+	}
+	if _, err := db.UpdateSettings(ctx, func(current *settings.Settings) { current.DangerReminderHours = 0 }); err != nil {
+		t.Fatal(err)
+	}
+	if off, err := db.LoadSettings(ctx); err != nil || off.DangerReminder() != 0 {
+		t.Fatalf("turned off: %+v, %v", off, err)
 	}
 }

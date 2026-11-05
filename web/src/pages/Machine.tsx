@@ -21,6 +21,7 @@ import { MachineIdentity } from "../components/MachineIdentity";
 import { MachineStorage } from "../components/MachineStorage";
 import { MachineTodoCard } from "../components/MachineTodoCard";
 import { MachineSSHKeys } from "../components/MachineSSHKeys";
+import { MachineThresholds } from "../components/MachineThresholds";
 import { MachineSystemdUnits } from "../components/MachineSystemdUnits";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
@@ -99,6 +100,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
               <ResourceStats current={resources.data} failed={resources.error !== null} />
               <ResourceHistory machineID={current.id} />
               <MachineStorage machine={current} current={resources.data} />
+              <MachineThresholds machineID={current.id} current={resources.data} />
               {current.lifecycle !== undefined && (lifecycleHasDetails(current.lifecycle) || current.lifecycle.status === "pending") && <SystemSupport lifecycle={current.lifecycle} />}
               <RoleCard machine={current} />
             </>

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -81,7 +82,7 @@ func TestSetMailRelay_Invalid_IsRefusedAndWritesNothing(t *testing.T) {
 	if key, ok := refusal.KeyOf(err); !ok || key != "settings.mail_port_invalid" {
 		t.Fatalf("key %q %v", key, ok)
 	}
-	if saved := load(t, db); saved != (settings.Settings{}) {
+	if saved := load(t, db); saved != settings.Defaults() {
 		t.Fatalf("saved: %+v", saved)
 	}
 }
@@ -158,7 +159,7 @@ func TestSetLanguage_UnknownCode_IsRefused(t *testing.T) {
 	if key, ok := refusal.KeyOf(err); !ok || key != "error.unknown_language" {
 		t.Fatalf("key %q %v", key, ok)
 	}
-	if saved := load(t, db); saved != (settings.Settings{}) {
+	if saved := load(t, db); saved != settings.Defaults() {
 		t.Fatalf("saved: %+v", saved)
 	}
 }
@@ -180,22 +181,29 @@ func TestLanguage_NothingChosen_IsTheDefault_ThenTheChoice(t *testing.T) {
 	}
 }
 
-func TestSetDiskThresholds_Invalid_IsRefused_AndTheDefaultsStay(t *testing.T) {
+func TestSetDangerReminderHours_OutOfBounds_IsRefused_AndTheDefaultStays(t *testing.T) {
 	service, _ := newService(t)
 	ctx := context.Background()
-	err := service.SetDiskThresholds(ctx, alert.DiskThresholds{Attention: 90, Danger: 80})
-	if !errors.Is(err, alert.ErrDiskThresholdsInvalid) {
-		t.Fatalf("got %v", err)
+	for _, hours := range []int{-1, alert.MaxReminderHours + 1} {
+		if err := service.SetDangerReminderHours(ctx, hours); !errors.Is(err, settings.ErrReminderInvalid) {
+			t.Fatalf("%d h: %v", hours, err)
+		}
 	}
-	if thresholds, err := service.DiskThresholds(ctx); err != nil || thresholds != alert.DefaultDiskThresholds() {
-		t.Fatalf("defaults: %+v, %v", thresholds, err)
+	if hours, err := service.DangerReminderHours(ctx); err != nil || hours != alert.DefaultReminderHours {
+		t.Fatalf("default: %d, %v", hours, err)
 	}
-	set := alert.DiskThresholds{Attention: 70, Danger: 85}
-	if err := service.SetDiskThresholds(ctx, set); err != nil {
+	if err := service.SetDangerReminderHours(ctx, 6); err != nil {
 		t.Fatal(err)
 	}
-	if thresholds := service.CurrentDiskThresholds(); thresholds != set {
-		t.Fatalf("set: %+v", thresholds)
+	if delay := service.CurrentDangerReminder(); delay != 6*time.Hour {
+		t.Fatalf("set: %v", delay)
+	}
+	// Zéro coupe le rappel : ce n'est pas « rien de réglé ».
+	if err := service.SetDangerReminderHours(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	if delay := service.CurrentDangerReminder(); delay != 0 {
+		t.Fatalf("turned off: %v", delay)
 	}
 }
 
@@ -207,7 +215,7 @@ func TestGestures_KeepTheOtherKeys(t *testing.T) {
 	if err := service.SetLanguage(ctx, lang.English); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.SetDiskThresholds(ctx, alert.DiskThresholds{Attention: 70, Danger: 85}); err != nil {
+	if err := service.SetDangerReminderHours(ctx, 24); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.SetMailRelay(ctx, settings.MailRelayChange{Relay: mail.Relay{Host: "smtp.example.org", TLS: mail.TLSStartTLS, From: "oc@example.org"}}); err != nil {
@@ -217,9 +225,9 @@ func TestGestures_KeepTheOtherKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := settings.Settings{
-		Language:             lang.English,
-		DiskAttentionPercent: 70, DiskDangerPercent: 85,
-		MailHost: "smtp.example.org", MailPort: 587, MailTLS: "starttls", MailFrom: "oc@example.org",
+		Language:            lang.English,
+		DangerReminderHours: 24,
+		MailHost:            "smtp.example.org", MailPort: 587, MailTLS: "starttls", MailFrom: "oc@example.org",
 		LifecycleDisabled: true,
 	}
 	if saved := load(t, db); saved != want {
@@ -249,8 +257,8 @@ func TestCurrentReads_DatabaseDown_FallBack(t *testing.T) {
 	if relay := service.CurrentMailRelay(); relay != (mail.Relay{}) {
 		t.Errorf("relay: %+v", relay)
 	}
-	if thresholds := service.CurrentDiskThresholds(); thresholds != alert.DefaultDiskThresholds() {
-		t.Errorf("disks: %+v", thresholds)
+	if delay := service.CurrentDangerReminder(); delay != alert.DefaultReminderHours*time.Hour {
+		t.Errorf("reminder: %v", delay)
 	}
 	if service.CurrentLifecycleEnabled() {
 		t.Error("lifecycle must be off when the setting cannot be read")

@@ -13,8 +13,8 @@ import { AlertRow } from "./AlertRow";
 import { SelectableAlerts } from "./SelectableAlerts";
 import "./Alerts.scss";
 
-// La boîte de réception : les non vues en tête, à marquer comme vues ; les
-// vues dessous ; les résolues repliées au bas, c'est l'historique. Les
+// La boîte de réception : les non lues en tête, à marquer comme lues ; les
+// lues dessous ; les résolues repliées au bas, c'est l'historique. Les
 // filtres s'appliquent aux trois. resolved est null tant que l'historique
 // n'est pas arrivé : la boîte s'affiche sans l'attendre.
 export function Inbox({
@@ -34,7 +34,7 @@ export function Inbox({
 }) {
   const t = useT();
   // Le retour d'un marquage groupé vit ici : il reste lisible même quand la
-  // liste des non vues s'est vidée.
+  // liste des non lues s'est vidée.
   const [notice, setNotice] = useState<string | null>(null);
   const filtering = isFiltering(filter);
   const { unseen, seen } = inboxOf(filterAlerts(open, filter));

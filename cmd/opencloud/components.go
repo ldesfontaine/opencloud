@@ -118,7 +118,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		return nil, fmt.Errorf("load languages: %w", err)
 	}
 	alerts := alert.New(db, logger)
-	alerts.SetDiskThresholds(preferences.CurrentDiskThresholds)
+	alerts.SetReminderDelay(preferences.CurrentDangerReminder)
 	notifier := alert.NewNotifier(db, catalogs, preferences.CurrentLanguage, logger)
 	notifier.SetPublicURL(cfg.PublicURL)
 	notifier.SetMail(preferences.CurrentMailRelay, mail.NewSender(alert.MailTimeout))

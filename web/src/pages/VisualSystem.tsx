@@ -308,17 +308,17 @@ export function VisualSystem() {
 
           <section>
             <h2 className="side-label section-label">{t("visual.settings.title")}</h2>
-            <SectionHead id="vs-settings-title" title={t("settings.section_notifications")} text={t("settings.disk_intro")} />
+            <SectionHead id="vs-settings-title" title={t("settings.section_notifications")} text={t("settings.thresholds_intro")} />
             <Card className="setting-stack">
-              <SettingRow label={t("settings.disk_attention_label")} description={t("settings.disk_percent_help", 50, 99)} htmlFor="vs-attention" width="short">
+              <SettingRow label={t("thresholds.attention_label")} description={t("thresholds.percent_help", 50, 99)} htmlFor="vs-attention" width="short">
                 <Input id="vs-attention" type="number" defaultValue={85} />
               </SettingRow>
               <SettingRow label={t("settings.mail_host_label")} description={t("settings.mail_host_help")} htmlFor="vs-host" width="medium">
                 <Input id="vs-host" mono type="text" defaultValue="smtp.exemple.fr" />
               </SettingRow>
-              <SettingFoot note={t("settings.disk_applies")}>
+              <SettingFoot note={t("thresholds.applies")}>
                 <Button variant="primary" icon="check" disabled>
-                  {t("settings.disk_save")}
+                  {t("thresholds.save")}
                 </Button>
               </SettingFoot>
               <DangerZone>

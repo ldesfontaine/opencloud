@@ -5,7 +5,8 @@ import { useAPITokens } from "../api/apiTokens";
 import { useAuth } from "../api/auth";
 import { useCounts } from "../api/counts";
 import { useMCPCheck } from "../api/mcpCheck";
-import { useDiskSettings, useLifecycleSettings, useMailSettings } from "../api/settings";
+import { useLifecycleSettings, useMailSettings } from "../api/settings";
+import { useReminderSettings, useThresholdRules } from "../api/thresholds";
 import { PageHead } from "../components/PageHead";
 import { useT } from "../i18n/context";
 import { currentSection, sectionOfHash, type SettingsSectionId } from "../lib/settingsSections";
@@ -28,7 +29,8 @@ import "./Settings.scss";
 export function Settings() {
   const t = useT();
   const access = useAuth();
-  const disks = useDiskSettings();
+  const thresholds = useThresholdRules();
+  const reminder = useReminderSettings();
   const mail = useMailSettings();
   const support = useLifecycleSettings();
   const aiAgent = useMCPCheck();
@@ -55,7 +57,7 @@ export function Settings() {
   present.push("a-propos");
   const [current, pick] = useVisibleSection(present);
   // Les sections au-dessus de l'ancre changent la hauteur en arrivant : on attend toutes les lectures.
-  const settled = [access, counts, disks, mail, support, aiAgent, tokens].every((read) => read.data !== null || read.error !== null);
+  const settled = [access, counts, thresholds, reminder, mail, support, aiAgent, tokens].every((read) => read.data !== null || read.error !== null);
   useScrollToHash(settled);
 
   return (
@@ -66,7 +68,7 @@ export function Settings() {
         <div className="settings-main">
           {access.data !== null && <AccessSection state={access.data} />}
           {counts.data !== null && <ModulesSection modules={counts.data.modules} />}
-          <NotificationsSection disks={disks.data} reloadDisks={disks.reload} />
+          <NotificationsSection thresholds={thresholds.data} reloadThresholds={thresholds.reload} reminder={reminder.data} reloadReminder={reminder.reload} />
           {mail.data !== null && <MailSection settings={mail.data} reload={mail.reload} />}
           {support.data !== null && <LifecycleSection settings={support.data} reload={support.reload} />}
           {(aiAgent.data !== null || tokens.data !== null) && (

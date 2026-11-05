@@ -337,7 +337,7 @@ func TestAPIToken_ActorIsAPI(t *testing.T) {
 // l'opérateur, sans « pour qui ».
 func TestAPIToken_OnBehalfOfIsIgnoredUnderBasic(t *testing.T) {
 	server := newTestServer(t)
-	request := httptest.NewRequest(http.MethodPost, "/api/settings/disk", strings.NewReader(`{}`))
+	request := httptest.NewRequest(http.MethodPut, "/api/settings/reminder", strings.NewReader(`{"hours": 6}`))
 	request.Header.Set(onBehalfOfHeader, "mallory")
 	request.SetBasicAuth(testUsername, testPassword)
 	request.Header.Set("Sec-Fetch-Site", "same-origin")

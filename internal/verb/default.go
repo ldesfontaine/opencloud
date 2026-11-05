@@ -7,7 +7,7 @@ package verb
 var Default = newDefault()
 
 // Les verbes de départ sont ceux dont l'inverse existe côté opérateur.
-// alert.acknowledge n'en a pas (rien ne désacquitte une alerte) : il reste
+// alert.acknowledge n'en a pas (rien ne remet une alerte en non lue) : il reste
 // réservé à l'opérateur.
 func newDefault() *Registry {
 	registry := &Registry{}

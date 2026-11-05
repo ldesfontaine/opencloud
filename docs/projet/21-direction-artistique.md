@@ -135,7 +135,7 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   Sur la vue d'ensemble, la tuile Alertes est la plus large et son contexte
   porte la plus urgente, tronquée, le texte entier en info-bulle. Le contexte
   d'une tuile qui dit un fait à traiter (« 2 à traiter », « 1 expire dans 5
-  jours », « 1 à acquitter ») le dit en petite pastille au ton du fait ; ce
+  jours », « 1 non lue ») le dit en petite pastille au ton du fait ; ce
   qui va bien reste du texte neutre. Même règle pour l'échéance d'un
   certificat (pastille dès le seuil d'attention, texte discret avant) et le
   code de sortie d'une exécution (danger si non nul, neutre à 0).
