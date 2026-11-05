@@ -2,22 +2,11 @@ import { useResource, type Resource } from "../hooks/useResource";
 import type { ChannelTest } from "./alerts";
 import { api } from "./client";
 import { route } from "./routes";
-import type { DiskThresholds } from "./session";
 
-// Les réglages de Paramètres : seuils du disque, relais e-mail, fin de
-// support. Seule la fin de support a un sujet, « containers » (topicsOf) ;
+// Les réglages de Paramètres : relais e-mail, fin de support (les seuils et
+// le rappel sont dans api/thresholds). Seule la fin de support a un sujet, « containers » (topicsOf) ;
 // les autres ne se relisent qu'après leur enregistrement ou quand tout se
 // relit.
-
-// Les seuils d'alerte du disque ; le retour suit l'attention, et les bornes
-// disent la règle au formulaire.
-export interface DiskSettings {
-  attention: number;
-  danger: number;
-  recovery: number;
-  min_attention: number;
-  max_danger: number;
-}
 
 export type MailTLSMode = "starttls" | "tls" | "none";
 
@@ -42,9 +31,6 @@ export interface LifecycleSettings {
   last_attempt_at: string | null;
 }
 
-// Le corps ne porte que les deux seuils, tels que la session les rend.
-type DiskRequest = DiskThresholds;
-
 // Le mot de passe vide garde l'ancien ; clear_password l'efface.
 export interface MailRequest {
   host: string;
@@ -57,13 +43,8 @@ export interface MailRequest {
 }
 
 const settingsPath = "/api/settings";
-const diskPath = `${settingsPath}/disk`;
 const mailPath = `${settingsPath}/mail`;
 const lifecyclePath = `${settingsPath}/lifecycle`;
-
-export function useDiskSettings(): Resource<DiskSettings> {
-  return useResource<DiskSettings>(diskPath);
-}
 
 export function useMailSettings(): Resource<MailSettings> {
   return useResource<MailSettings>(mailPath);
@@ -71,10 +52,6 @@ export function useMailSettings(): Resource<MailSettings> {
 
 export function useLifecycleSettings(): Resource<LifecycleSettings> {
   return useResource<LifecycleSettings>(lifecyclePath);
-}
-
-export async function saveDiskSettings(body: DiskRequest): Promise<DiskSettings> {
-  return api.send<DiskSettings>(route("PUT /api/settings/disk"), body);
 }
 
 export async function saveMailSettings(body: MailRequest): Promise<MailSettings> {

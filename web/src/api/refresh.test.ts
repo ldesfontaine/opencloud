@@ -82,7 +82,7 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/unknown")).toEqual([]);
     expect(topicsOf("/api/auth")).toEqual([]);
     expect(topicsOf("/api/settings/api-tokens")).toEqual([]);
-    expect(topicsOf("/api/settings/disk")).toEqual([]);
+    expect(topicsOf("/api/settings/thresholds")).toEqual([]);
   });
 
   it("rereads the end-of-support card on the containers topic, where its reading publishes", () => {

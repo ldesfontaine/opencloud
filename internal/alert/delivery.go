@@ -9,7 +9,10 @@ const (
 	EventOpened     Event = "opened"
 	EventAggravated Event = "aggravated"
 	EventResolved   Event = "resolved"
-	EventTest       Event = "test"
+	// EventReminded : une alerte de danger toujours ouverte, que personne n'a
+	// lue ; un seul rappel par alerte.
+	EventReminded Event = "reminded"
+	EventTest     Event = "test"
 	// EventSummary dit combien d'envois la limite de débit a retenus ; il
 	// n'est la livraison d'aucune alerte.
 	EventSummary Event = "summary"
@@ -19,7 +22,7 @@ const (
 )
 
 func Events() []Event {
-	return []Event{EventOpened, EventAggravated, EventResolved, EventTest, EventSummary}
+	return []Event{EventOpened, EventAggravated, EventReminded, EventResolved, EventTest, EventSummary}
 }
 
 type DeliveryStatus string

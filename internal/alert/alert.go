@@ -51,6 +51,10 @@ const (
 	KindCertExpired      Kind = "cert_expired"
 	KindCertUntrusted    Kind = "cert_untrusted"
 	KindDiskFull         Kind = "disk_full"
+	// La moyenne du processeur ou de la mémoire d'une machine dépasse son
+	// seuil sur toute la fenêtre réglée.
+	KindCPUHigh    Kind = "cpu_high"
+	KindMemoryHigh Kind = "memory_high"
 	// L'agent d'une machine est revenu à sa version d'avant : la mise à jour
 	// n'a pas été confirmée à l'échéance. Danger si la remise en état a échoué.
 	KindAgentRolledBack Kind = "agent_rolled_back"
@@ -69,7 +73,7 @@ func Kinds() []Kind {
 	return []Kind{
 		KindMachineLost, KindServiceDown, KindServiceUnhealthy, KindServiceRestart,
 		KindJobLate, KindJobFailed, KindProbeDown,
-		KindCertExpiring, KindCertExpired, KindCertUntrusted, KindDiskFull, KindAgentRolledBack,
+		KindCertExpiring, KindCertExpired, KindCertUntrusted, KindDiskFull, KindCPUHigh, KindMemoryHigh, KindAgentRolledBack,
 		KindBackupStale, KindRestoreTestStale, KindSourceUnprotected, KindTargetFull, KindTargetUnreachable,
 	}
 }
@@ -136,11 +140,14 @@ func VolumeID(machineID, mountPoint string) string {
 type Details struct {
 	// Redémarrages comptés dans la fenêtre.
 	Count int `json:"count,omitempty"`
-	// Remplissage d'un volume, en pourcentage entier.
+	// Remplissage d'un volume, ou moyenne du processeur ou de la mémoire sur
+	// la fenêtre, en pourcentage entier.
 	Percent int `json:"percent,omitempty"`
+	// La fenêtre de cette moyenne, en minutes ; zéro pour un volume.
+	WindowMinutes int `json:"window_minutes,omitempty"`
 	// Le point de montage d'un volume.
 	MountPoint string `json:"mount_point,omitempty"`
-	// Le seuil d'attention en vigueur quand le volume a été jugé : la
+	// Le seuil d'attention en vigueur quand la ressource a été jugée : la
 	// phrase cite celui-là, celui qui a fait ouvrir ou tenir l'alerte.
 	Threshold int `json:"threshold,omitempty"`
 	// Le code de sortie d'un service ou d'une tâche ; 0 vaut « aucun »,
@@ -163,7 +170,7 @@ type Details struct {
 }
 
 func (d Details) Equal(other Details) bool {
-	return d.Count == other.Count && d.Percent == other.Percent && d.MountPoint == other.MountPoint && d.Threshold == other.Threshold &&
+	return d.Count == other.Count && d.Percent == other.Percent && d.WindowMinutes == other.WindowMinutes && d.MountPoint == other.MountPoint && d.Threshold == other.Threshold &&
 		d.ExitCode == other.ExitCode && d.Reason == other.Reason && d.Target == other.Target &&
 		d.Bytes == other.Bytes && d.NotAfter.Equal(other.NotAfter) && d.Since.Equal(other.Since)
 }
@@ -217,6 +224,10 @@ type Alert struct {
 	UpdatedAt      time.Time
 	ResolvedAt     time.Time
 	AcknowledgedAt time.Time
+	// NotifiedAt : la dernière annonce d'ouverture ou d'aggravation, d'où
+	// part le délai du rappel ; RemindedAt : le rappel parti, un seul.
+	NotifiedAt time.Time
+	RemindedAt time.Time
 	// ClearSince : depuis quand l'état d'un service est redevenu bon. Zéro
 	// tant que le problème dure ; l'alerte se résout passé ServiceClearDelay.
 	ClearSince time.Time
@@ -255,7 +266,7 @@ type Filter struct {
 // Counts est ce que la barre latérale et la vue d'ensemble comptent.
 type Counts struct {
 	Open int
-	// Unacknowledged : les ouvertes que personne n'a encore acquittées ;
+	// Unacknowledged : les ouvertes que personne n'a encore lues ;
 	// c'est le compteur rouge.
 	Unacknowledged int
 }
@@ -281,15 +292,11 @@ const (
 	ChannelReserve    = 5
 	// Un résumé nomme au plus ces machines, puis compte les autres.
 	MaxSummaryMachines = 3
-	// Les seuils du disque tant que l'opérateur n'en a pas réglé d'autres :
-	// voir disk.go.
-	DefaultDiskAttentionPercent = 85
-	DefaultDiskDangerPercent    = 95
 	// Combien de temps une alerte résolue reste lisible.
 	ResolvedRetention = 90 * 24 * time.Hour
 	// Ce que la page liste d'un coup.
 	MaxListed = 200
-	// Un acquittement groupé couvre au plus ce que la page affiche.
+	// Une lecture groupée couvre au plus ce que la page affiche.
 	MaxAcknowledgedAtOnce = MaxListed
 )
 
@@ -297,7 +304,7 @@ var (
 	ErrNotFound      = errors.New("alert: not found")
 	ErrAlreadyClosed = refusal.Conflict("alert.already_resolved", "alert: already resolved")
 	ErrFactInvalid   = errors.New("alert: fact invalid")
-	// Un acquittement groupé sans alerte, ou au-delà de ce que la page
+	// Une lecture groupée sans alerte, ou au-delà de ce que la page
 	// affiche.
 	ErrSelectionEmpty    = refusal.Invalid("alert.selection_empty", "alert: selection empty")
 	ErrSelectionTooLarge = refusal.Invalid("alert.selection_too_large", "alert: selection too large")

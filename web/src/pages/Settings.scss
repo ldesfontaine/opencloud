@@ -109,3 +109,22 @@
     scroll-margin-top: 28px;
   }
 }
+
+// Un formulaire de seuils par ressource, sous son nom.
+.threshold-section {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.threshold-name {
+  margin: 8px 20px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 860px) {
+  .threshold-name {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+}

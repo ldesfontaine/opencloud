@@ -9,8 +9,8 @@ interface RunOptions<Result> {
   // Après la relecture : naviguer, montrer « Enregistré », garder la réponse.
   onDone?: (result: Result) => void;
   // Après l'écriture, qu'elle ait réussi ou non, et après onDone : relire ce
-  // qu'un refus a pu laisser changé (une alerte déjà résolue, un acquittement
-  // à moitié passé), ou ce que le serveur a gardé malgré l'erreur.
+  // qu'un refus a pu laisser changé (une alerte déjà résolue, une lecture groupée
+  // à moitié passée), ou ce que le serveur a gardé malgré l'erreur.
   onSettled?: () => void;
 }
 

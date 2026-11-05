@@ -28,7 +28,7 @@
     margin-left: auto;
     white-space: nowrap;
 
-    // L'erreur d'acquittement passe à la ligne : sur téléphone, elle
+    // L'erreur de marquage passe à la ligne : sur téléphone, elle
     // déborderait l'écran.
     .note {
       white-space: normal;
@@ -42,7 +42,7 @@
   }
 }
 
-// L'acquittement groupé : la barre de sélection en tête de carte, puis un
+// Le marquage groupé comme lues : la barre de sélection en tête de carte, puis un
 // en-tête par machine. Les cases font 20 px et leur libellé est cliquable :
 // assez grand pour le pouce.
 .alert-bulk {

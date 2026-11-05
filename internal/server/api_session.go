@@ -26,10 +26,11 @@ type sessionResponse struct {
 	// pour que le compteur de la vue d'ensemble et la couleur d'une ligne
 	// basculent sur le même chiffre, tenu à un seul endroit.
 	Certificates certificateThresholds `json:"certificate_thresholds"`
-	// Les pourcentages à partir desquels un volume alerte, puis s'aggrave,
-	// tels que réglés sous Paramètres : les jauges basculent sur le même
-	// chiffre que l'alerte.
-	Disks diskThresholds `json:"disk_thresholds"`
+	// Les pourcentages à partir desquels une ressource alerte, puis
+	// s'aggrave, tels que réglés sous Paramètres : les jauges basculent sur
+	// le même chiffre que l'alerte. Une machine qui porte sa surcharge la
+	// dit sur sa fiche.
+	Thresholds map[string]resourceThresholds `json:"resource_thresholds"`
 	// Les routes d'écriture que le registre des verbes ouvre aux jetons : le
 	// front y reconnaît les boutons qui portent la puce « MCP ».
 	Verbs []sessionVerb `json:"verbs"`
@@ -49,13 +50,17 @@ type sessionVerb struct {
 	Route string `json:"route"`
 }
 
-type diskThresholds struct {
+type resourceThresholds struct {
 	Attention int `json:"attention"`
 	Danger    int `json:"danger"`
 }
 
-func diskThresholdsToJSON(thresholds alert.DiskThresholds) diskThresholds {
-	return diskThresholds{Attention: thresholds.Attention, Danger: thresholds.Danger}
+func resourceThresholdsToJSON(rules []alert.Applied) map[string]resourceThresholds {
+	thresholds := make(map[string]resourceThresholds, len(rules))
+	for _, rule := range rules {
+		thresholds[string(rule.Resource)] = resourceThresholds{Attention: rule.Attention, Danger: rule.Danger}
+	}
+	return thresholds
 }
 
 type certificateThresholds struct {
@@ -78,7 +83,7 @@ type countsResponse struct {
 	Certificates certificateCounts `json:"certificates"`
 	// Les incidents ouverts sur la page de statut.
 	Status statusCounts `json:"status"`
-	// Les alertes ouvertes, et celles que personne n'a acquittées.
+	// Les alertes ouvertes, et celles que personne n'a lues.
 	Alerts alertCountsJSON `json:"alerts"`
 	// Les modules de l'installation et s'ils sont configurés. Ici et non dans
 	// la session : la session se lit une fois, et le menu doit suivre le
@@ -131,7 +136,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	disks, err := s.settings.DiskThresholds(r.Context())
+	rules, err := s.alerts.Rules(r.Context(), "")
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -142,7 +147,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		Language:     string(language),
 		Languages:    languages,
 		Certificates: certificateThresholds{Warning: probe.CertificateWarning, Danger: probe.CertificateDanger},
-		Disks:        diskThresholdsToJSON(disks),
+		Thresholds:   resourceThresholdsToJSON(rules),
 		Verbs: httpx.ConvertAll(verb.Default.All(), func(offered verb.Verb) sessionVerb {
 			return sessionVerb{ID: offered.ID, Route: offered.Route}
 		}),

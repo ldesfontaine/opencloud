@@ -29,7 +29,7 @@ import {
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join(" ");
 const now = Date.parse("2026-09-22T10:00:00Z");
-const disks = { attention: 85, danger: 95 };
+const disks = { cpu: { attention: 95, danger: 99 }, memory: { attention: 90, danger: 95 }, disk: { attention: 85, danger: 95 } };
 
 function alert(overrides: Partial<Alert>): Alert {
   return {
@@ -61,6 +61,17 @@ describe("describeAlert", () => {
     expect(text.fact).toBe("alert.fact_disk_full 86");
     expect(text.cause).toBe("alert.cause_disk_full /data vps-lyon-2 85");
     expect(text.action).toBe("alert.action_disk_full");
+  });
+  it("dit la moyenne du processeur sur sa fenêtre, avec le seuil noté à l'ouverture", () => {
+    const processor = alert({ kind: "cpu_high", object: { kind: "machine", id: "local", name: "vps-lyon-2" }, details: { percent: 97, window_minutes: 30, threshold: 98 } });
+    const text = describeAlert(t, processor, now, disks);
+    expect(text.fact).toBe("alert.fact_cpu_high 97");
+    expect(text.cause).toBe("alert.cause_cpu_high vps-lyon-2 30 98");
+    expect(text.action).toBe("alert.action_cpu_high");
+  });
+  it("une alerte de mémoire ouverte avant que sa fenêtre ne soit notée cite celle du produit et le seuil de la session", () => {
+    const memory = alert({ kind: "memory_high", object: { kind: "machine", id: "local", name: "vps-lyon-2" }, details: { percent: 93 } });
+    expect(describeAlert(t, memory, now, disks).cause).toBe("alert.cause_memory_high vps-lyon-2 15 90");
   });
   it("compte les jours restants d'un certificat, arrondis vers le haut", () => {
     const text = describeAlert(t, alert({ kind: "cert_expiring", details: { target: "blog.exemple.fr", not_after: "2026-10-04T09:00:00Z" } }), now, disks);

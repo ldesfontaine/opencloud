@@ -26,10 +26,19 @@ type Store interface {
 	ListOrphanAlerts(ctx context.Context) ([]Alert, error)
 	// UpdateAlert réécrit ce qui bouge : type, gravité, détails, nom, machine, dates.
 	UpdateAlert(ctx context.Context, alert Alert) error
-	// AcknowledgeAlerts acquitte d'un seul tenant celles des alertes nommées
-	// qui sont ouvertes et pas encore acquittées ; rend combien.
+	// AcknowledgeAlerts marque comme lues d'un seul tenant celles des alertes nommées
+	// qui sont ouvertes et pas encore lues ; rend combien.
 	AcknowledgeAlerts(ctx context.Context, ids []int64, at time.Time) (int, error)
 	PurgeAlerts(ctx context.Context, resolvedBefore time.Time) error
+
+	// Les seuils des alertes de ressources. ListThresholds rend le réglage
+	// global et les surcharges de cette machine ; machineID vide, le seul
+	// global. UpsertThreshold remplace la règle de cette ressource.
+	ListThresholds(ctx context.Context, machineID string) ([]Threshold, error)
+	UpsertThreshold(ctx context.Context, threshold Threshold) error
+	DeleteThreshold(ctx context.Context, machineID string, resource Resource) error
+	// AverageUsage rend la moyenne des lectures d'une machine sur [from, to].
+	AverageUsage(ctx context.Context, machineID string, from, to time.Time) (UsageAverage, error)
 
 	InsertChannel(ctx context.Context, channel Channel) (int64, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
@@ -84,10 +93,10 @@ type Engine struct {
 	sender  Sender
 	watcher Watcher
 	auditor *audit.Recorder
-	// disks rend les seuils du disque réglés ; nil : ceux par défaut.
-	disks  func() DiskThresholds
-	logger *slog.Logger
-	now    func() time.Time
+	// reminderDelay rend le délai du rappel réglé ; nil : celui du produit.
+	reminderDelay func() time.Duration
+	logger        *slog.Logger
+	now           func() time.Time
 	// mu sérialise lire-puis-écrire : deux sources ne se voient jamais un
 	// état périmé de la même clé.
 	mu sync.Mutex
@@ -124,17 +133,10 @@ func (e *Engine) SetWatcher(watcher Watcher) {
 	e.watcher = watcher
 }
 
-// SetDiskThresholds branche la lecture des seuils réglés ; elle est
-// appelée à chaque lecture de ressources.
-func (e *Engine) SetDiskThresholds(disks func() DiskThresholds) {
-	e.disks = disks
-}
-
-func (e *Engine) diskThresholds() DiskThresholds {
-	if e.disks == nil {
-		return DefaultDiskThresholds()
-	}
-	return e.disks()
+// SetReminderDelay branche la lecture du délai du rappel réglé ; elle est
+// appelée à chaque balayage, un délai changé sous Paramètres vaut aussitôt.
+func (e *Engine) SetReminderDelay(delay func() time.Duration) {
+	e.reminderDelay = delay
 }
 
 func (e *Engine) changed() {
@@ -171,7 +173,7 @@ func (e *Engine) open(ctx context.Context, fact Fact) {
 	alert := Alert{
 		Kind: fact.Kind, Severity: fact.Severity, Status: StatusOpen,
 		Object: fact.Object, MachineID: fact.MachineID, ServiceID: fact.ServiceID, Details: fact.Details,
-		OpenedAt: now, UpdatedAt: now, ClearSince: fact.ClearSince,
+		OpenedAt: now, UpdatedAt: now, NotifiedAt: now, ClearSince: fact.ClearSince,
 	}
 	id, err := e.store.InsertAlert(ctx, alert)
 	if err != nil {
@@ -221,8 +223,11 @@ func (e *Engine) update(ctx context.Context, existing Alert, fact Fact) {
 		existing.Severity = fact.Severity
 	}
 	if aggravated {
-		// Ce que l'opérateur avait acquitté n'est plus la même chose.
+		// Ce que l'opérateur avait lu n'est plus la même chose, et l'annonce
+		// de l'aggravation relance le délai du rappel.
 		existing.AcknowledgedAt = time.Time{}
+		existing.NotifiedAt = existing.UpdatedAt
+		existing.RemindedAt = time.Time{}
 	}
 	if err := e.store.UpdateAlert(ctx, existing); err != nil {
 		e.fail(ctx, "update alert", err)
@@ -357,7 +362,8 @@ func (e *Engine) activeMutes(ctx context.Context, now time.Time) []Mute {
 // Sweep fait ce que le temps seul change : les alertes d'un objet disparu
 // se résolvent ; celles d'un service redevenu bon aussi, passé leur délai
 // de calme : RestartWindow après un redémarrage, ServiceClearDelay pour un
-// arrêt ou une santé qui échouait. Puis les livraisons en échec dont
+// arrêt ou une santé qui échouait. Puis le rappel des alertes de danger
+// restées sans lecture, les livraisons en échec dont
 // l'essai suivant est échu, et les résumés des envois retenus.
 func (e *Engine) Sweep(ctx context.Context) {
 	e.mu.Lock()
@@ -367,6 +373,7 @@ func (e *Engine) Sweep(ctx context.Context) {
 	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceRestart, ClearBefore: now.Add(-RestartWindow)})
 	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceDown, ClearBefore: now.Add(-ServiceClearDelay)})
 	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceUnhealthy, ClearBefore: now.Add(-ServiceClearDelay)})
+	e.remindDangers(ctx, now)
 	e.retryDue(ctx, now)
 	e.flushSummaries(ctx)
 	e.forgetIdleShares(now)

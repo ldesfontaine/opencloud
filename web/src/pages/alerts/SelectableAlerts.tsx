@@ -13,9 +13,9 @@ import { acknowledgedMessage, coverage, groupByMachine, groupCountLabel, keepSel
 import { AlertRow } from "./AlertRow";
 import "./Alerts.scss";
 
-// Les ouvertes à acquitter : une case par alerte, une par machine, « tout
-// sélectionner », et l'acquittement groupé en une requête. La sélection se
-// vide d'elle-même de ce qui a été acquitté ou résolu en direct.
+// Les ouvertes à lire : une case par alerte, une par machine, « tout
+// sélectionner », et le marquage groupé comme lues en une requête. La sélection se
+// vide d'elle-même de ce qui a été lu ou résolu en direct.
 export function SelectableAlerts({ alerts, notice: message, setNotice: setMessage }: { alerts: Alert[]; notice: string | null; setNotice: (notice: string | null) => void }) {
   const t = useT();
   const { refresh } = useRefresh();

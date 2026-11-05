@@ -260,7 +260,7 @@ type acknowledgeAlertsRequest struct {
 	IDs []int64 `json:"ids"`
 }
 
-// Combien d'alertes de la sélection sont passées à acquittées ; les autres
+// Combien d'alertes de la sélection sont passées à lues ; les autres
 // l'étaient déjà, ou se sont résolues entre-temps.
 type acknowledgeAlertsResponse struct {
 	Acknowledged int `json:"acknowledged"`

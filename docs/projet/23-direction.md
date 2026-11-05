@@ -256,7 +256,7 @@ paramètres sans secret, résultat, journal d'exécution. Stocké dans la base,
 **et** envoyé sur un canal « audit » : une base effacée n'efface pas la trace.
 **Fait** (21/10) : le journal part vers les canaux qui le reçoivent (« Recevoir le journal »).
 
-Côté alertes, trois notions : **alerte, acquitter, taire**. « Taire »
+Côté alertes, trois notions : **alerte, lue, taire**. « Taire »
 remplace silence et maintenance : une fenêtre début-fin, sur un objet de
 l'annuaire ou un type, jugée à chaque envoi ; elle s'annonce comme maintenance
 sur les pages de statut seulement si on le coche. Le moteur d'alertes ne lit
@@ -390,7 +390,7 @@ Tri de l'existant fait par Lucas le 17 octobre 2026.
 | Tâches | Jeton réaffiché en clair dans l'interface, stocké chiffré en base, régénérable. Intervalle + marge, pas d'horaire cron. Édition sur place, pause qui tient, webhooks entrants comme genre de tâche |
 | Sondes | Édition sur place ; rattachement au service de l'annuaire depuis n'importe quelle machine (dedans ou dehors). Contrôles NRPE = un genre de sonde, quatrième état « avertissement » |
 | Certificats | Seuils relatifs à la durée de vie : avertissement sous un quart restant, critique sous un dixième ou 2 jours ; réglage global, par sonde plus tard. `ca_file` dans le fichier de l'agent |
-| Alertes | Trois notions : alerte, acquitter, taire. « Taire » remplace silence et maintenance : fenêtre début-fin, immédiate ou planifiée, sur un objet de l'annuaire ou un type, jugée à chaque envoi ; case « annoncer comme maintenance sur les pages de statut » décochée par défaut. Limite du canal = protection interne. Plus de CHECK sur les genres |
+| Alertes | Trois notions : alerte, lue (marquer comme lue), taire. « Taire » remplace silence et maintenance : fenêtre début-fin, immédiate ou planifiée, sur un objet de l'annuaire ou un type, jugée à chaque envoi ; case « annoncer comme maintenance sur les pages de statut » décochée par défaut. Limite du canal = protection interne. Plus de CHECK sur les genres |
 | Projets | Le projet entre dans l'annuaire : il regroupe des services et sert à leur page de statut, au routage des canaux, au filtre de l'interface, plus tard aux droits. Un service peut appartenir à plusieurs projets : le socle dont dépend un site paraît sur sa page |
 | Nature d'un service | **Application** (convertisseur PDF, gestionnaire de mots de passe, site…) ou **outil d'infra** (proxy, SSO, autre outil maison ajouté par Docker). Pré-réglée par le modèle, modifiable. Un outil d'infra peut déclarer ce qu'il fournit (`sso`, `proxy`, `tls`, `backup-target`) : c'est sur quoi les modules se branchent. Séparés dans l'interface et le catalogue ; sur une page de statut, un outil d'infra s'affiche sous un nom générique (« Authentification ») |
 | Terme | « Outil d'infra » est provisoire. Le libellé vit dans les catalogues, il se change sans toucher au code |

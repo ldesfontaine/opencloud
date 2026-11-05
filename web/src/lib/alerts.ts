@@ -13,7 +13,7 @@ import {
   type MuteRequest,
   type MuteTargetKind,
 } from "../api/alerts";
-import type { DiskThresholds } from "../api/session";
+import type { ResourceName, ResourceThresholds } from "../api/session";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 import { daysUntil } from "./certificates";
@@ -42,7 +42,11 @@ function isRestartLoop(alert: Alert): boolean {
   return (alert.kind === "service_down" || alert.kind === "service_restart") && (alert.details.count ?? 0) >= restartLoopThreshold;
 }
 
-export function describeAlert(t: Translate, alert: Alert, now: number, disks: DiskThresholds): AlertText {
+// La fenêtre de la moyenne du produit (alert.DefaultRule), pour une alerte
+// ouverte avant que sa fenêtre ne soit notée.
+const defaultWindowMinutes = 15;
+
+export function describeAlert(t: Translate, alert: Alert, now: number, thresholds: Record<ResourceName, ResourceThresholds>): AlertText {
   const machine = alert.machine_name !== "" ? alert.machine_name : t("alert.no_machine");
   const object = alert.object.name;
   const details = alert.details;
@@ -100,7 +104,11 @@ export function describeAlert(t: Translate, alert: Alert, now: number, disks: Di
     case "agent_rolled_back":
       return lines(t, alert.kind, [], [machine, details.target ?? "", t(`alert.rollback_cause_${details.reason ?? "timeout"}`)]);
     case "disk_full":
-      return lines(t, alert.kind, [details.percent ?? 0], [details.mount_point ?? object, machine, details.threshold ?? disks.attention]);
+      return lines(t, alert.kind, [details.percent ?? 0], [details.mount_point ?? object, machine, details.threshold ?? thresholds.disk.attention]);
+    case "cpu_high":
+      return lines(t, alert.kind, [details.percent ?? 0], [machine, details.window_minutes ?? defaultWindowMinutes, details.threshold ?? thresholds.cpu.attention]);
+    case "memory_high":
+      return lines(t, alert.kind, [details.percent ?? 0], [machine, details.window_minutes ?? defaultWindowMinutes, details.threshold ?? thresholds.memory.attention]);
     case "backup_stale":
       return backupStaleText(t, alert, now);
     case "restore_test_stale":
@@ -157,8 +165,8 @@ function lines(t: Translate, kind: AlertKind, factArgs: (string | number)[], cau
   };
 }
 
-// La plus urgente des alertes ouvertes : une que personne n'a acquittée avant
-// une acquittée, puis la plus grave, puis la plus récente. null : aucune
+// La plus urgente des alertes ouvertes : une que personne n'a lue avant
+// une lue, puis la plus grave, puis la plus récente. null : aucune
 // ouverte. C'est ce que la tuile Alertes de la vue d'ensemble montre.
 export function mostUrgentAlert(alerts: Alert[]): Alert | null {
   let best: Alert | null = null;
@@ -173,13 +181,13 @@ export function mostUrgentAlert(alerts: Alert[]): Alert | null {
   return best;
 }
 
-// Non acquittée : 2, grave : 1 ; la gravité ne vient qu'après l'acquittement.
+// Non lue : 2, grave : 1 ; la gravité ne vient qu'après la lecture.
 function urgencyOf(alert: Alert): number {
   return (alert.acknowledged_at === null ? 2 : 0) + (alert.severity === "danger" ? 1 : 0);
 }
 
-// L'état d'une alerte tel que la pastille le dit. « Vue » est l'acquittement :
-// l'opérateur l'a lue, une aggravation la rend non vue.
+// L'état d'une alerte tel que la pastille le dit. « Lue » est l'acquittement
+// de l'API : l'opérateur l'a lue, une aggravation la rend non lue.
 type AlertState = "unseen" | "seen" | "resolved";
 
 export function stateOf(alert: Pick<Alert, "status" | "acknowledged_at">): AlertState {
@@ -195,8 +203,8 @@ export const alertStateTones: Record<AlertState, Tone> = {
   resolved: "ok",
 };
 
-// La boîte de réception : les ouvertes que personne n'a vues en tête, les
-// vues ensuite. L'ordre du serveur (les plus graves d'abord) est gardé dans
+// La boîte de réception : les ouvertes que personne n'a lues en tête, les
+// lues ensuite. L'ordre du serveur (les plus graves d'abord) est gardé dans
 // chaque moitié. Les résolues forment l'historique, lu à part.
 export function inboxOf(open: Alert[]): { unseen: Alert[]; seen: Alert[] } {
   return {
@@ -305,7 +313,7 @@ export function objectPath(object: AlertObject, machineID: string): string | nul
   }
 }
 
-// Le sous-titre de la page : rien, tout acquitté, ou ce qui reste à voir.
+// Le sous-titre de la page : rien, tout lu, ou ce qui reste à lire.
 export function alertsSubtitle(t: Translate, open: number, unacknowledged: number): string {
   if (open === 0) {
     return t("alerts.subtitle_none");
@@ -561,7 +569,7 @@ export function channelRequestOf(values: ChannelFormValues): ChannelRequest {
 // Les canaux et les silences vivaient sous /alertes/canaux et /alertes/silences,
 // en onglets de la page Alertes : ils sont sous Paramètres › Notifications. Un
 // lien d'avant mène à la fenêtre qu'il ouvrait, ou à la section quand c'était
-// l'onglet ; un autre onglet (acquittées, résolues) mène à la boîte.
+// l'onglet ; un autre onglet (lues, résolues) mène à la boîte.
 export function renamedAlertLocation(pathname: string): { pathname: string; hash: string } {
   const [, , section = "", ...rest] = pathname.split("/");
   const base = section === "canaux" || section === "silences" ? `/parametres/${section}` : null;

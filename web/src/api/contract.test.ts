@@ -568,6 +568,7 @@ const alert = shape<AlertJSON>("Alert", {
   details: shape("AlertDetails", {
     count: optional(value),
     percent: optional(value),
+    window_minutes: optional(value),
     mount_point: optional(value),
     threshold: optional(value),
     exit_code: optional(value),
@@ -852,7 +853,7 @@ const session = shape<Session>("Session", {
   language: value,
   languages: value,
   certificate_thresholds: shape("CertificateThresholds", { warning: value, danger: value }),
-  disk_thresholds: shape("DiskThresholds", { attention: value, danger: value }),
+  resource_thresholds: shape("ResourceThresholds", { cpu: shape("ResourceThreshold", { attention: value, danger: value }), memory: shape("ResourceThreshold", { attention: value, danger: value }), disk: shape("ResourceThreshold", { attention: value, danger: value }) }),
   verbs: shape("SessionVerb", { id: value, route: value }),
   roles: shape("SessionRole", { id: value, capabilities: value }),
 });

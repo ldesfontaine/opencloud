@@ -12,17 +12,17 @@ import (
 )
 
 const settingsSelect = `SELECT language,
-	disk_attention_percent, disk_danger_percent,
+	danger_reminder_hours,
 	mail_host, mail_port, mail_tls, mail_username, mail_password, mail_from,
 	lifecycle_disabled
 	FROM settings WHERE id = 1`
 
-// LoadSettings rend les réglages de l'opérateur ; sans ligne, des réglages
-// vides : une installation neuve n'a encore rien réglé.
+// LoadSettings rend les réglages de l'opérateur ; sans ligne, ceux d'une
+// installation neuve (settings.Defaults).
 func (db *DB) LoadSettings(ctx context.Context) (settings.Settings, error) {
 	current, err := db.scanSettings(db.sql.QueryRowContext(ctx, settingsSelect))
 	if errors.Is(err, sql.ErrNoRows) {
-		return settings.Settings{}, nil
+		return settings.Defaults(), nil
 	}
 	if err != nil {
 		return settings.Settings{}, fmt.Errorf("load settings: %w", err)
@@ -37,7 +37,9 @@ func (db *DB) UpdateSettings(ctx context.Context, change func(*settings.Settings
 	var written settings.Settings
 	err := db.inTx(ctx, "settings update", func(tx *sql.Tx) error {
 		current, err := db.scanSettings(tx.QueryRowContext(ctx, settingsSelect))
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
+			current = settings.Defaults()
+		} else if err != nil {
 			return fmt.Errorf("load settings: %w", err)
 		}
 		change(&current)
@@ -58,7 +60,7 @@ func (db *DB) scanSettings(row scanner) (settings.Settings, error) {
 	var language string
 	var lifecycleDisabled int
 	err := row.Scan(&language,
-		&current.DiskAttentionPercent, &current.DiskDangerPercent,
+		&current.DangerReminderHours,
 		&current.MailHost, &current.MailPort, &current.MailTLS, &current.MailUsername, &current.MailPassword, &current.MailFrom,
 		&lifecycleDisabled)
 	if err != nil {
@@ -81,14 +83,13 @@ func (db *DB) saveSettings(ctx context.Context, tx *sql.Tx, current settings.Set
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO settings (id, language,
-			disk_attention_percent, disk_danger_percent,
+			danger_reminder_hours,
 			mail_host, mail_port, mail_tls, mail_username, mail_password, mail_from,
 			lifecycle_disabled, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			language = excluded.language,
-			disk_attention_percent = excluded.disk_attention_percent,
-			disk_danger_percent = excluded.disk_danger_percent,
+			danger_reminder_hours = excluded.danger_reminder_hours,
 			mail_host = excluded.mail_host,
 			mail_port = excluded.mail_port,
 			mail_tls = excluded.mail_tls,
@@ -98,7 +99,7 @@ func (db *DB) saveSettings(ctx context.Context, tx *sql.Tx, current settings.Set
 			lifecycle_disabled = excluded.lifecycle_disabled,
 			updated_at = excluded.updated_at`,
 		string(current.Language),
-		current.DiskAttentionPercent, current.DiskDangerPercent,
+		current.DangerReminderHours,
 		current.MailHost, current.MailPort, current.MailTLS, current.MailUsername, mailPassword, current.MailFrom,
 		boolToInt(current.LifecycleDisabled), at.Unix())
 	if err != nil {

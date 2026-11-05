@@ -150,10 +150,11 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `opencloud.db` | La publication d'un projet dans `projects` (`slug` unique et non nul : le projet est publié ; annonce en texte brut, langue, `published_at` ; le titre de la page est celui du projet) ; les composants dans `status_components` (leur projet, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), les objets qu'ils visent dans `incident_targets` (quatre clés étrangères, exactement une remplie, en `cascade` : un lien seul, l'incident reste), leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens ; la page supprimée emporte ses composants de même. Un incident ne vise pas un composant : il vise des objets, et l'objet supprimé détache l'incident (compté dans le plan), qui garde son texte et son fil. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, la lecture (`acknowledged_at`), la dernière annonce (`notified_at`) et le rappel parti (`reminded_at`) ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ou `write`, nom, échéance de 30, 90 ou 365 jours ou aucune, dernier usage) et leurs verbes dans `api_token_verbs` (migration `016_api_token_verbs.sql` : un verbe du registre par ligne, aucune ligne : aucune action ; `ON DELETE CASCADE`), leur portée dans `api_tokens.machines_limited` et `guests_limited` et les tables `api_token_machines` et `api_token_guests` (migration `023_api_token_reach.sql` : « La portée d'un jeton »), et les demandes de verbe à confirmation que ces jetons déposent dans `verb_requests` (migration `025_verb_requests.sql` : « Les verbes à confirmation ») | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne, ses verbes, sa portée et ses demandes en attente ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le SSO n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; le délai du rappel des alertes de danger (`danger_reminder_hours`, 12 par défaut, 0 le coupe) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les seuils des alertes de ressources dans `alert_thresholds` (migration `037_alert_thresholds.sql`) : une ligne par ressource (`cpu`, `memory`, `disk`) et par périmètre, `machine_id` à NULL pour le réglage global ou la machine qu'elle surcharge (clé étrangère en `cascade`) ; seuil d'attention, seuil de danger, fenêtre en secondes (0 : la dernière lecture, le disque). Le seuil de retour n'est pas stocké | Deux index uniques partiels : une règle par ressource pour le global, une par machine et ressource. Les seuils du disque déjà réglés sous Paramètres passent au global à la migration, tels quels |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
 | Machine openCloud, `state_dir` | `server.key` | La clé qui **signe les ordres** envoyés aux agents : une ligne `ed25519-v1:<graine>`, Ed25519, tirée au premier démarrage de `serve`, jamais en base ; une seconde ligne, la clé précédente, le temps d'une rotation (`opencloud secrets rotate-server-key`, puis `finish-server-key`). Sa moitié publique est livrée à chaque agent à l'enrôlement, qui l'épingle | Les règles de `secret.key` : mode 0600 jugé sur le descripteur, refusée si un autre compte peut la lire, création exclusive (deux `serve` lancés ensemble gardent la même). Illisible ou abîmée, `serve` refuse de démarrer plutôt que d'en tirer une autre. **Qui l'a commande toutes les machines** ; perdue, chaque agent refuse les ordres (`bad_signature`) jusqu'à son ré-enrôlement ; volée, aussi : une rotation se fait sous la signature de l'ancienne clé, elle ne chasse pas qui la tient. À sauvegarder avec `secret.key` |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'historique des exécutions des plans de sauvegarde dans `backup_runs` (migration `019` : une ligne par cible d'un passage : plan, source, début, fin, résultat `ok`/`failed`/`refused`, raison fermée, taille de l'archive, nom de la destination), lu par l'inventaire et par `GET /api/backups/runs`. Les volumes Docker de chaque machine dans `machine_volumes` (migration `021` : nom, pilote, noms des conteneurs qui le montent ; **jamais le contenu ni la taille**) | L'historique est borné à 400 lignes par plan, purgé à l'écriture ; il survit au plan et à la destination qu'il nomme. Les volumes sont remplacés à chaque inventaire de l'agent ; la machine retirée emporte les siens. Aucun secret dans l'un ni l'autre |
@@ -2133,7 +2134,7 @@ Sauvegardes (la même source que l'écran), en tire des **constats**
 (`restic.Finding`) et les donne au moteur des alertes
 (`alert.Engine.BackupsJudged`), qui ouvre, aggrave et reprend. Il tourne à
 chaque tour de la boucle (15 min) et à chaque fin de vérification. Les
-alertes sont celles de la boîte « Alertes » : canaux, silences et acquittement
+alertes sont celles de la boîte « Alertes » : canaux, silences et lecture
 y sont les mêmes ; la page Sauvegardes en montre les ouvertes dans sa carte
 **Surveillance**, avec leur geste.
 
@@ -4129,7 +4130,7 @@ liste vit dans `internal/alert`.
    l'histoire, jamais un fait neuf.
 2. **Le moteur déduplique** : un fait sur une clé déjà ouverte met à jour
    ses détails sans prévenir personne ; une gravité qui monte **aggrave**
-   l'alerte, la renvoie aux canaux et annule l'acquittement ; une gravité
+   l'alerte, la renvoie aux canaux et annule la lecture ; une gravité
    qui redescend ne change rien. Un fait sans objet est refusé et
    journalisé : c'est une source qui oublie l'identifiant, et deux objets
    se partageraient une alerte.
@@ -4163,19 +4164,20 @@ liste vit dans `internal/alert`.
    un titre sans la case, ou la case sans titre, est refusé
    (`silence.announce_invalid`). Un silence ne se modifie pas : on le
    supprime et on le recrée.
-5. **Marquer comme vue** (l'acquittement de l'API) ne ferme rien : l'alerte
-   sort du compteur rouge et reste ouverte jusqu'à sa reprise. Une
-   aggravation la ré-arme, elle redevient non vue. La boîte de réception
-   (`/alertes`) liste les **non vues** en tête, groupées par machine (en-tête
-   avec leur nombre), avec une case par alerte, une par machine et « Tout
-   sélectionner » ; « Marquer la sélection comme vue » ou « Marquer tout ce qui
-   est affiché comme vu » partent en une requête,
+5. **Marquer comme lue** (l'acquittement de l'API : le verbe et l'identifiant
+   `alert.acknowledge` gardent leur nom, seul le mot que voit l'opérateur
+   change) ne ferme rien : l'alerte sort du compteur rouge (« 3 non lues ») et
+   reste ouverte jusqu'à sa reprise. Une aggravation la ré-arme, elle redevient
+   non lue. La boîte de réception (`/alertes`) liste les **non lues** en tête,
+   groupées par machine (en-tête avec leur nombre), avec une case par alerte,
+   une par machine et « Tout sélectionner » ; « Marquer la sélection comme lue »
+   ou « Marquer tout ce qui est affiché comme lu » partent en une requête,
    `POST /api/alerts/actions/acknowledge` avec `{"ids":[…]}` : 200
    identifiants au plus, une seule instruction SQL donc une transaction, refus
    `alert.selection_empty` ou `alert.selection_too_large`. Une alerte déjà
-   vue, résolue ou disparue entre l'affichage et le clic est passée sans
+   lue, résolue ou disparue entre l'affichage et le clic est passée sans
    refus ; la réponse dit combien ont changé, et la page l'écrit (« 4 alertes
-   marquées comme vues »). Le geste unitaire reste.
+   marquées comme lues »). Le geste unitaire reste.
 6. **Un canal est un webhook** : une URL, un format de corps, un secret de
    signature facultatif, une gravité minimale, et s'il veut aussi la
    résolution. Chaque envoi est un POST qui porte `OpenCloud-Event` et,
@@ -4277,7 +4279,9 @@ liste vit dans `internal/alert`.
 | Certificat qui expire | `probe`, à chaque essai et toutes les 5 min | échéance à moins de **30 j** ; aggravée à **7 j** | renouvelé ; pause ; suppression | attention → danger |
 | Certificat expiré | `probe` | échéance passée | renouvelé | danger |
 | Certificat non vérifié | `probe` | agrafe « révoqué », nom qui ne correspond pas, ou chaîne refusée d'un certificat pas encore expiré | chaîne et nom valides | attention |
-| Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** par défaut, réglable ; aggravée à **95 %** par défaut, réglable | sous le seuil d'attention **moins 5 points** (80 % par défaut), ou volume disparu | attention → danger |
+| Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** par défaut ; aggravée à **95 %**. Réglable, globalement et par machine | sous le seuil d'attention **moins 5 points** (80 % par défaut), ou volume disparu | attention → danger |
+| Processeur très chargé | `resource`, à chaque lecture | la **moyenne** des lectures de la fenêtre (**15 min** par défaut) atteint **95 %** ; aggravée à **99 %**. Réglable, globalement et par machine | la moyenne repasse sous le seuil d'attention **moins 5 points** (90 %) | attention → danger |
+| Mémoire presque pleine | `resource`, à chaque lecture | la moyenne de la fenêtre (**15 min**) atteint **90 %** ; aggravée à **95 %**. Réglable, globalement et par machine | idem, sous 85 % par défaut | attention → danger |
 | Agent revenu à la version précédente | `action`, au rapport de l'agent | la mise à jour n'a pas été confirmée à temps (`timeout`) ou a planté (`crash`) : l'agent est revenu seul à la précédente ; la remise en état qui échoue à son tour (`failed`) | une mise à jour ou un retour arrière confirmé sur cette machine | attention, danger si la remise en état a échoué |
 | Sauvegarde sans réussite, test de restauration périmé, source sans plan, cible pleine ou injoignable | `restic` (module Sauvegardes), à chaque tour de 15 min et à chaque fin de vérification | voir « La supervision des sauvegardes » : cinq types, un objet « sauvegarde » (`backup`) qui ne porte que sa machine, comme un volume | | |
 | Un plan par archives ou un ordre `backup.receive` en échec | aucune | **aucune alerte** : l'échec se lit sur la page Sauvegardes (`last_error` du plan, ou l'état du dernier ordre `backup.receive`) ; l'absence de réussite depuis 36 h, elle, alerte (`backup_stale`) | | |
@@ -4304,27 +4308,68 @@ la fois un arrêt et un redémarrage ouverts pour un service, le plus récent
 reste et l'autre est résolu au rapport suivant.
 
 Deux gravités et pas trois : un ton de plus ne dirait rien de plus à qui
-doit agir. Les seuils sont ceux du produit, tenus dans `internal/alert`,
-sauf ceux du disque, réglables.
+doit agir. Les seuils des alertes de ressources sont réglables ; tous les
+autres sont ceux du produit, tenus dans `internal/alert`.
 
-**Les seuils du disque** se règlent sous Paramètres, section Notifications
-(`GET`/`PUT /api/settings/disk`) : attention et danger, entiers,
-**50 ≤ attention < danger ≤ 99**, sinon refus `settings.disk_invalid`. Le
-retour n'est pas un champ : il suit l'attention, cinq points dessous, ce
-qui garde l'hystérésis sans troisième règle à valider. Ils vivent dans
-la table `settings` ; le moteur les relit à chaque lecture de ressources, un
-changement vaut donc dès la mesure suivante, sans redémarrage. Une valeur
-hors bornes écrite à la main dans la base est ignorée : le moteur
-reprend 85 et 95. Chaque alerte note dans ses détails le seuil
-d'attention en vigueur à la dernière lecture qui l'a jugée (`threshold`),
-et la phrase « Seuil d'alerte fixé à … » cite celui-là, au navigateur
-comme au canal ; une alerte d'avant le réglage, sans ce détail, cite 85.
-`/api/session` sert les seuils réglés : les jauges de disque changent de
-couleur sur les mêmes chiffres que l'alerte.
+**Les seuils des ressources : une seule notion.** Le disque, le processeur et
+la mémoire sont jugés par la même règle (`alert.Rule`) : une **ressource**,
+un seuil d'**attention**, un seuil de **danger**, une **fenêtre**, et un seuil
+de **retour** qui n'est pas un champ (cinq points sous l'attention, ce qui
+garde l'hystérésis sans troisième règle à valider). Une machine est jugée par la
+règle que **`alert.resolve`** lui trouve : sa surcharge, sinon le réglage
+global, sinon la valeur du produit (« machine, global, défaut ») ; l'écran dit
+laquelle s'applique (`origin`). Le disque a une fenêtre de 0 (la dernière
+lecture de chaque volume) ; le processeur et la mémoire sont jugés sur la
+**moyenne de leur fenêtre** (1 à 120 min, 15 par défaut), calculée sur les
+lectures brutes de la base (`machine_samples`), la mémoire en pourcentage de
+chaque lecture. Le coût : une alerte de processeur ou de mémoire arrive après
+la fenêtre, jamais sur un pic, et une machine qui vient de s'enrôler ou dont
+l'agent a été coupé n'en a pas tant que ses lectures ne couvrent pas la
+fenêtre (début atteint à une minute près, la moitié des lectures attendues) :
+dans ce cas l'alerte ne s'ouvre ni ne se résout, elle reste telle quelle.
+
+| Ressource | Attention | Danger | Fenêtre | Bornes |
+| --- | --- | --- | --- | --- |
+| Processeur | 95 % | 99 % | 15 min | 50 ≤ attention < danger ≤ 100 ; 1 à 120 min |
+| Mémoire | 90 % | 95 % | 15 min | 50 ≤ attention < danger ≤ 100 ; 1 à 120 min |
+| Disque | 85 % | 95 % | dernière lecture | 50 ≤ attention < danger ≤ 99 |
+
+Le **réglage global** se pose sous Paramètres › Notifications
+(`GET /api/settings/thresholds`, `PUT /api/settings/thresholds/{resource}` avec
+`attention`, `danger` et `window_minutes`) ; la **surcharge d'une machine**
+sur sa fiche, carte « Seuils des alertes » (`GET /api/machines/{id}/thresholds`,
+`PUT` et `DELETE /api/machines/{id}/thresholds/{resource}`), avec la phrase
+« Plus de tolérance pour cette machine » et « Suivre le réglage global » pour la
+retirer. Une surcharge ne touche que sa machine et sa ressource ; elle part
+avec la machine. Hors bornes : refus `settings.threshold_invalid` (422). Ces
+gestes sont d'interface : ils ne sont pas des verbes d'API. Chacun est écrit au
+journal d'audit (`settings.update`, clé `thresholds`, la ressource, les valeurs,
+la machine). Les règles vivent dans `alert_thresholds` ; le moteur les relit à
+chaque lecture de ressources, un changement vaut donc dès la mesure suivante,
+sans redémarrer. Une règle hors bornes écrite à la main dans la base est
+ignorée au profit de la suivante. Chaque alerte note dans ses détails le seuil
+d'attention (`threshold`) et la fenêtre (`window_minutes`) en vigueur à la
+lecture qui l'a jugée, et la phrase cite ceux-là, au navigateur comme au
+canal ; une alerte d'avant le réglage, sans ce détail, cite ceux du produit.
+`/api/session` sert les seuils **globaux** (`resource_thresholds`) : les jauges
+changent de couleur sur les mêmes chiffres que l'alerte.
+
+**Le rappel d'une alerte de danger.** Une alerte de **danger** ouverte, **non
+lue** et que **aucun silence ne couvre** depuis le délai réglé (12 h par défaut,
+1 à 168 h sous Paramètres › Notifications, `GET`/`PUT /api/settings/reminder` ;
+**0 coupe le rappel**) est renvoyée **une seule fois** aux canaux, comme
+« Toujours en cours » (événement `reminded`). Le balayage de 30 s (`Sweep`) la
+trouve ; le délai part de la dernière annonce (`notified_at` : l'ouverture ou
+la dernière aggravation, qui relance donc le délai), et le rappel parti est noté
+(`reminded_at`). Une alerte silencieuse n'est pas rappelée et garde son rappel
+pour la fin du silence. Le délai est relu à chaque balayage. Coût : un rappel
+est un message de plus sur le canal, passé par la même limite de débit que les
+autres ; à la mise à jour, les alertes déjà ouvertes partent de ce moment pour
+leur délai, pour qu'aucun rappel ne sorte d'un coup.
 
 | Ce qui part vers un canal | Ce qui n'en part jamais |
 | --- | --- |
-| L'ouverture, l'aggravation, et la résolution si le canal la veut ; le test | Un envoi qu'un silence couvre au moment de partir ; une maintenance de la page de statut ne tait rien |
+| L'ouverture, l'aggravation, le rappel d'une alerte de danger non lue, et la résolution si le canal la veut ; le test | Un envoi qu'un silence couvre au moment de partir ; une maintenance de la page de statut ne tait rien |
 | Le fait, la cause et le geste rendus dans la langue de l'interface au moment de l'envoi | Un détail qui change sans aggravation : le disque qui passe de 86 à 88 % |
 | Les faits de l'alerte : type, gravité, objet et son identifiant, machine, chiffres, dates | Le secret du canal, ni dans l'API ni dans le journal : `has_secret` dit seulement qu'il y en a un |
 | L'en-tête `Title` et `Priority` pour le format texte, ce que ntfy lit | Une alerte sous la gravité minimale du canal, ou vers un canal désactivé |
@@ -4341,17 +4386,17 @@ couleur sur les mêmes chiffres que l'alerte.
 | `matrix` | Un `m.room.message` : `msgtype: m.text`, `body` en texte brut (titre, cause, geste, lien), `format: org.matrix.custom.html` et `formatted_body` (titre en gras, lien « Ouvrir dans openCloud ») | Un salon Matrix, Element ou tout client, par un bot |
 
 La page Alertes (`/alertes`) est une **boîte de réception** : une seule
-liste, les **non vues** en tête, les **vues** dessous, les **résolues** repliées
+liste, les **non lues** en tête, les **lues** dessous, les **résolues** repliées
 au bas (l'historique, 90 jours). Des filtres remplacent les onglets : gravité,
 type, machine, service ; ils vivent dans l'adresse
 (`?gravite=danger&genre=disk_full&machine=…&service=…`) et s'appliquent côté
 client aux deux listes, bornées à 200 par le serveur (aucune route ne change).
 Chaque section porte la pastille de son compteur ; le compteur de la barre
-latérale compte les ouvertes, en rouge tant qu'une n'est pas vue. Les **canaux**
+latérale compte les ouvertes, en rouge tant qu'une n'est pas lue. Les **canaux**
 (`GET`, `POST /api/alerts/channels`…) et les **silences** (`GET`, `POST
 /api/alerts/mutes`, `DELETE /api/alerts/mutes/{id}` ; l'état, en cours,
 planifié ou expiré, et l'auteur) se règlent sous **Paramètres › Notifications**,
-avec les seuils du disque : l'ajout et la modification d'un canal, et la pose
+avec les seuils des ressources et le rappel : l'ajout et la modification d'un canal, et la pose
 d'un silence, sont des fenêtres à leur adresse (`/parametres/canaux/nouveau`,
 `/parametres/canaux/:id`, `/parametres/silences/nouveau`) ; supprimer un canal
 passe par une fenêtre de confirmation. Les anciennes adresses
@@ -4360,7 +4405,7 @@ passe par une fenêtre de confirmation. Les anciennes adresses
 depuis une alerte ou un service ouvre la fenêtre pré-remplie : son type, et ce
 qui porte son objet (le service déclaré d'un conteneur, la machine d'un
 volume). La tuile Alertes de la vue d'ensemble donne le nombre d'ouvertes et,
-sur une ligne, ce qui reste à voir et la plus urgente (non vue d'abord, puis la
+sur une ligne, ce qui reste à lire et la plus urgente (non lue d'abord, puis la
 plus grave, puis la plus récente). Le sujet `alerts` du direct relit tout.
 200 alertes par liste, 32 canaux au plus.
 
@@ -4760,7 +4805,7 @@ une VM la coupe pour ses utilisateurs jusqu'au `start` qui la rallume, et
 `snapshot_delete` retire pour de bon un point de retour que `snapshot` ne
 recrée pas à l'identique. Le débit du jeton borne la vitesse, pas ces effets.
 
-`alert.acknowledge` n'est **pas** offert : rien ne désacquitte une alerte, il
+`alert.acknowledge` (« Marquer comme lue » à l'écran) n'est **pas** offert : rien ne remet une alerte en non lue, il
 reste réservé à l'opérateur. Contrepartie du choix : une reprise peut échouer
 là où la pause a réussi (`probe.resume` sur une sonde dont la cible porte un
 mot de passe : 409, comme pour l'opérateur), l'inverse est une intention, pas
@@ -4776,7 +4821,7 @@ qui n'est pas dans le registre reste fermée à un jeton, même `write` avec tou
 les verbes : un test de table parcourt chaque route non-`GET` de l'API et le
 vérifie (déploiement, révocation d'un agent, ré-enrôlement,
 suppressions autres que celle d'une machine, réglages, authentification, gestion des jetons, pare-feu,
-déclaration Proxmox, acquittement, drapeau « à mettre à jour en dernier »,
+déclaration Proxmox, lecture d'une alerte, seuils des alertes, drapeau « à mettre à jour en dernier »,
 migration d'un agent). La mise à jour et le retour arrière d'un agent sont
 désormais des verbes ; la signature et l'import d'une version n'ont aucune
 route.
@@ -5201,7 +5246,7 @@ rechargement (aucun brouillon n'est gardé) ; les anciennes adresses
    | `containers` | `container`, `update`, `lifecycle` | rapport de conteneurs ou de réseaux écrit ; constat d'image, politique changée ; lecture de la fin de support |
    | `probes` | `probe` | essais écrits ; sonde créée, modifiée, mise en pause ou reprise, supprimée |
    | `status` | `status` | instantané public changé (empreinte de ce que le visiteur voit) |
-   | `alerts` | `alert` | alerte ouverte, aggravée, acquittée, résolue ; canal ou silence changé |
+   | `alerts` | `alert` | alerte ouverte, aggravée, rappelée, lue, résolue ; canal ou silence changé |
    | `directory` | `directory`, `manifest` | service ou projet déclaré créé, modifié, supprimé ; fichier de l'annuaire appliqué |
    | `actions` | `action` | ordre écrit, envoyé, répondu, expiré |
    | `backups` | `backup` | clé, destination ou plan écrit ; tentative notée |
@@ -5294,7 +5339,7 @@ principales (machines, services, sondes, tâches) ne gardent que le nom,
 l'état et le dernier moment, les autres tableaux défilent dans leur carte,
 une commande à coller défile dans son bloc, les tuiles passent sur une
 colonne. Les boutons y font 44 px de haut (40 px dans une ligne), pour
-acquitter ou faire taire une alerte au pouce. La page de statut publique a
+marquer une alerte comme lue ou la faire taire au pouce. La page de statut publique a
 sa propre mise en page et n'est pas concernée.
 
 ### Limitation de débit sur `/ping`
@@ -6144,7 +6189,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Page de statut | `status_page.create`, `.update`, `.delete` (avant la `034`, `status_page.update` nommait la page unique par son titre) | La page, par son slug | `title`, `announcement`, `language`, `project_id` |
 | Canal | `channel.create`, `.update`, `.delete` | Le canal | `format`, `min_severity`, `notify_resolve`, `receives_audit`, `enabled` ; à la modification `url_changed` et `secret_changed`, **jamais les valeurs** |
 | Silence (`mutes`) | `mute.create`, `.delete` | Le silence, au nom de l'objet tu | `kind`, `target_kind`, `target_id`, `reason`, `starts_at`, `ends_at`, `announce`, `public_title` |
-| Acquitter une alerte, une sélection | `alert.acknowledge` | L'alerte ; une sélection n'a pas d'objet | `kind`, `object_kind`, `object_id` ; pour une sélection `alert_ids` et `acknowledged` |
+| Marquer une alerte, une sélection, comme lue | `alert.acknowledge` | L'alerte ; une sélection n'a pas d'objet | `kind`, `object_kind`, `object_id` ; pour une sélection `alert_ids` et `acknowledged` |
 | Réglage | `settings.update` | `language`, `mail_relay`, `disk` ou `lifecycle` | La valeur ; le relais sans son mot de passe, avec `password_changed` |
 | Accès à l'interface | `auth.enable`, `.disable`, `.change_password` | `interface` | `mode`, `username`, `header` ; jamais le mot de passe ni son empreinte |
 | Jeton d'API, tous les jetons | `api_token.create`, `.revoke`, `.deny` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `verbs`, `expires_at` ; pour `.deny`, `verb` (l'identifiant du registre que le jeton a tenté sans le porter, jamais ce que le client a écrit) ; pour tous `all`, `api_tokens` ; jamais le jeton ni son préfixe |
@@ -6544,7 +6589,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |
 | Les clés SSH ne se relèvent qu'en lecture, dans deux fichiers par compte | Un `AuthorizedKeysFile` personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus. Sous un compte dédié, l'agent ne lit pas les clés des autres comptes (« Illisible pour le compte de l'agent ») ; il ne faut **pas** lui donner `CAP_DAC_READ_SEARCH` pour y remédier : il lirait aussi `/etc/shadow`. L'écriture (`ssh.keys`, #152 étape 2) n'existe pas : ajouter ou retirer une clé reste un geste sur la machine | L'écriture attend une décision (`23-direction.md`, §10 étape 8) |
 | Les unités systemd ne se relèvent qu'au niveau du système, en nom et en état | Les unités d'un utilisateur (`systemctl --user`) ne sont pas vues ; la description, le processus, le fichier et l'environnement d'une unité ne sont jamais lus ; le **port** d'un binaire ne se déduit pas (il demanderait `/proc/<pid>/fd`, donc `ptrace`) : il se déclare. Les liens entre instances viennent avec L3 (déclarés), L4 (déduits) et L5 (environnement, sous `observe.env`) | Une décision de Lucas, si un jour le port doit se déduire (droit élevé : refusé par la décision 5 de l'étude) |
-| Un jeton d'API ne fait que lire | mcp-maison ne peut ni acquitter, ni mettre en pause, ni ouvrir un incident : la liste fermée ne compte aucune écriture, et l'acteur `api` n'écrit encore rien au journal | Avec les actions de l'API (#153, étape 5) |
+| Un jeton d'API ne fait que lire | mcp-maison ne peut ni marquer une alerte comme lue, ni mettre en pause, ni ouvrir un incident : la liste fermée ne compte aucune écriture, et l'acteur `api` n'écrit encore rien au journal | Avec les actions de l'API (#153, étape 5) |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par mcp-maison, journaux de conteneur compris, quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui crée un jeton et branche mcp-maison | Par conception |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |
 | Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se télécharge ou se compile, et se copie à la main. Une version signée se vérifie (`release verify`), la clé de version est posée depuis le 23/10/2026 : la `v0.0.1` est non signée et n'embarque pas la clé, donc la première version signée s'installe à la main, serveur et agents (`agent.update` refuse sans clé). Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |

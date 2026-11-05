@@ -18,6 +18,8 @@ export type AlertKind =
   | "cert_expired"
   | "cert_untrusted"
   | "disk_full"
+  | "cpu_high"
+  | "memory_high"
   | "agent_rolled_back"
   | "backup_stale"
   | "restore_test_stale"
@@ -38,6 +40,8 @@ export const alertKinds: readonly AlertKind[] = [
   "cert_expired",
   "cert_untrusted",
   "disk_full",
+  "cpu_high",
+  "memory_high",
   "agent_rolled_back",
   "backup_stale",
   "restore_test_stale",
@@ -56,7 +60,7 @@ export interface AlertObject {
   name: string;
 }
 
-// Les alertes ouvertes, et celles que personne n'a acquittées.
+// Les alertes ouvertes, et celles que personne n'a lues.
 export interface AlertCounts {
   open: number;
   unacknowledged: number;
@@ -67,6 +71,8 @@ export interface AlertCounts {
 interface AlertDetails {
   count?: number;
   percent?: number;
+  // La fenêtre, en minutes, de la moyenne d'un processeur ou d'une mémoire.
+  window_minutes?: number;
   mount_point?: string;
   // Le seuil d'attention en vigueur à l'ouverture : la phrase cite celui-là.
   threshold?: number;
@@ -103,7 +109,7 @@ export interface AlertsResponse {
   counts: AlertCounts;
 }
 
-type DeliveryEvent = "opened" | "aggravated" | "resolved";
+type DeliveryEvent = "opened" | "aggravated" | "reminded" | "resolved";
 type DeliveryStatus = "pending" | "delivered" | "failed" | "held" | "muted";
 
 export interface Delivery {
@@ -225,7 +231,7 @@ function channelPath(id: NumericID): string {
   return `${channelsPath}/${segment(String(id))}`;
 }
 
-// Les ouvertes (acquittées ou non) par défaut, ou les résolues.
+// Les ouvertes (lues ou non) par défaut, ou les résolues.
 export function useAlerts(status: AlertStatus = "open"): Resource<AlertsResponse> {
   return useResource<AlertsResponse>(status === "resolved" ? `${alertsPath}?status=resolved` : alertsPath);
 }
@@ -247,7 +253,7 @@ export function useMutes(): Resource<MutesResponse> {
   return useResource<MutesResponse>(mutesPath);
 }
 
-// Acquitte d'un coup ; la réponse dit combien l'étaient vraiment.
+// Marque des alertes comme lues d'un coup ; la réponse dit combien l'étaient vraiment (le verbe d'API reste « acknowledge »).
 export async function acknowledgeAlerts(ids: number[]): Promise<{ acknowledged: number }> {
   return api.send<{ acknowledged: number }>(route("POST /api/alerts/actions/acknowledge"), { ids });
 }

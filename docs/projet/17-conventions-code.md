@@ -258,12 +258,14 @@ nouveau suit le même ordre, de haut en bas du fichier :
 ### Les réglages
 
 - Toute écriture d'un réglage passe par `settings.Service`
-  (`SetLanguage`, `SetMailRelay`, `SetDiskThresholds`,
-  `SetLifecycleEnabled`, `SetStatusPage`). Il porte la règle de chaque clé
+  (`SetLanguage`, `SetMailRelay`, `SetDangerReminderHours`,
+  `SetLifecycleEnabled`, `SetStatusPage`). Les seuils des alertes ne sont pas
+  ici : ils sont par ressource et par machine, et s'écrivent par le moteur
+  (`alert.Engine.SetRule`). Il porte la règle de chaque clé
   (port par défaut du relais, mot de passe laissé vide gardé) et relit,
   modifie, réécrit dans une transaction.
 - Un composant qui lit un réglage au moment de servir reçoit une fonction au
-  câblage : `CurrentLanguage`, `CurrentMailRelay`, `CurrentDiskThresholds`,
+  câblage : `CurrentLanguage`, `CurrentMailRelay`, `CurrentDangerReminder`,
   `CurrentLifecycleEnabled`. Elle relit la base à chaque appel et rend une
   valeur de repli en échec.
 - Un handler appelle `settings.Service`, jamais le store.

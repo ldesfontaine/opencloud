@@ -82,7 +82,11 @@ func describe(catalog lang.Catalog, alert Alert, now time.Time, escape func(stri
 	case KindAgentRolledBack:
 		return text(catalog, "agent_rolled_back", nil, []any{machine, details.Target, catalog.Get("alert.rollback_cause_" + rollbackCauseOf(details))})
 	case KindDiskFull:
-		return text(catalog, "disk_full", []any{details.Percent}, []any{details.MountPoint, machine, diskThresholdOf(details)})
+		return text(catalog, "disk_full", []any{details.Percent}, []any{details.MountPoint, machine, thresholdOf(details, ResourceDisk)})
+	case KindCPUHigh:
+		return text(catalog, "cpu_high", []any{details.Percent}, []any{machine, windowOf(details, ResourceCPU), thresholdOf(details, ResourceCPU)})
+	case KindMemoryHigh:
+		return text(catalog, "memory_high", []any{details.Percent}, []any{machine, windowOf(details, ResourceMemory), thresholdOf(details, ResourceMemory)})
 	case KindBackupStale:
 		age := formatAge(catalog, now.Sub(details.Since))
 		return text(catalog, "backup_stale", []any{age}, []any{object, machine, age, catalog.Get("alert.backup_stale_" + staleReasonOf(details))})
@@ -142,13 +146,21 @@ func rollbackCauseOf(details Details) string {
 	return RollbackTimeout
 }
 
-// diskThresholdOf est le seuil que cite la phrase ; une alerte ouverte
-// avant que le seuil ne soit noté cite celui par défaut.
-func diskThresholdOf(details Details) int {
+// thresholdOf est le seuil que cite la phrase ; une alerte ouverte avant que
+// le seuil ne soit noté cite celui par défaut.
+func thresholdOf(details Details, resource Resource) int {
 	if details.Threshold == 0 {
-		return DefaultDiskAttentionPercent
+		return DefaultRule(resource).Attention
 	}
 	return details.Threshold
+}
+
+// windowOf est la fenêtre de la moyenne que cite la phrase, en minutes.
+func windowOf(details Details, resource Resource) int {
+	if details.WindowMinutes == 0 {
+		return int(DefaultRule(resource).Window.Minutes())
+	}
+	return details.WindowMinutes
 }
 
 func text(catalog lang.Catalog, kind string, factArgs, causeArgs []any) Text {

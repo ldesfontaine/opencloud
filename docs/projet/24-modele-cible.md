@@ -28,7 +28,7 @@
 | Secrets saisis dans l'interface (URL et secret des canaux, mot de passe du relais, jetons de tâche, secret OIDC) : **chiffrés en base** par la clé du serveur, colonnes `*_sealed` | Une base volée sans la clé ne livre rien ; la sauvegarde chiffrée les emporte | Un jeton cherché par valeur a besoin d'une empreinte à côté (`token_lookup`) |
 | Secrets des services : **le `.env` sur la machine fait foi**. Ni en base, ni dans l'export | Une seule source de vérité | Restaurer un service passe par sa sauvegarde (`data/` + `.env`, chiffrés) |
 | La machine openCloud est une machine comme les autres, avec un agent | Un seul mécanisme ; le chemin intégré à `serve` disparaît | Le serveur seul ne voit rien de sa machine tant que l'agent n'est pas installé. **Fait** (section 13) |
-| Ni silence, ni maintenance : un seul objet **« taire »**, jugé à chaque envoi. Le moteur d'alertes ne lit plus les pages de statut | Trois notions au lieu de quatre : alerte, acquitter, taire | Une annonce publique de maintenance porte son propre titre |
+| Ni silence, ni maintenance : un seul objet **« taire »**, jugé à chaque envoi. Le moteur d'alertes ne lit plus les pages de statut | Trois notions au lieu de quatre : alerte, lue (marquer comme lue), taire | Une annonce publique de maintenance porte son propre titre |
 
 ## 1. Entités cibles et liens
 

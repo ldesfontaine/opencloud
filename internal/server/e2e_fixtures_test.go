@@ -27,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/systemdunits"
@@ -90,6 +91,7 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2ERestic(t, ts)
 	seedE2EAnchors(t, ts)
 	seedE2EZFSCache(t, ts)
+	seedE2EThresholds(t, ts)
 }
 
 // seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
@@ -1046,5 +1048,27 @@ func seedE2EZFSCache(t *testing.T, ts *testServer) {
 	reading.ZFSCache = &cache
 	if err := ts.resources.Record(context.Background(), e2eAnchorsNoneID, []sampler.Reading{reading}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// seedE2EThresholds pose les seuils du parcours : le processeur de la machine
+// distante est resté à 100 % sur plus d'une fenêtre (une alerte de danger,
+// non lue), et sa mémoire a des seuils à elle. Les lectures s'arrêtent à celle
+// que seedResources a déjà posée : la machine reste « sans mesure fraîche ».
+func seedE2EThresholds(t *testing.T, ts *testServer) {
+	t.Helper()
+	ctx := context.Background()
+	var readings []sampler.Reading
+	for at := testNow.Add(-5*time.Minute - 20*time.Minute); at.Before(testNow.Add(-5 * time.Minute)); at = at.Add(10 * time.Second) {
+		readings = append(readings, testReading(at, 100))
+	}
+	for start := 0; start < len(readings); start += resource.MaxReadingsPerSignal {
+		end := min(start+resource.MaxReadingsPerSignal, len(readings))
+		if err := ts.resources.Record(ctx, remoteID, readings[start:end]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := callAPI(ts.Server, http.MethodPut, "/api/machines/"+remoteID+"/thresholds/memory", ruleRequest{Attention: 96, Danger: 99, WindowMinutes: 30}); got.Code != http.StatusOK {
+		t.Fatalf("memory override: %d %s", got.Code, got.Body.String())
 	}
 }

@@ -32,7 +32,7 @@ export interface Counts {
   certificates: CertificateCounts;
   // Les incidents ouverts sur la page de statut.
   status: { open_incidents: number };
-  // Les alertes ouvertes, et celles que personne n'a acquittées.
+  // Les alertes ouvertes, et celles que personne n'a lues.
   alerts: AlertCounts;
   // Les modules de l'installation : ici et non dans la session, qui se lit une
   // fois, pour que le menu suive le premier objet créé.
