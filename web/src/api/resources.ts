@@ -14,7 +14,8 @@ export interface Disk {
 
 // Une lecture de l'agent : instant, pourcentage processeur, octets et
 // octets par seconde ; les pourcentages de mémoire et de disque se calculent
-// dans le front. disk_used et disk_total font la somme des volumes. Un point
+// dans le front. mem_used ne compte pas la part de l'ARC ZFS que ZFS rend ;
+// zfs_cache est l'ARC entier, absent sans ZFS ou d'un agent ancien. disk_used et disk_total font la somme des volumes. Un point
 // d'historique a la même forme, daté du début de son seau, sans les volumes.
 export interface Reading {
   sampled_at: string;
@@ -23,6 +24,7 @@ export interface Reading {
   load_1: number;
   mem_used: number;
   mem_total: number;
+  zfs_cache?: number;
   swap_used: number;
   swap_total: number;
   disk_used: number;

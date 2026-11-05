@@ -114,6 +114,9 @@ func validate(reading sampler.Reading, now time.Time) error {
 			return ErrReadingInvalid
 		}
 	}
+	if reading.ZFSCache != nil && *reading.ZFSCache < 0 {
+		return ErrReadingInvalid
+	}
 	return validateDisks(reading.Disks)
 }
 

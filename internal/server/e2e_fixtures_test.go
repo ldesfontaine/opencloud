@@ -27,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/link"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 )
@@ -88,6 +89,7 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2ELinks(t, ts)
 	seedE2ERestic(t, ts)
 	seedE2EAnchors(t, ts)
+	seedE2EZFSCache(t, ts)
 }
 
 // seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
@@ -1029,5 +1031,20 @@ func e2eServeRestore(t *testing.T, ts *testServer, source *machine.Session) {
 			result = agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonPathExists}
 		}
 		e2eReportResult(t, ts, source, result)
+	}
+}
+
+// seedE2EZFSCache : pve-ancres est un Pi de sauvegarde en ZFS. Sa mémoire
+// utilisée est déjà corrigée (1,2 Go) ; l'ARC de 9,9 Go est montré à part.
+// La machine openCloud (sans ZFS) et pve-illisible (aucune mesure) disent les
+// deux autres états de la tuile.
+func seedE2EZFSCache(t *testing.T, ts *testServer) {
+	t.Helper()
+	reading := testReading(testNow.Add(-10*time.Second), 4)
+	reading.MemUsed, reading.MemTotal = 1_288_490_189, 16_106_127_360
+	cache := int64(9_925_000_000)
+	reading.ZFSCache = &cache
+	if err := ts.resources.Record(context.Background(), e2eAnchorsNoneID, []sampler.Reading{reading}); err != nil {
+		t.Fatal(err)
 	}
 }

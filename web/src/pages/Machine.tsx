@@ -96,7 +96,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
           {tab === "" ? (
             <>
               <MachineTodoCard machine={current} all={all} />
-              <ResourceStats current={resources.data} />
+              <ResourceStats current={resources.data} failed={resources.error !== null} />
               <ResourceHistory machineID={current.id} />
               <MachineStorage machine={current} current={resources.data} />
               {current.lifecycle !== undefined && (lifecycleHasDetails(current.lifecycle) || current.lifecycle.status === "pending") && <SystemSupport lifecycle={current.lifecycle} />}
