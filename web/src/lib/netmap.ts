@@ -3,46 +3,21 @@ import type { Translate } from "../i18n/context";
 import { freshnessText } from "./links";
 import type { Tone } from "./tone";
 
-// Au-delà, la carte se présente repliée : hôte par hôte, seuls ceux qui ont un
-// service en défaut restent ouverts.
-export const foldAbove = 12;
-
 // Combien de puces une machine montre avant « et n autres ».
 const chipsShown = 6;
 
-// Une boîte « du dessus » : tout ce qui n'est pas dans un hôte.
-export function topBoxes(map: NetworkMap): MapBox[] {
-  return [...map.outside, ...map.home];
-}
-
-export function guestsOf(box: MapBox): MapBox[] {
-  return box.groups.flatMap((group) => group.guests);
-}
-
-// Les machines de la boîte, elle comprise, invités compris.
-function machinesIn(box: MapBox): MapBox[] {
-  return [box, ...guestsOf(box)];
-}
-
+// Toutes les machines de la carte : le dehors, puis les couloirs de la maison.
 export function allBoxes(map: NetworkMap): MapBox[] {
-  return topBoxes(map).flatMap(machinesIn);
+  return [...map.outside, ...map.home.flatMap((lane) => lane.boxes)];
 }
 
 export function isHost(box: MapBox): boolean {
-  return box.groups.length > 0;
+  return box.guest_count > 0;
 }
 
-// Une machine sans service et sans invité : elle se replie en une ligne.
-export function isIdle(box: MapBox): boolean {
-  return box.services.length === 0 && !isHost(box);
-}
-
-export function splitIdle(boxes: MapBox[]): { busy: MapBox[]; idle: MapBox[] } {
-  return { busy: boxes.filter((box) => !isIdle(box)), idle: boxes.filter(isIdle) };
-}
-
-export function serviceCount(box: MapBox): number {
-  return machinesIn(box).reduce((sum, machine) => sum + machine.services.length, 0);
+// Les invités d'un hôte, où qu'ils soient dans la carte.
+export function guestsOf(map: NetworkMap, hostID: string): MapBox[] {
+  return allBoxes(map).filter((box) => box.host_id === hostID);
 }
 
 // Un service qui demande un geste : en défaut, ou à moitié là.
@@ -50,47 +25,76 @@ function isTrouble(state: ServiceState): boolean {
   return state === "failed" || state === "degraded";
 }
 
-export function hasTrouble(box: MapBox): boolean {
-  return machinesIn(box).some((machine) => machine.services.some((service) => isTrouble(service.state)));
+// La machine et ses invités : de quoi résumer un hôte.
+function machinesIn(map: NetworkMap, box: MapBox): MapBox[] {
+  return [box, ...guestsOf(map, box.id)];
+}
+
+export function serviceCount(map: NetworkMap, box: MapBox): number {
+  return machinesIn(map, box).reduce((sum, machine) => sum + machine.services.length, 0);
 }
 
 // Le pire état d'une machine et de ses invités : « en échec » avant « dégradé » ;
 // null quand rien ne demande un geste.
-export function worstState(box: MapBox): "failed" | "degraded" | null {
-  const states = machinesIn(box).flatMap((machine) => machine.services.map((service) => service.state));
+export function worstState(map: NetworkMap, box: MapBox): "failed" | "degraded" | null {
+  const states = machinesIn(map, box).flatMap((machine) => machine.services.map((service) => service.state));
   if (states.includes("failed")) {
     return "failed";
   }
   return states.includes("degraded") ? "degraded" : null;
 }
 
-// Les hôtes repliés au départ : quand la carte a plus de foldAbove machines,
-// tous ceux qui n'ont aucun service en défaut. Sous ce seuil, rien ne l'est.
-export function initiallyFolded(map: NetworkMap): Set<string> {
-  const boxes = topBoxes(map);
-  const folded = new Set<string>();
-  if (allBoxes(map).length <= foldAbove) {
-    return folded;
-  }
-  for (const box of boxes) {
-    if (isHost(box) && !hasTrouble(box)) {
-      folded.add(box.id);
+// Les hôtes repliés : ceux que le serveur présente repliés, sauf ce que
+// l'opérateur a choisi à la main, qui l'emporte et que le rafraîchissement
+// n'efface pas.
+export function foldedHosts(map: NetworkMap, chosen: ReadonlyMap<string, boolean>): Set<string> {
+  const folded = new Set(allBoxes(map).filter((box) => box.folded).map((box) => box.id));
+  for (const [id, isFolded] of chosen) {
+    if (isFolded) {
+      folded.add(id);
+    } else {
+      folded.delete(id);
     }
   }
   return folded;
 }
 
-// L'ancre d'un service dans le dessin : sa puce, ou, quand la machine est dans
-// un hôte replié, l'en-tête de l'hôte. Une ancre inconnue rend null.
-export function anchorOf(map: NetworkMap, serviceID: string, folded: ReadonlySet<string>): string | null {
-  for (const top of topBoxes(map)) {
-    for (const machine of machinesIn(top)) {
-      if (machine.services.some((service) => service.id === serviceID)) {
-        return machine !== top && folded.has(top.id) ? top.id : serviceID;
-      }
-    }
+// Un invité d'un hôte replié n'est pas dessiné : l'hôte parle pour lui.
+export function isHidden(box: MapBox, folded: ReadonlySet<string>): boolean {
+  return box.host_id !== "" && folded.has(box.host_id);
+}
+
+// Les zones des invités d'un hôte, dans l'ordre de la carte : ce que dit un
+// hôte replié de ce qu'il cache.
+export function guestZones(map: NetworkMap, hostID: string): string[] {
+  const zones = new Set(guestsOf(map, hostID).map((guest) => guest.zone_id));
+  return map.home.map((lane) => lane.zone_id).filter((zone) => zones.has(zone));
+}
+
+// La carte de l'hôte, ou ses invités, en évidence : celui qu'on survole ou
+// qu'on a choisi.
+export function isLit(box: MapBox, lit: string | null): boolean {
+  return lit !== null && (box.id === lit || box.host_id === lit);
+}
+
+// Où s'accroche un trait qui vise une machine : sa carte, ou celle de son hôte
+// quand il est replié.
+export function boxAnchorOf(map: NetworkMap, boxID: string, folded: ReadonlySet<string>): string | null {
+  const found = allBoxes(map).find((box) => box.id === boxID);
+  if (found === undefined) {
+    return null;
   }
-  return null;
+  return isHidden(found, folded) ? found.host_id : found.id;
+}
+
+// L'ancre d'un service dans le dessin : sa puce, ou, quand la machine est dans
+// un hôte replié, la carte de l'hôte. Une ancre inconnue rend null.
+export function anchorOf(map: NetworkMap, serviceID: string, folded: ReadonlySet<string>): string | null {
+  const machine = allBoxes(map).find((box) => box.services.some((service) => service.id === serviceID));
+  if (machine === undefined) {
+    return null;
+  }
+  return isHidden(machine, folded) ? machine.host_id : serviceID;
 }
 
 interface DrawnLink {
@@ -149,7 +153,7 @@ export function boxTarget(box: MapBox): string {
 }
 
 // Une puce et la machine qui la porte : de quoi nommer un bout de lien.
-interface ServiceSpot {
+export interface ServiceSpot {
   service: MapService;
   box: MapBox;
 }
@@ -182,17 +186,21 @@ const minReach = 28;
 // Le tracé d'un lien entre deux ancres : une courbe qui sort du côté qui fait
 // face à l'autre ancre, de gauche à droite quand elles sont côte à côte, de
 // haut en bas quand elles se recouvrent en largeur. Le tracé est le même quel
-// que soit le sens du lien : seul le marqueur dit le sens.
-export function anchorPath(from: Rect, to: Rect): { path: string; middle: Point } {
+// que soit le sens du lien : seul le marqueur dit le sens. Avec `fromAbove`,
+// une ancre entièrement au-dessus de l'autre sort par le bas et arrive par le
+// haut, même si elles ne se recouvrent pas en largeur : c'est le trait d'un
+// tunnel quand Ailleurs est posé au-dessus de Chez vous.
+export function anchorPath(from: Rect, to: Rect, fromAbove = false): { path: string; middle: Point } {
   let start: Point;
   let end: Point;
   let reachX = 0;
   let reachY = 0;
-  if (from.right <= to.left) {
+  const stacked = fromAbove && from.bottom <= to.top;
+  if (!stacked && from.right <= to.left) {
     start = { x: from.right, y: (from.top + from.bottom) / 2 };
     end = { x: to.left, y: (to.top + to.bottom) / 2 };
     reachX = Math.max(minReach, (end.x - start.x) / 2);
-  } else if (to.right <= from.left) {
+  } else if (!stacked && to.right <= from.left) {
     start = { x: from.left, y: (from.top + from.bottom) / 2 };
     end = { x: to.right, y: (to.top + to.bottom) / 2 };
     reachX = -Math.max(minReach, (start.x - end.x) / 2);
@@ -213,34 +221,16 @@ function round(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-// Les ancres d'une zone : l'en-tête de son groupe dans chaque hôte (l'hôte
-// lui-même s'il est replié), ou la machine à plat qui la porte.
-export function zoneAnchors(map: NetworkMap, zoneID: string, folded: ReadonlySet<string>): string[] {
-  const anchors: string[] = [];
-  if (zoneID === "") {
-    return anchors;
-  }
-  for (const top of map.home) {
-    if (isHost(top)) {
-      if (top.groups.some((group) => group.zone_id === zoneID)) {
-        anchors.push(folded.has(top.id) ? top.id : zoneAnchorID(top.id, zoneID));
-      }
-    } else if (top.zone_id === zoneID) {
-      anchors.push(top.id);
-    }
-  }
-  return anchors;
-}
-
-export function zoneAnchorID(hostID: string, zoneID: string): string {
-  return `zone:${hostID}:${zoneID}`;
-}
-
 export function interfaceAnchorID(firewallID: string, name: string): string {
   return `iface:${firewallID}:${name}`;
 }
 
-export const internetAnchorID = "internet";
+// La carte d'une entrée d'Internet, dans la région Internet.
+export function entryAnchorID(serviceID: string): string {
+  return `entry:${serviceID}`;
+}
+
+export const homeAnchorID = "home";
 
 // Le mot du badge d'une machine : son type, avec le numéro d'invité quand
 // l'hôte en donne un (« VM 5010 »).
@@ -282,37 +272,27 @@ export function linkTip(t: Translate, link: MapLink, spots: ReadonlyMap<string, 
   return { title: `${name(link.from)} → ${name(link.to)}`, lines };
 }
 
-// Tout ce que le dessin trace, par ordre de pose : les connecteurs de zone au
-// fond, puis les entrées d'Internet, les liens, les tunnels par-dessus.
+// Tout ce que le dessin trace, par ordre de pose : les entrées d'Internet, les
+// liens, les tunnels par-dessus. Aucun trait ne part d'une interface du
+// pare-feu vers une machine : la zone se lit au couloir.
 export type Edge =
-  | { key: string; kind: "zone"; from: string; to: string; tone: number }
   | { key: string; kind: "entry"; from: string; to: string; entry: MapEntry }
   | { key: string; kind: "link"; from: string; to: string; link: MapLink }
   | { key: string; kind: "tunnel"; from: string; to: string; tunnel: MapTunnel };
 
-export const homeAnchorID = "home";
-
 export function drawnEdges(map: NetworkMap, folded: ReadonlySet<string>): Edge[] {
   const edges: Edge[] = [];
-  const tones = new Map(map.zones.map((zone) => [zone.id, zone.tone]));
-  for (const firewall of map.firewalls) {
-    for (const iface of firewall.interfaces) {
-      for (const anchor of zoneAnchors(map, iface.zone_id, folded)) {
-        edges.push({ key: `zone:${firewall.id}:${iface.name}>${anchor}`, kind: "zone", from: interfaceAnchorID(firewall.id, iface.name), to: anchor, tone: tones.get(iface.zone_id) ?? 0 });
-      }
-    }
-  }
   for (const entry of map.entries) {
     const to = anchorOf(map, entry.to, folded);
     if (to !== null) {
-      edges.push({ key: `entry:${entry.to}`, kind: "entry", from: internetAnchorID, to, entry });
+      edges.push({ key: `entry:${entry.to}`, kind: "entry", from: entryAnchorID(entry.to), to, entry });
     }
   }
   for (const drawn of drawnLinks(map, folded)) {
     edges.push({ key: `link:${drawn.link.id}`, kind: "link", from: drawn.from, to: drawn.to, link: drawn.link });
   }
   for (const tunnel of map.tunnels) {
-    const from = anchorOf(map, tunnel.service, folded) ?? (tunnel.outside === "" ? null : tunnel.outside);
+    const from = boxAnchorOf(map, tunnel.outside, folded);
     const to = tunnel.firewall === "" ? homeAnchorID : interfaceAnchorID(tunnel.firewall, tunnel.interface);
     if (from !== null) {
       edges.push({ key: `tunnel:${tunnel.id}`, kind: "tunnel", from, to, tunnel });

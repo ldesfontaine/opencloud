@@ -1,0 +1,1015 @@
+{
+  "zones": [
+    {
+      "id": "net:10.30.0.0/24",
+      "name": "10.30.0.0/24",
+      "source": "subnet",
+      "cidr": "10.30.0.0/24",
+      "vlan": 0,
+      "tone": 3
+    },
+    {
+      "id": "net:10.30.1.0/24",
+      "name": "10.30.1.0/24",
+      "source": "subnet",
+      "cidr": "10.30.1.0/24",
+      "vlan": 0,
+      "tone": 6
+    },
+    {
+      "id": "net:10.30.2.0/24",
+      "name": "10.30.2.0/24",
+      "source": "subnet",
+      "cidr": "10.30.2.0/24",
+      "vlan": 0,
+      "tone": 5
+    },
+    {
+      "id": "net:10.30.9.0/24",
+      "name": "10.30.9.0/24",
+      "source": "subnet",
+      "cidr": "10.30.9.0/24",
+      "vlan": 0,
+      "tone": 7
+    }
+  ],
+  "outside": [],
+  "home": [
+    {
+      "zone_id": "net:10.30.0.0/24",
+      "boxes": [
+        {
+          "id": "m:calme-1",
+          "machine_id": "calme-1",
+          "name": "calme-1",
+          "kind": "physical",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.2",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [],
+          "host_id": "",
+          "guest_count": 12,
+          "folded": true
+        },
+        {
+          "id": "m:calme-1-g0",
+          "machine_id": "calme-1-g0",
+          "name": "calme-1-vm0",
+          "kind": "vm",
+          "vmid": 100,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.10",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [
+            {
+              "id": "s:calme-1-g0|compose:app/app0",
+              "label": "app0",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-1-g0:compose:app/app0",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g10",
+          "machine_id": "calme-1-g10",
+          "name": "calme-1-vm10",
+          "kind": "vm",
+          "vmid": 110,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.20",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [
+            {
+              "id": "s:calme-1-g10|compose:app/app10",
+              "label": "app10",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-1-g10:compose:app/app10",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g11",
+          "machine_id": "calme-1-g11",
+          "name": "calme-1-vm11",
+          "kind": "vm",
+          "vmid": 111,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.21",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g1",
+          "machine_id": "calme-1-g1",
+          "name": "calme-1-vm1",
+          "kind": "vm",
+          "vmid": 101,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.11",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [
+            {
+              "id": "s:calme-1-g1|compose:app/app1",
+              "label": "app1",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-1-g1:compose:app/app1",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g2",
+          "machine_id": "calme-1-g2",
+          "name": "calme-1-vm2",
+          "kind": "vm",
+          "vmid": 102,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.12",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [
+            {
+              "id": "s:calme-1-g2|compose:app/app2",
+              "label": "app2",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-1-g2:compose:app/app2",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g3",
+          "machine_id": "calme-1-g3",
+          "name": "calme-1-vm3",
+          "kind": "vm",
+          "vmid": 103,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.13",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g4",
+          "machine_id": "calme-1-g4",
+          "name": "calme-1-vm4",
+          "kind": "vm",
+          "vmid": 104,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.14",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [
+            {
+              "id": "s:calme-1-g4|compose:app/app4",
+              "label": "app4",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-1-g4:compose:app/app4",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g5",
+          "machine_id": "calme-1-g5",
+          "name": "calme-1-vm5",
+          "kind": "vm",
+          "vmid": 105,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.15",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [
+            {
+              "id": "s:calme-1-g5|compose:app/app5",
+              "label": "app5",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-1-g5:compose:app/app5",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g6",
+          "machine_id": "calme-1-g6",
+          "name": "calme-1-vm6",
+          "kind": "vm",
+          "vmid": 106,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.16",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [
+            {
+              "id": "s:calme-1-g6|compose:app/app6",
+              "label": "app6",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-1-g6:compose:app/app6",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g7",
+          "machine_id": "calme-1-g7",
+          "name": "calme-1-vm7",
+          "kind": "vm",
+          "vmid": 107,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.17",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g8",
+          "machine_id": "calme-1-g8",
+          "name": "calme-1-vm8",
+          "kind": "vm",
+          "vmid": 108,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.18",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [
+            {
+              "id": "s:calme-1-g8|compose:app/app8",
+              "label": "app8",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-1-g8:compose:app/app8",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-1-g9",
+          "machine_id": "calme-1-g9",
+          "name": "calme-1-vm9",
+          "kind": "vm",
+          "vmid": 109,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.0.19",
+          "zone_id": "net:10.30.0.0/24",
+          "services": [
+            {
+              "id": "s:calme-1-g9|compose:app/app9",
+              "label": "app9",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-1-g9:compose:app/app9",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-1",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    },
+    {
+      "zone_id": "net:10.30.1.0/24",
+      "boxes": [
+        {
+          "id": "m:calme-2",
+          "machine_id": "calme-2",
+          "name": "calme-2",
+          "kind": "physical",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.2",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [],
+          "host_id": "",
+          "guest_count": 12,
+          "folded": true
+        },
+        {
+          "id": "m:calme-2-g0",
+          "machine_id": "calme-2-g0",
+          "name": "calme-2-vm0",
+          "kind": "vm",
+          "vmid": 100,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.10",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [
+            {
+              "id": "s:calme-2-g0|compose:app/app0",
+              "label": "app0",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-2-g0:compose:app/app0",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g10",
+          "machine_id": "calme-2-g10",
+          "name": "calme-2-vm10",
+          "kind": "vm",
+          "vmid": 110,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.20",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [
+            {
+              "id": "s:calme-2-g10|compose:app/app10",
+              "label": "app10",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-2-g10:compose:app/app10",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g11",
+          "machine_id": "calme-2-g11",
+          "name": "calme-2-vm11",
+          "kind": "vm",
+          "vmid": 111,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.21",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g1",
+          "machine_id": "calme-2-g1",
+          "name": "calme-2-vm1",
+          "kind": "vm",
+          "vmid": 101,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.11",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [
+            {
+              "id": "s:calme-2-g1|compose:app/app1",
+              "label": "app1",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-2-g1:compose:app/app1",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g2",
+          "machine_id": "calme-2-g2",
+          "name": "calme-2-vm2",
+          "kind": "vm",
+          "vmid": 102,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.12",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [
+            {
+              "id": "s:calme-2-g2|compose:app/app2",
+              "label": "app2",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-2-g2:compose:app/app2",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g3",
+          "machine_id": "calme-2-g3",
+          "name": "calme-2-vm3",
+          "kind": "vm",
+          "vmid": 103,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.13",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g4",
+          "machine_id": "calme-2-g4",
+          "name": "calme-2-vm4",
+          "kind": "vm",
+          "vmid": 104,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.14",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [
+            {
+              "id": "s:calme-2-g4|compose:app/app4",
+              "label": "app4",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-2-g4:compose:app/app4",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g5",
+          "machine_id": "calme-2-g5",
+          "name": "calme-2-vm5",
+          "kind": "vm",
+          "vmid": 105,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.15",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [
+            {
+              "id": "s:calme-2-g5|compose:app/app5",
+              "label": "app5",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-2-g5:compose:app/app5",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g6",
+          "machine_id": "calme-2-g6",
+          "name": "calme-2-vm6",
+          "kind": "vm",
+          "vmid": 106,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.16",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [
+            {
+              "id": "s:calme-2-g6|compose:app/app6",
+              "label": "app6",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-2-g6:compose:app/app6",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g7",
+          "machine_id": "calme-2-g7",
+          "name": "calme-2-vm7",
+          "kind": "vm",
+          "vmid": 107,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.17",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g8",
+          "machine_id": "calme-2-g8",
+          "name": "calme-2-vm8",
+          "kind": "vm",
+          "vmid": 108,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.18",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [
+            {
+              "id": "s:calme-2-g8|compose:app/app8",
+              "label": "app8",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-2-g8:compose:app/app8",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:calme-2-g9",
+          "machine_id": "calme-2-g9",
+          "name": "calme-2-vm9",
+          "kind": "vm",
+          "vmid": 109,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.1.19",
+          "zone_id": "net:10.30.1.0/24",
+          "services": [
+            {
+              "id": "s:calme-2-g9|compose:app/app9",
+              "label": "app9",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "calme-2-g9:compose:app/app9",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:calme-2",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    },
+    {
+      "zone_id": "net:10.30.2.0/24",
+      "boxes": [
+        {
+          "id": "m:alerte",
+          "machine_id": "alerte",
+          "name": "alerte",
+          "kind": "physical",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.2",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [],
+          "host_id": "",
+          "guest_count": 12,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g0",
+          "machine_id": "alerte-g0",
+          "name": "alerte-vm0",
+          "kind": "vm",
+          "vmid": 100,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.10",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [
+            {
+              "id": "s:alerte-g0|compose:app/app0",
+              "label": "app0",
+              "kind": "compose",
+              "state": "degraded",
+              "replicas": 2,
+              "container_id": "alerte-g0:compose:app/app0",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g10",
+          "machine_id": "alerte-g10",
+          "name": "alerte-vm10",
+          "kind": "vm",
+          "vmid": 110,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.20",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [
+            {
+              "id": "s:alerte-g10|compose:app/app10",
+              "label": "app10",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "alerte-g10:compose:app/app10",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g11",
+          "machine_id": "alerte-g11",
+          "name": "alerte-vm11",
+          "kind": "vm",
+          "vmid": 111,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.21",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g1",
+          "machine_id": "alerte-g1",
+          "name": "alerte-vm1",
+          "kind": "vm",
+          "vmid": 101,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.11",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [
+            {
+              "id": "s:alerte-g1|compose:app/app1",
+              "label": "app1",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "alerte-g1:compose:app/app1",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g2",
+          "machine_id": "alerte-g2",
+          "name": "alerte-vm2",
+          "kind": "vm",
+          "vmid": 102,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.12",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [
+            {
+              "id": "s:alerte-g2|compose:app/app2",
+              "label": "app2",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "alerte-g2:compose:app/app2",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g3",
+          "machine_id": "alerte-g3",
+          "name": "alerte-vm3",
+          "kind": "vm",
+          "vmid": 103,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.13",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g4",
+          "machine_id": "alerte-g4",
+          "name": "alerte-vm4",
+          "kind": "vm",
+          "vmid": 104,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.14",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [
+            {
+              "id": "s:alerte-g4|compose:app/app4",
+              "label": "app4",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "alerte-g4:compose:app/app4",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g5",
+          "machine_id": "alerte-g5",
+          "name": "alerte-vm5",
+          "kind": "vm",
+          "vmid": 105,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.15",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [
+            {
+              "id": "s:alerte-g5|compose:app/app5",
+              "label": "app5",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "alerte-g5:compose:app/app5",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g6",
+          "machine_id": "alerte-g6",
+          "name": "alerte-vm6",
+          "kind": "vm",
+          "vmid": 106,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.16",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [
+            {
+              "id": "s:alerte-g6|compose:app/app6",
+              "label": "app6",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "alerte-g6:compose:app/app6",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g7",
+          "machine_id": "alerte-g7",
+          "name": "alerte-vm7",
+          "kind": "vm",
+          "vmid": 107,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.17",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g8",
+          "machine_id": "alerte-g8",
+          "name": "alerte-vm8",
+          "kind": "vm",
+          "vmid": 108,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.18",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [
+            {
+              "id": "s:alerte-g8|compose:app/app8",
+              "label": "app8",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "alerte-g8:compose:app/app8",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:alerte-g9",
+          "machine_id": "alerte-g9",
+          "name": "alerte-vm9",
+          "kind": "vm",
+          "vmid": 109,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.2.19",
+          "zone_id": "net:10.30.2.0/24",
+          "services": [
+            {
+              "id": "s:alerte-g9|compose:app/app9",
+              "label": "app9",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "alerte-g9:compose:app/app9",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:alerte",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    },
+    {
+      "zone_id": "net:10.30.9.0/24",
+      "boxes": [
+        {
+          "id": "m:pi",
+          "machine_id": "pi",
+          "name": "pi",
+          "kind": "physical",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.30.9.2",
+          "zone_id": "net:10.30.9.0/24",
+          "services": [],
+          "host_id": "",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    }
+  ],
+  "empty_zones": [],
+  "folding": true,
+  "firewalls": [],
+  "tunnels": [],
+  "entries": [],
+  "links": []
+}

@@ -1,0 +1,616 @@
+{
+  "zones": [
+    {
+      "id": "fw:fw:rescue",
+      "name": "RESCUE",
+      "source": "firewall",
+      "cidr": "10.10.99.0/24",
+      "vlan": 0,
+      "tone": 4
+    },
+    {
+      "id": "fw:fw:switch",
+      "name": "SWITCH_MGMT",
+      "source": "firewall",
+      "cidr": "10.10.2.0/24",
+      "vlan": 0,
+      "tone": 7
+    },
+    {
+      "id": "fw:fw:users",
+      "name": "USERS",
+      "source": "firewall",
+      "cidr": "10.10.20.0/24",
+      "vlan": 20,
+      "tone": 5
+    },
+    {
+      "id": "fw:fw:admin",
+      "name": "ADMIN",
+      "source": "firewall",
+      "cidr": "10.10.11.0/24",
+      "vlan": 11,
+      "tone": 6
+    },
+    {
+      "id": "fw:fw:projects",
+      "name": "PROJETS",
+      "source": "firewall",
+      "cidr": "10.10.70.0/24",
+      "vlan": 70,
+      "tone": 7
+    },
+    {
+      "id": "fw:fw:edge",
+      "name": "EDGE",
+      "source": "firewall",
+      "cidr": "10.10.60.0/24",
+      "vlan": 60,
+      "tone": 2
+    },
+    {
+      "id": "fw:fw:services",
+      "name": "SERVICES",
+      "source": "firewall",
+      "cidr": "10.10.50.0/24",
+      "vlan": 50,
+      "tone": 0
+    },
+    {
+      "id": "fw:fw:backup",
+      "name": "BACKUP",
+      "source": "firewall",
+      "cidr": "10.10.90.0/24",
+      "vlan": 90,
+      "tone": 5
+    },
+    {
+      "id": "fw:fw:ai",
+      "name": "IA",
+      "source": "firewall",
+      "cidr": "10.10.80.0/24",
+      "vlan": 80,
+      "tone": 1
+    },
+    {
+      "id": "fw:fw:guest",
+      "name": "INVITES",
+      "source": "firewall",
+      "cidr": "10.10.30.0/24",
+      "vlan": 30,
+      "tone": 3
+    }
+  ],
+  "outside": [
+    {
+      "id": "m:vps",
+      "machine_id": "vps",
+      "name": "vps-relais",
+      "kind": "unknown",
+      "vmid": 0,
+      "node": "",
+      "managed": true,
+      "online": true,
+      "guest_status": "",
+      "address": "198.51.100.24",
+      "zone_id": "",
+      "services": [
+        {
+          "id": "s:vps|compose:edge/relais",
+          "label": "relais",
+          "kind": "compose",
+          "state": "running",
+          "replicas": 1,
+          "container_id": "vps:compose:edge/relais",
+          "service_id": ""
+        }
+      ],
+      "host_id": "",
+      "guest_count": 0,
+      "folded": false
+    }
+  ],
+  "home": [
+    {
+      "zone_id": "fw:fw:admin",
+      "boxes": [
+        {
+          "id": "m:pve",
+          "machine_id": "pve",
+          "name": "pve",
+          "kind": "physical",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.11.2",
+          "zone_id": "fw:fw:admin",
+          "services": [],
+          "host_id": "",
+          "guest_count": 10,
+          "folded": false
+        },
+        {
+          "id": "m:bastion",
+          "machine_id": "bastion",
+          "name": "bastion",
+          "kind": "vm",
+          "vmid": 1120,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.11.20",
+          "zone_id": "fw:fw:admin",
+          "services": [],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:dns",
+          "machine_id": "dns",
+          "name": "dns",
+          "kind": "lxc",
+          "vmid": 1121,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.11.21",
+          "zone_id": "fw:fw:admin",
+          "services": [],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    },
+    {
+      "zone_id": "fw:fw:projects",
+      "boxes": [
+        {
+          "id": "m:ci",
+          "machine_id": "ci",
+          "name": "ci",
+          "kind": "vm",
+          "vmid": 7011,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.70.11",
+          "zone_id": "fw:fw:projects",
+          "services": [],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:forge",
+          "machine_id": "forge",
+          "name": "forge",
+          "kind": "lxc",
+          "vmid": 7010,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.70.10",
+          "zone_id": "fw:fw:projects",
+          "services": [
+            {
+              "id": "s:forge|compose:forge/forgejo",
+              "label": "forgejo",
+              "kind": "compose",
+              "state": "degraded",
+              "replicas": 2,
+              "container_id": "forge:compose:forge/forgejo",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    },
+    {
+      "zone_id": "fw:fw:edge",
+      "boxes": [
+        {
+          "id": "m:mail-gw",
+          "machine_id": "mail-gw",
+          "name": "mail-gw",
+          "kind": "lxc",
+          "vmid": 6011,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.60.11",
+          "zone_id": "fw:fw:edge",
+          "services": [],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:proxy",
+          "machine_id": "proxy",
+          "name": "proxy",
+          "kind": "vm",
+          "vmid": 6010,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.60.10",
+          "zone_id": "fw:fw:edge",
+          "services": [
+            {
+              "id": "s:proxy|compose:edge/traefik",
+              "label": "traefik",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "proxy:compose:edge/traefik",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    },
+    {
+      "zone_id": "fw:fw:services",
+      "boxes": [
+        {
+          "id": "m:files",
+          "machine_id": "files",
+          "name": "files",
+          "kind": "lxc",
+          "vmid": 5015,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.50.15",
+          "zone_id": "fw:fw:services",
+          "services": [],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:notes",
+          "machine_id": "notes",
+          "name": "notes",
+          "kind": "vm",
+          "vmid": 5014,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.50.14",
+          "zone_id": "fw:fw:services",
+          "services": [
+            {
+              "id": "s:notes|compose:notes/notes",
+              "label": "notes",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "notes:compose:notes/notes",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:vault",
+          "machine_id": "vault",
+          "name": "vault",
+          "kind": "vm",
+          "vmid": 5010,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.50.10",
+          "zone_id": "fw:fw:services",
+          "services": [
+            {
+              "id": "s:vault|compose:vw/vaultwarden",
+              "label": "vaultwarden",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "vault:compose:vw/vaultwarden",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    },
+    {
+      "zone_id": "fw:fw:backup",
+      "boxes": [
+        {
+          "id": "m:pi",
+          "machine_id": "pi",
+          "name": "pi",
+          "kind": "physical",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.90.2",
+          "zone_id": "fw:fw:backup",
+          "services": [],
+          "host_id": "",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    },
+    {
+      "zone_id": "fw:fw:ai",
+      "boxes": [
+        {
+          "id": "m:lab",
+          "machine_id": "lab",
+          "name": "lab",
+          "kind": "vm",
+          "vmid": 8010,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.10.80.10",
+          "zone_id": "fw:fw:ai",
+          "services": [
+            {
+              "id": "s:lab|compose:lab/agent-ia",
+              "label": "agent-ia",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "lab:compose:lab/agent-ia",
+              "service_id": ""
+            }
+          ],
+          "host_id": "m:pve",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    }
+  ],
+  "empty_zones": [
+    "fw:fw:rescue",
+    "fw:fw:switch",
+    "fw:fw:users",
+    "fw:fw:guest"
+  ],
+  "folding": false,
+  "firewalls": [
+    {
+      "id": "fw",
+      "name": "pare-feu",
+      "interfaces": [
+        {
+          "name": "wan",
+          "device": "igc0",
+          "role": "WAN",
+          "cidr": "203.0.113.2/24",
+          "up": true,
+          "zone_id": "",
+          "wan": true,
+          "tunnel": false
+        },
+        {
+          "name": "wg",
+          "device": "wg0",
+          "role": "WG_RELAIS",
+          "cidr": "10.77.0.2/30",
+          "up": true,
+          "zone_id": "",
+          "wan": false,
+          "tunnel": true
+        },
+        {
+          "name": "rescue",
+          "device": "igc1",
+          "role": "RESCUE",
+          "cidr": "10.10.99.1/24",
+          "up": true,
+          "zone_id": "fw:fw:rescue",
+          "wan": false,
+          "tunnel": false
+        },
+        {
+          "name": "switch",
+          "device": "igc2",
+          "role": "SWITCH_MGMT",
+          "cidr": "10.10.2.1/24",
+          "up": true,
+          "zone_id": "fw:fw:switch",
+          "wan": false,
+          "tunnel": false
+        },
+        {
+          "name": "users",
+          "device": "igc3_vlan20",
+          "role": "USERS",
+          "cidr": "10.10.20.1/24",
+          "up": true,
+          "zone_id": "fw:fw:users",
+          "wan": false,
+          "tunnel": false
+        },
+        {
+          "name": "admin",
+          "device": "igc3_vlan11",
+          "role": "ADMIN",
+          "cidr": "10.10.11.1/24",
+          "up": true,
+          "zone_id": "fw:fw:admin",
+          "wan": false,
+          "tunnel": false
+        },
+        {
+          "name": "projects",
+          "device": "igc3_vlan70",
+          "role": "PROJETS",
+          "cidr": "10.10.70.1/24",
+          "up": true,
+          "zone_id": "fw:fw:projects",
+          "wan": false,
+          "tunnel": false
+        },
+        {
+          "name": "edge",
+          "device": "igc3_vlan60",
+          "role": "EDGE",
+          "cidr": "10.10.60.1/24",
+          "up": true,
+          "zone_id": "fw:fw:edge",
+          "wan": false,
+          "tunnel": false
+        },
+        {
+          "name": "services",
+          "device": "igc3_vlan50",
+          "role": "SERVICES",
+          "cidr": "10.10.50.1/24",
+          "up": true,
+          "zone_id": "fw:fw:services",
+          "wan": false,
+          "tunnel": false
+        },
+        {
+          "name": "backup",
+          "device": "igc3_vlan90",
+          "role": "BACKUP",
+          "cidr": "10.10.90.1/24",
+          "up": true,
+          "zone_id": "fw:fw:backup",
+          "wan": false,
+          "tunnel": false
+        },
+        {
+          "name": "ai",
+          "device": "igc3_vlan80",
+          "role": "IA",
+          "cidr": "10.10.80.1/24",
+          "up": true,
+          "zone_id": "fw:fw:ai",
+          "wan": false,
+          "tunnel": false
+        },
+        {
+          "name": "guest",
+          "device": "igc3_vlan30",
+          "role": "INVITES",
+          "cidr": "10.10.30.1/24",
+          "up": true,
+          "zone_id": "fw:fw:guest",
+          "wan": false,
+          "tunnel": false
+        }
+      ]
+    }
+  ],
+  "tunnels": [
+    {
+      "id": "t:fw:wg",
+      "label": "WireGuard",
+      "proof": "observed",
+      "outside": "m:vps",
+      "service": "",
+      "firewall": "fw",
+      "interface": "wg"
+    }
+  ],
+  "entries": [
+    {
+      "to": "s:proxy|compose:edge/traefik",
+      "ports": [
+        443
+      ],
+      "observed": true
+    },
+    {
+      "to": "s:vps|compose:edge/relais",
+      "ports": [
+        80,
+        443
+      ],
+      "observed": false
+    }
+  ],
+  "links": [
+    {
+      "id": "lnk_3",
+      "from": "s:proxy|compose:edge/traefik",
+      "to": "s:forge|compose:forge/forgejo",
+      "nature": "route",
+      "proof": "declared",
+      "signal": "operator",
+      "port": 3000,
+      "stale": false,
+      "proposed": false,
+      "first_seen_at": "",
+      "last_seen_at": ""
+    },
+    {
+      "id": "lnk_4",
+      "from": "s:proxy|compose:edge/traefik",
+      "to": "s:notes|compose:notes/notes",
+      "nature": "route",
+      "proof": "declared",
+      "signal": "operator",
+      "port": 8081,
+      "stale": true,
+      "proposed": false,
+      "first_seen_at": "",
+      "last_seen_at": ""
+    },
+    {
+      "id": "lnk_2",
+      "from": "s:proxy|compose:edge/traefik",
+      "to": "s:vault|compose:vw/vaultwarden",
+      "nature": "route",
+      "proof": "deduced",
+      "signal": "public_url",
+      "port": 8080,
+      "stale": false,
+      "proposed": true,
+      "first_seen_at": "",
+      "last_seen_at": ""
+    },
+    {
+      "id": "lnk_1",
+      "from": "s:vps|compose:edge/relais",
+      "to": "s:proxy|compose:edge/traefik",
+      "nature": "traffic",
+      "proof": "observed",
+      "signal": "host_connection",
+      "port": 443,
+      "stale": false,
+      "proposed": false,
+      "first_seen_at": "",
+      "last_seen_at": ""
+    }
+  ]
+}

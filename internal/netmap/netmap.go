@@ -149,15 +149,35 @@ type Input struct {
 	Links       []Link
 }
 
-// Map est la carte : deux côtés séparés par Internet, des zones, des liens.
+// FoldFrom est le nombre de machines à partir duquel un hôte sans service en
+// défaut se présente replié sur sa carte. En dessous, rien ne se replie.
+const FoldFrom = 40
+
+// Map est la carte, en trois régions : Internet (les entrées), l'extérieur
+// (les machines hors de la maison) et la maison (un couloir par zone qui
+// contient une machine).
 type Map struct {
-	Zones     []Zone
-	Outside   []Box
-	Home      []Box
+	Zones []Zone
+	// Outside : les machines hors de la maison, à plat.
+	Outside []Box
+	// Home : un couloir par zone qui contient au moins une machine, dans
+	// l'ordre des zones ; le couloir sans zone, s'il existe, ferme la liste.
+	Home []Lane
+	// EmptyZones : les zones (du pare-feu) où aucune machine ne tourne.
+	EmptyZones []string
+	// Folding : la carte est assez grande pour que les hôtes se replient.
+	Folding   bool
 	Firewalls []FirewallBox
 	Tunnels   []Tunnel
 	Entries   []Entry
 	Links     []MapLink
+}
+
+// Lane est le couloir d'une zone : les machines qui y sont, les hôtes d'abord.
+// Une zone vide (ZoneID) est celui des machines que rien ne place.
+type Lane struct {
+	ZoneID string
+	Boxes  []Box
 }
 
 // Zone est une zone réseau déduite des données.
@@ -172,7 +192,8 @@ type Zone struct {
 	Tone int
 }
 
-// Box est une machine ; un hôte porte ses invités par zone.
+// Box est une machine. Un invité dit son hôte, un hôte dit combien il en porte :
+// chacun a sa carte, dans le couloir de sa zone.
 type Box struct {
 	ID        string
 	MachineID string
@@ -189,13 +210,12 @@ type Box struct {
 	Address     string
 	ZoneID      string
 	Services    []Service
-	Groups      []Group
-}
-
-// Group est un ensemble d'invités d'une même zone, dans un hôte.
-type Group struct {
-	ZoneID string
-	Guests []Box
+	// L'hôte qui porte la machine (identifiant de sa carte) ; vide sinon.
+	HostID string
+	// Le nombre d'invités d'un hôte, toutes zones confondues.
+	GuestCount int
+	// Folded : l'hôte se présente replié, ses invités cachés.
+	Folded bool
 }
 
 // Service est une puce : un service dans sa machine, avec son état.

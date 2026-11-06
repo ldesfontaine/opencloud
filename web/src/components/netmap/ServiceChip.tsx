@@ -7,14 +7,14 @@ import { chipTarget, portsText } from "../../lib/netmap";
 // Un service dans sa machine : sa pastille d'état, son nom, et en toutes
 // lettres tout état qui n'est pas « en marche » (la couleur ne dit jamais seule).
 // Une entrée publique s'écrit sur la puce : les ports qu'Internet atteint.
-export function ServiceChip({ service, box, entry }: { service: MapService; box: MapBox; entry: MapEntry | undefined }) {
+export function ServiceChip({ service, box, entry, pointed }: { service: MapService; box: MapBox; entry: MapEntry | undefined; pointed: boolean }) {
   const t = useT();
   const state = t(`network.map_state_${service.state}`);
   const entryText = entry === undefined ? "" : t("network.map_entry", portsText(entry.ports));
   return (
     <li className="netmap-chip-item">
       <Link
-        className={`netmap-chip state-${service.state} kind-${service.kind}`}
+        className={`netmap-chip state-${service.state} kind-${service.kind}${pointed ? " is-pointed" : ""}`}
         to={chipTarget(service, box)}
         data-anchor={service.id}
         aria-label={`${service.label}, ${state}`}

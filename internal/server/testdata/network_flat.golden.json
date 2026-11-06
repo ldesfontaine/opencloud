@@ -1,0 +1,150 @@
+{
+  "zones": [
+    {
+      "id": "net:10.2.1.0/24",
+      "name": "10.2.1.0/24",
+      "source": "subnet",
+      "cidr": "10.2.1.0/24",
+      "vlan": 0,
+      "tone": 7
+    },
+    {
+      "id": "net:10.2.9.0/24",
+      "name": "10.2.9.0/24",
+      "source": "subnet",
+      "cidr": "10.2.9.0/24",
+      "vlan": 0,
+      "tone": 0
+    }
+  ],
+  "outside": [],
+  "home": [
+    {
+      "zone_id": "net:10.2.1.0/24",
+      "boxes": [
+        {
+          "id": "m:a",
+          "machine_id": "a",
+          "name": "serveur-a",
+          "kind": "physical",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.2.1.10",
+          "zone_id": "net:10.2.1.0/24",
+          "services": [
+            {
+              "id": "s:a|compose:web/cache",
+              "label": "cache",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "a:compose:web/cache",
+              "service_id": ""
+            },
+            {
+              "id": "s:a|compose:web/web",
+              "label": "web",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "a:compose:web/web",
+              "service_id": ""
+            }
+          ],
+          "host_id": "",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:b",
+          "machine_id": "b",
+          "name": "serveur-b",
+          "kind": "vm",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.2.1.11",
+          "zone_id": "net:10.2.1.0/24",
+          "services": [
+            {
+              "id": "s:b|compose:db/postgres",
+              "label": "postgres",
+              "kind": "compose",
+              "state": "running",
+              "replicas": 1,
+              "container_id": "b:compose:db/postgres",
+              "service_id": ""
+            }
+          ],
+          "host_id": "",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    },
+    {
+      "zone_id": "net:10.2.9.0/24",
+      "boxes": [
+        {
+          "id": "m:d",
+          "machine_id": "d",
+          "name": "imprimante",
+          "kind": "unknown",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.2.9.9",
+          "zone_id": "net:10.2.9.0/24",
+          "services": [],
+          "host_id": "",
+          "guest_count": 0,
+          "folded": false
+        },
+        {
+          "id": "m:c",
+          "machine_id": "c",
+          "name": "nas",
+          "kind": "physical",
+          "vmid": 0,
+          "node": "",
+          "managed": true,
+          "online": true,
+          "guest_status": "",
+          "address": "10.2.9.4",
+          "zone_id": "net:10.2.9.0/24",
+          "services": [],
+          "host_id": "",
+          "guest_count": 0,
+          "folded": false
+        }
+      ]
+    }
+  ],
+  "empty_zones": [],
+  "folding": false,
+  "firewalls": [],
+  "tunnels": [],
+  "entries": [],
+  "links": [
+    {
+      "id": "lnk_a",
+      "from": "s:a|compose:web/web",
+      "to": "s:b|compose:db/postgres",
+      "nature": "order",
+      "proof": "declared",
+      "signal": "depends_on",
+      "port": 5432,
+      "stale": false,
+      "proposed": false,
+      "first_seen_at": "",
+      "last_seen_at": ""
+    }
+  ]
+}

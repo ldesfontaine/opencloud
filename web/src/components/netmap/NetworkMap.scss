@@ -14,6 +14,9 @@ $tones: 8;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  // La mise en page suit la largeur de la carte, pas celle de l'écran : le menu
+  // de gauche en prend une part.
+  container-type: inline-size;
 }
 
 .netmap-bar {
@@ -64,15 +67,16 @@ $tones: 8;
 .netmap {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) 72px minmax(0, 3fr);
+  grid-template-columns: minmax(190px, 0.75fr) minmax(230px, 1fr) minmax(0, 3.2fr);
+  column-gap: 56px;
   align-items: start;
-  padding: 16px;
+  padding: 20px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
 
   &.no-outside {
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: minmax(190px, 0.75fr) minmax(0, 3fr);
   }
 
   &[aria-busy="true"] {
@@ -80,75 +84,285 @@ $tones: 8;
   }
 }
 
-.netmap-side {
+// Une région : Internet, Ailleurs, Chez vous. Trois panneaux côte à côte, la
+// séparation se lit au cadre (pointillé : public ; plein : une machine d'un
+// autre site ; fort : chez vous).
+.netmap-region {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
 }
 
-.netmap-side-title {
+.netmap-internet {
+  border-style: dashed;
+  border-color: var(--line-strong);
+}
+
+.netmap-home {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.netmap-region-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--muted);
-}
-
-// La bande d'Internet : ce qui sépare le dehors de la maison, sur toute la
-// hauteur. Les entrées s'y accrochent.
-.netmap-internet {
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 4px;
-  margin: 0 16px;
-  border-inline: 1px dashed var(--line-strong);
-  background: var(--surface-2);
-  text-align: center;
   color: var(--ink-2);
 
   .icon {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
   }
 }
 
-.netmap-internet-name {
+.netmap-region-hint,
+.netmap-internet-none {
+  margin: -6px 0 0;
   font-size: 12px;
+}
+
+.netmap-internet-none {
+  margin: 0;
+}
+
+.netmap-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  button {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    background: var(--surface);
+    font: inherit;
+    text-align: left;
+    color: var(--ink);
+    cursor: pointer;
+
+    &:hover,
+    &[aria-pressed="true"] {
+      border-color: var(--accent);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+  }
+
+  .is-observed button {
+    border-style: dashed;
+  }
+}
+
+.netmap-entry-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.netmap-entry-where,
+.netmap-entry-ports {
+  font-size: 12px;
+}
+
+.netmap-entry-ports {
+  color: var(--ink-2);
+}
+
+// Le pare-feu en bandeau : le nom, le WAN, les tunnels, le nombre de zones.
+.netmap-firewall {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+
+  > .icon {
+    width: 16px;
+    height: 16px;
+    color: var(--ink-2);
+  }
+}
+
+.netmap-firewall-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.netmap-firewall-zones {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.netmap-fw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--ink-2);
+
+  .icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  &.is-tunnel {
+    border-color: var(--accent);
+  }
+
+  &.is-down {
+    opacity: 0.6;
+  }
+}
+
+.netmap-fw-chip-name {
   font-weight: 600;
   color: var(--ink);
 }
 
-.netmap-internet-count {
-  font-size: 11px;
-  line-height: 1.3;
+// Les couloirs : un par zone qui contient une machine, en colonnes tant que la
+// place le permet (de 300 px au moins), à la ligne sinon.
+.netmap-lanes {
+  columns: 300px;
+  column-gap: 14px;
 }
 
-.netmap-home-body {
+.netmap-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 14px;
+  break-inside: avoid;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--zone, var(--muted)) 35%, var(--line));
+  border-top: 3px solid var(--zone, var(--line-strong));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--zone, var(--muted)) 5%, var(--surface-2));
+}
+
+.netmap-lane-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+.netmap-lane-cards {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 8px;
   align-items: start;
 }
 
-// Le pare-feu à gauche des zones : entre Internet et elles, la place des
-// connecteurs d'interface se prend dans l'écart.
-.netmap-home-body:has(.netmap-firewalls) {
-  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr);
-  column-gap: 56px;
+.netmap-zone-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--zone, var(--muted)) 20%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--zone, var(--muted)) 50%, transparent);
 }
 
-.netmap-machines {
+.netmap-zone-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.netmap-zone-tag {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--zone, var(--muted)) 16%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--zone, var(--muted)) 45%, transparent);
+}
+
+// Les zones sans machine : une puce qui les compte, un clic les nomme.
+.netmap-empty-zones {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
 }
 
+.netmap-empty-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .icon {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.netmap-empty-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.netmap-empty-zone {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+// La carte d'une machine.
 .netmap-box {
   display: flex;
   flex-direction: column;
@@ -158,10 +372,7 @@ $tones: 8;
   border-radius: 12px;
   background: var(--surface);
   min-width: 0;
-
-  &.is-host {
-    background: var(--surface-2);
-  }
+  transition: opacity 0.15s, box-shadow 0.15s;
 
   // Un invité que seul son hôte connaît : tracé en pointillé, il n'a pas d'agent.
   &.is-unmanaged {
@@ -172,14 +383,15 @@ $tones: 8;
     opacity: 0.75;
   }
 
-  // Une machine de premier niveau garde la teinte de sa zone au bord.
-  &[class*="zone-tone-"] {
-    border-left: 3px solid var(--zone);
+  // L'hôte survolé ou choisi, et ses invités ; les autres s'effacent.
+  &.is-lit {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
   }
-}
 
-.is-host .netmap-box {
-  background: var(--surface);
+  &.is-dim {
+    opacity: 0.55;
+  }
 }
 
 .netmap-box-head {
@@ -218,18 +430,97 @@ $tones: 8;
   }
 }
 
-.netmap-box-address {
+.netmap-box-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  margin: 0;
   font-size: 12px;
+
+  &:empty {
+    display: none;
+  }
+}
+
+.netmap-box-address {
   color: var(--ink-2);
 }
 
-.netmap-zone-tag {
-  font-size: 11px;
-  padding: 1px 8px;
+.netmap-host-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.netmap-host-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+}
+
+.netmap-hosting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 12px;
   color: var(--ink);
-  background: color-mix(in srgb, var(--zone) 16%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--zone) 45%, transparent);
+  cursor: pointer;
+
+  &:hover,
+  &[aria-pressed="true"] {
+    border-color: var(--accent);
+  }
+
+  &[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .icon {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.netmap-no-service {
+  margin: 0;
+  font-size: 12px;
+}
+
+.netmap-folded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.netmap-folded-zones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .netmap-summary {
@@ -265,66 +556,6 @@ $tones: 8;
   }
 }
 
-// Les zones d'un hôte s'empilent : les connecteurs du pare-feu, à gauche, ne se
-// croisent pas, et chaque zone garde toute la largeur pour ses invités.
-.netmap-zones {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.netmap-zone {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  border: 1px dashed var(--line-strong);
-  border-left: 3px solid var(--zone, var(--line-strong));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--zone, var(--muted)) 6%, var(--surface-2));
-  min-width: 0;
-}
-
-.netmap-guests {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
-  gap: 8px;
-  align-items: start;
-}
-
-.netmap-zone-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 2px 8px;
-}
-
-.netmap-zone-name {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 1px 8px;
-  border-radius: 999px;
-  color: var(--ink);
-  background: color-mix(in srgb, var(--zone, var(--muted)) 20%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--zone, var(--muted)) 50%, transparent);
-}
-
-.netmap-zone-meta {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.netmap-idle {
-  margin: 0;
-  font-size: 12px;
-
-  a {
-    color: var(--ink-2);
-  }
-}
-
 .netmap-chips {
   display: flex;
   flex-wrap: wrap;
@@ -356,6 +587,11 @@ $tones: 8;
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
+}
+
+.netmap-chip.is-pointed {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .netmap-chip-more {
@@ -412,76 +648,6 @@ $tones: 8;
   border-style: dashed;
 }
 
-.netmap-firewalls {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.netmap-firewall {
-  padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--surface);
-}
-
-.netmap-firewall-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  color: var(--ink-2);
-
-  .icon {
-    width: 16px;
-    height: 16px;
-  }
-}
-
-.netmap-interfaces {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.netmap-interface {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 2px 8px;
-  padding: 4px 8px;
-  border-left: 3px solid var(--zone, var(--line-strong));
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--zone, var(--muted)) 8%, var(--surface-2));
-  font-size: 12px;
-
-  &.is-down {
-    opacity: 0.6;
-  }
-}
-
-.netmap-interface-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-weight: 600;
-  color: var(--ink);
-
-  .icon {
-    width: 12px;
-    height: 12px;
-  }
-}
-
-.netmap-interface-device,
-.netmap-interface-cidr {
-  font-size: 11px;
-  color: var(--ink-2);
-}
-
 // Le calque des traits : par-dessus les boîtes, sans rien intercepter hors
 // des traits eux-mêmes.
 .netmap-links {
@@ -506,10 +672,17 @@ $tones: 8;
     outline: none;
   }
 
+  // Une zone de survol n'est active que sur le tunnel : celle d'une entrée ou
+  // d'un lien volerait le clic des cartes que le trait traverse. Les autres
+  // disent leur preuve au clavier (focus) et dans la liste des liens.
   .netmap-hit {
     fill: none;
     stroke: transparent;
     stroke-width: 14;
+    pointer-events: none;
+  }
+
+  &.tunnel .netmap-hit {
     pointer-events: stroke;
   }
 
@@ -523,18 +696,6 @@ $tones: 8;
   &:hover .netmap-line,
   &:focus-visible .netmap-line {
     stroke-width: 3;
-  }
-
-  &.zone {
-    .netmap-hit {
-      display: none;
-    }
-
-    .netmap-line {
-      stroke: var(--zone);
-      stroke-width: 1.5;
-      opacity: 0.7;
-    }
   }
 
   &.entry .netmap-line {
@@ -638,31 +799,36 @@ $tones: 8;
   margin: 0;
 }
 
-// Sous 860 px, le dehors passe au-dessus, Internet devient une bande
-// horizontale, la maison suit ; les traits se redessinent par la mesure, et la
-// liste des liens dit tout ce que le survol dit.
-@media (max-width: 860px) {
+// Sous 1150 px de carte, Internet et Ailleurs passent côte à côte au-dessus de
+// Chez vous, qui prend toute la largeur pour ses couloirs.
+@container (max-width: 1150px) {
+  .netmap {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 24px;
+    row-gap: 16px;
+  }
+
+  .netmap.no-outside {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .netmap-home {
+    grid-column: 1 / -1;
+  }
+}
+
+// Sous 640 px de carte, les régions s'empilent : Internet, Ailleurs, Chez vous.
+@container (max-width: 640px) {
   .netmap,
   .netmap.no-outside {
     grid-template-columns: minmax(0, 1fr);
     padding: 12px;
   }
+}
 
-  .netmap-internet {
-    flex-direction: row;
-    justify-content: center;
-    margin: 12px 0;
-    padding: 6px 12px;
-    border-inline: 0;
-    border-block: 1px dashed var(--line-strong);
-  }
-
-  .netmap-home-body:has(.netmap-firewalls) {
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: 12px;
-  }
-
-  // Les traits ne se lisent plus à cette largeur : la liste des liens, ouverte, les dit.
+// Sous 860 px d'écran, les traits ne se lisent plus : la liste des liens,
+// ouverte, dit tout ce que le survol dit.
+@media (max-width: 860px) {
   .netmap-links,
   .netmap-tip {
     display: none;
