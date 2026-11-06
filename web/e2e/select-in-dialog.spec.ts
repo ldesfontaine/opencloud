@@ -16,10 +16,12 @@ for (const window of windows) {
     await page.goto(window.url);
     const dialog = page.locator("dialog[open]");
     await expect(dialog).toBeVisible();
-    // Les menus d'un assistant d'un écran sont sous « Réglages » : le pli s'ouvre d'abord.
-    const settings = dialog.locator("details.fold > summary").first();
-    if (await settings.isVisible()) {
-      await settings.click();
+    // Les menus d'un assistant d'un écran sont sous « Réglages » : on attend que
+    // la fenêtre montre un menu ou son pli, puis le pli s'ouvre.
+    await dialog.locator("details.fold > summary, button[role=combobox]").first().waitFor({ state: "visible" });
+    const closedFold = dialog.locator("details.fold:not([open]) > summary").first();
+    if ((await closedFold.count()) > 0) {
+      await closedFold.click();
     }
     const count = await exerciseSelects(page, dialog, findings);
     expect(count).toBeGreaterThan(0);

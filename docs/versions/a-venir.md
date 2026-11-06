@@ -13,6 +13,7 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 - **Le protocole de l'agent ne change pas** (version `2`) : un agent v0.6.0 reste connecté et continue de tout faire, mais **n'applique pas les ancres**.
 - **Des alertes de processeur et de mémoire**, des **seuils réglables par machine**, « **Lu / Non lu** » à la place d'« acquitter », et un **rappel** des alertes de danger restées sans lecture (#489) : voir plus bas.
 - **Des catégories d'alertes par canal** (#494) : un canal choisit les familles qu'il reçoit (machines, services, tâches, sondes, sauvegardes, mises à jour). **Migration `040`** ; un canal existant n'a aucune catégorie et reçoit tout, comme avant.
+- **Le parcours navigateur ne tombe plus sous charge** (#490) : il retrouve un choix de menu par son nom et attend l'état de la page, plus un délai. Aucun changement pour l'opérateur.
 - **Aucune clé de `config.toml` nouvelle.**
 
 ## Les ancres de confiance

@@ -494,6 +494,11 @@ direction artistique. Les mêmes règles qu'en Go, transposées :
   Un écran ou une fenêtre nouveau y entre sans rien écrire : le parcours
   lit le routeur. Une anomalie qu'on ne corrige pas tout de suite se déclare
   dans `web/e2e/support/known.ts`, avec sa raison.
+  Le parcours attend un état, jamais un délai : un bouton ou un choix de menu
+  se retrouve par son nom et son rang (pas par sa position, qui change tant
+  que la page se charge), et la page est « posée » quand ses lectures sont
+  revenues et que trois rendus de suite la trouvent sans lecture en vol
+  (`web/e2e/support/actions.ts`). Les bornes sont dans `support/timeouts.ts`.
 - Un composant flottant (liste, menu, infobulle) se pose dans la fenêtre
   modale ouverte qui contient son déclencheur : le `<dialog>` ouvert par
   `showModal()` rend le reste de la page inerte, une liste portée dans
