@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 const exportedYAML = "# Annuaire\nversion: 1\nmachines:\n  - name: opencloud\n"
@@ -241,17 +241,10 @@ func TestControlSocket_IsPrivateAndGoneAfterShutdown(t *testing.T) {
 // depuis la goroutine de Serve, un instant après Close.
 func waitGone(t *testing.T, path string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
+	waittest.Until(t, "the socket file to go after the shutdown", func() bool {
 		_, err := os.Lstat(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the socket file stays after the shutdown: %v", err)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+		return errors.Is(err, fs.ErrNotExist)
+	})
 }
 
 func TestControlSocket_ReplacesAStaleSocketButNeverAnotherFile(t *testing.T) {

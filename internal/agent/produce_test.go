@@ -4,8 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +23,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 const (
@@ -89,11 +88,6 @@ func openArchive(t *testing.T, archive []byte, identity age.Identity) (string, [
 		t.Fatalf("the age stream is not authentic to its end: %v", err)
 	}
 	return header.Name, content
-}
-
-func sumHex(content []byte) string {
-	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:])
 }
 
 func produceParams(identity *age.X25519Identity) agentwire.BackupProduceParams {
@@ -211,11 +205,11 @@ func TestBackupProduce_EncryptsForThePublicKeyAndUploads(t *testing.T) {
 	if entry != producedEntry || !bytes.Equal(content, stream) {
 		t.Fatalf("entry %q holds %d bytes, want %q with %d", entry, len(content), producedEntry, len(stream))
 	}
-	want := []string{fmt.Sprintf("written %s %d sha256:%s", producedName, len(archive), sumHex(archive)), "uploaded " + producedName}
+	want := []string{fmt.Sprintf("written %s %d sha256:%s", producedName, len(archive), testkit.SHA256Hex(archive)), "uploaded " + producedName}
 	if got := lines(results[1].Output); !slices.Equal(got, want) {
 		t.Fatalf("output %q, want %q", got, want)
 	}
-	if len(puts) != 1 || puts[0].contentLength != int64(len(archive)) || puts[0].sum != sumHex(archive) || puts[0].expect != "100-continue" {
+	if len(puts) != 1 || puts[0].contentLength != int64(len(archive)) || puts[0].sum != testkit.SHA256Hex(archive) || puts[0].expect != "100-continue" {
 		t.Fatalf("what the server saw: %+v", puts)
 	}
 	assertDirEmpty(t, b.produceDir())
@@ -410,7 +404,7 @@ func TestBackupProduce_TheJudgeRefusesBeforeRunningAnything(t *testing.T) {
 		// aucune ancre : le juge des ancres la refuse avant même la forme, et la
 		// forme (readBackupProduce) la refuserait encore, vérifié plus bas.
 		case strings.Contains(name, "target") || strings.Contains(name, "recipient") || strings.Contains(name, "private key"):
-			finding := anchor.Judge(b.storedAnchors(t), "backup.produce", mustJSON(t, params))
+			finding := anchor.Judge(b.storedAnchors(t), "backup.produce", testkit.MustJSON(t, params))
 			if finding == nil {
 				t.Fatalf("%s: the anchors let it through", name)
 			}
@@ -641,7 +635,7 @@ func TestBackupProduce_OnlyTheFinalArchiveIsThereWhileUploading(t *testing.T) {
 	if !slices.Equal(sink.seen, []string{producedName}) {
 		t.Fatalf("produce/ held %v while uploading", sink.seen)
 	}
-	if int64(len(sink.content)) != sink.size || sumHex(sink.content) != sink.sum {
+	if int64(len(sink.content)) != sink.size || testkit.SHA256Hex(sink.content) != sink.sum {
 		t.Errorf("the file read back is not the one announced")
 	}
 	if got := lines(output); len(got) != 2 || got[0] != fmt.Sprintf("written %s %d sha256:%s", producedName, sink.size, sink.sum) {

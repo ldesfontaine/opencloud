@@ -4,10 +4,10 @@ import (
 	"context"
 	"net"
 	"testing"
-	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // probeOnLoopback enrôle un agent avec ces droits, lui donne une sonde TCP
@@ -67,16 +67,16 @@ func probeOnLoopback(t *testing.T, rights string, narrowed bool) probe.Probe {
 		<-done
 	}()
 	go func() { done <- Run(ctx, restarted) }()
-	deadline := time.Now().Add(benchTimeout)
-	for time.Now().Before(deadline) {
+	var checked probe.Probe
+	waittest.Until(t, "the probe to report a result", func() bool {
 		found, err := b.db.GetProbe(context.Background(), created.ID)
-		if err == nil && !found.LastCheckedAt.IsZero() {
-			return found
+		if err != nil || found.LastCheckedAt.IsZero() {
+			return false
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("the probe never reported a result")
-	return probe.Probe{}
+		checked = found
+		return true
+	})
+	return checked
 }
 
 // Le réseau local ne s'ouvre aux sondes que par probe.lan : sans lui, la

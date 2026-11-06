@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
@@ -81,7 +82,7 @@ func TestManifestAPI_ExportMatchesGolden(t *testing.T) {
 	if file, problems := manifest.Parse(recorder.Body.Bytes()); len(problems) > 0 || len(file.Services) != 3 || len(file.Probes) != 2 || len(file.Heartbeats) != 2 {
 		t.Fatalf("the export does not read back: %+v %+v", file, problems)
 	}
-	compareGolden(t, filepath.Join("testdata", "manifest_export.golden.yaml"), normalizeYAML(body))
+	goldentest.Compare(t, filepath.Join("testdata", "manifest_export.golden.yaml"), normalizeYAML(body))
 }
 
 func TestManifestAPI_ExportCommentsFollowTheInterfaceLanguage(t *testing.T) {

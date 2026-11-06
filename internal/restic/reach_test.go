@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 // selfSigned tire un certificat auto-signé ECDSA P-256 pour 127.0.0.1, comme
@@ -69,18 +70,6 @@ func listenTLS(t *testing.T, certificate tls.Certificate) int {
 	return listener.Addr().(*net.TCPAddr).Port
 }
 
-// closedPort rend un port de la boucle locale où personne n'écoute.
-func closedPort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	_ = listener.Close()
-	return port
-}
-
 func TestChoose_TakesTheDirectPathWhenTheTargetAnswersWithThePinnedCertificate(t *testing.T) {
 	certificate, certificatePEM := selfSigned(t)
 	port := listenTLS(t, certificate)
@@ -98,7 +87,7 @@ func TestChoose_TakesTheDirectPathWhenTheTargetAnswersWithThePinnedCertificate(t
 
 func TestChoose_FallsBackToTheRelayWhenTheTargetPortIsClosed(t *testing.T) {
 	_, certificatePEM := selfSigned(t)
-	target := Target{Host: "127.0.0.1", Port: closedPort(t), CertificatePEM: certificatePEM}
+	target := Target{Host: "127.0.0.1", Port: testkit.ClosedPort(t), CertificatePEM: certificatePEM}
 
 	choice := Choose(context.Background(), &net.Dialer{}, target, false)
 

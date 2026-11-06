@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/verb"
 )
 
@@ -88,5 +89,5 @@ func TestVerbs_RegistryMatchesGoldenFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compareGolden(t, "testdata/verbs.golden.json", string(body)+"\n")
+	goldentest.Compare(t, "testdata/verbs.golden.json", string(body)+"\n")
 }

@@ -3,12 +3,14 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -202,13 +204,7 @@ func holdVerification(t *testing.T, service *Service) (release func()) {
 
 func waitForQueued(t *testing.T, service *Service, want int32) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for service.queued.Load() != want {
-		if time.Now().After(deadline) {
-			t.Fatalf("queued %d, want %d", service.queued.Load(), want)
-		}
-		time.Sleep(time.Millisecond)
-	}
+	waittest.Until(t, fmt.Sprintf("queued to reach %d", want), func() bool { return service.queued.Load() == want })
 }
 
 type verdict struct {

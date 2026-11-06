@@ -13,6 +13,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 )
 
@@ -74,7 +75,7 @@ func TestManifestAPI_PlanMatchesGolden(t *testing.T) {
 	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("plan: %d %s", recorder.Code, recorder.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "manifest_plan.golden.json"), normalizeManifest(recorder.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "manifest_plan.golden.json"), normalizeManifest(recorder.Body.String()))
 
 	var plan planJSON
 	decodeAPI(t, recorder, &plan)
@@ -105,7 +106,7 @@ func TestManifestAPI_ApplyThenJournalMatchGolden(t *testing.T) {
 	if applied.Code != http.StatusCreated {
 		t.Fatalf("apply: %d %s", applied.Code, applied.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "manifest_apply.golden.json"), normalizeManifest(applied.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "manifest_apply.golden.json"), normalizeManifest(applied.Body.String()))
 	var result applyJSON
 	decodeAPI(t, applied, &result)
 	if result.State != "applied" || result.Done != 3 || result.ActorKind != "operator" || result.FinishedAt == nil || len(result.Changes) != 3 {
@@ -116,7 +117,7 @@ func TestManifestAPI_ApplyThenJournalMatchGolden(t *testing.T) {
 	if list.Code != http.StatusOK {
 		t.Fatalf("list: %d", list.Code)
 	}
-	compareGolden(t, filepath.Join("testdata", "manifest_applies.golden.json"), normalizeManifest(list.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "manifest_applies.golden.json"), normalizeManifest(list.Body.String()))
 	var listed appliesResponse
 	decodeAPI(t, list, &listed)
 	if len(listed.Applies) != 1 || len(listed.Applies[0].Changes) != 0 || listed.Applies[0].ID != result.ID {

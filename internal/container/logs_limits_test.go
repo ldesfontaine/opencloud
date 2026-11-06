@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // containerStore ne sait que rendre la fiche : FetchLogs n'en lit pas plus.
@@ -44,13 +46,7 @@ func startFetch(t *testing.T, tail int) *fetching {
 		lines, err := tracker.FetchLogs(context.Background(), "vps:c", tail)
 		fetch.result <- fetchResult{lines, err}
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for commander.count() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("la demande n'est jamais partie à l'agent")
-		}
-		time.Sleep(time.Millisecond)
-	}
+	waittest.Until(t, "la demande partie à l'agent", func() bool { return commander.count() > 0 })
 	return fetch
 }
 
@@ -174,23 +170,13 @@ func TestFetchLogs_PastTheTotalOfBytes_CutsTheRequestCleanly(t *testing.T) {
 	if result.err != nil || len(result.lines) != 10 {
 		t.Fatalf("result = %d lignes, %v", len(result.lines), result.err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for fetch.commander.count() < 2 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
+	waittest.Until(t, "la commande logs_stop", func() bool { return fetch.commander.count() >= 2 })
 	if fetch.commander.count() != 2 || fetch.commander.commands[1] != "vps:logs_stop" {
 		t.Fatalf("commandes = %v", fetch.commander.commands)
 	}
 	// Le lot suivant trouve la requête fermée (le temps que l'oubli passe).
-	deadline = time.Now().Add(2 * time.Second)
-	for {
+	waittest.Until(t, "la requête coupée refuse les lots", func() bool {
 		err := fetch.deliver(LogBatch{Lines: numberedLines(0, 1)})
-		if errors.Is(err, ErrLogRequestUnknown) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("la requête coupée accepte encore des lots : %v", err)
-		}
-		time.Sleep(time.Millisecond)
-	}
+		return errors.Is(err, ErrLogRequestUnknown)
+	})
 }

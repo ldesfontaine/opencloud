@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"flag"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -23,8 +23,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
-
-var updateGolden = flag.Bool("update", false, "réécrit les réponses de référence dans testdata/")
 
 // callAPI joue une requête JSON comme le front la fait : même origine,
 // corps en application/json.
@@ -249,22 +247,6 @@ func normalize(body string) string {
 	return tokenValue.ReplaceAllString(body, "oc_TOKEN")
 }
 
-func compareGolden(t *testing.T, golden, got string) {
-	t.Helper()
-	if *updateGolden {
-		if err := os.WriteFile(golden, []byte(got), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatalf("%v (lancer go test ./internal/server -update)", err)
-	}
-	if got != string(want) {
-		t.Fatalf("réponse différente de %s :\n%s\n(lancer go test ./internal/server -update après vérification)", golden, got)
-	}
-}
-
 // Chaque lecture de l'API est figée dans testdata/*.golden.json ;
 // `go test ./internal/server -update` les réécrit après un changement voulu.
 func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
@@ -321,7 +303,7 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 			if got := recorder.Header().Get("Content-Type"); got != "application/json" {
 				t.Fatalf("Content-Type %q", got)
 			}
-			compareGolden(t, filepath.Join("testdata", name+".golden.json"), normalize(recorder.Body.String()))
+			goldentest.Compare(t, filepath.Join("testdata", name+".golden.json"), normalize(recorder.Body.String()))
 		})
 	}
 }

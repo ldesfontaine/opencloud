@@ -2,10 +2,8 @@ package manifest_test
 
 import (
 	"context"
-	"flag"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -20,8 +18,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
-
-var updateGolden = flag.Bool("update", false, "réécrit les fichiers de référence dans testdata/")
 
 var testNow = time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
 
@@ -203,21 +199,5 @@ func (b *bench) seed(t *testing.T, reversed bool) {
 	}
 	for _, item := range inOrder(ignored, reversed) {
 		check(b.db.InsertIgnoredKey(ctx, item))
-	}
-}
-
-func compareGolden(t *testing.T, golden string, got []byte) {
-	t.Helper()
-	if *updateGolden {
-		if err := os.WriteFile(golden, got, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatalf("%v (lancer go test ./internal/manifest -update)", err)
-	}
-	if string(got) != string(want) {
-		t.Fatalf("export différent de %s :\n%s\n(lancer go test ./internal/manifest -update après vérification)", filepath.Base(golden), got)
 	}
 }

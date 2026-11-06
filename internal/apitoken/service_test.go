@@ -41,8 +41,6 @@ func newService(t *testing.T) (*apitoken.Service, *clock, *store.DB, *bytes.Buff
 // La machine openCloud, enregistrée par storetest.SaveLocalMachine.
 const machineLocal = machine.LocalID
 
-func ptr(days int) *int { return &days }
-
 func TestCreate_DefaultsToReadAndNinetyDays(t *testing.T) {
 	service, _, _, logs := newService(t)
 	ctx := context.Background()
@@ -85,8 +83,8 @@ func TestCreate_RefusesWhatTheListDoesNotOffer(t *testing.T) {
 		"verbs on read":     {apitoken.Request{Name: "x", Verbs: []string{"probe.pause"}}, apitoken.ErrVerbsNeedWrite},
 		"unknown verb":      {apitoken.Request{Name: "x", Scope: apitoken.ScopeWrite, Verbs: []string{"machine.rename"}}, apitoken.ErrVerbUnknown},
 		"unknown scope":     {apitoken.Request{Name: "x", Scope: "admin"}, apitoken.ErrScopeInvalid},
-		"unlisted lifetime": {apitoken.Request{Name: "x", Days: ptr(7)}, apitoken.ErrLifetimeInvalid},
-		"negative":          {apitoken.Request{Name: "x", Days: ptr(-1)}, apitoken.ErrLifetimeInvalid},
+		"unlisted lifetime": {apitoken.Request{Name: "x", Days: new(7)}, apitoken.ErrLifetimeInvalid},
+		"negative":          {apitoken.Request{Name: "x", Days: new(-1)}, apitoken.ErrLifetimeInvalid},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -104,7 +102,7 @@ func TestCreate_EveryOfferedLifetimeWorks(t *testing.T) {
 	service, _, _, _ := newService(t)
 	ctx := context.Background()
 	for _, days := range apitoken.Lifetimes() {
-		_, token, err := service.Create(ctx, apitoken.Request{Name: fmt.Sprintf("durée %d", days), Days: ptr(days)})
+		_, token, err := service.Create(ctx, apitoken.Request{Name: fmt.Sprintf("durée %d", days), Days: new(days)})
 		if err != nil {
 			t.Fatalf("%d days: %v", days, err)
 		}
@@ -196,8 +194,8 @@ func TestVerify_RefusesUnknownRevokedAndExpiredTheSameWay(t *testing.T) {
 	if err := service.Revoke(ctx, token.ID); !errors.Is(err, apitoken.ErrNotFound) {
 		t.Fatalf("revoke twice: %v", err)
 	}
-	short, _, _ := service.Create(ctx, apitoken.Request{Name: "court", Days: ptr(30)})
-	forever, _, _ := service.Create(ctx, apitoken.Request{Name: "sans fin", Days: ptr(0)})
+	short, _, _ := service.Create(ctx, apitoken.Request{Name: "court", Days: new(30)})
+	forever, _, _ := service.Create(ctx, apitoken.Request{Name: "sans fin", Days: new(0)})
 	tick.now = testNow.Add(30 * 24 * time.Hour)
 	if _, err := service.Verify(ctx, short); !errors.Is(err, apitoken.ErrInvalid) {
 		t.Fatalf("expired at its deadline: %v", err)
@@ -255,8 +253,8 @@ func TestRevokeAll_CountsTheLiveTokensAndLeavesNothing(t *testing.T) {
 	service, tick, _, _ := newService(t)
 	ctx := context.Background()
 	live, _, _ := service.Create(ctx, apitoken.Request{Name: "vivant"})
-	forever, _, _ := service.Create(ctx, apitoken.Request{Name: "éternel", Days: ptr(0)})
-	if _, _, err := service.Create(ctx, apitoken.Request{Name: "court", Days: ptr(30)}); err != nil {
+	forever, _, _ := service.Create(ctx, apitoken.Request{Name: "éternel", Days: new(0)})
+	if _, _, err := service.Create(ctx, apitoken.Request{Name: "court", Days: new(30)}); err != nil {
 		t.Fatal(err)
 	}
 	tick.now = testNow.Add(31 * 24 * time.Hour)
@@ -278,10 +276,10 @@ func TestRevokeAll_CountsTheLiveTokensAndLeavesNothing(t *testing.T) {
 func TestPurge_RemovesTheExpiredOnly(t *testing.T) {
 	service, tick, db, _ := newService(t)
 	ctx := context.Background()
-	if _, _, err := service.Create(ctx, apitoken.Request{Name: "court", Days: ptr(30)}); err != nil {
+	if _, _, err := service.Create(ctx, apitoken.Request{Name: "court", Days: new(30)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := service.Create(ctx, apitoken.Request{Name: "sans fin", Days: ptr(0)}); err != nil {
+	if _, _, err := service.Create(ctx, apitoken.Request{Name: "sans fin", Days: new(0)}); err != nil {
 		t.Fatal(err)
 	}
 	tick.now = testNow.Add(40 * 24 * time.Hour)
@@ -319,7 +317,7 @@ func TestAudit_NamesTheTokenNeverItsSecret(t *testing.T) {
 	service.SetAuditor(recorder)
 	ctx := audit.WithActor(context.Background(), audit.Operator("lucas"))
 
-	cleartext, token, err := service.Create(ctx, apitoken.Request{Name: "mcp-maison", Days: ptr(0)})
+	cleartext, token, err := service.Create(ctx, apitoken.Request{Name: "mcp-maison", Days: new(0)})
 	if err != nil {
 		t.Fatal(err)
 	}

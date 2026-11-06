@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/egress"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 const (
@@ -367,7 +367,7 @@ func TestClient_NeverReachesTheLinkLocal(t *testing.T) {
 
 // permissionsAs rend un handler qui répond aux droits du jeton comme un
 // PVEAuditor ou le rôle donné, par chemin.
-func permissionsAs(grants map[string][]string) func(w http.ResponseWriter, r *http.Request) bool {
+func permissionsAs(t *testing.T, grants map[string][]string) func(w http.ResponseWriter, r *http.Request) bool {
 	return func(w http.ResponseWriter, r *http.Request) bool {
 		if r.URL.Path != "/api2/json/access/permissions" {
 			return false
@@ -381,24 +381,16 @@ func permissionsAs(grants map[string][]string) func(w http.ResponseWriter, r *ht
 			_, _ = w.Write([]byte(`{"data":{}}`))
 			return true
 		}
-		_, _ = fmt.Fprintf(w, `{"data":{%q:%s}}`, path, mustJSON(privileges))
+		_, _ = fmt.Fprintf(w, `{"data":{%q:%s}}`, path, testkit.MustJSON(t, privileges))
 		return true
 	}
-}
-
-func mustJSON(value any) string {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		panic(err)
-	}
-	return string(encoded)
 }
 
 // La cause du « Aucune » : avec PVEAuditor, Proxmox répond 200 et une liste
 // vide. Le relevé ne la lit pas : il nomme le stockage illisible.
 func TestClient_AnAuditorTokenCannotListTheArchives(t *testing.T) {
 	api := newFakeAPI(t)
-	api.handler = permissionsAs(map[string][]string{"/storage/local": {PrivilegeAudit}})
+	api.handler = permissionsAs(t, map[string][]string{"/storage/local": {PrivilegeAudit}})
 	reading, err := NewClient(api.credentials(api.pin())).Read(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -429,7 +421,7 @@ func TestClient_AllocateSpaceNeedsVMBackupToo(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			api := newFakeAPI(t)
-			api.handler = permissionsAs(tc.grants)
+			api.handler = permissionsAs(t, tc.grants)
 			reading, err := NewClient(api.credentials(api.pin())).Read(context.Background())
 			if err != nil {
 				t.Fatal(err)

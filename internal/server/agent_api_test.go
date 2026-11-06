@@ -9,11 +9,11 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // Les routes de l'agent se testent dans agentapi ; ici, de bout en bout,
@@ -63,14 +63,10 @@ func TestAgentStream_OpensASessionThatSignalsAndCloses(t *testing.T) {
 	}
 
 	cancel()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if status, _ := server.machines.Get(context.Background(), remoteID); !status.Online {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("machine still online after the stream was cut")
+	waittest.Until(t, "the machine to go offline after the stream was cut", func() bool {
+		status, _ := server.machines.Get(context.Background(), remoteID)
+		return !status.Online
+	})
 }
 
 // Le limiteur de l'ouverture du flux compte l'adresse que la racine résout :

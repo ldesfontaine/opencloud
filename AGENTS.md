@@ -62,6 +62,13 @@ L'essentiel :
   base pour dériver ; écrire toujours par son composant. Un refus déclare sa
   clé avec l'erreur (`internal/refusal`). Le patron d'un composant est
   `probe.Service`.
+- **Une logique, une définition.** Avant d'écrire un refus, une fonction de
+  forme (nom, chemin, empreinte, port, durée, troncature), une borne, un type
+  d'état ou un petit geste de test, chercher s'il existe (nom *et* corps).
+  Un fait d'un autre domaine se refuse avec sa sentinelle, jamais avec une
+  copie sous sa propre clé. Les gardes `TestOneDefinition_*`
+  (`internal/server/onedefinition_test.go`) lisent le source ; une exception
+  s'y déclare avec sa raison.
 - `gofmt`, `goimports`, `staticcheck` : la machine tient le style, l'humain
   garde l'attention pour le sens.
 - Le front (`web/`, React + TypeScript + SCSS) suit les mêmes règles ;

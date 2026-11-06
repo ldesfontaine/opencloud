@@ -18,6 +18,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 const restV2 = "application/vnd.x.restic.rest.v2"
@@ -480,11 +481,5 @@ func signedHeaders(t *testing.T, machineID string, key ed25519.PrivateKey) http.
 // qu'à ne pas bloquer si le code est cassé.
 func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for !condition() {
-		if time.Now().After(deadline) {
-			t.Fatal("condition never held")
-		}
-		time.Sleep(time.Millisecond)
-	}
+	waittest.Until(t, "condition", condition)
 }

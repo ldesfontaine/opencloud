@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -62,7 +63,7 @@ func TestDeploy_PlanThenOrderMatchGoldenFiles(t *testing.T) {
 	if plan.Code != http.StatusOK {
 		t.Fatalf("plan: %d %s", plan.Code, plan.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "deploy_plan.golden.json"), normalize(plan.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "deploy_plan.golden.json"), normalize(plan.Body.String()))
 
 	sent := callAPI(server.Server, http.MethodPost, base+"/actions/deploy", map[string]any{"env": deployEnvLine + "\n"})
 	if sent.Code != http.StatusCreated {
@@ -83,7 +84,7 @@ func TestDeploy_PlanThenOrderMatchGoldenFiles(t *testing.T) {
 			t.Fatalf("the .env leaks: %s", body)
 		}
 	}
-	compareGolden(t, filepath.Join("testdata", "deploy_plan_sent.golden.json"), normalize(after.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "deploy_plan_sent.golden.json"), normalize(after.Body.String()))
 
 	events, err := server.db.ListAuditEvents(context.Background(), audit.Query{Limit: 100})
 	if err != nil {

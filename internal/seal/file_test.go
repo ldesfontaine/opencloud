@@ -9,20 +9,11 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
-func newRoot(t *testing.T) *os.Root {
-	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
-	return root
-}
-
 func TestCreateLoad_RoundTripsInMode0600(t *testing.T) {
-	root := newRoot(t)
+	root := testkit.EmptyRoot(t)
 	original := Generate()
 	if err := Create(root, original); err != nil {
 		t.Fatal(err)
@@ -48,13 +39,13 @@ func TestCreateLoad_RoundTripsInMode0600(t *testing.T) {
 }
 
 func TestLoad_WithoutFileIsErrNoKey(t *testing.T) {
-	if _, err := Load(newRoot(t)); !errors.Is(err, ErrNoKey) {
+	if _, err := Load(testkit.EmptyRoot(t)); !errors.Is(err, ErrNoKey) {
 		t.Fatalf("got %v, want ErrNoKey", err)
 	}
 }
 
 func TestLoad_RefusesAFileOthersCanRead(t *testing.T) {
-	root := newRoot(t)
+	root := testkit.EmptyRoot(t)
 	if err := Create(root, Generate()); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +67,7 @@ func TestLoad_RefusesAFileOthersCanRead(t *testing.T) {
 }
 
 func TestLoad_RefusesAWrongId(t *testing.T) {
-	root := newRoot(t)
+	root := testkit.EmptyRoot(t)
 	keyring := Generate()
 	other := Generate()
 	line := keyFileScheme + ":" + other.ID() + ":" + encodeKey(keyring) + "\n"
@@ -87,7 +78,7 @@ func TestLoad_RefusesAWrongId(t *testing.T) {
 }
 
 func TestLoad_RefusesAnythingButKeyLines(t *testing.T) {
-	root := newRoot(t)
+	root := testkit.EmptyRoot(t)
 	keyring := Generate()
 	line := keyFileScheme + ":" + keyring.ID() + ":" + encodeKey(keyring)
 	for name, content := range map[string]string{
@@ -125,7 +116,7 @@ func writeKeyFile(t *testing.T, root *os.Root, content string) {
 }
 
 func TestCreate_NeverReplacesAKey(t *testing.T) {
-	root := newRoot(t)
+	root := testkit.EmptyRoot(t)
 	first, second := Generate(), Generate()
 	if err := Create(root, first); err != nil {
 		t.Fatal(err)
@@ -146,7 +137,7 @@ func TestCreate_NeverReplacesAKey(t *testing.T) {
 // Deux créations concurrentes finissent sur la même clé : chacune relit
 // celle qui a gagné quand elle a perdu.
 func TestCreate_ConcurrentCreatorsEndWithTheSameKey(t *testing.T) {
-	root := newRoot(t)
+	root := testkit.EmptyRoot(t)
 	const creators = 8
 	ids := make([]string, creators)
 	var group sync.WaitGroup
@@ -185,7 +176,7 @@ func TestCreate_ConcurrentCreatorsEndWithTheSameKey(t *testing.T) {
 // qu'elles ont scellé, chacune reconnue par son identifiant ; le fichier
 // garde l'ordre. Une fois tout rescellé, la neuve reste seule.
 func TestRotation_SealsWithTheNewKeyAndOpensWithBoth(t *testing.T) {
-	root := newRoot(t)
+	root := testkit.EmptyRoot(t)
 	old := Generate()
 	sealedBefore := old.Seal("hunter2", Scope{Table: "settings", Column: "mail_password", Row: "1"})
 	rotated := old.WithNewKey()

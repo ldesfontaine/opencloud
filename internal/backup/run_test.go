@@ -20,6 +20,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 // Sans clé, rien ne part et la page sait pourquoi : la clé du refus est
@@ -319,7 +320,7 @@ func TestExtractArchive_RefusesAnUnknownEntry(t *testing.T) {
 		archive := fabricate(t, identity.Recipient(), []entry{
 			{brand.DatabaseFile, "base"}, {evil, "intrus"}, {brand.SecretKeyFile, "a"}, {brand.ServerKeyFile, "b"},
 		})
-		target := openEmptyRoot(t)
+		target := testkit.EmptyRoot(t)
 		err := backup.ExtractArchive(bytes.NewReader(archive), identity, target)
 		if !errors.Is(err, backup.ErrUnexpectedEntry) {
 			t.Errorf("%q: %v", evil, err)
@@ -329,7 +330,7 @@ func TestExtractArchive_RefusesAnUnknownEntry(t *testing.T) {
 	twice := fabricate(t, identity.Recipient(), []entry{
 		{brand.DatabaseFile, "base"}, {brand.DatabaseFile, "encore"}, {brand.SecretKeyFile, "a"}, {brand.ServerKeyFile, "b"},
 	})
-	target := openEmptyRoot(t)
+	target := testkit.EmptyRoot(t)
 	if err := backup.ExtractArchive(bytes.NewReader(twice), identity, target); !errors.Is(err, backup.ErrUnexpectedEntry) {
 		t.Errorf("a duplicate: %v", err)
 	}
@@ -397,7 +398,7 @@ func TestExtractArchive_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := openEmptyRoot(t)
+	target := testkit.EmptyRoot(t)
 	if err := backup.ExtractArchive(bytes.NewReader(archive), identity, target); err != nil {
 		t.Fatal(err)
 	}
@@ -444,16 +445,6 @@ func fabricate(t *testing.T, recipient age.Recipient, entries []entry) []byte {
 		t.Fatal(err)
 	}
 	return out.Bytes()
-}
-
-func openEmptyRoot(t *testing.T) *os.Root {
-	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
-	return root
 }
 
 func assertEmpty(t *testing.T, root *os.Root) {

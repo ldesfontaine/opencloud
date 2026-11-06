@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 // importFixture est un dossier de version tel que la page des versions le
@@ -64,19 +65,9 @@ func writeFile(t *testing.T, name string, content []byte) {
 	}
 }
 
-func openState(t *testing.T) *os.Root {
-	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
-	return root
-}
-
 func TestImport_CopiesAVerifiedRelease(t *testing.T) {
 	fixture := newImportFixture(t, Version{0, 0, 2})
-	state := openState(t)
+	state := testkit.EmptyRoot(t)
 	library := NewLibrary(state, fixture.publicKey)
 	signed, err := library.Import(fixture.dir)
 	if err != nil {
@@ -110,16 +101,16 @@ func TestImport_RefusesABadSignatureAndLeavesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]func(t *testing.T) *Library{
-		"another key": func(t *testing.T) *Library { return NewLibrary(openState(t), otherKey) },
+		"another key": func(t *testing.T) *Library { return NewLibrary(testkit.EmptyRoot(t), otherKey) },
 		"a binary changed after the signature": func(t *testing.T) *Library {
 			writeFile(t, filepath.Join(fixture.dir, BinaryName("amd64")), []byte("not the signed one"))
-			return NewLibrary(openState(t), fixture.publicKey)
+			return NewLibrary(testkit.EmptyRoot(t), fixture.publicKey)
 		},
 		"a listed binary missing": func(t *testing.T) *Library {
 			if err := os.Remove(filepath.Join(fixture.dir, BinaryName("arm64"))); err != nil {
 				t.Fatal(err)
 			}
-			return NewLibrary(openState(t), fixture.publicKey)
+			return NewLibrary(testkit.EmptyRoot(t), fixture.publicKey)
 		},
 	}
 	for name, build := range cases {
@@ -135,7 +126,7 @@ func TestImport_RefusesABadSignatureAndLeavesNothing(t *testing.T) {
 
 func TestImport_TwiceIsHarmless_ButADifferentFileIsRefused(t *testing.T) {
 	fixture := newImportFixture(t, Version{0, 0, 2})
-	library := NewLibrary(openState(t), fixture.publicKey)
+	library := NewLibrary(testkit.EmptyRoot(t), fixture.publicKey)
 	if _, err := library.Import(fixture.dir); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +160,7 @@ func TestImport_TwiceIsHarmless_ButADifferentFileIsRefused(t *testing.T) {
 
 func TestImport_ACutImportIsCompletedByTheNext(t *testing.T) {
 	fixture := newImportFixture(t, Version{0, 0, 2})
-	library := NewLibrary(openState(t), fixture.publicKey)
+	library := NewLibrary(testkit.EmptyRoot(t), fixture.publicKey)
 	if _, err := library.Import(fixture.dir); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +183,7 @@ func TestImport_ACutImportIsCompletedByTheNext(t *testing.T) {
 
 func TestArtifact_ReverifiesAfterImport(t *testing.T) {
 	fixture := newImportFixture(t, Version{0, 0, 2})
-	library := NewLibrary(openState(t), fixture.publicKey)
+	library := NewLibrary(testkit.EmptyRoot(t), fixture.publicKey)
 	if _, err := library.Import(fixture.dir); err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +208,7 @@ func TestArtifact_ReverifiesAfterImport(t *testing.T) {
 
 func TestArtifact_NotImportedOrNotPublishedForThisArch(t *testing.T) {
 	fixture := newImportFixture(t, Version{0, 0, 2})
-	library := NewLibrary(openState(t), fixture.publicKey)
+	library := NewLibrary(testkit.EmptyRoot(t), fixture.publicKey)
 	if _, err := library.Artifact(Version{0, 0, 2}, "amd64"); !errors.Is(err, ErrNoRelease) {
 		t.Fatalf("nothing imported: %v", err)
 	}
@@ -236,7 +227,7 @@ func TestArtifact_NotImportedOrNotPublishedForThisArch(t *testing.T) {
 
 func TestArtifact_RefusesAFolderThatHoldsAnotherVersion(t *testing.T) {
 	fixture := newImportFixture(t, Version{0, 0, 3})
-	library := NewLibrary(openState(t), fixture.publicKey)
+	library := NewLibrary(testkit.EmptyRoot(t), fixture.publicKey)
 	if _, err := library.Import(fixture.dir); err != nil {
 		t.Fatal(err)
 	}

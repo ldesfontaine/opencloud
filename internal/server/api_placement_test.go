@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 )
 
@@ -47,7 +48,7 @@ func TestPlacement_TheSignalWritesTheKindAndTheStorage(t *testing.T) {
 	if storage.Code != http.StatusOK {
 		t.Fatalf("stockage: %d %s", storage.Code, storage.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "machine_storage.golden.json"), normalize(storage.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "machine_storage.golden.json"), normalize(storage.Body.String()))
 
 	// Un disque que l'agent ne voit plus disparaît.
 	report.Disks, report.Pools = report.Disks[:1], nil

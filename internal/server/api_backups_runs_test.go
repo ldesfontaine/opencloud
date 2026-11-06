@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/backup"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 )
 
 // runsBench déclare un hôte Proxmox par l'API, comme l'opérateur : son
@@ -44,7 +45,7 @@ func TestBackupRuns_FiltersAndRefusesABadLimit(t *testing.T) {
 	if all.Code != http.StatusOK || len(runs.Runs) != 2 || runs.Runs[0].Result != "failed" || runs.Runs[1].Result != "ok" {
 		t.Fatalf("runs %d %s", all.Code, all.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "backups_runs.golden.json"), normalizeBackups(all.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "backups_runs.golden.json"), normalizeBackups(all.Body.String()))
 
 	filtered := callBearer(server.Server, "/api/backups/runs?plan=pve&source="+backup.GuestSourceKey(pveID, 5012)+"&limit=1", bearer)
 	decodeAPI(t, filtered, &runs)

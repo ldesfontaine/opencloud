@@ -33,6 +33,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 	"github.com/ldesfontaine/opencloud/internal/update"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // e2eAddrEnv porte l'adresse d'écoute du serveur du parcours navigateur
@@ -514,14 +515,9 @@ func seedE2EAnchors(t *testing.T, ts *testServer) {
 	// La passe de la nuit : la première cible est refusée par les ancres (le
 	// serveur n'envoie pas l'ordre) et la ligne de l'historique garde la raison.
 	ts.backups.RunIfDue(context.Background())
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if strings.Contains(callAPI(ts.Server, http.MethodGet, "/api/backups/overview", nil).Body.String(), `"fix_command"`) {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatal("la passe de compta n'a pas été refusée par les ancres")
+	waittest.Until(t, "la passe de compta refusée par les ancres", func() bool {
+		return strings.Contains(callAPI(ts.Server, http.MethodGet, "/api/backups/overview", nil).Body.String(), `"fix_command"`)
+	})
 }
 
 // seedE2ERestic remplit la page Sauvegardes : une cible restic en marche, une

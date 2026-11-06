@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 var epoch = time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
@@ -227,17 +228,6 @@ func (b *bench) runInBackground(ctx context.Context) <-chan int {
 	return done
 }
 
-func waitFor(t *testing.T, what string, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for !condition() {
-		if time.Now().After(deadline) {
-			t.Fatalf("never happened: %s", what)
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
 func receive(t *testing.T, done <-chan int) int {
 	t.Helper()
 	select {
@@ -266,7 +256,7 @@ func TestGuard_AStopRequestStopsTheChildAndExitsCleanly(t *testing.T) {
 	b := newBench(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := b.runInBackground(ctx)
-	waitFor(t, "the child started", func() bool { return len(b.launched()) == 1 })
+	waittest.Until(t, "the child started", func() bool { return len(b.launched()) == 1 })
 	cancel()
 	if code := receive(t, done); code != 0 {
 		t.Fatalf("code %d", code)
@@ -309,7 +299,7 @@ func TestGuard_AStillbornBinary_ReturnsToThePreviousVersionAtTheDeadline(t *test
 	// L'échéance est passée (trois minutes) : le lancement suivant rebascule.
 	ctx, cancel := context.WithCancel(context.Background())
 	done := b.runInBackground(ctx)
-	waitFor(t, "the previous version started", func() bool { return len(b.launched()) == 4 })
+	waittest.Until(t, "the previous version started", func() bool { return len(b.launched()) == 4 })
 	cancel()
 	receive(t, done)
 	if b.current() != "opencloud-v0.0.1" {
@@ -346,7 +336,7 @@ func TestGuard_ABinaryThatLoops_ReturnsToThePreviousVersion(t *testing.T) {
 	b.behave = func(string) behavior { return behavior{} }
 	ctx, cancel := context.WithCancel(context.Background())
 	done := b.runInBackground(ctx)
-	waitFor(t, "the previous version started", func() bool { return len(b.launched()) == 3 })
+	waittest.Until(t, "the previous version started", func() bool { return len(b.launched()) == 3 })
 	cancel()
 	receive(t, done)
 	if marker := b.marker(); marker.State != StateRolledBack || marker.Cause != CauseCrash || marker.Crashes != 2 || b.current() != "opencloud-v0.0.1" {
@@ -360,7 +350,7 @@ func TestGuard_ABinaryThatNeverConfirms_IsStoppedAndSwitchedBackAtTheDeadline(t 
 	b := newBench(t)
 	b.arm(KindUpdate)
 	done := b.runInBackground(context.Background())
-	waitFor(t, "the guard waits for the deadline", b.clock.hasWaiter)
+	waittest.Until(t, "the guard waits for the deadline", b.clock.hasWaiter)
 	if b.current() != "opencloud-v0.0.2" {
 		t.Fatal("switched back before the deadline")
 	}
@@ -384,7 +374,7 @@ func TestGuard_AConfirmedUpdate_IsLeftAlone(t *testing.T) {
 	b.arm(KindUpdate)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := b.runInBackground(ctx)
-	waitFor(t, "the guard waits for the deadline", b.clock.hasWaiter)
+	waittest.Until(t, "the guard waits for the deadline", b.clock.hasWaiter)
 	// L'agent a rejoint le serveur, qui l'a acquitté : il retire le marqueur.
 	if err := Remove(b.state); err != nil {
 		t.Fatal(err)
@@ -486,7 +476,7 @@ func TestGuard_AManualRollbackThatIsNotConfirmed_DoesNotSwitchAgain(t *testing.T
 	b.clock.advance(GracePeriod)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := b.runInBackground(ctx)
-	waitFor(t, "the agent started", func() bool { return len(b.launched()) == 1 })
+	waittest.Until(t, "the agent started", func() bool { return len(b.launched()) == 1 })
 	cancel()
 	receive(t, done)
 	got := b.marker()
@@ -555,7 +545,7 @@ func TestGuard_APreviousVersionThatHeldForAWhile_CrashesLikeAnyAgent(t *testing.
 	}
 	b.behave = func(string) behavior { return behavior{} }
 	done := b.runInBackground(context.Background())
-	waitFor(t, "the child started", func() bool { return b.child(0) != nil })
+	waittest.Until(t, "the child started", func() bool { return b.child(0) != nil })
 	b.clock.advance(SettleAfter + time.Second)
 	b.child(0).exit <- Exit{Code: 1}
 	if code := receive(t, done); code != 1 {

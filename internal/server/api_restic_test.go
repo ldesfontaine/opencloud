@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/restic"
 )
@@ -336,7 +337,7 @@ func TestRestic_ARelayRunExposesWhatToOpenToGoDirect(t *testing.T) {
 		target.DiskFree != 600<<30 || target.DiskUsed != (2<<40)-(600<<30) || target.Dir != "/srv/restic" || len(target.Holds) != 1 {
 		t.Fatalf("target %+v", target)
 	}
-	compareGolden(t, filepath.Join("testdata", "backups_overview.golden.json"), normalizeRestic(body.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "backups_overview.golden.json"), normalizeRestic(body.Body.String()))
 }
 
 // Un résultat hors des listes fermées ne s'écrit pas tel quel : un chemin

@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/live"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // Ouvre le direct d'un onglet et rend un lecteur d'événements nommés.
@@ -56,14 +56,7 @@ func openLive(t *testing.T, server *testServer, path, lastEventID string) (func(
 
 func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("condition never met")
+	waittest.Until(t, "condition", condition)
 }
 
 func TestEvents_StreamsTopicsThenUnsubscribesWhenTheTabCloses(t *testing.T) {

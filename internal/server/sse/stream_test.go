@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/live"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 const testPing = 20 * time.Millisecond
@@ -106,11 +107,5 @@ func TestStream_UnsubscribesWhenTheClientLeaves(t *testing.T) {
 		t.Fatalf("subscribers %d", bus.Count())
 	}
 	cancel()
-	deadline := time.Now().Add(2 * time.Second)
-	for bus.Count() != 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("the subscription outlived the client")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waittest.Until(t, "the subscription to end with the client", func() bool { return bus.Count() == 0 })
 }

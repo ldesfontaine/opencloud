@@ -406,7 +406,7 @@ func TestPlan_SaysAProjectAnotherServiceSharesAndTheGesturesRefuseIt(t *testing.
 func TestDeploy_SendsTheEnvAsASecretOnly(t *testing.T) {
 	b := newBench("observe,docker.deploy,docker.update", fakeRuns{})
 	const env = "DB_PASSWORD=une valeur de test qui ne sort pas\nAUTRE=1\n" // gitleaks:allow
-	run, err := b.service.Deploy(context.Background(), serviceID, ptr(env))
+	run, err := b.service.Deploy(context.Background(), serviceID, new(env))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +435,7 @@ func TestDeploy_SendsTheEnvAsASecretOnly(t *testing.T) {
 }
 
 func TestDeploy_WithoutEnvSendsNoSecret(t *testing.T) {
-	for name, env := range map[string]*string{"absent": nil, "vide": ptr("")} {
+	for name, env := range map[string]*string{"absent": nil, "vide": new("")} {
 		b := newBench("observe,docker.deploy", fakeRuns{})
 		if _, err := b.service.Deploy(context.Background(), serviceID, env); err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -463,7 +463,7 @@ func TestDeploy_RefusesABadEnv(t *testing.T) {
 		{"pas de l'UTF-8", "A=\xff\xfe", deploy.ErrEnvInvalid},
 	} {
 		b := newBench("observe,docker.deploy", fakeRuns{})
-		if _, err := b.service.Deploy(context.Background(), serviceID, ptr(c.env)); !errors.Is(err, c.want) {
+		if _, err := b.service.Deploy(context.Background(), serviceID, new(c.env)); !errors.Is(err, c.want) {
 			t.Errorf("%s: %v", c.name, err)
 		}
 		if len(b.sender.sent) != 0 {
@@ -549,8 +549,6 @@ func TestDeploy_PassesTheSenderRefusalsOn(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
-
-func ptr(text string) *string { return &text }
 
 // L'agent rejuge les noms avec des motifs recopiés d'agentwire : ils doivent
 // dire comme l'annuaire.

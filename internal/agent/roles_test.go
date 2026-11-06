@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/role"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 func proxmoxReport(version string) role.Report {
@@ -68,7 +69,7 @@ func TestRolesLoop_ReadsAtStartAndEveryPeriodAndStopsWithTheAgent(t *testing.T) 
 		rolesLoop(ctx, detect, reports, 5*time.Millisecond, slog.New(slog.DiscardHandler))
 		close(done)
 	}()
-	waitUntil(t, "plusieurs lectures", func() bool { return reads.Load() >= 3 })
+	waittest.Until(t, "plusieurs lectures", func() bool { return reads.Load() >= 3 })
 	cancel()
 	select {
 	case <-done:
@@ -103,7 +104,7 @@ func TestRun_ReportsItsRolesToTheServer(t *testing.T) {
 		}
 		return byMachine[online.ID]
 	}
-	waitUntil(t, "le rôle arrive au serveur", func() bool { return len(storedRoles()) == 1 })
+	waittest.Until(t, "le rôle arrive au serveur", func() bool { return len(storedRoles()) == 1 })
 	if got := storedRoles()[0]; got.Name != role.ProxmoxVE || got.Version != "8.2.4" {
 		t.Fatalf("rôle : %+v", got)
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -281,7 +282,7 @@ func TestAudit_ReadMatchesGolden(t *testing.T) {
 	if got.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", got.Code, got.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "audit.golden.json"), normalize(got.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "audit.golden.json"), normalize(got.Body.String()))
 }
 
 // La page du journal sait combien de canaux le reçoivent et combien de ses
@@ -306,7 +307,7 @@ func TestAPI_AuditForwarding_CountsChannelsAndFailures(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "audit_forwarding.golden.json"), normalize(recorder.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "audit_forwarding.golden.json"), normalize(recorder.Body.String()))
 
 	// Un geste de plus réserve une livraison ; la noter en échec la compte.
 	callAPI(server.Server, http.MethodPost, "/api/directory/projects", projectRequest{Name: "client-a"})

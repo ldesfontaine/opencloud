@@ -2,14 +2,12 @@ package lang
 
 import (
 	"encoding/json"
-	"flag"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
-)
 
-var updateGolden = flag.Bool("update", false, "réécrit testdata/links.golden.json")
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
+)
 
 // Le banc du front (menuLinks.test.ts) relit ce fichier : chaque adresse doit
 // être une route de l'interface, chaque ancre un élément qui existe.
@@ -37,19 +35,7 @@ func TestLinks_GoldenFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = append(got, '\n')
-	const golden = "testdata/links.golden.json"
-	if *updateGolden {
-		if err := os.WriteFile(golden, got, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatalf("%v (lancer go test ./internal/lang -update)", err)
-	}
-	if string(got) != string(want) {
-		t.Fatalf("renvois différents de %s :\n%s\n(lancer go test ./internal/lang -update après vérification)", golden, got)
-	}
+	goldentest.Compare(t, "testdata/links.golden.json", string(got))
 }
 
 // Un renvoi de menu s'écrit {link:id}. Un chemin « X › Y » ou « Paramètres →

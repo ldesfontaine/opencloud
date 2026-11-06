@@ -23,6 +23,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 var testNow = servertest.Now()
@@ -192,14 +193,7 @@ func (b *bench) openLive(t *testing.T, peer, lastEventID string) (func() string,
 
 func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("condition never met")
+	waittest.Until(t, "condition", condition)
 }
 
 var errNotBuilt = errors.New("statut.html is not there")

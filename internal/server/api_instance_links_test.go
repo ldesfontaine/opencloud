@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -67,7 +68,7 @@ func TestAPI_ServiceLinks_ComposeDependsOnIsStoredAsADeclaredOrderLink(t *testin
 	if len(in.Links) != 1 || in.Links[0].Direction != "incoming" || in.Links[0].Peer.ServiceID != app || in.Links[0].ID != got.ID {
 		t.Errorf("liens de la base : %+v", in.Links)
 	}
-	compareGolden(t, filepath.Join("testdata", "service_links.golden.json"), normalize(callAPI(server.Server, http.MethodGet, "/api/directory/services/"+app+"/links", nil).Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "service_links.golden.json"), normalize(callAPI(server.Server, http.MethodGet, "/api/directory/services/"+app+"/links", nil).Body.String()))
 
 	// Un rapport de plus ne change rien : le lien est revu, pas doublé.
 	server.seedContainers(t)

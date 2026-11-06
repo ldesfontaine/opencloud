@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // Un changement de l'accès met fin à tout ce que l'état d'avant avait
@@ -403,14 +404,14 @@ func TestAuthTransition_TheActivationWaitsForAnAuthorityBeingGranted(t *testing.
 	}()
 	// L'activation est en attente du verrou dès qu'un lecteur de plus ne
 	// peut plus le prendre.
-	deadline := time.Now().Add(5 * time.Second)
-	for server.authTransition.TryRLock() {
-		server.authTransition.RUnlock()
-		if time.Now().After(deadline) {
-			t.Fatal("the activation did not wait for the authority being granted")
+	waittest.Until(t, "the activation to wait for the authority being granted", func() bool {
+		if server.authTransition.TryRLock() {
+			server.authTransition.RUnlock()
+			runtime.Gosched()
+			return false
 		}
-		runtime.Gosched()
-	}
+		return true
+	})
 	close(proceed)
 
 	var created apiTokenCreated

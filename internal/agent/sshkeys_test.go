@@ -14,6 +14,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 func oneAccountReport(name string, keys ...sshkeys.Key) sshkeys.Report {
@@ -170,7 +171,7 @@ func TestSSHKeysLoop_ReadsAtStartAndEveryPeriodAndStopsWithTheAgent(t *testing.T
 		close(done)
 	}()
 
-	waitUntil(t, "plusieurs relevés", func() bool { return reads.Load() >= 4 })
+	waittest.Until(t, "plusieurs relevés", func() bool { return reads.Load() >= 4 })
 	cancel()
 	select {
 	case <-done:
@@ -204,7 +205,7 @@ func TestRun_ReportsItsSSHKeysToTheServer(t *testing.T) {
 	go func() { done <- Run(ctx, options) }()
 	online := b.waitFor(t, "vps-nice-1", func(s machine.Status) bool { return s.Online })
 
-	waitUntil(t, "le relevé arrive au serveur", func() bool {
+	waittest.Until(t, "le relevé arrive au serveur", func() bool {
 		snapshot, err := b.sshKeys.Machine(context.Background(), online.ID)
 		return err == nil && len(snapshot.Accounts) == 1 && len(snapshot.Accounts[0].Keys) == 1
 	})

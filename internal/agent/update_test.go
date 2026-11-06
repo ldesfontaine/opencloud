@@ -22,6 +22,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/release/releasetest"
 	"github.com/ldesfontaine/opencloud/internal/rollback"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 const archBinary = brand.ReleaseBinaryPrefix + "amd64"
@@ -611,7 +612,7 @@ func TestRun_UpdatesItselfAndTheServerSeesItComeBack(t *testing.T) {
 	finished := b.waitForRun(t, sent.ID, action.StateSucceeded)
 	// Acquittée par le serveur, la nouvelle version a confirmé : plus rien
 	// n'attend.
-	waitUntil(t, "the marker is removed once the server acknowledged", func() bool {
+	waittest.Until(t, "the marker is removed once the server acknowledged", func() bool {
 		_, err := rollback.Load(b.stateDir)
 		return errors.Is(err, rollback.ErrNoMarker)
 	})

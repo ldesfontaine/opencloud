@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 )
 
@@ -72,7 +73,7 @@ func TestExport_WithoutProposeIsUnchanged(t *testing.T) {
 	plain := newBench(t)
 	plain.seed(t, false)
 	want := plain.export(t)
-	compareGolden(t, filepath.Join("testdata", "export.golden.yaml"), want)
+	goldentest.Compare(t, filepath.Join("testdata", "export.golden.yaml"), string(want))
 
 	b := newBench(t)
 	b.seed(t, false)
@@ -93,7 +94,7 @@ func TestExport_ProposeAppendsUndeclaredWithoutIDs(t *testing.T) {
 	b.seed(t, false)
 	b.seedUndeclared(t)
 	data := b.exportPropose(t, manifest.ExportOptions{Propose: true})
-	compareGolden(t, filepath.Join("testdata", "export_propose.golden.yaml"), data)
+	goldentest.Compare(t, filepath.Join("testdata", "export_propose.golden.yaml"), string(data))
 
 	file, problems := manifest.Parse(data)
 	if len(problems) > 0 {

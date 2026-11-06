@@ -5,7 +5,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 type fakeCommander struct {
@@ -99,10 +100,7 @@ func TestRelay_ReaderLeaving_StopsTheAgent(t *testing.T) {
 	if _, open := <-batches; open {
 		t.Fatal("channel should close with the context")
 	}
-	deadline := time.Now().Add(time.Second)
-	for commander.count() < 2 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waittest.Until(t, "the logs_stop command", func() bool { return commander.count() >= 2 })
 	if commander.count() != 2 || commander.commands[1] != "vps:logs_stop" {
 		t.Fatalf("commands = %v", commander.commands)
 	}
