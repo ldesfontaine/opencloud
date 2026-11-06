@@ -518,10 +518,7 @@ func (t dockerTools) journalOf(ctx context.Context, project string, faulty []doc
 	secrets := envSecrets(envOf(dir, dockerJob{}))
 	redacted := make([]string, 0, len(lines))
 	for _, line := range lines {
-		for _, secret := range secrets {
-			line = strings.ReplaceAll(line, secret, redactedText)
-		}
-		redacted = append(redacted, line)
+		redacted = append(redacted, redactText(line, secrets, redactedText))
 	}
 	return fitJournal(redacted)
 }

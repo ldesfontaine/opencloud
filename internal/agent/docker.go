@@ -570,6 +570,16 @@ func envSecrets(env string) []string {
 	return secrets
 }
 
+// redactText remplace chaque secret par marker dans une ligne de texte : la
+// seule définition du masquage, pour la sortie de Compose comme pour le
+// journal d'une montée revenue en arrière.
+func redactText(text string, secrets []string, marker string) string {
+	for _, secret := range secrets {
+		text = strings.ReplaceAll(text, secret, marker)
+	}
+	return text
+}
+
 // redactLines remplace chaque secret (une valeur de l'.env, un mot de passe
 // restic) par marker dans la sortie.
 func redactLines(lines []agentwire.OutputLine, secrets []string, marker string) []agentwire.OutputLine {
@@ -578,9 +588,7 @@ func redactLines(lines []agentwire.OutputLine, secrets []string, marker string) 
 	}
 	redacted := make([]agentwire.OutputLine, 0, len(lines))
 	for _, line := range lines {
-		for _, secret := range secrets {
-			line.Line = strings.ReplaceAll(line.Line, secret, marker)
-		}
+		line.Line = redactText(line.Line, secrets, marker)
 		redacted = append(redacted, line)
 	}
 	return redacted

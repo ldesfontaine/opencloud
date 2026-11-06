@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -516,5 +517,46 @@ func TestSessions_NewConnectionReplacesThePreviousOne(t *testing.T) {
 	sessions.Release(second)
 	if sessions.IsOnline("m") || sessions.CountOnline() != 0 {
 		t.Fatal("still online")
+	}
+}
+
+// La capacité de retour d'un service est un petit entier positif : tout autre
+// texte l'efface (0), même chez un agent qui venait de la dire. Sans cette
+// borne, une valeur forgée vaudrait « capable », ou casserait l'écriture.
+func TestNoteServiceRollbackVersion_OnlyASmallPositiveIntegerCounts(t *testing.T) {
+	cases := []struct {
+		name     string
+		reported string
+		want     int
+	}{
+		{"one", "1", 1},
+		{"the upper bound", strconv.Itoa(maxRollbackVersion), maxRollbackVersion},
+		{"zero", "0", 0},
+		{"negative", "-1", 0},
+		{"above the bound", strconv.Itoa(maxRollbackVersion + 1), 0},
+		{"very large", "99999999999999999999", 0},
+		{"words", "oui", 0},
+		{"empty", "", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			enrolled, _ := h.enroll(t, "vps-1")
+			ctx := context.Background()
+			// L'agent avait dit savoir revenir : une valeur invalide l'efface.
+			if err := h.service.NoteServiceRollbackVersion(ctx, enrolled.Agent.ID, "1"); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.service.NoteServiceRollbackVersion(ctx, enrolled.Agent.ID, c.reported); err != nil {
+				t.Fatal(err)
+			}
+			status, err := h.store.GetMachine(ctx, enrolled.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := status.Agent.ServiceRollbackVersion; got != c.want || status.Agent.CanRollBackService() != (c.want > 0) {
+				t.Fatalf("%q stored %d, want %d", c.reported, got, c.want)
+			}
+		})
 	}
 }
