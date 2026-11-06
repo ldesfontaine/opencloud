@@ -20,7 +20,7 @@ const browseWait = 45 * time.Second
 
 var (
 	// La cible n'a pas restic.browse : l'écran propose de la ré-enrôler.
-	ErrTargetBrowseRightMissing = refusal.Conflict("restic.target_browse_right_missing", "the agent of the target may not browse repositories: re-enroll it with restic.browse")
+	ErrTargetBrowseRightMissing = refusal.Conflict("restic.target_browse_right_missing", "the agent of the target may not browse repositories: re-enroll it with restic.browse").NeedsRight(machine.CapabilityResticBrowse)
 	ErrTargetBrowseUnavailable  = refusal.Conflict("restic.target_browse_unavailable", "the agent of the target holds restic.browse but cannot exercise it on this machine")
 	ErrBrowseRequest            = refusal.Invalid("restic.browse_request", "the snapshot or the folder is outside its form")
 	ErrBrowseRepoEmpty          = refusal.Conflict("restic.browse_repo_empty", "the repository has no snapshot yet")
@@ -190,10 +190,10 @@ func browseRefusal(reason string) error {
 
 // judgeBrowseRight : la cible tient restic.browse et sait l'exercer.
 func judgeBrowseRight(target machine.Status) error {
-	switch RightOf(target, machine.CapabilityResticBrowse).State {
-	case RightOK, RightUnknown:
+	switch target.Agent.Fit(machine.CapabilityResticBrowse, "").State {
+	case machine.RightOK, machine.RightUnknown:
 		return nil
-	case RightUnavailable:
+	case machine.RightUnavailable:
 		return ErrTargetBrowseUnavailable
 	}
 	return ErrTargetBrowseRightMissing

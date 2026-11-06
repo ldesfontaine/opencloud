@@ -8,6 +8,8 @@ type Error struct {
 	key        string
 	message    string
 	isConflict bool
+	// Le droit de l'agent que le refus dit manquant ; vide pour les autres.
+	right string
 }
 
 // Invalid déclare un refus de la demande elle-même : un champ faux, une
@@ -20,6 +22,19 @@ func Invalid(key, message string) *Error {
 // ailleurs ou plus tard.
 func Conflict(key, message string) *Error {
 	return &Error{key: key, message: message, isConflict: true}
+}
+
+// NeedsRight dit quel droit de l'agent le refus nomme : le front y lit
+// quelle machine ré-enrôler, et avec quoi. Sans règle : une chaîne, que le
+// golden des refus écrit et que le front compare à sa table.
+func (e *Error) NeedsRight(right string) *Error {
+	e.right = right
+	return e
+}
+
+// Right rend le droit que le refus nomme, vide s'il n'en nomme aucun.
+func (e *Error) Right() string {
+	return e.right
 }
 
 // Error rend le texte du journal ; l'opérateur, lui, lit la clé.

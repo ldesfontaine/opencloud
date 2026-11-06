@@ -219,7 +219,7 @@ func (s *Service) CreateDestination(ctx context.Context, definition DestinationD
 	if !machine.ValidCapabilityPath(definition.Path) {
 		return Destination{}, ErrPathInvalid
 	}
-	if right, _ := rightOf(target, definition.Path); right == RightMissing {
+	if target.Agent.Fit(machine.CapabilityBackupReceive, definition.Path).State == machine.RightMissing {
 		return Destination{}, ErrRightMissing
 	}
 	id, err := ident.New()
@@ -393,9 +393,10 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	}
 	overview.Destinations = make([]DestinationView, 0, len(destinations))
 	for _, destination := range destinations {
-		view := DestinationView{Destination: destination, Right: RightUnknown}
+		view := DestinationView{Destination: destination, Right: machine.RightUnknown}
 		if target, err := s.machines.Get(ctx, destination.MachineID); err == nil {
-			view.Right, view.RightReason = rightOf(target, destination.Path)
+			fit := target.Agent.Fit(machine.CapabilityBackupReceive, destination.Path)
+			view.Right, view.RightReason = fit.State, fit.Reason
 		}
 		overview.Destinations = append(overview.Destinations, view)
 	}
@@ -427,26 +428,6 @@ func (s *Service) Runs(ctx context.Context, query RunQuery) ([]RunRecord, error)
 		return nil, fmt.Errorf("list backup runs: %w", err)
 	}
 	return records, nil
-}
-
-// rightOf juge si l'agent de la machine peut écrire dans ce dossier : « ok »
-// ou « missing » une fois ses droits rapportés, « unknown » avant. Sans agent
-// actif, rien ne peut y être reçu. « unavailable » et sa raison quand le droit
-// est coché sans que le compte de l'agent puisse l'exercer.
-func rightOf(target machine.Status, path string) (RightState, string) {
-	if !target.Agent.IsActive() {
-		return RightMissing, ""
-	}
-	if target.Agent.ReportedAt.IsZero() {
-		return RightUnknown, ""
-	}
-	if !machine.CoversPath(target.Agent.Capabilities, machine.CapabilityBackupReceive, path) {
-		return RightMissing, ""
-	}
-	if reason := target.Agent.UnavailableReason(machine.CapabilityBackupReceive); reason != "" {
-		return RightUnavailable, reason
-	}
-	return RightOK, ""
 }
 
 func destinationEvent(verb audit.Action, destination Destination) audit.Event {

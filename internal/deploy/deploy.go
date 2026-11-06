@@ -3,6 +3,7 @@ package deploy
 import (
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -19,7 +20,7 @@ var (
 	ErrEnvTooLarge      = refusal.Invalid("deploy.env_too_large", "the .env exceeds 64 KiB")
 	ErrEnvInvalid       = refusal.Invalid("deploy.env_invalid", "the .env must be UTF-8 text without a null character")
 
-	ErrRightMissing    = refusal.Conflict("deploy.right_missing", "the agent of this machine may not deploy: re-enroll it with that right")
+	ErrRightMissing    = refusal.Conflict("deploy.right_missing", "the agent of this machine may not deploy: re-enroll it with that right").NeedsRight(machine.CapabilityDockerDeploy)
 	ErrAlreadyDeployed = refusal.Conflict("deploy.already_deployed", "the service is already deployed: redeploy it")
 	ErrNotDeployed     = refusal.Conflict("deploy.not_deployed", "the service has never been deployed: deploy it first")
 
@@ -27,20 +28,6 @@ var (
 	// ou l'unité garde une empreinte qui appartient à l'ancien tag.
 	ErrVersionNotOffered = refusal.Conflict("deploy.version_not_offered", "the version is not the newer tag the agent found for this unit")
 	ErrUnitPinnedDigest  = refusal.Conflict("deploy.unit_pinned_digest", "the unit pins an image digest of its current tag: remove it before changing version")
-)
-
-// RightState dit si l'agent de la machine porte le droit du prochain geste :
-// « unknown » tant qu'il n'a pas rapporté ses droits. « unavailable » : il le
-// porte, mais son compte ne peut pas l'exercer (Plan.RightReason dit
-// pourquoi). Le serveur l'affiche sans refuser le geste : le rapport date de
-// l'ouverture du flux, et l'agent refuse, avec la raison, au moment de l'ordre.
-type RightState string
-
-const (
-	RightOK          RightState = "ok"
-	RightMissing     RightState = "missing"
-	RightUnavailable RightState = "unavailable"
-	RightUnknown     RightState = "unknown"
 )
 
 // Plan est ce que l'opérateur lit avant de déployer : où le service ira, ce
@@ -58,7 +45,7 @@ type Plan struct {
 	MachineOnline bool
 	// Le droit du prochain geste : docker.deploy, puis docker.update. Avec
 	// « unavailable », la raison que l'agent a rapportée (agentwire).
-	Right       RightState
+	Right       machine.RightState
 	RightReason string
 	// Le compose.yml que le prochain geste écrira, et les unités dont il
 	// monte un dossier de données.

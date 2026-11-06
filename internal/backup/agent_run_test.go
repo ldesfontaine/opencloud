@@ -747,8 +747,8 @@ func TestCheckDestinationVersion(t *testing.T) {
 			t.Errorf("%q: %v, want ok=%v", version, err, ok)
 		}
 	}
-	if agentwire.PrefixSinceVersion != "v0.2.0" {
-		t.Errorf("the guard moved to %s: the documentation says v0.2.0", agentwire.PrefixSinceVersion)
+	if machine.PrunePrefixSinceVersion != "v0.2.0" {
+		t.Errorf("the guard moved to %s: the documentation says v0.2.0", machine.PrunePrefixSinceVersion)
 	}
 }
 

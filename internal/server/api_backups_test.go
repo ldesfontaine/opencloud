@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/goldentest"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // La phrase de test : des mots, pas un secret.
@@ -204,7 +205,7 @@ func TestBackups_AnAgentPlanIsListedAfterTheDatabaseAndRefusesToRunUnready(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", agentwire.PrefixSinceVersion, "backup.receive=/srv/backups", "", ""); err != nil {
+	if _, err := server.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", machine.PrunePrefixSinceVersion, "backup.receive=/srv/backups", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	run = callAPI(server.Server, http.MethodPost, "/api/backups/plans/pve-vm/actions/run", map[string]any{})

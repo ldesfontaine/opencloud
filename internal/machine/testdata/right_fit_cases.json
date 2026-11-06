@@ -1,0 +1,44 @@
+[
+  {
+    "name": "no agent: missing",
+    "agent": null,
+    "right": "backup.receive",
+    "expect": {"state": "missing", "reason": "", "path": ""}
+  },
+  {
+    "name": "revoked agent keeps its reported rights but holds nothing",
+    "agent": {"revoked": true, "reported": true, "capabilities": [{"name": "docker.deploy", "paths": [], "unavailable": ""}]},
+    "right": "docker.deploy",
+    "expect": {"state": "missing", "reason": "", "path": ""}
+  },
+  {
+    "name": "not reported yet: the agent will judge",
+    "agent": {"revoked": false, "reported": false, "capabilities": []},
+    "right": "docker.deploy",
+    "expect": {"state": "unknown", "reason": "", "path": ""}
+  },
+  {
+    "name": "reported without the right",
+    "agent": {"revoked": false, "reported": true, "capabilities": [{"name": "observe", "paths": [], "unavailable": ""}]},
+    "right": "docker.deploy",
+    "expect": {"state": "missing", "reason": "", "path": ""}
+  },
+  {
+    "name": "reported with the right",
+    "agent": {"revoked": false, "reported": true, "capabilities": [{"name": "observe", "paths": [], "unavailable": ""}, {"name": "docker.deploy", "paths": [], "unavailable": ""}]},
+    "right": "docker.deploy",
+    "expect": {"state": "ok", "reason": "", "path": ""}
+  },
+  {
+    "name": "the right is ticked but the account cannot exercise it",
+    "agent": {"revoked": false, "reported": true, "capabilities": [{"name": "docker.deploy", "paths": [], "unavailable": "docker_denied"}]},
+    "right": "docker.deploy",
+    "expect": {"state": "unavailable", "reason": "docker_denied", "path": ""}
+  },
+  {
+    "name": "a right with one folder says which",
+    "agent": {"revoked": false, "reported": true, "capabilities": [{"name": "restic.target", "paths": ["/srv/restic"], "unavailable": ""}]},
+    "right": "restic.target",
+    "expect": {"state": "ok", "reason": "", "path": "/srv/restic"}
+  }
+]

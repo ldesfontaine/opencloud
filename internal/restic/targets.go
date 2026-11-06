@@ -53,7 +53,7 @@ var (
 	ErrPortInvalid   = refusal.Invalid("restic.port_invalid", "the port must be between 1 and 65535")
 	// Le droit manque ou ne peut s'exercer : l'écran propose de ré-enrôler
 	// la machine de la requête avec restic.target.
-	ErrTargetRightMissing     = refusal.Conflict("restic.target_right_missing", "the agent of this machine may not run rest-server: re-enroll it with restic.target")
+	ErrTargetRightMissing     = refusal.Conflict("restic.target_right_missing", "the agent of this machine may not run rest-server: re-enroll it with restic.target").NeedsRight(machine.CapabilityResticTarget)
 	ErrTargetRightUnavailable = refusal.Conflict("restic.target_right_unavailable", "the agent holds restic.target but cannot exercise it on this machine")
 	ErrTargetDirOutsideRight  = refusal.Conflict("restic.target_dir_outside_right", "the folder of the repositories must be the one of the restic.target right")
 	ErrTargetInUse            = refusal.Conflict("restic.target_in_use", "backups are sent to this target: delete them first")
@@ -120,7 +120,7 @@ func judgeTargetSetup(target machine.Status, setup TargetSetup) (TargetSetup, er
 	if setup.Port < 1 || setup.Port > 65535 {
 		return TargetSetup{}, ErrPortInvalid
 	}
-	right := RightOf(target, machine.CapabilityResticTarget)
+	right := target.Agent.Fit(machine.CapabilityResticTarget, "")
 	if err := judgeTargetRight(right); err != nil {
 		return TargetSetup{}, err
 	}
@@ -128,7 +128,7 @@ func judgeTargetSetup(target machine.Status, setup TargetSetup) (TargetSetup, er
 		setup.Dir = right.Path
 	}
 	// Tant que l'agent n'a rien rapporté, il jugera lui-même son dossier.
-	if right.State == RightOK && setup.Dir != right.Path {
+	if right.State == machine.RightOK && setup.Dir != right.Path {
 		return TargetSetup{}, ErrTargetDirOutsideRight
 	}
 	return setup, nil
@@ -157,13 +157,13 @@ func (s *Service) judgeFloor(ctx context.Context, machineID string, floor *agent
 }
 
 // judgeTargetRight : le droit restic.target, et rest-server présent.
-func judgeTargetRight(right RightFit) error {
+func judgeTargetRight(right machine.RightFit) error {
 	switch {
-	case right.State == RightMissing:
+	case right.State == machine.RightMissing:
 		return ErrTargetRightMissing
-	case right.State == RightUnavailable && right.Reason == agentwire.ReasonRestServerMissing:
+	case right.State == machine.RightUnavailable && right.Reason == agentwire.ReasonRestServerMissing:
 		return ErrRestServerMissing
-	case right.State == RightUnavailable:
+	case right.State == machine.RightUnavailable:
 		return ErrTargetRightUnavailable
 	}
 	return nil

@@ -152,7 +152,7 @@ func (s *Service) judgeMachine(target machine.Status, cache artifactCache) (Upda
 	}
 	// Après « à jour » : une machine à jour n'a rien à migrer pour l'instant.
 	// Avant la bibliothèque : migrer ne dépend pas de ce qui est importé.
-	if !target.Agent.CanRollBack() {
+	if !target.Agent.Supports(machine.FeatureAgentRollback) {
 		offer.Reason = OfferRollbackUnavailable
 		return offer, release.Artifact{}, nil
 	}
@@ -167,7 +167,7 @@ func (s *Service) judgeMachine(target machine.Status, cache artifactCache) (Upda
 		return offer, release.Artifact{}, nil
 	}
 	offer.Available = true
-	if target.Agent.UnavailableReason(machine.CapabilityAgentUpdate) != "" {
+	if target.Agent.Fit(machine.CapabilityAgentUpdate, "").State == machine.RightUnavailable {
 		offer.Reason = OfferRightUnavailable
 	}
 	return offer, artifact, nil
@@ -191,7 +191,7 @@ func (s *Service) machineReason(target machine.Status) string {
 	switch {
 	case !target.Online:
 		return OfferOffline
-	case !target.Agent.ReportedAt.IsZero() && !machine.HasCapability(target.Agent.Capabilities, machine.CapabilityAgentUpdate):
+	case target.Agent.Fit(machine.CapabilityAgentUpdate, "").State == machine.RightMissing:
 		return OfferRightMissing
 	case !archPattern.MatchString(target.Arch):
 		return OfferArchUnknown

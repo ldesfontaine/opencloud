@@ -7,6 +7,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/backup"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // La supervision des sauvegardes vit dans ce module (décision de Lucas du
@@ -173,9 +174,9 @@ func restoreStaleFinding(source Source, protection Protection, now time.Time) (F
 // le corrige : le droit de la cible, puis l'échec du dernier essai.
 func verifyReason(verify VerifyView) string {
 	switch verify.Right.State {
-	case RightMissing:
+	case machine.RightMissing:
 		return ReasonVerifyRightMissing
-	case RightUnavailable:
+	case machine.RightUnavailable:
 		return ReasonVerifyRightUnavailable
 	}
 	switch {

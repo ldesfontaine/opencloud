@@ -14,10 +14,10 @@ import (
 
 var (
 	// La source n'a pas restic.restore : l'écran propose de la ré-enrôler.
-	ErrSourceRestoreRightMissing = refusal.Conflict("restic.source_restore_right_missing", "the agent of the source may not restore: re-enroll it with restic.restore")
+	ErrSourceRestoreRightMissing = refusal.Conflict("restic.source_restore_right_missing", "the agent of the source may not restore: re-enroll it with restic.restore").NeedsRight(machine.CapabilityResticRestore)
 	ErrSourceRestoreUnavailable  = refusal.Conflict("restic.source_restore_unavailable", "the agent of the source holds restic.restore but cannot exercise it on this machine")
 	// La destination n'est pas sous un dossier que files.write couvre.
-	ErrRestoreOutsideRight = refusal.Conflict("restic.restore_outside_right", "the destination is not under a folder the agent may write (files.write)")
+	ErrRestoreOutsideRight = refusal.Conflict("restic.restore_outside_right", "the destination is not under a folder the agent may write (files.write)").NeedsRight(machine.CapabilityFilesWrite)
 	ErrRestoreRequest      = refusal.Invalid("restic.restore_request", "the snapshot, the path or the stamp is outside its form")
 )
 
@@ -77,16 +77,16 @@ func (s *Service) Restore(ctx context.Context, sourceID, id string, request Rest
 // judgeRestore : la source tient restic.restore et sait l'exercer, et
 // files.write couvre la destination.
 func judgeRestore(source machine.Status, destination string) error {
-	switch RightOf(source, machine.CapabilityResticRestore).State {
-	case RightOK:
-	case RightUnknown:
+	switch source.Agent.Fit(machine.CapabilityResticRestore, "").State {
+	case machine.RightOK:
+	case machine.RightUnknown:
 		return nil
-	case RightUnavailable:
+	case machine.RightUnavailable:
 		return ErrSourceRestoreUnavailable
 	default:
 		return ErrSourceRestoreRightMissing
 	}
-	if !machine.CoversPath(source.Agent.Capabilities, machine.CapabilityFilesWrite, destination) {
+	if source.Agent.Fit(machine.CapabilityFilesWrite, destination).State == machine.RightMissing {
 		return ErrRestoreOutsideRight
 	}
 	return nil

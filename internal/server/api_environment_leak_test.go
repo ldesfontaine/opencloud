@@ -110,4 +110,8 @@ func TestAPI_Environment_SeededSecretsAreInNoOutput(t *testing.T) {
 	if links := outputs["/api/directory/services/"+app+"/links"]; !strings.Contains(links, `"signal":"environment"`) || !strings.Contains(links, `"port":5432`) {
 		t.Errorf("la fiche du service devait montrer le lien lu : %s", links)
 	}
+	// L'agent a le droit : même mot que partout ailleurs (« ok », plus « granted »).
+	if links := outputs["/api/directory/services/"+app+"/links"]; !strings.Contains(links, `"right":"ok"`) {
+		t.Errorf("le droit de lire l'environnement devait être dit « ok » : %s", links)
+	}
 }

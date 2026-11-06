@@ -50,20 +50,6 @@ type Agent struct {
 	Anchors anchor.State
 }
 
-// CanRollBack dit si l'agent revient seul à sa version d'avant quand une
-// mise à jour n'est pas confirmée : sans cela, le serveur ne lui en envoie
-// aucune.
-func (a Agent) CanRollBack() bool {
-	return a.RollbackVersion > 0
-}
-
-// CanRollBackService dit si l'agent revient seul à la version d'avant d'un
-// service dont la montée n'est pas saine : sans cela, le serveur ne lui en
-// envoie aucune.
-func (a Agent) CanRollBackService() bool {
-	return a.ServiceRollbackVersion > 0
-}
-
 func (a Agent) Exists() bool {
 	return a.ID != ""
 }

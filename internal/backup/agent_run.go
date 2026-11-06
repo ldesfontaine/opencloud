@@ -16,7 +16,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
-	"github.com/ldesfontaine/opencloud/internal/release"
 )
 
 // runWaitLimit borne l'attente d'un ordre : le serveur le dit fini de
@@ -164,10 +163,7 @@ func (s *Service) prepareAgentPass(ctx context.Context, plan Plan, at time.Time)
 // judgeSource : la machine source a un agent dont le droit couvre le
 // producteur, puis en ligne. Tant que l'agent n'a rien rapporté, c'est lui qui jugera.
 func judgeSource(source machine.Status, producer string) error {
-	if !source.Agent.IsActive() {
-		return ErrSourceRightMissing
-	}
-	if !source.Agent.ReportedAt.IsZero() && !machine.CoversProducer(source.Agent.Capabilities, producer) {
+	if source.Agent.Fit(machine.CapabilityBackupProduce, producer).State == machine.RightMissing {
 		return ErrSourceRightMissing
 	}
 	if !source.Online {
@@ -178,14 +174,9 @@ func judgeSource(source machine.Status, producer string) error {
 
 // checkDestinationAgent refuse une destination dont l'agent ne lit pas le
 // préfixe de backup.prune : il élaguerait la base avec le nombre à garder d'un
-// plan machine. Une version illisible est jugée trop ancienne.
+// plan machine.
 func checkDestinationAgent(destination machine.Status) error {
-	minimum, err := release.ParseVersion(agentwire.PrefixSinceVersion)
-	if err != nil {
-		return fmt.Errorf("parse the first version that prunes by prefix: %w", err)
-	}
-	version, err := release.ParseVersion(destination.Agent.Version)
-	if err != nil || version.Compare(minimum) < 0 {
+	if !destination.Agent.Supports(machine.FeaturePrunePrefix) {
 		return ErrDestinationAgentOutdated
 	}
 	return nil

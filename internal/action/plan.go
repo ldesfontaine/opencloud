@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"context"
 	"slices"
+
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // PlanEntry est ce que le plan de mise à jour dit d'une machine.
@@ -41,7 +43,7 @@ func (s *Service) UpdatePlan(ctx context.Context) ([]PlanEntry, error) {
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, planEntryOf(target.ID, target.Name, target.UpdateLast, target.Online, target.Agent.CanRollBack(), offer))
+		entries = append(entries, planEntryOf(target.ID, target.Name, target.UpdateLast, target.Online, target.Agent.Supports(machine.FeatureAgentRollback), offer))
 	}
 	rankPlan(entries)
 	return entries, nil

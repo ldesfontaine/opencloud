@@ -25,7 +25,7 @@ const (
 
 var (
 	// La cible n'a pas restic.verify : l'écran propose de la ré-enrôler.
-	ErrTargetVerifyRightMissing = refusal.Conflict("restic.target_verify_right_missing", "the agent of the target may not verify repositories: re-enroll it with restic.verify")
+	ErrTargetVerifyRightMissing = refusal.Conflict("restic.target_verify_right_missing", "the agent of the target may not verify repositories: re-enroll it with restic.verify").NeedsRight(machine.CapabilityResticVerify)
 	ErrTargetVerifyUnavailable  = refusal.Conflict("restic.target_verify_unavailable", "the agent of the target holds restic.verify but cannot exercise it on this machine")
 )
 
@@ -155,10 +155,10 @@ func (s *Service) startVerify(ctx context.Context, key repoKey) (Link, action.Ru
 
 // judgeVerifyRight : la cible tient restic.verify et sait l'exercer.
 func judgeVerifyRight(target machine.Status) error {
-	switch RightOf(target, machine.CapabilityResticVerify).State {
-	case RightOK, RightUnknown:
+	switch target.Agent.Fit(machine.CapabilityResticVerify, "").State {
+	case machine.RightOK, machine.RightUnknown:
 		return nil
-	case RightUnavailable:
+	case machine.RightUnavailable:
 		return ErrTargetVerifyUnavailable
 	}
 	return ErrTargetVerifyRightMissing

@@ -214,7 +214,7 @@ func (s *Service) prepareDelivery(ctx context.Context, plan Plan) (Keyring, Dest
 	if err != nil {
 		return Keyring{}, Destination{}, machine.Status{}, fmt.Errorf("get machine: %w", err)
 	}
-	if right, _ := rightOf(target, destination.Path); right == RightMissing {
+	if target.Agent.Fit(machine.CapabilityBackupReceive, destination.Path).State == machine.RightMissing {
 		return Keyring{}, Destination{}, machine.Status{}, ErrRightMissing
 	}
 	if !target.Online {

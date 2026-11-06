@@ -148,7 +148,7 @@ type VerifyView struct {
 	Files     int
 	Bytes     int64
 	// Le droit restic.verify de la cible : l'écran propose de la ré-enrôler.
-	Right RightFit
+	Right machine.RightFit
 	// Since : d'où court l'attente d'une première réussite (la plus ancienne
 	// sauvegarde du dépôt) ; sert à dire depuis quand le test manque.
 	Since time.Time
@@ -232,7 +232,7 @@ type MachineFit struct {
 	// Le jeton de l'hôte ne lit pas ses tâches de sauvegarde (Sys.Audit sur
 	// « / ») : la fiche dit ce qui manque, « aucune tâche » n'est pas une réponse.
 	ProxmoxJobsUnknown bool
-	Rights             []RightFit
+	Rights             []machine.RightFit
 }
 
 // L'état d'une cible restic tant que son agent n'a rien rapporté.
@@ -523,7 +523,7 @@ func verifyViewOf(link Link, target machine.Status, linkSince, now time.Time) *V
 	return &VerifyView{
 		State: verify.State, Reason: verify.Reason, At: verify.At, SuccessAt: verify.SuccessAt,
 		Snapshots: verify.Snapshots, Files: verify.Files, Bytes: verify.Bytes,
-		Right:   RightOf(target, machine.CapabilityResticVerify),
+		Right:   target.Agent.Fit(machine.CapabilityResticVerify, ""),
 		Since:   linkSince,
 		IsStale: now.Sub(baseline) > VerifyStaleAfter,
 	}
@@ -651,8 +651,8 @@ func holdsOf(sources []Source, match func(Protection) bool) []string {
 // pendingState : rien de rapporté par rest-server, mais l'agent dit déjà
 // qu'il ne le trouve pas : l'écran dit quoi installer.
 func pendingState(target machine.Status) (string, string) {
-	right := RightOf(target, machine.CapabilityResticTarget)
-	if right.State == RightUnavailable && right.Reason == agentwire.ReasonRestServerMissing {
+	right := target.Agent.Fit(machine.CapabilityResticTarget, "")
+	if right.State == machine.RightUnavailable && right.Reason == agentwire.ReasonRestServerMissing {
 		return agentwire.ResticTargetError, agentwire.ResticErrorBinaryMissing
 	}
 	return targetPending, ""
@@ -669,19 +669,19 @@ func fitsOf(inputs overviewInputs) []MachineFit {
 	fits := []MachineFit{}
 	for _, status := range inputs.machines {
 		jobsBlind, isProxmoxHost := inputs.jobsBlind[status.ID]
-		produce := RightOf(status, machine.CapabilityResticProduce)
+		produce := status.Agent.Fit(machine.CapabilityResticProduce, "")
 		fits = append(fits, MachineFit{
 			MachineID: status.ID, MachineName: status.Name, OS: status.OS, Arch: status.Arch, Online: status.Online,
-			ResticAvailable: produce.State == RightOK, IsTarget: isTarget[status.ID],
+			ResticAvailable: produce.State == machine.RightOK, IsTarget: isTarget[status.ID],
 			ProxmoxHost: isProxmoxHost, ProxmoxJobsUnknown: jobsBlind,
-			Rights: []RightFit{
-				RightOf(status, machine.CapabilityResticTarget),
+			Rights: []machine.RightFit{
+				status.Agent.Fit(machine.CapabilityResticTarget, ""),
 				produce,
-				RightOf(status, machine.CapabilityResticDocker),
-				RightOf(status, machine.CapabilityResticVerify),
-				RightOf(status, machine.CapabilityResticBrowse),
-				RightOf(status, machine.CapabilityResticRestore),
-				RightOf(status, machine.CapabilityBackupProduce),
+				status.Agent.Fit(machine.CapabilityResticDocker, ""),
+				status.Agent.Fit(machine.CapabilityResticVerify, ""),
+				status.Agent.Fit(machine.CapabilityResticBrowse, ""),
+				status.Agent.Fit(machine.CapabilityResticRestore, ""),
+				status.Agent.Fit(machine.CapabilityBackupProduce, machine.ProducerProxmoxVzdump),
 			},
 		})
 	}

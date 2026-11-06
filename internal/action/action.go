@@ -162,23 +162,26 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 	return "", false
 }
 
-// coversOrder dit si les droits rapportés par l'agent couvrent cet ordre : le
-// droit de son genre, et pour backup.produce le producteur qu'il nomme (le
-// droit porte la liste des producteurs, pas un chemin). Des paramètres
-// illisibles ne sont pas jugés ici : l'agent les refuse (bad_order).
-func coversOrder(capabilities []machine.Capability, kind agentwire.Kind, params json.RawMessage) bool {
+// fitOfOrder juge le droit que l'agent doit tenir pour cet ordre : celui de son
+// genre, et pour backup.produce le producteur qu'il nomme (le droit porte la
+// liste des producteurs, pas un chemin). Des paramètres illisibles ne sont pas
+// jugés ici : l'agent les refuse (bad_order).
+func fitOfOrder(agent machine.Agent, kind agentwire.Kind, params json.RawMessage) machine.RightFit {
 	right, known := RightOf(kind)
-	if !known || !machine.HasCapability(capabilities, right) {
-		return false
-	}
-	if kind != agentwire.KindBackupProduce {
-		return true
+	if !known || kind != agentwire.KindBackupProduce {
+		return agent.Fit(right, "")
 	}
 	var produce agentwire.BackupProduceParams
 	if err := json.Unmarshal(params, &produce); err != nil {
-		return true
+		return agent.Fit(right, "")
 	}
-	return machine.CoversProducer(capabilities, produce.Producer)
+	fit := agent.Fit(right, produce.Producer)
+	// Un producteur vide n'est couvert par aucun droit, mais Fit le lit comme
+	// « pas de portée » : seul un agent muet laisse l'agent juger.
+	if produce.Producer == "" && fit.State != machine.RightUnknown {
+		fit.State = machine.RightMissing
+	}
+	return fit
 }
 
 // Query choisit les runs d'une liste, du plus récent au plus ancien.

@@ -147,7 +147,7 @@ type Target struct {
 	MachineName string
 	// Destination : son dossier et l'état du droit de réception.
 	Path        string
-	Right       RightState
+	Right       machine.RightState
 	RightReason string
 	// Stockage : son nœud, son type, sa capacité et s'il répond.
 	Node   string
@@ -340,10 +340,11 @@ func (s *Service) targets(ctx context.Context, destinations []Destination, stora
 	for _, destination := range destinations {
 		target := Target{
 			Key: "destination:" + destination.ID, Kind: TargetDestination, Name: destination.Name,
-			MachineID: destination.MachineID, MachineName: destination.MachineName, Path: destination.Path, Right: RightUnknown,
+			MachineID: destination.MachineID, MachineName: destination.MachineName, Path: destination.Path, Right: machine.RightUnknown,
 		}
 		if machineStatus, err := s.machines.Get(ctx, destination.MachineID); err == nil {
-			target.Right, target.RightReason = rightOf(machineStatus, destination.Path)
+			fit := machineStatus.Agent.Fit(machine.CapabilityBackupReceive, destination.Path)
+			target.Right, target.RightReason = fit.State, fit.Reason
 		}
 		for _, plan := range plans {
 			if plan.DestinationID == destination.ID {

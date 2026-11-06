@@ -493,7 +493,7 @@ func TestAgentStream_StoresTheServiceRollbackVersionAndDropsForgedOnes(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := status.Agent.CanRollBackService(); got != c.capable {
+			if got := status.Agent.Supports(machine.FeatureServiceRollback); got != c.capable {
 				t.Fatalf("capable %v, want %v", got, c.capable)
 			}
 		})

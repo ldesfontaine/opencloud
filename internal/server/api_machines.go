@@ -239,7 +239,7 @@ func agentToJSON(agent machine.Agent) *agentJSON {
 
 		ServerKeyFingerprint: agent.ServerKeyFingerprint,
 		RunAs:                accountToJSON(agent.RunAs),
-		RollbackCapable:      agent.CanRollBack(),
+		RollbackCapable:      agent.Supports(machine.FeatureAgentRollback),
 		Anchors:              anchorsToJSON(agent.Anchors),
 	}
 }

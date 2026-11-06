@@ -706,6 +706,11 @@ func isSHA256Hex(text string) bool {
 	return err == nil && len(decoded) == sha256.Size && text == hex.EncodeToString(decoded)
 }
 
+// holdsRight : le droit est dans le rapport de l'agent, qu'il puisse l'exercer ou non.
+func holdsRight(fit machine.RightFit) bool {
+	return fit.State == machine.RightOK || fit.State == machine.RightUnavailable
+}
+
 // withinRights retire du rapport des conteneurs ce que les droits de l'agent ne
 // couvrent pas : l'environnement des conteneurs sans observe.env. La borne est
 // reposée ici parce qu'un agent n'est pas une preuve (étude services-modèle
@@ -715,7 +720,7 @@ func (h *Handler) withinRights(ctx context.Context, machineID string, report con
 		return report
 	}
 	status, err := h.machines.Get(ctx, machineID)
-	if err == nil && machine.HasCapability(status.Agent.Capabilities, machine.CapabilityObserveEnv) {
+	if err == nil && holdsRight(status.Agent.Fit(machine.CapabilityObserveEnv, "")) {
 		return report
 	}
 	h.logger.Warn("agent sent environment links without the right, dropped", "machine_id", machineID)

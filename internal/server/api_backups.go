@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/backup"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
@@ -191,7 +192,7 @@ func (s *Server) createBackupDestination(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	s.writeAPI(w, http.StatusCreated, backupDestinationToJSON(backup.DestinationView{Destination: created, Right: backup.RightUnknown}))
+	s.writeAPI(w, http.StatusCreated, backupDestinationToJSON(backup.DestinationView{Destination: created, Right: machine.RightUnknown}))
 }
 
 func (s *Server) deleteBackupDestination(w http.ResponseWriter, r *http.Request) {

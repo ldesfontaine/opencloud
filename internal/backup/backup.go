@@ -146,23 +146,9 @@ type PlanDefinition struct {
 	Keep int
 }
 
-// RightState dit si l'agent d'une destination peut écrire dans son dossier :
-// « unknown » tant qu'il n'a pas rapporté ses droits. « unavailable » : il a le
-// droit, mais son compte ne peut pas l'exercer (DestinationView.RightReason
-// dit pourquoi) ; le serveur l'affiche sans refuser l'envoi, l'agent refuse au
-// moment de l'ordre, avec la raison.
-type RightState string
-
-const (
-	RightOK          RightState = "ok"
-	RightMissing     RightState = "missing"
-	RightUnavailable RightState = "unavailable"
-	RightUnknown     RightState = "unknown"
-)
-
 type DestinationView struct {
 	Destination
-	Right RightState
+	Right machine.RightState
 	// Avec « unavailable », la raison que l'agent a rapportée.
 	RightReason string
 }
@@ -183,7 +169,7 @@ var (
 	ErrNameInvalid          = refusal.Invalid("backup.name_invalid", "destination name: lowercase letters, digits and dashes, 63 at most")
 	ErrNameTaken            = refusal.Conflict("backup.name_taken", "a destination already has this name")
 	ErrPathInvalid          = refusal.Invalid("backup.path_invalid", "destination path must be absolute, clean, and made of letters, digits, dot, dash, underscore")
-	ErrRightMissing         = refusal.Conflict("backup.right_missing", "the agent of this machine may not write to this folder")
+	ErrRightMissing         = refusal.Conflict("backup.right_missing", "the agent of this machine may not write to this folder").NeedsRight(machine.CapabilityBackupReceive)
 	ErrTooManyDestinations  = refusal.Invalid("backup.too_many_destinations", "at most 8 destinations")
 	ErrDestinationUnknown   = refusal.Invalid("backup.destination_unknown", "the destination does not exist")
 	ErrDestinationInUse     = refusal.Conflict("backup.destination_in_use", "the plan sends its backups to this destination")
@@ -199,7 +185,7 @@ var (
 
 	// Ce qui arrête un plan machine avant son premier ordre : la source, sa
 	// sélection, l'agent qui reçoit.
-	ErrSourceRightMissing       = refusal.Conflict("backup.source_right_missing", "the agent of the source machine may not run this producer")
+	ErrSourceRightMissing       = refusal.Conflict("backup.source_right_missing", "the agent of the source machine may not run this producer").NeedsRight(machine.CapabilityBackupProduce)
 	ErrSourceOffline            = refusal.Conflict("backup.source_offline", "the source machine is offline")
 	ErrSelectorNeedsList        = refusal.Conflict("backup.selector_needs_list", "all needs a Proxmox host declared on the source machine, with a reading: give the list of identifiers")
 	ErrDestinationAgentOutdated = refusal.Conflict("backup.destination_agent_outdated", "the agent of the destination is too old to prune one plan without touching the others")

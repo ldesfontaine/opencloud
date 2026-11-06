@@ -117,11 +117,11 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 	if root == "" {
 		root = brand.WorkspaceRoot
 	}
-	right, reason := rightOf(target, deployed)
+	right := rightOf(target, deployed)
 	plan := Plan{
 		Service: service, MachineName: target.Name, RootDir: root, Path: path.Join(root, service.ComposeProject),
-		Deployed: deployed, MachineOnline: target.Online, Right: right, RightReason: reason, Compose: string(compose), DataDirs: dataDirs,
-		SharedWith: sharedWith, CanRollBack: target.Agent.CanRollBackService(),
+		Deployed: deployed, MachineOnline: target.Online, Right: right.State, RightReason: right.Reason, Compose: string(compose), DataDirs: dataDirs,
+		SharedWith: sharedWith, CanRollBack: target.Agent.Supports(machine.FeatureServiceRollback),
 	}
 	if hasLast {
 		plan.LastRun = &last
@@ -162,24 +162,14 @@ func (s *Service) servicesSharingProject(ctx context.Context, service directory.
 	return names, nil
 }
 
-// rightOf : « ok » ou « missing » une fois les droits de l'agent rapportés,
-// « unknown » avant. Le droit est celui du prochain geste. « unavailable » et
-// sa raison quand l'agent le porte sans pouvoir l'exercer.
-func rightOf(target machine.Status, deployed bool) (RightState, string) {
-	if target.Agent.ReportedAt.IsZero() {
-		return RightUnknown, ""
-	}
+// rightOf juge le droit du prochain geste : docker.deploy, puis docker.update
+// une fois le service déployé.
+func rightOf(target machine.Status, deployed bool) machine.RightFit {
 	needed := machine.CapabilityDockerDeploy
 	if deployed {
 		needed = machine.CapabilityDockerUpdate
 	}
-	if !machine.HasCapability(target.Agent.Capabilities, needed) {
-		return RightMissing, ""
-	}
-	if reason := target.Agent.UnavailableReason(needed); reason != "" {
-		return RightUnavailable, reason
-	}
-	return RightOK, ""
+	return target.Agent.Fit(needed, "")
 }
 
 // Deploy est le premier geste : le dossier du service n'existe pas encore sur
@@ -219,7 +209,7 @@ func (s *Service) Upgrade(ctx context.Context, unitID, version string) (action.R
 	if !plan.Deployed {
 		return action.Run{}, ErrNotDeployed
 	}
-	if plan.Right == RightMissing {
+	if plan.Right == machine.RightMissing {
 		return action.Run{}, ErrRightMissing
 	}
 	if !plan.MachineOnline {
@@ -289,7 +279,7 @@ func (s *Service) send(ctx context.Context, serviceID string, env *string, redep
 	if len(plan.SharedWith) > 0 {
 		return action.Run{}, ErrProjectShared
 	}
-	if plan.Right == RightMissing {
+	if plan.Right == machine.RightMissing {
 		return action.Run{}, ErrRightMissing
 	}
 	if redeploy && !plan.Deployed {

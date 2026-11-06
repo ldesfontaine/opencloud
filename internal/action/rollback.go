@@ -42,7 +42,7 @@ func (s *Service) RollbackAgent(ctx context.Context, machineID string) (Run, err
 	if !target.Agent.IsActive() {
 		return Run{}, machine.ErrNoAgent
 	}
-	if !target.Agent.CanRollBack() {
+	if !target.Agent.Supports(machine.FeatureAgentRollback) {
 		return Run{}, ErrRollbackUnavailable
 	}
 	if err := s.refuseWhileUpdating(ctx); err != nil {

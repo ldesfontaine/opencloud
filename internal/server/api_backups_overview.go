@@ -361,7 +361,7 @@ func overviewMachineToJSON(fit restic.MachineFit) overviewMachineJSON {
 		MachineID: fit.MachineID, MachineName: fit.MachineName, OS: fit.OS, Arch: fit.Arch, Online: fit.Online,
 		ResticAvailable: fit.ResticAvailable, IsTarget: fit.IsTarget,
 		ProxmoxHost: fit.ProxmoxHost, ProxmoxJobsUnknown: fit.ProxmoxJobsUnknown,
-		Rights: httpx.ConvertAll(fit.Rights, func(right restic.RightFit) overviewRightJSON {
+		Rights: httpx.ConvertAll(fit.Rights, func(right machine.RightFit) overviewRightJSON {
 			return overviewRightJSON{Right: right.Right, State: string(right.State), Reason: right.Reason, Path: right.Path}
 		}),
 	}

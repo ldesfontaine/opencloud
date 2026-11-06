@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
-	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense/opnsensetest"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // Le plan d'export d'un pare-feu passe par la même route que les autres plans :
@@ -25,7 +25,7 @@ func TestBackups_FirewallExportPlanNeverLeaksTheKeysOrTheConfiguration(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", agentwire.PrefixSinceVersion, "backup.receive=/srv/backups", "", ""); err != nil {
+	if _, err := server.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", machine.PrunePrefixSinceVersion, "backup.receive=/srv/backups", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	firewallID, _ := declareFirewallThroughAPI(t, server, fake)

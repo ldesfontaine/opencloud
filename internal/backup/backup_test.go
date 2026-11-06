@@ -35,7 +35,7 @@ const (
 	testWorkFactor = 10
 	rights         = "backup.receive=/srv/backups"
 	// L'agent de la destination connaît le préfixe de backup.prune
-	// (agentwire.PrefixSinceVersion).
+	// (machine.PrunePrefixSinceVersion).
 	currentAgentVersion = "v0.2.0"
 )
 
@@ -298,7 +298,7 @@ func TestCreateDestination_AcceptsWhileRightsAreUnreported(t *testing.T) {
 		t.Fatal(err)
 	}
 	overview, err := b.backups.Overview(context.Background())
-	if err != nil || len(overview.Destinations) != 1 || overview.Destinations[0].ID != destination.ID || overview.Destinations[0].Right != backup.RightUnknown {
+	if err != nil || len(overview.Destinations) != 1 || overview.Destinations[0].ID != destination.ID || overview.Destinations[0].Right != machine.RightUnknown {
 		t.Fatalf("overview %+v %v", overview, err)
 	}
 	if overview.Keyring != nil || len(overview.Plans) != 0 {

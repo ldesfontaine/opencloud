@@ -269,7 +269,7 @@ func (s *Service) send(ctx context.Context, order ServiceOrder) (Run, error) {
 	if !target.Agent.IsActive() {
 		return Run{}, machine.ErrNoAgent
 	}
-	if !target.Agent.ReportedAt.IsZero() && !coversOrder(target.Agent.Capabilities, kind, params) {
+	if fitOfOrder(target.Agent, kind, params).State == machine.RightMissing {
 		return Run{}, ErrRightMissing
 	}
 	// Une ancre que l'agent a dit tenir et que l'ordre ne satisfait pas : il le

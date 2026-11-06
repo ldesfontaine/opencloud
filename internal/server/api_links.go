@@ -22,8 +22,8 @@ type serviceLinksResponse struct {
 	Environment *environmentRightJSON `json:"environment"`
 }
 
-// environmentRightJSON : right vaut « granted », « missing » (l'agent n'a pas
-// le droit, la fenêtre « Ré-enrôler » le propose) ou « unknown » (l'agent n'a
+// environmentRightJSON : right vaut « ok », « missing » (l'agent n'a pas
+// le droit, la fenêtre « Ré-enrôler » le propose) « unavailable » (le droit est coché, le compte de l'agent ne peut pas l'exercer) ou « unknown » (l'agent n'a
 // encore rien rapporté de ses droits).
 type environmentRightJSON struct {
 	MachineID string `json:"machine_id"`
@@ -120,15 +120,8 @@ func (s *Server) environmentRight(ctx context.Context, serviceID string) (*envir
 	if err != nil {
 		return nil, err
 	}
-	right := "unknown"
-	switch {
-	case status.Agent.ReportedAt.IsZero():
-	case machine.HasCapability(status.Agent.Capabilities, machine.CapabilityObserveEnv):
-		right = "granted"
-	default:
-		right = "missing"
-	}
-	return &environmentRightJSON{MachineID: machineID, Right: right}, nil
+	fit := status.Agent.Fit(machine.CapabilityObserveEnv, "")
+	return &environmentRightJSON{MachineID: machineID, Right: string(fit.State)}, nil
 }
 
 func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
