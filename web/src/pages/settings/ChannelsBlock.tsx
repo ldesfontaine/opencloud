@@ -78,6 +78,7 @@ function ChannelRow({ channel }: { channel: Channel }) {
           {channel.receives_audit && <Pill tone="neutral">{t("channel.receives_audit_pill")}</Pill>}
           <span className="secondary">
             {t(`channel.format_${channel.format}`)} · {t("channel.receives_line", t(`channel.receives_${channel.min_severity}`))}
+            {channel.categories.length > 0 && ` · ${channel.categories.map((category) => t(`channel.category_short_${category}`)).join(", ")}`}
           </span>
           {/* Un e-mail n'a pas d'URL : la ligne montre ses destinataires. */}
           <span className="secondary mono channel-url">{channel.format === "email" ? channel.destination : channel.url}</span>

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -251,5 +252,31 @@ func TestAlertsAPI_ChangesReachTheLive(t *testing.T) {
 	topics, err := subscription.Next(ctx)
 	if err != nil || len(topics) != 1 || topics[0] != live.TopicAlerts {
 		t.Fatalf("topics %v, %v", topics, err)
+	}
+}
+
+// categories se crée, se relit, se vide ; un canal sans catégorie en rend
+// une liste vide (pas null), un nom inconnu est refusé avec sa clé.
+func TestAlertsAPI_ChannelCategoriesRoundTrip(t *testing.T) {
+	server := newTestServer(t)
+	body := func(categories any) map[string]any {
+		return map[string]any{
+			"name": "maj", "url": "https://hooks.example.org/maj", "format": "json", "min_severity": "attention", "categories": categories, "enabled": true,
+		}
+	}
+	var channel channelJSON
+	recorder := callAPI(server.Server, http.MethodPost, "/api/alerts/channels", body([]string{"updates", "backups", "updates"}))
+	decodeAPI(t, recorder, &channel)
+	if recorder.Code != http.StatusCreated || !slices.Equal(channel.Categories, []string{"backups", "updates"}) {
+		t.Fatalf("create: %d %+v", recorder.Code, channel)
+	}
+	recorder = callAPI(server.Server, http.MethodPut, "/api/alerts/channels/"+itoa(channel.ID), body([]string{}))
+	decodeAPI(t, recorder, &channel)
+	if recorder.Code != http.StatusOK || channel.Categories == nil || len(channel.Categories) != 0 {
+		t.Fatalf("emptied: %d %+v", recorder.Code, channel)
+	}
+	recorder = callAPI(server.Server, http.MethodPut, "/api/alerts/channels/"+itoa(channel.ID), body([]string{"nope"}))
+	if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), "channel.category_invalid") {
+		t.Fatalf("unknown category: %d %s", recorder.Code, recorder.Body.String())
 	}
 }

@@ -13,7 +13,7 @@ import { Wizard, type WizardStep } from "../../components/Wizard";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT, type Translate } from "../../i18n/context";
-import { alertSeverities, channelFormats, channelFormOf, channelRequestOf, channelSettingsHint, emptyChannelForm } from "../../lib/alerts";
+import { alertCategories, alertSeverities, channelFormats, channelFormOf, channelRequestOf, channelSettingsHint, emptyChannelForm } from "../../lib/alerts";
 import { isFormModified } from "../../lib/modal";
 
 // Le secret d'un webhook signe le corps ; celui d'un canal Matrix est le
@@ -128,6 +128,18 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<ReturnType<typeof
           <SettingsFold hint={channelSettingsHint(t, values)}>
             <Field label={t("channel.min_severity_label")} htmlFor="channel-severity" help={t("channel.min_severity_help")}>
               <EnumSelect id="channel-severity" value={values.minSeverity} values={alertSeverities} labelKey="alert.severity_" onChange={(severity) => change("minSeverity", severity)} />
+            </Field>
+            <Field label={t("channel.categories_label")} help={t("channel.categories_help")}>
+              <Checks>
+                {alertCategories.map((category) => (
+                  <Checkbox
+                    key={category}
+                    label={t(`channel.category_${category}`)}
+                    checked={values.categories.includes(category)}
+                    onChange={(checked) => change("categories", alertCategories.filter((candidate) => (candidate === category ? checked : values.categories.includes(candidate))))}
+                  />
+                ))}
+              </Checks>
             </Field>
             <Checks>
               <Checkbox label={t("channel.notify_resolve_label")} checked={values.notifyResolve} onChange={(checked) => change("notifyResolve", checked)} />

@@ -8,9 +8,10 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 
 - **Un serveur openCloud compromis ne peut plus exfiltrer de données par les sauvegardes** (lot 1 de l'étude « compromission du serveur », #487) : l'agent n'exécute `backup.produce` et `restic.provision` que sur des **ancres de confiance** que l'administrateur de la machine pose lui-même.
 - **La mémoire d'une machine en ZFS ne compte plus le cache ZFS** (#328) : un Pi de sauvegarde à 70 % de mémoire « utilisée » dont 9,9 Go d'ARC affiche désormais ce qu'il utilise vraiment, et le cache ZFS apparaît à part sur la fiche.
-- **Trois migrations** (`036`, `037`, `038`) : **sauvegarde de la base obligatoire** avant la mise à jour.
+- **Quatre migrations** (`036`, `037`, `038`, `040`) : **sauvegarde de la base obligatoire** avant la mise à jour.
 - **Le protocole de l'agent ne change pas** (version `2`) : un agent v0.6.0 reste connecté et continue de tout faire, mais **n'applique pas les ancres**.
 - **Des alertes de processeur et de mémoire**, des **seuils réglables par machine**, « **Lu / Non lu** » à la place d'« acquitter », et un **rappel** des alertes de danger restées sans lecture (#489) : voir plus bas.
+- **Des catégories d'alertes par canal** (#494) : un canal choisit les familles qu'il reçoit (machines, services, tâches, sondes, sauvegardes, mises à jour). **Migration `040`** ; un canal existant n'a aucune catégorie et reçoit tout, comme avant.
 - **Aucune clé de `config.toml` nouvelle.**
 
 ## Les ancres de confiance
@@ -52,6 +53,13 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 - Une alerte de processeur arrive **15 min après** le début de la charge, par choix : c'est ce qui évite le bruit des pics.
 - Le seuil de retour n'est pas réglable (5 points sous l'attention).
 - Les gestes de seuils sont d'interface : pas de verbe d'API ni de puce `MCP`.
+
+## Les catégories d'un canal (#494)
+
+- **Où** : Paramètres › Notifications › un canal › Réglages › « Alertes reçues ». Aucune case cochée : toutes les alertes, **y compris celles qui s'ajouteront**.
+- **Contrat** : `categories` (liste de noms) dans l'API des canaux ; vide ou absent, toutes. Un nom inconnu est refusé (`channel.category_invalid`).
+- **Ce que ça change** : un canal reçoit une alerte si sa gravité est atteinte **et** que sa famille est cochée. Le plafond de débit est par canal : un canal dédié aux mises à jour a son propre budget.
+- **Ce que ça coûte** : un canal restreint ne reçoit **pas** un type d'alerte qui apparaît plus tard dans une autre famille que celles cochées ; l'écran de la liste montre les familles de chaque canal. Une catégorie décochée après coup n'empêche pas d'apprendre la fin d'une alerte déjà annoncée.
 
 ## Ce qui n'est pas couvert (lot 2)
 

@@ -70,13 +70,15 @@ type Channel struct {
 	NotifyResolve bool
 	// ReceivesAudit : le canal reçoit aussi le journal d'audit.
 	ReceivesAudit bool
-	Enabled       bool
-	CreatedAt     time.Time
+	// Categories : les familles d'alertes que le canal reçoit ; vide, toutes.
+	Categories []Category
+	Enabled    bool
+	CreatedAt  time.Time
 }
 
 // Wants dit si le canal doit recevoir cet événement de cette alerte.
 func (c Channel) Wants(alert Alert, event Event) bool {
-	if !c.Enabled || rank(alert.Severity) < rank(c.MinSeverity) {
+	if !c.Enabled || rank(alert.Severity) < rank(c.MinSeverity) || !wantsCategory(c.Categories, alert.Kind) {
 		return false
 	}
 	return event != EventResolved || c.NotifyResolve
@@ -95,6 +97,7 @@ type ChannelDefinition struct {
 	MinSeverity   Severity
 	NotifyResolve bool
 	ReceivesAudit bool
+	Categories    []Category
 	Enabled       bool
 }
 
@@ -105,6 +108,7 @@ var (
 	ErrChannelFormatInvalid   = refusal.Invalid("channel.format_invalid", "alert: channel format invalid")
 	ErrChannelSecretInvalid   = refusal.Invalid("channel.secret_invalid", "alert: channel secret invalid")
 	ErrChannelSeverityInvalid = refusal.Invalid("channel.severity_invalid", "alert: channel severity invalid")
+	ErrChannelCategoryInvalid = refusal.Invalid("channel.category_invalid", "alert: channel category invalid")
 	ErrChannelRecipients      = refusal.Invalid("channel.recipients_invalid", "alert: channel recipients invalid")
 	ErrChannelHomeserver      = refusal.Invalid("channel.matrix_homeserver_invalid", "alert: matrix homeserver must be an https url")
 	ErrChannelRoomInvalid     = refusal.Invalid("channel.matrix_room_invalid", "alert: matrix room id invalid")
@@ -130,6 +134,11 @@ func (d ChannelDefinition) Validate() error {
 	}
 	if !isSeverity(d.MinSeverity) {
 		return ErrChannelSeverityInvalid
+	}
+	for _, category := range d.Categories {
+		if !isCategory(category) {
+			return ErrChannelCategoryInvalid
+		}
 	}
 	return nil
 }
@@ -169,6 +178,7 @@ func (d ChannelDefinition) validateMatrix() error {
 // ni secret, ses adresses sont écrites d'une seule façon ; un salon Matrix
 // est nommé sans espace autour ; un webhook n'a pas de destination.
 func (d ChannelDefinition) normalized() ChannelDefinition {
+	d.Categories = normalizedCategories(d.Categories)
 	switch d.Format {
 	case FormatEmail:
 		d.URL = ""
