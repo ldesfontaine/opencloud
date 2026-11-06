@@ -310,7 +310,7 @@ raison. Une garde a son test en négatif : elle échoue sur un source fautif.
 
 | Ce qui | Vit dans | Garde |
 | --- | --- | --- |
-| Attente d'une condition dans un test | `waittest.Until` | aucun `deadline := time.Now().Add(…)` dans un `_test.go` |
+| Attente d'une condition dans un test | `waittest.Until` | aucun `deadline := time.Now().Add(…)` dans un `_test.go`, aucun `waitFor` qui ne fait que relayer `waittest.Until` |
 | Comparaison à un golden, drapeau `-update` | `goldentest.Compare` | aucun `flag.Bool("update", …)` ni `compareGolden` hors `goldentest` |
 | Racine vide, port fermé, empreinte SHA-256, JSON d'un test | `testkit` | aucune copie (`closedPort`, `sumOf`, `mustJSON`, `openRoot`…) hors `testkit` |
 | Pointeur vers une valeur | `new(valeur)` (Go 1.26) | aucune fonction `ptr` |

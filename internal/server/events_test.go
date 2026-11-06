@@ -54,11 +54,6 @@ func openLive(t *testing.T, server *testServer, path, lastEventID string) (func(
 	return next, cancel
 }
 
-func waitFor(t *testing.T, condition func() bool) {
-	t.Helper()
-	waittest.Until(t, "condition", condition)
-}
-
 func TestEvents_StreamsTopicsThenUnsubscribesWhenTheTabCloses(t *testing.T) {
 	server := newTestServer(t)
 	next, cancel := openEvents(t, server, "")
@@ -73,7 +68,7 @@ func TestEvents_StreamsTopicsThenUnsubscribesWhenTheTabCloses(t *testing.T) {
 		t.Fatalf("event %q, want jobs", got)
 	}
 	cancel()
-	waitFor(t, func() bool { return server.bus.Count() == 0 })
+	waittest.Until(t, "the bus to drop the closed tab", func() bool { return server.bus.Count() == 0 })
 }
 
 // Le navigateur revient avec Last-Event-ID : on lui dit de tout relire.
@@ -141,7 +136,7 @@ func TestEvents_ClosedTab_GivesItsPlaceBack(t *testing.T) {
 	next, cancel := openEvents(t, server, "")
 	next()
 	cancel()
-	waitFor(t, func() bool { return server.eventTabs.Taken() == maxEventSubscribers-1 })
+	waittest.Until(t, "the closed tab to free its subscriber slot", func() bool { return server.eventTabs.Taken() == maxEventSubscribers-1 })
 	next, _ = openEvents(t, server, "")
 	if got := next(); got != "connected" {
 		t.Fatalf("first event %q", got)

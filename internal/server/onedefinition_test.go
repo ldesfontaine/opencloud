@@ -109,6 +109,72 @@ func isNowPlus(expr ast.Expr) bool {
 	return ok && pkg.Name == "time"
 }
 
+// relayedWaits relève les fonctions `wait…` qui ne font que passer
+// l'attente à waittest.Until : l'appelant nomme lui-même ce qu'il attend.
+func relayedWaits(fileSet *token.FileSet, file *ast.File) []string {
+	var found []string
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Body == nil || !strings.HasPrefix(strings.ToLower(function.Name.Name), "wait") {
+			continue
+		}
+		if onlyCallsUntil(function) {
+			found = append(found, fileSet.Position(function.Pos()).String()+": "+function.Name.Name+" relaie waittest.Until, l'appeler directement")
+		}
+	}
+	return found
+}
+
+// onlyCallsUntil dit si le corps se réduit à `waittest.Until(…)`, avec ou
+// sans `t.Helper()`, et si la condition est celle que la fonction a reçue :
+// un helper qui bâtit sa propre condition (un compteur, un fichier) nomme
+// une attente, il ne relaie rien.
+func onlyCallsUntil(function *ast.FuncDecl) bool {
+	calls := 0
+	for _, statement := range function.Body.List {
+		expression, ok := statement.(*ast.ExprStmt)
+		if !ok {
+			return false
+		}
+		call, ok := expression.X.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		switch {
+		case selector.Sel.Name == "Helper":
+		case selector.Sel.Name == "Until" && isIdent(selector.X, "waittest") && len(call.Args) > 0 && isParameter(function, call.Args[len(call.Args)-1]):
+			calls++
+		default:
+			return false
+		}
+	}
+	return calls == 1
+}
+
+func isParameter(function *ast.FuncDecl, expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	for _, field := range function.Type.Params.List {
+		for _, name := range field.Names {
+			if name.Name == ident.Name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isIdent(expr ast.Expr, name string) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == name
+}
+
 // copiedTestHelpers : les petits gestes de test qui ont une maison. Nom →
 // où il vit.
 var copiedTestHelpers = map[string]string{
@@ -178,6 +244,9 @@ func TestOneDefinition_TestWaitsGoThroughWaittest(t *testing.T) {
 		for _, at := range handWrittenDeadlines(fileSet, file) {
 			t.Errorf("%s: boucle d'attente écrite à la main, utiliser waittest.Until", at)
 		}
+		for _, at := range relayedWaits(fileSet, file) {
+			t.Errorf("%s", at)
+		}
 	})
 	if checked == 0 {
 		t.Fatal("no test file seen: the guard no longer sees the code")
@@ -224,6 +293,11 @@ func wait() {
 	deadline := time.Now().Add(2 * time.Second)
 	_ = deadline
 }
+
+func waitFor(t *testing.T, condition func() bool) {
+	t.Helper()
+	waittest.Until(t, "condition", condition)
+}
 `
 	fileSet := token.NewFileSet()
 	file, err := parser.ParseFile(fileSet, "faulty_test.go", faulty, parser.SkipObjectResolution)
@@ -232,6 +306,9 @@ func wait() {
 	}
 	if got := handWrittenDeadlines(fileSet, file); len(got) != 1 {
 		t.Errorf("hand-written deadline not caught: %v", got)
+	}
+	if got := relayedWaits(fileSet, file); len(got) != 1 {
+		t.Errorf("relayed wait not caught: %v", got)
 	}
 	if got := copiedHelpers(fileSet, file); len(got) != 1 {
 		t.Errorf("copied helper not caught: %v", got)
