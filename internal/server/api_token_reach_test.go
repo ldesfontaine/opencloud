@@ -397,7 +397,7 @@ func TestReach_TheOperatorIsRefusedWhatIsInvalid(t *testing.T) {
 		status   int
 		code     string
 	}{
-		{"unknown machine", writer.ID, map[string]any{"machines": []string{"fantôme"}}, http.StatusUnprocessableEntity, "api_token.machine_unknown"},
+		{"unknown machine", writer.ID, map[string]any{"machines": []string{"fantôme"}}, http.StatusUnprocessableEntity, "machine.unknown"},
 		{"guest zero", writer.ID, map[string]any{"guests": []int{0}}, http.StatusUnprocessableEntity, "api_token.guest_invalid"},
 		{"guest too large", writer.ID, map[string]any{"guests": []int{1000000000}}, http.StatusUnprocessableEntity, "api_token.guest_invalid"},
 		{"read token", readerID, map[string]any{"machines": []string{reachA}}, http.StatusUnprocessableEntity, "api_token.reach_needs_write"},

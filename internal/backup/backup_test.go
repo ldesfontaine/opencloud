@@ -280,7 +280,7 @@ func TestCreateDestination_RefusesAPathOutsideTheReportedRight(t *testing.T) {
 	_, err := b.backups.CreateDestination(operator(), backup.DestinationDefinition{Name: "Store 1", MachineID: machineID, Path: "/srv/backups"})
 	requireRefusal(t, err, backup.ErrNameInvalid)
 	_, err = b.backups.CreateDestination(operator(), backup.DestinationDefinition{Name: "store-1", MachineID: "inconnue", Path: "/srv/backups"})
-	requireRefusal(t, err, backup.ErrMachineUnknown)
+	requireRefusal(t, err, machine.ErrUnknown)
 
 	if _, err := b.backups.CreateDestination(operator(), backup.DestinationDefinition{Name: "store-1", MachineID: machineID, Path: "/srv/backups/opencloud"}); err != nil {
 		t.Fatalf("a subfolder of the right: %v", err)

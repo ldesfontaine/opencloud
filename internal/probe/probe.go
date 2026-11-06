@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/deletion"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -367,7 +368,6 @@ var (
 	ErrTargetInvalid     = refusal.Invalid("probe.target_invalid", "probe target is not a valid url or host:port")
 	ErrTargetForbidden   = refusal.Invalid("probe.target_forbidden", "probe target is a link-local address")
 	ErrTargetCredentials = refusal.Invalid("probe.target_credentials", "probe target must not carry credentials")
-	ErrMachineInvalid    = refusal.Invalid("probe.machine_invalid", "probe machine must exist")
 	ErrServiceInvalid    = refusal.Invalid("probe.service_invalid", "probe service must exist in the directory")
 	ErrIntervalInvalid   = refusal.Invalid("probe.interval_invalid", "probe interval must be between 30 seconds and 24 hours")
 	ErrTimeoutInvalid    = refusal.Invalid("probe.timeout_invalid", "probe timeout must be between 1 second and the interval")
@@ -455,7 +455,7 @@ func (d Definition) Validate() error {
 		return ErrKindInvalid
 	}
 	if d.MachineID == "" {
-		return ErrMachineInvalid
+		return machine.ErrUnknown
 	}
 	if err := validateTarget(d.Kind, d.Target); err != nil {
 		return err

@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
-	"github.com/ldesfontaine/opencloud/internal/update"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // checkUpdates demande à une machine de vérifier ses images maintenant ;
@@ -16,8 +16,8 @@ func (s *Server) checkUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := s.updates.CheckNow(r.Context(), id)
-	if errors.Is(err, update.ErrMachineOffline) {
-		s.apiRefuse(w, http.StatusServiceUnavailable, "update.machine_offline")
+	if errors.Is(err, machine.ErrBusy) {
+		s.apiRefuse(w, http.StatusServiceUnavailable, codeMachineBusy)
 		return
 	}
 	s.finishAPIAction(w, r, err, container.ErrNotFound)

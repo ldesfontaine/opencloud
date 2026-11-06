@@ -175,8 +175,8 @@ func TestCreate_RejectsBadDefinitions(t *testing.T) {
 func TestCreate_UnknownMachineRefused(t *testing.T) {
 	f := newFixture(t)
 	definition := heartbeat.Definition{Name: "job", MachineID: "inconnue", Interval: time.Hour}
-	if _, err := f.Create(context.Background(), definition); !errors.Is(err, heartbeat.ErrMachineInvalid) {
-		t.Fatalf("got %v, want %v", err, heartbeat.ErrMachineInvalid)
+	if _, err := f.Create(context.Background(), definition); !errors.Is(err, machine.ErrUnknown) {
+		t.Fatalf("got %v, want %v", err, machine.ErrUnknown)
 	}
 	if listed, _ := f.db.ListHeartbeats(context.Background()); len(listed) != 0 {
 		t.Fatalf("a refused job was written: %+v", listed)
@@ -811,8 +811,8 @@ func TestUpdate_UnknownMachineRefused(t *testing.T) {
 	f := newFixture(t)
 	h := f.create(t, "job")
 	definition := heartbeat.Definition{Name: "job", MachineID: "inconnue", Interval: time.Hour}
-	if _, err := f.Update(context.Background(), h.ID, definition); !errors.Is(err, heartbeat.ErrMachineInvalid) {
-		t.Fatalf("got %v, want %v", err, heartbeat.ErrMachineInvalid)
+	if _, err := f.Update(context.Background(), h.ID, definition); !errors.Is(err, machine.ErrUnknown) {
+		t.Fatalf("got %v, want %v", err, machine.ErrUnknown)
 	}
 	if got, _ := f.db.GetHeartbeat(context.Background(), h.ID); got.MachineID != "" || got.Interval != 5*time.Minute {
 		t.Fatalf("a refused edit was written: %+v", got)

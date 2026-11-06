@@ -399,12 +399,11 @@ const (
 )
 
 var (
-	ErrNotFound       = errors.New("container not found")
-	ErrReportInvalid  = errors.New("container report out of range")
-	ErrMachineOffline = errors.New("machine offline")
-	ErrLogsBusy       = errors.New("too many log follows")
-	ErrLogsTimeout    = errors.New("logs did not arrive in time")
-	ErrLogsFailed     = errors.New("logs unavailable")
+	ErrNotFound      = errors.New("container not found")
+	ErrReportInvalid = errors.New("container report out of range")
+	ErrLogsBusy      = errors.New("too many log follows")
+	ErrLogsTimeout   = errors.New("logs did not arrive in time")
+	ErrLogsFailed    = errors.New("logs unavailable")
 	// ErrLogRequestUnknown : personne n'attend plus cette requête, ou elle a
 	// été poussée à une autre machine. ErrLogBatchTooLarge : le lot sort de
 	// ce qu'un agent produit (nombre de lignes, nom du flux).

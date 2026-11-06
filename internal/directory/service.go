@@ -45,7 +45,7 @@ type Store interface {
 	// machineID est vide, par machine, genre et valeur.
 	ListIgnoredKeys(ctx context.Context, machineID string) ([]IgnoredKey, error)
 	// InsertIgnoredKey est sans effet si la clé y est déjà ; une machine
-	// inconnue est refusée par ErrMachineInvalid.
+	// inconnue est refusée par machine.ErrUnknown.
 	InsertIgnoredKey(ctx context.Context, key IgnoredKey) error
 	DeleteIgnoredKey(ctx context.Context, key IgnoredKey) error
 }

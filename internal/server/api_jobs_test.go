@@ -33,7 +33,7 @@ func TestAPI_CreateJob_ReturnsItAndRefusesBadDefinitionsWithTheirKey(t *testing.
 		"empty name":      {jobRequest{Name: " ", IntervalMinutes: 60}, "job.name_invalid"},
 		"short interval":  {jobRequest{Name: "x", IntervalMinutes: 0}, "job.interval_invalid"},
 		"grace too long":  {jobRequest{Name: "x", IntervalMinutes: 60, GraceMinutes: 120}, "job.grace_invalid"},
-		"unknown machine": {jobRequest{Name: "x", MachineID: "nope", IntervalMinutes: 60}, "job.machine_invalid"},
+		"unknown machine": {jobRequest{Name: "x", MachineID: "nope", IntervalMinutes: 60}, "machine.unknown"},
 	}
 	for name, tc := range cases {
 		got := callAPI(server.Server, http.MethodPost, "/api/jobs", tc.request)
@@ -146,7 +146,7 @@ func TestAPI_UpdateJob_KeepsItsTokenAndRefusesWithTheKey(t *testing.T) {
 		"empty name":      {jobRequest{Name: " ", IntervalMinutes: 60}, "job.name_invalid"},
 		"short interval":  {jobRequest{Name: "x", IntervalMinutes: 0}, "job.interval_invalid"},
 		"grace too long":  {jobRequest{Name: "x", IntervalMinutes: 60, GraceMinutes: 120}, "job.grace_invalid"},
-		"unknown machine": {jobRequest{Name: "x", MachineID: "nope", IntervalMinutes: 60}, "job.machine_invalid"},
+		"unknown machine": {jobRequest{Name: "x", MachineID: "nope", IntervalMinutes: 60}, "machine.unknown"},
 	}
 	for name, tc := range cases {
 		got := callAPI(server.Server, http.MethodPut, "/api/jobs/"+job.ID, tc.request)

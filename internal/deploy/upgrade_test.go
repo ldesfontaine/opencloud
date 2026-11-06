@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -288,7 +289,7 @@ func TestUpgrade_EachRefusalWritesNothing(t *testing.T) {
 			change: func(_ *world, machines *fakeMachines, _ *fakeRuns) { machines.status.Online = false },
 		},
 		{
-			name: "no agent", unit: dbUnitID, version: "16.5", want: deploy.ErrNoAgent,
+			name: "no agent", unit: dbUnitID, version: "16.5", want: machine.ErrNoAgent,
 			change: func(_ *world, machines *fakeMachines, _ *fakeRuns) {
 				machines.status.Agent.RevokedAt = machines.status.Agent.EnrolledAt
 			},

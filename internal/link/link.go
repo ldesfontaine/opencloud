@@ -299,7 +299,6 @@ var (
 	ErrInvalidKey   = refusal.Invalid("link.invalid_key", "link end is not a valid instance key")
 	ErrSelf         = refusal.Invalid("link.self", "link joins an instance to itself")
 	ErrInvalidPort  = refusal.Invalid("link.invalid_port", "link port must be between 1 and 65535")
-	ErrMachine      = refusal.Invalid("link.machine_invalid", "link machine does not exist")
 	ErrDuplicate    = refusal.Conflict("link.duplicate", "link already exists")
 	ErrNotRemovable = refusal.Conflict("link.not_removable", "link comes from a tool configuration")
 	ErrTooMany      = refusal.Conflict("link.too_many", "machine reached its link limit")

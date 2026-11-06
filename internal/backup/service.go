@@ -211,7 +211,7 @@ func (s *Service) CreateDestination(ctx context.Context, definition DestinationD
 	}
 	target, err := s.machines.Get(ctx, definition.MachineID)
 	if errors.Is(err, machine.ErrNotFound) {
-		return Destination{}, ErrMachineUnknown
+		return Destination{}, machine.ErrUnknown
 	}
 	if err != nil {
 		return Destination{}, fmt.Errorf("get machine: %w", err)

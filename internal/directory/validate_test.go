@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 func composeDefinition() ServiceDefinition {
@@ -65,7 +66,7 @@ func TestValidate_RefusesEachRuleWithItsError(t *testing.T) {
 		base  func() ServiceDefinition
 		want  error
 	}{
-		{"sans machine", func(d ServiceDefinition) ServiceDefinition { d.MachineID = " "; return d }, composeDefinition, ErrMachineInvalid},
+		{"sans machine", func(d ServiceDefinition) ServiceDefinition { d.MachineID = " "; return d }, composeDefinition, machine.ErrUnknown},
 		{"nom vide", func(d ServiceDefinition) ServiceDefinition { d.Name = ""; return d }, composeDefinition, ErrNameInvalid},
 		{"nom en majuscules", func(d ServiceDefinition) ServiceDefinition { d.Name = "Nextcloud"; return d }, composeDefinition, ErrNameInvalid},
 		{"nom trop long", func(d ServiceDefinition) ServiceDefinition { d.Name = strings.Repeat("a", 64); return d }, composeDefinition, ErrNameInvalid},

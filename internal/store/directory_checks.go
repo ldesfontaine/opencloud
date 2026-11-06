@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // checkServiceWrite lit tout ce qui peut refuser l'écriture, du plus
@@ -19,7 +20,7 @@ func checkServiceWrite(ctx context.Context, tx *sql.Tx, service directory.Servic
 		return fmt.Errorf("find declared service machine: %w", err)
 	}
 	if machines == 0 {
-		return directory.ErrMachineInvalid
+		return machine.ErrUnknown
 	}
 	taken, err := isServiceNameTaken(ctx, tx, service)
 	if err != nil {

@@ -197,7 +197,7 @@ func (s *Service) destinationOf(ctx context.Context, plan Plan) Destination {
 }
 
 // prepareDelivery juge ce que tout plan demande de la destination avant de
-// partir : la clé, la destination, sa machine en ligne, le droit de son agent.
+// partir : la clé, la destination, le droit de son agent, sa machine en ligne.
 func (s *Service) prepareDelivery(ctx context.Context, plan Plan) (Keyring, Destination, machine.Status, error) {
 	keyring, err := s.store.GetBackupKeyring(ctx)
 	if errors.Is(err, ErrNotFound) {
@@ -214,11 +214,11 @@ func (s *Service) prepareDelivery(ctx context.Context, plan Plan) (Keyring, Dest
 	if err != nil {
 		return Keyring{}, Destination{}, machine.Status{}, fmt.Errorf("get machine: %w", err)
 	}
-	if !target.Online {
-		return Keyring{}, Destination{}, machine.Status{}, ErrMachineOffline
-	}
 	if right, _ := rightOf(target, destination.Path); right == RightMissing {
 		return Keyring{}, Destination{}, machine.Status{}, ErrRightMissing
+	}
+	if !target.Online {
+		return Keyring{}, Destination{}, machine.Status{}, ErrMachineOffline
 	}
 	return keyring, destination, target, nil
 }

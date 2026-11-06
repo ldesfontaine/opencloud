@@ -34,7 +34,7 @@ const (
 )
 
 // connectSource met la machine « pve » en ligne, avec son agent et ses droits.
-func (b *bench) connectSource(rights string) {
+func (b *bench) connectSource(rights string) *machine.Session {
 	b.t.Helper()
 	source, err := b.machines.Get(context.Background(), sourceID)
 	if errors.Is(err, machine.ErrNotFound) {
@@ -49,6 +49,7 @@ func (b *bench) connectSource(rights string) {
 		b.t.Fatal(err)
 	}
 	b.t.Cleanup(func() { b.machines.Disconnect(session) })
+	return session
 }
 
 // reconnectDestination refait l'agent de la destination, avec cette version.
@@ -647,6 +648,9 @@ func TestRunNow_RefusesBeforeAnyOrderWhenTheTwoMachinesAreNotReady(t *testing.T)
 		}, backup.ErrSourceOffline},
 		{"a source whose agent may not produce", func(t *testing.T, b *bench) {
 			b.connectSource("backup.receive=/srv/autre")
+		}, backup.ErrSourceRightMissing},
+		{"a source that is offline and may not produce", func(t *testing.T, b *bench) {
+			b.machines.Disconnect(b.connectSource("backup.receive=/srv/autre"))
 		}, backup.ErrSourceRightMissing},
 		{"a destination that is offline", func(t *testing.T, b *bench) {
 			b.connectSource(sourceRights)

@@ -122,7 +122,7 @@ func TestAPI_CreateDeclaredService_RefusesWithTheKey(t *testing.T) {
 		{"machine inconnue", func(r declaredServiceRequest) declaredServiceRequest {
 			r.MachineID = "inconnue"
 			return r
-		}, "directory.machine_invalid"},
+		}, "machine.unknown"},
 		{"projet inconnu", func(r declaredServiceRequest) declaredServiceRequest {
 			r.Name, r.ComposeProject = "autre", "autre"
 			r.ProjectIDs = []string{"prj_inconnu"}

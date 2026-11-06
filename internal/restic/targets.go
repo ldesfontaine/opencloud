@@ -48,10 +48,9 @@ func (t TargetRecord) IsReady() bool {
 }
 
 var (
-	ErrMachineUnknown = refusal.Invalid("restic.machine_unknown", "the machine does not exist")
-	ErrTargetUnknown  = refusal.Invalid("restic.target_unknown", "this machine is not a restic target")
-	ErrHostInvalid    = refusal.Invalid("restic.host_invalid", "the announced address must be an IP address or a host name, without port")
-	ErrPortInvalid    = refusal.Invalid("restic.port_invalid", "the port must be between 1 and 65535")
+	ErrTargetUnknown = refusal.Invalid("restic.target_unknown", "this machine is not a restic target")
+	ErrHostInvalid   = refusal.Invalid("restic.host_invalid", "the announced address must be an IP address or a host name, without port")
+	ErrPortInvalid   = refusal.Invalid("restic.port_invalid", "the port must be between 1 and 65535")
 	// Le droit manque ou ne peut s'exercer : l'écran propose de ré-enrôler
 	// la machine de la requête avec restic.target.
 	ErrTargetRightMissing     = refusal.Conflict("restic.target_right_missing", "the agent of this machine may not run rest-server: re-enroll it with restic.target")
@@ -62,7 +61,8 @@ var (
 	ErrFloorLowered = refusal.Conflict("restic.floor_lowered", "the retention floor of a target can only be raised: lowering it is done on the target machine")
 	// rest-server manque sur la cible : l'écran dit quoi installer.
 	ErrRestServerMissing = refusal.Conflict("restic.rest_server_missing", "rest-server is not installed on the target: install it, then restart its agent")
-	ErrMachineOffline    = refusal.Conflict("restic.machine_offline", "the machine is offline: an order only leaves through its open stream")
+	// ErrMachineOffline : alias de machine.ErrOffline, le temps que les appelants passent au nom neuf.
+	ErrMachineOffline = machine.ErrOffline
 )
 
 // ErrTargetNotFound : la base n'a pas cette cible (le store le rend).
@@ -74,7 +74,7 @@ var ErrTargetNotFound = errors.New("restic target not found")
 func (s *Service) SetupTarget(ctx context.Context, machineID string, setup TargetSetup) (TargetRecord, error) {
 	target, err := s.machines.Get(ctx, machineID)
 	if errors.Is(err, machine.ErrNotFound) {
-		return TargetRecord{}, ErrMachineUnknown
+		return TargetRecord{}, machine.ErrUnknown
 	}
 	if err != nil {
 		return TargetRecord{}, fmt.Errorf("get target machine: %w", err)

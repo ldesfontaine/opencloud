@@ -11,6 +11,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/ident"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 const (
@@ -214,7 +215,7 @@ func (s *Service) checkMachineExists(ctx context.Context, machineID string) erro
 		return err
 	}
 	if !exists {
-		return ErrMachineInvalid
+		return machine.ErrUnknown
 	}
 	return nil
 }

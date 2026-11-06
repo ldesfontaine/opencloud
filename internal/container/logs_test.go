@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
@@ -27,7 +28,7 @@ func (c *fakeCommander) note(machineID, name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.offline {
-		return ErrMachineOffline
+		return machine.ErrOffline
 	}
 	c.commands = append(c.commands, machineID+":"+name)
 	return nil
@@ -110,7 +111,7 @@ func TestRelay_OfflineMachineAndBusyMachine(t *testing.T) {
 	relay := NewRelay()
 	commander := &fakeCommander{offline: true}
 	relay.SetCommander(commander)
-	if _, err := relay.Open(context.Background(), "vps", LogRequest{}); !errors.Is(err, ErrMachineOffline) {
+	if _, err := relay.Open(context.Background(), "vps", LogRequest{}); !errors.Is(err, machine.ErrOffline) {
 		t.Fatalf("err = %v", err)
 	}
 	commander.offline = false

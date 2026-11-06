@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/ident"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // ServicePrefix précède l'identifiant d'un lien.
@@ -101,7 +102,7 @@ func (s *Service) write(ctx context.Context, definition Definition, nature Natur
 			return Link{}, fmt.Errorf("check link machine: %w", err)
 		}
 		if !exists {
-			return Link{}, ErrMachine
+			return Link{}, machine.ErrUnknown
 		}
 	}
 	id, err := ident.New()

@@ -454,7 +454,7 @@ func TestCreate_JudgesTheReach(t *testing.T) {
 		request apitoken.Request
 		want    error
 	}{
-		"unknown machine": {writeRequest("a", apitoken.Reach{OnlyMachines: true, Machines: []string{"fantôme"}}), apitoken.ErrMachineUnknown},
+		"unknown machine": {writeRequest("a", apitoken.Reach{OnlyMachines: true, Machines: []string{"fantôme"}}), machine.ErrUnknown},
 		"guest zero":      {writeRequest("b", apitoken.Reach{OnlyGuests: true, Guests: []int{0}}), apitoken.ErrGuestInvalid},
 		"guest too large": {writeRequest("c", apitoken.Reach{OnlyGuests: true, Guests: []int{apitoken.MaxGuestID + 1}}), apitoken.ErrGuestInvalid},
 		"read with a reach": {

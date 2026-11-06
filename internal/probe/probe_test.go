@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 func validDefinition() Definition {
@@ -58,7 +60,7 @@ func TestDefinition_Validate_RefusesWhatCannotBeProbed(t *testing.T) {
 		{"nom vide", func(d Definition) Definition { d.Name = "  "; return d }, ErrNameInvalid},
 		{"nom trop long", func(d Definition) Definition { d.Name = strings.Repeat("a", 81); return d }, ErrNameInvalid},
 		{"type inconnu", func(d Definition) Definition { d.Kind = "ping"; return d }, ErrKindInvalid},
-		{"sans machine", func(d Definition) Definition { d.MachineID = ""; return d }, ErrMachineInvalid},
+		{"sans machine", func(d Definition) Definition { d.MachineID = ""; return d }, machine.ErrUnknown},
 		{"cible sans protocole", func(d Definition) Definition { d.Target = "cloud.exemple.fr"; return d }, ErrTargetInvalid},
 		{"cible ftp", func(d Definition) Definition { d.Target = "ftp://cloud.exemple.fr/"; return d }, ErrTargetInvalid},
 		{"cible avec mot de passe", func(d Definition) Definition { d.Target = "https://u:secret@cloud.exemple.fr/"; return d }, ErrTargetCredentials},

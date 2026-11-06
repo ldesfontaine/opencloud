@@ -161,17 +161,17 @@ func (s *Service) prepareAgentPass(ctx context.Context, plan Plan, at time.Time)
 	return &agentPass{service: s, plan: plan, at: at, keyring: keyring, destination: destination, targets: targets}, nil
 }
 
-// judgeSource : la machine source a un agent en ligne dont le droit couvre le
-// producteur. Tant que l'agent n'a rien rapporté, c'est lui qui jugera.
+// judgeSource : la machine source a un agent dont le droit couvre le
+// producteur, puis en ligne. Tant que l'agent n'a rien rapporté, c'est lui qui jugera.
 func judgeSource(source machine.Status, producer string) error {
 	if !source.Agent.IsActive() {
 		return ErrSourceRightMissing
 	}
-	if !source.Online {
-		return ErrSourceOffline
-	}
 	if !source.Agent.ReportedAt.IsZero() && !machine.CoversProducer(source.Agent.Capabilities, producer) {
 		return ErrSourceRightMissing
+	}
+	if !source.Online {
+		return ErrSourceOffline
 	}
 	return nil
 }

@@ -192,7 +192,7 @@ func (s *Service) checkMachineExists(ctx context.Context, machineID string) erro
 		return err
 	}
 	if !exists {
-		return ErrMachineInvalid
+		return machine.ErrUnknown
 	}
 	return nil
 }

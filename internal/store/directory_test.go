@@ -316,7 +316,7 @@ func TestIgnoredKeys_RoundTrip(t *testing.T) {
 	}
 
 	missing := directory.IgnoredKey{MachineID: "inconnue", Kind: directory.IgnoreContainerName, Value: "x", CreatedAt: at}
-	if err := db.InsertIgnoredKey(ctx, missing); !errors.Is(err, directory.ErrMachineInvalid) {
+	if err := db.InsertIgnoredKey(ctx, missing); !errors.Is(err, machine.ErrUnknown) {
 		t.Fatalf("machine inconnue: %v", err)
 	}
 	if err := db.DeleteIgnoredKey(ctx, alone); err != nil {

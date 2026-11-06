@@ -487,7 +487,7 @@ func TestUpdateService_KeepingItsOwnNameAndKeys_IsAccepted(t *testing.T) {
 
 func TestCreateService_UnknownMachineOrProject_Refused(t *testing.T) {
 	b := newBench(t)
-	if _, err := b.directory.CreateService(context.Background(), composeDefinition("machine-inconnue")); !errors.Is(err, directory.ErrMachineInvalid) {
+	if _, err := b.directory.CreateService(context.Background(), composeDefinition("machine-inconnue")); !errors.Is(err, machine.ErrUnknown) {
 		t.Fatalf("machine inconnue: %v", err)
 	}
 	definition := composeDefinition(remoteID)
@@ -723,7 +723,7 @@ func TestIgnore_RefusesBadKindAndUnknownMachine(t *testing.T) {
 		{"projet en majuscules", directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreComposeProject, Value: "Blog"}, directory.ErrIgnoreInvalid},
 		{"nom de conteneur avec une barre", directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreContainerName, Value: "a/b"}, directory.ErrIgnoreInvalid},
 		{"valeur vide", directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreContainerName}, directory.ErrIgnoreInvalid},
-		{"machine inconnue", directory.IgnoredKey{MachineID: "machine-inconnue", Kind: directory.IgnoreContainerName, Value: "whoami"}, directory.ErrMachineInvalid},
+		{"machine inconnue", directory.IgnoredKey{MachineID: "machine-inconnue", Kind: directory.IgnoreContainerName, Value: "whoami"}, machine.ErrUnknown},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

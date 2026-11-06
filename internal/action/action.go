@@ -192,8 +192,9 @@ type Query struct {
 var (
 	// ErrRightMissing : l'agent a rapporté ses droits et celui de l'ordre
 	// n'y est pas ; il le refuserait. Rien n'est écrit.
-	ErrRightMissing   = refusal.Conflict("action.right_missing", "the agent does not hold the right this order needs: re-enroll it with that right")
-	ErrMachineOffline = refusal.Conflict("action.machine_offline", "the machine is offline: an order only leaves through its open stream")
+	ErrRightMissing = refusal.Conflict("action.right_missing", "the agent does not hold the right this order needs: re-enroll it with that right")
+	// ErrMachineOffline : alias de machine.ErrOffline, le temps que les appelants passent au nom neuf.
+	ErrMachineOffline = machine.ErrOffline
 	// ErrReportInvalid : la section actions d'un signal sort de ce qu'un
 	// agent peut rapporter.
 	ErrReportInvalid = errors.New("action report invalid")

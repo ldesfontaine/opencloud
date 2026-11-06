@@ -256,8 +256,8 @@ func TestCreate_UnknownMachineRefused(t *testing.T) {
 	fixture := newBench(t)
 
 	_, err := fixture.createWithService("inconnue", "")
-	if !errors.Is(err, probe.ErrMachineInvalid) {
-		t.Fatalf("attendu %v, obtenu %v", probe.ErrMachineInvalid, err)
+	if !errors.Is(err, machine.ErrUnknown) {
+		t.Fatalf("attendu %v, obtenu %v", machine.ErrUnknown, err)
 	}
 	if probes, _ := fixture.db.ListProbes(context.Background(), ""); len(probes) != 0 {
 		t.Fatalf("une sonde refusée a été écrite: %+v", probes)
@@ -271,8 +271,8 @@ func TestUpdate_UnknownMachineRefused(t *testing.T) {
 	definition := definitionOf(created)
 	definition.MachineID = "inconnue"
 
-	if _, err := fixture.service.Update(context.Background(), created.ID, definition); !errors.Is(err, probe.ErrMachineInvalid) {
-		t.Fatalf("attendu %v, obtenu %v", probe.ErrMachineInvalid, err)
+	if _, err := fixture.service.Update(context.Background(), created.ID, definition); !errors.Is(err, machine.ErrUnknown) {
+		t.Fatalf("attendu %v, obtenu %v", machine.ErrUnknown, err)
 	}
 	if got := fixture.get(t, created.ID); got.MachineID != machine.LocalID {
 		t.Fatalf("une édition refusée a été écrite: %+v", got)
@@ -924,7 +924,7 @@ func TestUpdate_ReplaysValidation(t *testing.T) {
 		{"type inconnu", func(d *probe.Definition) { d.Kind = "udp" }, probe.ErrKindInvalid},
 		{"cible illisible", func(d *probe.Definition) { d.Target = "pas une url" }, probe.ErrTargetInvalid},
 		{"cible lien-local", func(d *probe.Definition) { d.Target = "http://169.254.169.254/" }, probe.ErrTargetForbidden},
-		{"machine absente", func(d *probe.Definition) { d.MachineID = "" }, probe.ErrMachineInvalid},
+		{"machine absente", func(d *probe.Definition) { d.MachineID = "" }, machine.ErrUnknown},
 		{"intervalle trop court", func(d *probe.Definition) { d.Interval = time.Second }, probe.ErrIntervalInvalid},
 		{"délai plus long que l'intervalle", func(d *probe.Definition) { d.Timeout = 2 * d.Interval }, probe.ErrTimeoutInvalid},
 		{"seuil hors limites", func(d *probe.Definition) { d.FailureThreshold = 11 }, probe.ErrThresholdInvalid},

@@ -98,14 +98,14 @@ func TestAPI_UnitUpdatePolicy_SurvivesTheRecreationOfTheContainer(t *testing.T) 
 	}
 }
 
-// Vérifier maintenant vers une machine hors ligne est refusé avec la clé
+// Vérifier maintenant vers une machine hors ligne est refusé (409) avec la clé
 // du catalogue, la machine openCloud comme les autres : c'est son agent qui
 // vérifie.
 func TestCheckUpdates_OfflineRefused_TheOpenCloudMachineToo(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	for _, machineID := range []string{remoteID, machine.LocalID} {
-		if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+machineID+"/actions/check-updates", nil); got.Code != http.StatusServiceUnavailable || errorCode(t, got) != "update.machine_offline" {
+		if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+machineID+"/actions/check-updates", nil); got.Code != http.StatusConflict || errorCode(t, got) != "machine.offline" {
 			t.Fatalf("%s offline: %d %s", machineID, got.Code, got.Body.String())
 		}
 	}
@@ -141,5 +141,24 @@ func TestAgentSignal_RecordsImageChecks(t *testing.T) {
 	bad := update.Report{Results: []update.Result{{Image: "nginx:1.27", CheckedAt: testNow, Outcome: "maybe"}}}
 	if got := server.agentPost(session, "/agent/signal", agentwire.SignalRequest{Images: &bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_images") {
 		t.Fatalf("bad report: %d %s", got.Code, got.Body.String())
+	}
+}
+
+// Une file de commandes pleine n'est pas une machine hors ligne : le refus dit
+// d'attendre, il ne dit pas que la machine est partie.
+func TestCheckUpdates_FullQueueIsNotOffline(t *testing.T) {
+	server := newTestServer(t)
+	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
+	session, err := server.machines.Connect(context.Background(), enrolled, "51.15.20.114", "v0.0.1", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.machines.Disconnect(session)
+	for server.machines.Push(remoteID, machine.StreamEvent{Name: "filler"}) == nil {
+	}
+
+	got := callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/check-updates", nil)
+	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != codeMachineBusy {
+		t.Fatalf("file pleine: %d %s", got.Code, got.Body.String())
 	}
 }
