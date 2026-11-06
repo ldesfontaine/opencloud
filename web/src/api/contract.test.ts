@@ -612,6 +612,7 @@ const channels = shape<ChannelsResponse>("ChannelsResponse", {
     min_severity: value,
     notify_resolve: value,
     receives_audit: value,
+    categories: value,
     enabled: value,
     plain: value,
     created_at: value,

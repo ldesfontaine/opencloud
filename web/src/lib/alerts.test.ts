@@ -226,6 +226,7 @@ describe("channelFormOf et channelRequestOf", () => {
     min_severity: "danger",
     notify_resolve: false,
     receives_audit: true,
+    categories: ["backups", "updates"],
     enabled: true,
     plain: false,
     created_at: "2026-10-01T10:00:00Z",
@@ -242,6 +243,7 @@ describe("channelFormOf et channelRequestOf", () => {
       min_severity: "danger",
       notify_resolve: false,
       receives_audit: true,
+      categories: ["backups", "updates"],
       enabled: true,
     });
   });
@@ -254,6 +256,10 @@ describe("channelFormOf et channelRequestOf", () => {
 
   it("partent d'un canal JSON actif, qui prévient du retour à la normale", () => {
     expect(channelRequestOf(emptyChannelForm)).toMatchObject({ format: "json", min_severity: "attention", notify_resolve: true, enabled: true });
+  });
+
+  it("partent sans catégorie : un nouveau canal reçoit toutes les alertes", () => {
+    expect(channelRequestOf(emptyChannelForm).categories).toEqual([]);
   });
 
   it("ne donnent pas le journal à un nouveau canal : il se coche", () => {

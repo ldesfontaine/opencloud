@@ -214,7 +214,7 @@ func scanAlert(row scanner) (alert.Alert, error) {
 
 // --- Canaux ---
 
-const channelColumns = `id, name, url, format, destination, secret, min_severity, notify_resolve, receives_audit, enabled, created_at`
+const channelColumns = `id, name, url, format, destination, secret, min_severity, notify_resolve, receives_audit, categories, enabled, created_at`
 
 // InsertChannel crée le canal en deux temps dans une transaction : le chiffré
 // de l'URL et du secret est lié à l'id de la ligne, qui n'existe qu'après
@@ -223,10 +223,10 @@ func (db *DB) InsertChannel(ctx context.Context, channel alert.Channel) (int64, 
 	var id int64
 	err := db.inTx(ctx, "channel insert", func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `
-		INSERT INTO alert_channels (name, url, format, destination, secret, min_severity, notify_resolve, receives_audit, enabled, created_at)
-		VALUES (?, '', ?, ?, '', ?, ?, ?, ?, ?)`,
+		INSERT INTO alert_channels (name, url, format, destination, secret, min_severity, notify_resolve, receives_audit, categories, enabled, created_at)
+		VALUES (?, '', ?, ?, '', ?, ?, ?, ?, ?, ?)`,
 			channel.Name, string(channel.Format), channel.Destination, string(channel.MinSeverity),
-			channel.NotifyResolve, channel.ReceivesAudit, channel.Enabled, channel.CreatedAt.Unix())
+			channel.NotifyResolve, channel.ReceivesAudit, joinCategories(channel.Categories), channel.Enabled, channel.CreatedAt.Unix())
 		if err != nil {
 			return fmt.Errorf("insert channel: %w", err)
 		}
@@ -282,8 +282,8 @@ func (db *DB) UpdateChannel(ctx context.Context, channel alert.Channel) error {
 		return fmt.Errorf("seal channel secret: %w", err)
 	}
 	result, err := db.sql.ExecContext(ctx, `
-		UPDATE alert_channels SET name = ?, url = ?, format = ?, destination = ?, secret = ?, min_severity = ?, notify_resolve = ?, receives_audit = ?, enabled = ? WHERE id = ?`,
-		channel.Name, sealedURL, string(channel.Format), channel.Destination, sealedSecret, string(channel.MinSeverity), channel.NotifyResolve, channel.ReceivesAudit, channel.Enabled, channel.ID)
+		UPDATE alert_channels SET name = ?, url = ?, format = ?, destination = ?, secret = ?, min_severity = ?, notify_resolve = ?, receives_audit = ?, categories = ?, enabled = ? WHERE id = ?`,
+		channel.Name, sealedURL, string(channel.Format), channel.Destination, sealedSecret, string(channel.MinSeverity), channel.NotifyResolve, channel.ReceivesAudit, joinCategories(channel.Categories), channel.Enabled, channel.ID)
 	if err != nil {
 		return fmt.Errorf("update channel: %w", err)
 	}
@@ -298,11 +298,34 @@ func (db *DB) DeleteChannel(ctx context.Context, id int64) error {
 	return notFoundIfNoRow(result, alert.ErrNotFound)
 }
 
+func joinCategories(categories []alert.Category) string {
+	names := make([]string, len(categories))
+	for index, category := range categories {
+		names[index] = string(category)
+	}
+	return strings.Join(names, ",")
+}
+
+// splitCategories lit la colonne ; un nom que ce binaire ne connaît plus
+// est gardé tel quel : il ne correspond à aucun type, et le canal ne reçoit
+// alors pas ce qu'il ne sait pas ranger.
+func splitCategories(stored string) []alert.Category {
+	if stored == "" {
+		return nil
+	}
+	var categories []alert.Category
+	for _, name := range strings.Split(stored, ",") {
+		categories = append(categories, alert.Category(name))
+	}
+	return categories
+}
+
 func (db *DB) scanChannel(row scanner) (alert.Channel, error) {
 	var channel alert.Channel
 	var createdAt int64
+	var categories string
 	err := row.Scan(&channel.ID, &channel.Name, &channel.URL, &channel.Format, &channel.Destination, &channel.Secret, &channel.MinSeverity,
-		&channel.NotifyResolve, &channel.ReceivesAudit, &channel.Enabled, &createdAt)
+		&channel.NotifyResolve, &channel.ReceivesAudit, &categories, &channel.Enabled, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return alert.Channel{}, alert.ErrNotFound
 	}
@@ -318,6 +341,7 @@ func (db *DB) scanChannel(row scanner) (alert.Channel, error) {
 		return alert.Channel{}, err
 	}
 	channel.HasSecret = channel.Secret != ""
+	channel.Categories = splitCategories(categories)
 	channel.CreatedAt = time.Unix(createdAt, 0)
 	return channel, nil
 }

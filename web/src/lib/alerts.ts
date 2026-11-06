@@ -5,6 +5,7 @@ import {
   type AlertObject,
   type AlertSeverity,
   type Channel,
+  type AlertCategory,
   type ChannelFormat,
   type ChannelRequest,
   type ChannelTest,
@@ -494,6 +495,7 @@ export function mutePathOf(alert: Pick<Alert, "kind" | "object" | "machine_id" |
 // Les listes fermées du formulaire d'un canal, dans son ordre.
 export const channelFormats: readonly ChannelFormat[] = ["json", "text", "discord", "slack", "email", "matrix"];
 export const alertSeverities: readonly AlertSeverity[] = ["attention", "danger"];
+export const alertCategories: readonly AlertCategory[] = ["machines", "services", "jobs", "probes", "backups", "updates"];
 
 // Le formulaire d'un canal. Le secret (ou le jeton d'un bot Matrix) ne
 // revient jamais du serveur : le champ part vide, et vide il garde celui
@@ -508,6 +510,8 @@ interface ChannelFormValues {
   minSeverity: AlertSeverity;
   notifyResolve: boolean;
   receivesAudit: boolean;
+  // Vide : toutes les alertes.
+  categories: AlertCategory[];
   enabled: boolean;
 }
 
@@ -521,13 +525,15 @@ export const emptyChannelForm: ChannelFormValues = {
   minSeverity: "attention",
   notifyResolve: true,
   receivesAudit: false,
+  categories: [],
   enabled: true,
 };
 
 // Ce que les réglages repliés d'un canal acceptent, en clair : « dès Attention,
 // avec les résolutions ».
-export function channelSettingsHint(t: Translate, values: Pick<ChannelFormValues, "minSeverity" | "notifyResolve" | "receivesAudit" | "enabled">): string {
+export function channelSettingsHint(t: Translate, values: Pick<ChannelFormValues, "minSeverity" | "notifyResolve" | "receivesAudit" | "categories" | "enabled">): string {
   return [
+    values.categories.length === 0 ? t("channel.hint_categories_all") : values.categories.map((category) => t(`channel.category_short_${category}`)).join(", "),
     t("channel.hint_from", t(`alert.severity_${values.minSeverity}`)),
     t(values.notifyResolve ? "channel.hint_resolve_on" : "channel.hint_resolve_off"),
     ...(values.receivesAudit ? [t("channel.hint_audit")] : []),
@@ -547,6 +553,7 @@ export function channelFormOf(channel: Channel): ChannelFormValues {
     minSeverity: channel.min_severity,
     notifyResolve: channel.notify_resolve,
     receivesAudit: channel.receives_audit,
+    categories: channel.categories,
     enabled: channel.enabled,
   };
 }
@@ -562,6 +569,7 @@ export function channelRequestOf(values: ChannelFormValues): ChannelRequest {
     min_severity: values.minSeverity,
     notify_resolve: values.notifyResolve,
     receives_audit: values.receivesAudit,
+    categories: values.categories,
     enabled: values.enabled,
   };
 }

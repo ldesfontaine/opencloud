@@ -51,6 +51,9 @@ export const alertKinds: readonly AlertKind[] = [
 ];
 
 export type AlertSeverity = "attention" | "danger";
+
+// Les familles d'alertes qu'un canal peut choisir de recevoir.
+export type AlertCategory = "machines" | "services" | "jobs" | "probes" | "backups" | "updates";
 type AlertStatus = "open" | "resolved";
 export type AlertObjectKind = "machine" | "container" | "heartbeat" | "probe" | "volume" | "backup";
 
@@ -144,6 +147,8 @@ export interface Channel {
   notify_resolve: boolean;
   // Le canal reçoit aussi le journal d'audit.
   receives_audit: boolean;
+  // Les familles d'alertes reçues ; vide, toutes.
+  categories: AlertCategory[];
   enabled: boolean;
   // L'URL est en http : le canal parle en clair.
   plain: boolean;
@@ -199,6 +204,7 @@ export interface ChannelRequest {
   min_severity: AlertSeverity;
   notify_resolve: boolean;
   receives_audit: boolean;
+  categories: AlertCategory[];
   enabled: boolean;
 }
 
