@@ -67,7 +67,7 @@ func TestDeclare_WritesADeclaredOperatorLinkAndRefusesTheRest(t *testing.T) {
 		want       error
 	}{
 		"doublon":          {link.Definition{From: endpoint(m1, "web"), To: endpoint(m2, "db")}, link.ErrDuplicate},
-		"machine inconnue": {link.Definition{From: endpoint(m1, "web"), To: endpoint("ghost", "db")}, link.ErrMachine},
+		"machine inconnue": {link.Definition{From: endpoint(m1, "web"), To: endpoint("ghost", "db")}, machine.ErrUnknown},
 		"soi-même":         {link.Definition{From: endpoint(m1, "web"), To: endpoint(m1, "web")}, link.ErrSelf},
 	} {
 		if _, err := b.service.Declare(ctx, tc.definition); !errors.Is(err, tc.want) {

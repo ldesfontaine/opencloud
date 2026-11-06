@@ -8,8 +8,7 @@ import (
 )
 
 var (
-	ErrReportInvalid  = errors.New("image report out of range")
-	ErrMachineOffline = errors.New("machine offline")
+	ErrReportInvalid = errors.New("image report out of range")
 )
 
 // Check est le dernier constat gardé par (machine, image) : les faits de

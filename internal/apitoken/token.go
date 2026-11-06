@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/verb"
 )
@@ -133,7 +134,6 @@ var (
 	ErrVerbUnknown     = refusal.Invalid("api_token.verb_unknown", "api token: verb unknown")
 	ErrVerbsNeedWrite  = refusal.Invalid("api_token.verbs_need_write", "api token: verbs need the write scope")
 	ErrReachNeedsWrite = refusal.Invalid("api_token.reach_needs_write", "api token: a reach needs the write scope")
-	ErrMachineUnknown  = refusal.Invalid("api_token.machine_unknown", "api token: machine unknown")
 	ErrGuestInvalid    = refusal.Invalid("api_token.guest_invalid", "api token: guest number invalid")
 )
 
@@ -180,7 +180,7 @@ func (s *Service) reachOf(ctx context.Context, scope Scope, requested Reach) (Re
 				return Reach{}, err
 			}
 			if !exists {
-				return Reach{}, ErrMachineUnknown
+				return Reach{}, machine.ErrUnknown
 			}
 			if !slices.Contains(reach.Machines, id) {
 				reach.Machines = append(reach.Machines, id)

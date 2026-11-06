@@ -93,11 +93,11 @@ func TestSaveBackupPlan_UpsertsBySubjectAndKeepsItsHistory(t *testing.T) {
 		!plan.LastAttemptAt.Equal(backupsNow.Add(time.Hour)) || !plan.CreatedAt.Equal(backupsNow) || !plan.UpdatedAt.Equal(backupsNow.Add(48*time.Hour)) {
 		t.Fatalf("plan %+v %v", plan, err)
 	}
-	if err := db.NoteBackupAttempt(ctx, backup.SubjectDatabase, backupsNow.Add(2*time.Hour), "backup.machine_offline", ""); err != nil {
+	if err := db.NoteBackupAttempt(ctx, backup.SubjectDatabase, backupsNow.Add(2*time.Hour), "machine.offline", ""); err != nil {
 		t.Fatal(err)
 	}
 	plan, _ = db.GetBackupPlan(ctx, backup.SubjectDatabase)
-	if plan.LastError != "backup.machine_offline" || plan.LastRunID != "" {
+	if plan.LastError != "machine.offline" || plan.LastRunID != "" {
 		t.Fatalf("plan %+v", plan)
 	}
 	if err := db.DeleteBackupPlan(ctx, backup.SubjectDatabase); err != nil {

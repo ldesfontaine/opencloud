@@ -126,7 +126,7 @@ func TestActions_PingRefusesWithoutAnActiveAgentOnline(t *testing.T) {
 	}
 	server.enroll(t, "vps-paris-1", remoteID)
 	got := callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/ping", map[string]any{})
-	if got.Code != http.StatusConflict || errorCode(t, got) != "action.machine_offline" {
+	if got.Code != http.StatusConflict || errorCode(t, got) != "machine.offline" {
 		t.Fatalf("offline: %d %s", got.Code, got.Body.String())
 	}
 	if err := server.machines.Remove(context.Background(), remoteID, machine.RemoveOptions{KeepHistory: true}); err != nil {
@@ -342,7 +342,7 @@ func TestActions_AgentUpdateOfferOfUnknownOrOfflineMachines(t *testing.T) {
 		t.Fatalf("offline: %d %s", got.Code, got.Body.String())
 	}
 	got = callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/update-agent", map[string]any{})
-	if got.Code != http.StatusConflict || errorCode(t, got) != "action.machine_offline" {
+	if got.Code != http.StatusConflict || errorCode(t, got) != "machine.offline" {
 		t.Fatalf("order to an offline machine: %d %s", got.Code, got.Body.String())
 	}
 	if runs, err := server.db.ListActionRuns(context.Background(), action.Query{Limit: 10}); err != nil || len(runs) != 0 {

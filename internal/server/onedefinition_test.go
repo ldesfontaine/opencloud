@@ -275,6 +275,56 @@ func TestOneDefinition_TestHelpersLiveInTheirKit(t *testing.T) {
 	}
 }
 
+// machineFactKey reconnaît la clé d'un fait de machine (hors ligne, inconnue,
+// sans agent) déclarée sous le nom d'un autre domaine : « backup.machine_offline ».
+var machineFactKey = regexp.MustCompile(`^"([a-z_]+)\.(machine_offline|machine_unknown|machine_invalid|no_agent)"$`)
+
+// machineFactKeyExceptions : les clés de même suffixe qui disent autre chose
+// que le fait de machine, avec la raison.
+var machineFactKeyExceptions = map[string]string{
+	"manifest.machine_unknown": "une ligne du manifeste nomme une machine absente : la clé porte la ligne et la valeur, ce n'est pas le refus d'une machine visée",
+}
+
+// machineFactKeys relève les littéraux qui déclarent le refus d'un fait de
+// machine hors de `machine`.
+func machineFactKeys(fileSet *token.FileSet, file *ast.File) []string {
+	var found []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		literal, ok := node.(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			return true
+		}
+		match := machineFactKey.FindStringSubmatch(literal.Value)
+		if match == nil || match[1] == "machine" {
+			return true
+		}
+		if _, excepted := machineFactKeyExceptions[strings.Trim(literal.Value, `"`)]; excepted {
+			return true
+		}
+		found = append(found, fileSet.Position(literal.Pos()).String()+": "+literal.Value)
+		return true
+	})
+	return found
+}
+
+// Un fait de machine (hors ligne, inconnue, sans agent) se refuse avec la
+// sentinelle de `machine`, jamais avec une copie sous la clé d'un domaine.
+func TestOneDefinition_MachineFacts(t *testing.T) {
+	checked := 0
+	forEachGoFile(t, moduleRoot(), false, func(path string, fileSet *token.FileSet, file *ast.File) {
+		if isException(path) {
+			return
+		}
+		checked++
+		for _, at := range machineFactKeys(fileSet, file) {
+			t.Errorf("%s : utiliser machine.ErrOffline, machine.ErrUnknown ou machine.ErrNoAgent", at)
+		}
+	})
+	if checked == 0 {
+		t.Fatal("no source file seen: the guard no longer sees the code")
+	}
+}
+
 // Les gardes ne valent que si elles échouent sur la faute : on leur donne
 // un source fautif.
 func TestOneDefinition_GuardsCatchTheirFault(t *testing.T) {
@@ -298,6 +348,8 @@ func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
 	waittest.Until(t, "condition", condition)
 }
+
+var ErrOffline = refusal.Conflict("backup.machine_offline", "offline")
 `
 	fileSet := token.NewFileSet()
 	file, err := parser.ParseFile(fileSet, "faulty_test.go", faulty, parser.SkipObjectResolution)
@@ -315,6 +367,9 @@ func waitFor(t *testing.T, condition func() bool) {
 	}
 	if got := redefinedUpdateFlags(fileSet, file); len(got) != 1 {
 		t.Errorf("redefined -update flag not caught: %v", got)
+	}
+	if got := machineFactKeys(fileSet, file); len(got) != 1 {
+		t.Errorf("machine fact key outside machine not caught: %v", got)
 	}
 }
 

@@ -102,7 +102,7 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 		return Plan{}, fmt.Errorf("get machine: %w", err)
 	}
 	if !target.Agent.IsActive() {
-		return Plan{}, ErrNoAgent
+		return Plan{}, machine.ErrNoAgent
 	}
 	folder, found, err := s.runs.LastFolderRun(ctx, serviceID, deploymentKinds())
 	if err != nil {

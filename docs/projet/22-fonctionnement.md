@@ -1133,7 +1133,7 @@ le même handler, les mêmes refus et le même audit ; sinon `403`. Il refuse
 | Refus | Cause |
 | --- | --- |
 | `404` | hôte non déclaré, geste inconnu (`stop`, `reboot`… : aucune route), numéro illisible |
-| `409 machine.no_agent`, `action.machine_offline`, `action.right_missing` | comme tout ordre : pas d'agent actif, hors ligne, droit rapporté absent |
+| `409 machine.no_agent`, `machine.offline`, `action.right_missing` | comme tout ordre : pas d'agent actif, hors ligne, droit rapporté absent |
 | `409 proxmox.guest_unknown` | l'invité n'est pas dans le dernier relevé |
 | `409 proxmox.guest_template` | un modèle |
 | `409 proxmox.state_mismatch` | démarrer une VM qui n'est pas arrêtée, arrêter celle qui n'est pas en marche |
@@ -1673,7 +1673,7 @@ openCloud à chaque instant, quelle que soit la taille de la cible.
 
 *Avant le moindre ordre*, `serve` juge, dans cet ordre : la clé de sauvegarde
 (`backup.keyring_missing`), la destination en ligne et son droit
-(`backup.machine_offline`, `backup.right_missing`), **l'agent de la
+(`machine.offline`, `backup.right_missing`), **l'agent de la
 destination**, la machine source, puis les cibles. Un refus ici ne crée ni
 ordre ni colis ; sa clé s'écrit dans `last_error`.
 
@@ -1879,7 +1879,7 @@ passage, écrite par le service des sauvegardes à la fin de la cible :
 | `source` | la clé de la source (`database`, `guest:…`) ; **vide** quand le plan entier est refusé avant toute cible |
 | `started_at`, `finished_at` | le début et la fin de la cible |
 | `result` | `ok` (reçue ; l'élagage manqué laisse `ok` et pose sa clé dans `reason`), `failed` (l'ordre est parti, quelque chose a manqué), `refused` (rien n'est parti) |
-| `reason` | la clé d'un refus (`backup.machine_offline`, `backup.prepare_failed`…) ou un mot fermé des ordres ; jamais le texte d'un agent |
+| `reason` | la clé d'un refus (`machine.offline`, `backup.prepare_failed`…) ou un mot fermé des ordres ; jamais le texte d'un agent |
 | `size_bytes` | la taille de l'archive remise ; NULL quand elle n'est pas connue |
 | `destination_id`, `destination_name` | la cible, nom recopié (la destination peut disparaître) |
 | `action_run_id` | l'ordre `backup.receive` (à défaut `backup.produce`) |
@@ -2253,7 +2253,7 @@ version épinglée (422, `deploy.*`) ; un `.env` illisible ou trop gros (422,
 droits sans celui du geste (409 `deploy.right_missing`) ; « Déployer » sur un
 service déjà déployé (409 `deploy.already_deployed`) et « Redéployer » sur un
 service qui ne l'est pas (409 `deploy.not_deployed`) ; une machine sans agent
-actif (409 `deploy.no_agent`). Tant que l'agent n'a pas rapporté ses droits,
+actif (409 `machine.no_agent`). Tant que l'agent n'a pas rapporté ses droits,
 l'ordre part et l'agent juge. Un droit coché que le compte de
 l'agent ne peut pas exercer n'est pas refusé d'avance non plus : le plan dit
 `unavailable` et sa raison (`right_reason`), l'ordre part, et l'agent le refuse
@@ -2291,7 +2291,7 @@ version déclarée de l'unité puis redéploie son service.
   `directory.unit_not_container`) ; le service est déployé (409
   `deploy.not_deployed`) ; l'agent n'a pas rapporté son droit sans
   `docker.update` (409 `deploy.right_missing`) ; la machine est en ligne (409
-  `action.machine_offline`) ; l'unité n'épingle pas d'empreinte (409
+  `machine.offline`) ; l'unité n'épingle pas d'empreinte (409
   `deploy.unit_pinned_digest` : l'empreinte appartient à l'ancien tag,
   l'opérateur la retire à la main) ; la version est offerte ; elle a la forme
   d'une version de l'annuaire (422 `directory.version_invalid` ou
@@ -5047,7 +5047,7 @@ comme pour un autre ; il ne peut donc ni élargir sa portée ni créer un jeton
 plus large. Elle vaut à la requête suivante du jeton, est journalisée
 (`api_token.update`, `details.reach`) et exige que le jeton soit `write`
 (`422 api_token.reach_needs_write`), que les machines existent
-(`422 api_token.machine_unknown`) et que les numéros soient des entiers de 1 à
+(`422 machine.unknown`) et que les numéros soient des entiers de 1 à
 999999999 (`422 api_token.guest_invalid`). La création accepte les mêmes clés
 `machines` et `guests`.
 
@@ -6438,13 +6438,25 @@ journal, `errors.Is` reconnaît la sentinelle comme avant.
 | L'API (`server`) | `s.failed(w, r, err, notFound)` : `404 not_found` si l'erreur est la sentinelle `notFound` du composant (`probe.ErrNotFound`…, `nil` quand la route n'a pas de 404), la clé en 422 pour `Invalid`, en 409 pour `Conflict`, sinon `500 internal` et l'erreur au journal |
 | Le fichier de l'annuaire (`manifest`) | La même clé dans le plan et le journal, lue par `refusal.KeyOf` ; il ne dépend pas du serveur |
 
+**Les faits d'une machine se refusent une fois, dans `machine`** : `machine.ErrOffline`
+(`409 machine.offline`, hors ligne), `machine.ErrUnknown` (`422 machine.unknown`,
+machine inexistante), `machine.ErrNoAgent` (`409 machine.no_agent`, pas d'agent
+actif). Les domaines les rendent tels quels ; l'écran qui veut une nuance
+l'ajoute à côté. Quand plusieurs refus se cumulent, l'ordre est : agent actif,
+droit, ancre de confiance, en ligne. Une file de commandes pleine
+(`machine.ErrBusy`) n'est pas « hors ligne ». Les anciennes sentinelles
+`action.ErrMachineOffline`, `backup.ErrMachineOffline` et
+`restic.ErrMachineOffline` restent un lot comme alias de `machine.ErrOffline`.
+`TestOneDefinition_MachineFacts` refuse une clé `*.machine_offline`,
+`*.machine_unknown`, `*.machine_invalid` ou `*.no_agent` hors de `machine`.
+
 Aucun handler ne choisit la clé d'un refus de domaine par `errors.Is`. Deux
 cas gardent `s.apiRefuse` :
 
 | Cas | Refus |
 | --- | --- |
 | Le handler juge lui-même (paramètre, en-tête, limite du serveur) | `manifest.request_invalid` (corps illisible, `limit` du journal), `auth.mode_invalid`, `auth.forward_secret_required`, `auth.forward_header_missing`, `auth.state_changed` (le middleware), `service.logs_busy` (les places de suivi), `400 error.unknown_language`, `settings.mail_to_invalid` (l'adresse d'essai) |
-| Un refus de domaine dont le statut n'est ni 422 ni 409 | Les 404 avec clé (`directory.unit_not_found`, `directory.container_not_found`, `directory.ignore_not_found`), les 503, 429, 504 et 502 des journaux, `503 update.machine_offline` |
+| Un refus de domaine dont le statut n'est ni 422 ni 409 | Les 404 avec clé (`directory.unit_not_found`, `directory.container_not_found`, `directory.ignore_not_found`), les 503, 429, 504 et 502 des journaux, `503 container.machine_busy` (file de commandes pleine, journaux comme vérification des images) |
 
 Les refus d'application du fichier (`manifest.plan_changed`,
 `manifest.not_applicable`) gardent leur réponse : la clé et le statut viennent

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // ListIgnoredKeys rend les clés ignorées d'une machine, de toutes si
@@ -47,7 +48,7 @@ func (db *DB) InsertIgnoredKey(ctx context.Context, key directory.IgnoredKey) er
 			return fmt.Errorf("find ignored key machine: %w", err)
 		}
 		if machines == 0 {
-			return directory.ErrMachineInvalid
+			return machine.ErrUnknown
 		}
 		_, err := tx.ExecContext(ctx,
 			`INSERT OR IGNORE INTO ignored_keys (machine_id, kind, value, created_at) VALUES (?, ?, ?, ?)`,

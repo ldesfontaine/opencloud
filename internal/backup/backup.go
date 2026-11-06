@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -181,7 +182,6 @@ var (
 	ErrKeyringMissing       = refusal.Conflict("backup.keyring_missing", "no backup key: create it first")
 	ErrNameInvalid          = refusal.Invalid("backup.name_invalid", "destination name: lowercase letters, digits and dashes, 63 at most")
 	ErrNameTaken            = refusal.Conflict("backup.name_taken", "a destination already has this name")
-	ErrMachineUnknown       = refusal.Invalid("backup.machine_unknown", "the machine does not exist")
 	ErrPathInvalid          = refusal.Invalid("backup.path_invalid", "destination path must be absolute, clean, and made of letters, digits, dot, dash, underscore")
 	ErrRightMissing         = refusal.Conflict("backup.right_missing", "the agent of this machine may not write to this folder")
 	ErrTooManyDestinations  = refusal.Invalid("backup.too_many_destinations", "at most 8 destinations")
@@ -194,7 +194,8 @@ var (
 	ErrSourceMachineUnknown = refusal.Invalid("backup.source_machine_unknown", "the machine that produces the backup does not exist")
 	ErrProducerUnknown      = refusal.Invalid("backup.producer_unknown", "the producer is not one of the known producers")
 	ErrSelectorInvalid      = refusal.Invalid("backup.selector_invalid", "selector: all, or identifiers separated by commas")
-	ErrMachineOffline       = refusal.Conflict("backup.machine_offline", "the destination machine is offline")
+	// ErrMachineOffline : alias de machine.ErrOffline, le temps que les appelants passent au nom neuf.
+	ErrMachineOffline = machine.ErrOffline
 
 	// Ce qui arrête un plan machine avant son premier ordre : la source, sa
 	// sélection, l'agent qui reçoit.

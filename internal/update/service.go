@@ -3,11 +3,13 @@ package update
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 const (
@@ -128,10 +130,10 @@ func (s *Service) assign(ctx context.Context, machineID string, now bool) error 
 	commander := s.commander
 	s.mu.RUnlock()
 	if commander == nil {
-		return ErrMachineOffline
+		return machine.ErrOffline
 	}
 	if err := commander.AssignImages(machineID, assignment); err != nil {
-		return ErrMachineOffline
+		return fmt.Errorf("assign images: %w", err)
 	}
 	return nil
 }

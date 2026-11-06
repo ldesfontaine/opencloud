@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/server/sse"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -394,6 +395,10 @@ func writeJSONEvent(w http.ResponseWriter, name string, payload any) error {
 }
 
 func (s *Server) writeLogsError(w http.ResponseWriter, r *http.Request, err error) {
+	if _, isRefusal := refusal.KeyOf(err); isRefusal {
+		s.failed(w, r, err, nil)
+		return
+	}
 	code, status, refused := logsRefusal(err)
 	if !refused {
 		s.apiInternalError(w, r, err)
@@ -407,8 +412,6 @@ func (s *Server) writeLogsError(w http.ResponseWriter, r *http.Request, err erro
 func logsRefusal(err error) (string, int, bool) {
 	var failed *container.LogsError
 	switch {
-	case errors.Is(err, container.ErrMachineOffline):
-		return "container.machine_offline", http.StatusServiceUnavailable, true
 	case errors.Is(err, container.ErrLogsUnavailableLocally):
 		return "container.logs_unavailable_locally", http.StatusServiceUnavailable, true
 	case errors.Is(err, machine.ErrBusy):

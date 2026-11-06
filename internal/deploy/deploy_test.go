@@ -378,7 +378,7 @@ func TestPlan_RefusesWhatCannotBeDeployed(t *testing.T) {
 	}
 	revoked := newBench("observe,docker.deploy", fakeRuns{})
 	revoked.machines.status.Agent.RevokedAt = time.Unix(3, 0)
-	if _, err := revoked.service.Plan(ctx, serviceID); !errors.Is(err, deploy.ErrNoAgent) {
+	if _, err := revoked.service.Plan(ctx, serviceID); !errors.Is(err, machine.ErrNoAgent) {
 		t.Fatalf("revoked agent: %v", err)
 	}
 }

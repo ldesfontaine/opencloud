@@ -106,7 +106,7 @@ func TestAPI_Ignore_RefusesWithTheKey(t *testing.T) {
 	}{
 		{"genre inconnu", ignoredRequest{MachineID: remoteID, Kind: "id", Value: "nextcloud"}, "directory.ignore_invalid"},
 		{"valeur illisible", ignoredRequest{MachineID: remoteID, Kind: "compose_project", Value: "Next Cloud"}, "directory.ignore_invalid"},
-		{"machine inconnue", ignoredRequest{MachineID: "inconnue", Kind: "container_name", Value: "whoami"}, "directory.machine_invalid"},
+		{"machine inconnue", ignoredRequest{MachineID: "inconnue", Kind: "container_name", Value: "whoami"}, "machine.unknown"},
 	}
 	for _, refusal := range refusals {
 		t.Run(refusal.name, func(t *testing.T) {

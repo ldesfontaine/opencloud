@@ -80,7 +80,7 @@ func TestHistory_ARefusalBeforeAnyOrderIsRecorded(t *testing.T) {
 		t.Fatalf("runs %+v %v", runs, err)
 	}
 	database, whole := runs[0], runs[1]
-	if database.Subject != backup.SubjectDatabase || database.Source != backup.SourceDatabaseKey || database.Result != backup.ResultRefused || database.Reason != "backup.machine_offline" {
+	if database.Subject != backup.SubjectDatabase || database.Source != backup.SourceDatabaseKey || database.Result != backup.ResultRefused || database.Reason != "machine.offline" {
 		t.Fatalf("database %+v", database)
 	}
 	if whole.Subject != "pve" || whole.Source != "" || whole.Result != backup.ResultRefused || whole.DestinationID != destination.ID {

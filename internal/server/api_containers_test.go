@@ -199,11 +199,11 @@ func TestContainerLogs_OfflineMachineAndUnknownContainer(t *testing.T) {
 	server.enroll(t, "vps-paris-1", remoteID)
 	containerID := server.seedContainers(t)
 	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)
-	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != "container.machine_offline" {
+	if got.Code != http.StatusConflict || errorCode(t, got) != "machine.offline" {
 		t.Fatalf("offline: %d %s", got.Code, got.Body.String())
 	}
 	got = callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs/stream", nil)
-	if got.Code != http.StatusServiceUnavailable {
+	if got.Code != http.StatusConflict {
 		t.Fatalf("offline stream: %d", got.Code)
 	}
 	for _, path := range []string{"/api/containers/nope", "/api/containers/nope/transitions", "/api/containers/nope/logs", "/api/machines/nope/containers"} {
@@ -308,7 +308,7 @@ func TestContainerLogs_FetchAndStreamShareTheCeiling(t *testing.T) {
 	}
 	server.releaseLogSlot()
 	got = callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)
-	if errorCode(t, got) != "container.machine_offline" {
+	if errorCode(t, got) != "machine.offline" {
 		t.Fatalf("a freed slot lets the next one through: %d %s", got.Code, got.Body.String())
 	}
 }

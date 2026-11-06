@@ -22,7 +22,7 @@ func (s *Server) Command(machineID string, command agentwire.Command) error {
 	}
 	err = s.machines.Push(machineID, machine.StreamEvent{Name: event, Data: data})
 	if errors.Is(err, machine.ErrNotConnected) {
-		return container.ErrMachineOffline
+		return machine.ErrOffline
 	}
 	if errors.Is(err, machine.ErrBusy) {
 		return fmt.Errorf("command %s: %w", command.Kind, err)

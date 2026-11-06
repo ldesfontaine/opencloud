@@ -109,6 +109,11 @@ var (
 	// ré-enrôlement, qui en installe un nouveau.
 	ErrAgentRevoked = errors.New("agent revoked")
 	ErrNoAgent      = refusal.Conflict("machine.no_agent", "the machine has no active agent")
+	// ErrOffline : un ordre ne part que par le flux ouvert de l'agent. Un seul
+	// refus pour tous les domaines, jugé après l'agent actif, le droit et l'ancre.
+	ErrOffline = refusal.Conflict("machine.offline", "the machine is offline: an order only leaves through its open stream")
+	// ErrUnknown : la machine visée n'existe pas.
+	ErrUnknown = refusal.Invalid("machine.unknown", "the machine does not exist")
 	// Un agent s'enrôle depuis la machine du serveur, par un jeton de
 	// machine neuve, alors que la machine openCloud a déjà un agent actif :
 	// c'est un ré-enrôlement, qui se demande sur sa fiche.

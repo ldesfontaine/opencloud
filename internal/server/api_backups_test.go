@@ -118,7 +118,7 @@ func TestBackups_MapsEachRefusalToItsKey(t *testing.T) {
 	call(http.MethodDelete, "/api/backups/destinations/bkd_inconnue", nil, http.StatusNotFound, "not_found")
 	call(http.MethodDelete, "/api/backups/plans/database", nil, http.StatusNotFound, "not_found")
 	call(http.MethodPost, "/api/backups/destinations", map[string]any{"name": "Store 1", "machine_id": remoteID, "path": "/srv/backups"}, http.StatusUnprocessableEntity, "backup.name_invalid")
-	call(http.MethodPost, "/api/backups/destinations", map[string]any{"name": "store-1", "machine_id": remoteID, "path": "/srv/backups"}, http.StatusUnprocessableEntity, "backup.machine_unknown")
+	call(http.MethodPost, "/api/backups/destinations", map[string]any{"name": "store-1", "machine_id": remoteID, "path": "/srv/backups"}, http.StatusUnprocessableEntity, "machine.unknown")
 	call(http.MethodPost, "/api/backups/keyring", map[string]any{"passphrase": backupPassphrase, "unknown": true}, http.StatusBadRequest, "bad_json")
 
 	destinationID := backupSetup(t, server)

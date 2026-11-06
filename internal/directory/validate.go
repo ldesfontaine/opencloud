@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/registry"
 )
 
@@ -83,7 +84,7 @@ func withoutDuplicates[T ~string](values []T) []T {
 // l'opérateur remplit le formulaire. d doit être complétée.
 func (d ServiceDefinition) Validate() error {
 	if d.MachineID == "" {
-		return ErrMachineInvalid
+		return machine.ErrUnknown
 	}
 	if !namePattern.MatchString(d.Name) {
 		return ErrNameInvalid

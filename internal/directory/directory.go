@@ -86,7 +86,6 @@ const (
 var (
 	ErrNotFound = errors.New("declared service not found")
 
-	ErrMachineInvalid        = refusal.Invalid("directory.machine_invalid", "declared service machine must exist")
 	ErrNameInvalid           = refusal.Invalid("directory.name_invalid", "declared service name must be a lowercase label: letters, digits, dashes, underscores")
 	ErrTitleInvalid          = refusal.Invalid("directory.title_invalid", "declared service title must be at most 80 characters")
 	ErrNatureInvalid         = refusal.Invalid("directory.nature_invalid", "declared service nature must be application or infra")

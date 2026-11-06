@@ -191,7 +191,7 @@ func TestUpgrade_RefusesWhatTheStateForbidsAndWritesNothing(t *testing.T) {
 
 	// La machine ne répond plus : l'ordre ne partirait pas, la version non plus.
 	server.machines.Disconnect(session)
-	call(unitID, version, http.StatusConflict, "action.machine_offline")
+	call(unitID, version, http.StatusConflict, "machine.offline")
 }
 
 // Sans le droit docker.update, ou avant le premier déploiement, rien non plus.

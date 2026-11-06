@@ -61,7 +61,7 @@ func TestRun_RefusesAnOfflineMachineAndALostRight(t *testing.T) {
 	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); !errors.Is(err, backup.ErrMachineOffline) {
 		t.Fatalf("offline: %v", err)
 	}
-	if plan, _ := b.db.GetBackupPlan(context.Background(), backup.SubjectDatabase); plan.LastError != "backup.machine_offline" {
+	if plan, _ := b.db.GetBackupPlan(context.Background(), backup.SubjectDatabase); plan.LastError != "machine.offline" {
 		t.Fatalf("plan %+v", plan)
 	}
 	// L'agent revient avec moins de droits que celui de la destination.
@@ -75,6 +75,12 @@ func TestRun_RefusesAnOfflineMachineAndALostRight(t *testing.T) {
 	}
 	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); !errors.Is(err, backup.ErrRightMissing) {
 		t.Fatalf("lost right: %v", err)
+	}
+	// Le droit se juge avant la présence : hors ligne et sans le droit, le refus
+	// dit le droit.
+	b.machines.Disconnect(b.session)
+	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); !errors.Is(err, backup.ErrRightMissing) {
+		t.Fatalf("offline without the right: %v", err)
 	}
 	if len(b.commands.orders) != 0 {
 		t.Fatalf("orders were sent: %+v", b.commands.kinds)
