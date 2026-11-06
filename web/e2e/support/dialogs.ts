@@ -1,8 +1,9 @@
 import type { Locator, Page } from "@playwright/test";
 
 import { label } from "./catalog";
-import type { Findings } from "./findings";
+import { expect, type Findings } from "./findings";
 import { exerciseSelects } from "./selects";
+import { actionTimeout } from "./timeouts";
 
 // Une valeur plausible pour un champ, d'après son type et son nom. Le parcours
 // ne connaît aucun formulaire : il remplit ce qui est vide comme le ferait un
@@ -47,12 +48,14 @@ async function cancelDialog(dialog: Locator): Promise<void> {
   const cancel = dialog.getByRole("button", { name: label("modal.cancel"), exact: true }).first();
   const close = dialog.locator(".modal-foot").getByRole("button", { name: label("modal.close"), exact: true });
   await ((await cancel.count()) > 0 ? cancel : close).click();
+  // Le clic ferme la fenêtre ou fait paraître la question : on attend l'un des deux.
   const abandon = dialog.getByText(label("modal.abandon_question"));
-  if (await abandon.isVisible().catch(() => false)) {
+  await expect.poll(async () => !(await dialog.isVisible()) || (await abandon.isVisible()), { timeout: actionTimeout }).toBe(true);
+  if (await abandon.isVisible()) {
     // La question remplace le pied : son bouton de confirmation est le premier.
     await dialog.locator(".modal-foot button").first().click();
   }
-  await dialog.waitFor({ state: "detached" }).catch(() => undefined);
+  await dialog.waitFor({ state: "detached" });
 }
 
 // La barre d'étapes ne coupe aucun libellé : la barre tient dans sa largeur,
