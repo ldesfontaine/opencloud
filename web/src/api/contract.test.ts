@@ -1339,6 +1339,7 @@ const notReadByFront: Record<string, string> = {
   "agent_updates.golden.json": "le plan des mises à jour se lit par un agent IA (jeton en lecture) ; la fiche d'une machine lit l'offre de sa machine",
   "manifest_plan.golden.json": "le plan se lit par la commande apply ; l'écran ne montre que les passages",
   "verbs.golden.json": "le registre des verbes, pas une réponse de l'API ; parity.test.ts le compare aux écritures de routes.ts",
+  "refusal_rights.golden.json": "une table clé → droit, pas une réponse ; lib/rights.test.ts la compare à la table du front",
   "transitions.golden.json": "la fiche d'un conteneur reçoit ses transitions avec lui ; aucun module ne lit la route seule",
 };
 

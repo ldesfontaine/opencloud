@@ -68,6 +68,13 @@ export interface MachineRole {
   version: string;
 }
 
+// Où en est un droit sur l'agent d'une machine, tel que le serveur le juge
+// (machine.Agent.Fit). ok : rapporté et exerçable ; missing : l'agent est
+// actif et rapporte ses droits sans celui-là (ou n'est pas actif) ;
+// unavailable : coché, mais le compte de l'agent ne peut pas l'exercer ;
+// unknown : l'agent n'a rien rapporté encore, c'est lui qui jugera.
+export type RightState = "ok" | "missing" | "unavailable" | "unknown";
+
 // Un droit de l'agent et, pour un droit borné, ses chemins.
 export interface Capability {
   name: string;

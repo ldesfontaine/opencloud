@@ -315,6 +315,9 @@ raison. Une garde a son test en négatif : elle échoue sur un source fautif.
 | Racine vide, port fermé, empreinte SHA-256, JSON d'un test | `testkit` | aucune copie (`closedPort`, `sumOf`, `mustJSON`, `openRoot`…) hors `testkit` |
 | Pointeur vers une valeur | `new(valeur)` (Go 1.26) | aucune fonction `ptr` |
 | La liste des ordres de l'agent | `agentwire.OrderKinds` | `22-fonctionnement.md` ne les compte pas |
+| État d'un droit de l'agent, et ce que sa version sait faire | `machine.Agent.Fit` et `Supports` | AST : `.Agent.ReportedAt.IsZero()`, `.Agent.Capabilities`, `.Agent.UnavailableReason`, `type RightState`, `release.ParseVersion` d'une version d'agent hors de `machine` |
+| Le droit qu'un refus nomme | `refusal.Error.NeedsRight` | `refusal_rights.golden.json`, comparé à la table du front ; `TestRefusalRights_EveryDeclarationIsListed` |
+| Le même jugement côté front | `web/src/lib/rightFit.ts` (`fitOf`) | table commune `machine/testdata/right_fit_cases.json`, lue par Go et par vitest |
 
 Chaque lot de factorisation ajoute ses lignes au tableau avec sa garde : un
 fait de machine (hors ligne, inconnue) vivra dans `machine`, une forme (nom

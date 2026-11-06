@@ -1,4 +1,5 @@
-import { deleteBackupDestination, useBackups, type BackupDestination, type BackupRight } from "../../api/backups";
+import { deleteBackupDestination, useBackups, type BackupDestination } from "../../api/backups";
+import type { RightState } from "../../api/machines";
 import { reasonText } from "../../components/ActionsCard";
 import { Button } from "../../components/Button";
 import { Failure } from "../../components/Failure";
@@ -11,7 +12,7 @@ import { keyringPath, newDestinationPath } from "../../lib/backups";
 import type { Tone } from "../../lib/tone";
 import { formatWhen } from "../../lib/time";
 
-const rightTones: Record<BackupRight, Tone> = { ok: "ok", missing: "danger", unavailable: "warn", unknown: "neutral" };
+const rightTones: Record<RightState, Tone> = { ok: "ok", missing: "danger", unavailable: "warn", unknown: "neutral" };
 
 // Ce dont la base d'openCloud a besoin en plus d'un plan : la clé qui chiffre
 // ses archives, et les machines qui les reçoivent. Ces deux réglages vivaient

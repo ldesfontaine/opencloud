@@ -3,6 +3,7 @@ import type { GuestVerb, ProxmoxGuest, ProxmoxHost, ProxmoxStorage } from "../ap
 import type { Machine, MachineRole } from "../api/machines";
 import type { Translate } from "../i18n/context";
 import { describeUnavailable } from "./machines";
+import { fitOf } from "./rightFit";
 import type { Tone } from "./tone";
 import { formatWhen } from "./time";
 import { formatBytes, formatDecimal, percentOf } from "./units";
@@ -269,16 +270,13 @@ function gestureBlock(verb: GuestVerb, guest: ProxmoxGuest, host: GestureHost): 
   }
   // Tant que l'agent n'a rien rapporté de ses droits, on ne devine pas : le
   // serveur et l'agent jugeront.
-  if (agent.reported_at === null || agent.capabilities.length === 0) {
-    return null;
-  }
   const right = gestureRight(verb);
-  const reported = agent.capabilities.find((capability) => capability.name === right);
-  if (reported === undefined) {
+  const fit = fitOf(agent, right);
+  if (fit.state === "missing") {
     return { kind: "right_missing", right };
   }
-  if (reported.unavailable !== "") {
-    return { kind: "right_unavailable", reason: reported.unavailable };
+  if (fit.state === "unavailable") {
+    return { kind: "right_unavailable", reason: fit.reason };
   }
   return null;
 }

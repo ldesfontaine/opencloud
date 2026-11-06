@@ -325,6 +325,105 @@ func TestOneDefinition_MachineFacts(t *testing.T) {
 	}
 }
 
+// Les gardes du lot « droits et capacités » : ce que l'agent d'une machine a le
+// droit de faire, et sait faire, se juge dans `machine` (Agent.Fit, Supports).
+
+// isAgentSelector dit si l'expression est « quelque chose.Agent » : l'agent
+// d'un machine.Status.
+func isAgentSelector(expr ast.Expr) bool {
+	selector, ok := expr.(*ast.SelectorExpr)
+	return ok && selector.Sel.Name == "Agent"
+}
+
+// agentRightJudgments relève ce qui juge un droit de l'agent à la main :
+// « .Agent.ReportedAt.IsZero() », « .Agent.Capabilities » lu et
+// « .Agent.UnavailableReason(…) ».
+func agentRightJudgments(fileSet *token.FileSet, file *ast.File) []string {
+	var found []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		reportedZero := selector.Sel.Name == "IsZero" && isReportedAtOfAgent(selector.X)
+		readCapabilities := selector.Sel.Name == "Capabilities" && isAgentSelector(selector.X)
+		readReason := selector.Sel.Name == "UnavailableReason" && isAgentSelector(selector.X)
+		if reportedZero || readCapabilities || readReason {
+			found = append(found, fileSet.Position(selector.Pos()).String()+": "+selector.Sel.Name)
+		}
+		return true
+	})
+	return found
+}
+
+func isReportedAtOfAgent(expr ast.Expr) bool {
+	selector, ok := expr.(*ast.SelectorExpr)
+	return ok && selector.Sel.Name == "ReportedAt" && isAgentSelector(selector.X)
+}
+
+// redeclaredRightStates relève « type RightState » et « type RightFit »
+// déclarés hors de `machine`.
+func redeclaredRightStates(fileSet *token.FileSet, file *ast.File) []string {
+	var found []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		spec, ok := node.(*ast.TypeSpec)
+		if ok && (spec.Name.Name == "RightState" || spec.Name.Name == "RightFit") {
+			found = append(found, fileSet.Position(spec.Pos()).String()+": "+spec.Name.Name)
+		}
+		return true
+	})
+	return found
+}
+
+// versionJudgments relève release.ParseVersion appelé sur la version d'un agent
+// ou sur une constante d'agentwire : savoir ce que la version d'un agent sait
+// faire est Agent.Supports.
+func versionJudgments(fileSet *token.FileSet, file *ast.File) []string {
+	var found []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) != 1 {
+			return true
+		}
+		callee, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || callee.Sel.Name != "ParseVersion" {
+			return true
+		}
+		switch argument := call.Args[0].(type) {
+		case *ast.SelectorExpr:
+			_, fromPackage := argument.X.(*ast.Ident)
+			if isAgentSelector(argument.X) || (fromPackage && argument.X.(*ast.Ident).Name == "agentwire") {
+				found = append(found, fileSet.Position(call.Pos()).String()+": ParseVersion")
+			}
+		}
+		return true
+	})
+	return found
+}
+
+func TestOneDefinition_AgentRightsAreJudgedInMachine(t *testing.T) {
+	checked := 0
+	forEachGoFile(t, moduleRoot(), false, func(path string, fileSet *token.FileSet, file *ast.File) {
+		relative := filepath.ToSlash(strings.TrimPrefix(path, moduleRoot()+string(filepath.Separator)))
+		if isException(path) || strings.HasPrefix(relative, "internal/machine/") {
+			return
+		}
+		checked++
+		for _, at := range agentRightJudgments(fileSet, file) {
+			t.Errorf("%s : juger un droit de l'agent par machine.Agent.Fit", at)
+		}
+		for _, at := range redeclaredRightStates(fileSet, file) {
+			t.Errorf("%s : l'état d'un droit est machine.RightState", at)
+		}
+		for _, at := range versionJudgments(fileSet, file) {
+			t.Errorf("%s : ce que la version d'un agent sait faire est machine.Agent.Supports", at)
+		}
+	})
+	if checked == 0 {
+		t.Fatal("no source file seen: the guard no longer sees the code")
+	}
+}
+
 // Les gardes ne valent que si elles échouent sur la faute : on leur donne
 // un source fautif.
 func TestOneDefinition_GuardsCatchTheirFault(t *testing.T) {
@@ -350,6 +449,14 @@ func waitFor(t *testing.T, condition func() bool) {
 }
 
 var ErrOffline = refusal.Conflict("backup.machine_offline", "offline")
+
+type RightState string
+
+func judge(target machine.Status) bool {
+	_ = release.ParseVersion(target.Agent.Version)
+	_ = target.Agent.UnavailableReason("docker.deploy")
+	return !target.Agent.ReportedAt.IsZero()
+}
 `
 	fileSet := token.NewFileSet()
 	file, err := parser.ParseFile(fileSet, "faulty_test.go", faulty, parser.SkipObjectResolution)
@@ -370,6 +477,15 @@ var ErrOffline = refusal.Conflict("backup.machine_offline", "offline")
 	}
 	if got := machineFactKeys(fileSet, file); len(got) != 1 {
 		t.Errorf("machine fact key outside machine not caught: %v", got)
+	}
+	if got := agentRightJudgments(fileSet, file); len(got) != 2 {
+		t.Errorf("hand-made right judgment not caught: %v", got)
+	}
+	if got := redeclaredRightStates(fileSet, file); len(got) != 1 {
+		t.Errorf("redeclared right state not caught: %v", got)
+	}
+	if got := versionJudgments(fileSet, file); len(got) != 1 {
+		t.Errorf("agent version judged outside machine not caught: %v", got)
 	}
 }
 

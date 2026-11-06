@@ -1,6 +1,7 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
 import { route } from "./routes";
+import type { RightState } from "./machines";
 
 // Les liens entre instances : qui utilise qui, d'où vient la preuve, depuis
 // quand on ne l'a plus revu. Sujet du direct : « directory », que topicsOf
@@ -58,12 +59,12 @@ export interface ServiceLink {
 }
 
 // Le droit de lire l'environnement des conteneurs sur la machine du service :
-// « granted », « missing » (la fenêtre « Ré-enrôler » le propose) ou « unknown »
-// (l'agent n'a encore rien dit de ses droits). null : le service ne tourne pas
+// « missing » quand la fenêtre « Ré-enrôler » le propose, « unknown » tant que
+// l'agent n'a rien dit de ses droits. null : le service ne tourne pas
 // dans des conteneurs.
 interface EnvironmentRight {
   machine_id: string;
-  right: "granted" | "missing" | "unknown";
+  right: RightState;
 }
 
 export interface ServiceLinksResponse {

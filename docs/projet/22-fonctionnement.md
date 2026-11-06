@@ -344,6 +344,25 @@ par l'agent** (#146) : chaque genre de la liste fermée déclare le droit qu'il
 exige (`action.RightOf`), et l'agent refuse un ordre dont le droit n'est pas
 dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 
+**Un seul jugement** : `machine.Agent.Fit(droit, portée)` dit où en est un
+droit sur l'agent d'une machine, et aucun autre code ne le refait
+(`TestOneDefinition_AgentRightsAreJudgedInMachine`).
+
+| État | Quand | Ce que fait le serveur |
+| --- | --- | --- |
+| `missing` | pas d'agent actif ; ou l'agent a rapporté ses droits sans celui-là, ou sans le dossier (le chemin) ou le producteur demandé | refuse le geste (`409 …right_missing`) |
+| `unknown` | l'agent est actif mais n'a encore rien rapporté | laisse partir : l'agent juge |
+| `unavailable` | le droit est coché, le compte de l'agent ne peut pas l'exercer (la raison est rapportée) | l'affiche sans refuser : l'agent refuse, avec la raison, à l'ordre |
+| `ok` | rapporté et exerçable | — |
+
+Le front rend le même jugement pour le droit seul (`fitOf`, `lib/rightFit.ts`) :
+`internal/machine/testdata/right_fit_cases.json` est lue par les deux. **Ce que
+sait faire la version d'un agent** (retour arrière de l'agent, retour arrière
+d'un service, préfixe de `backup.prune`) se juge de même, par
+`machine.Agent.Supports(machine.Feature…)` : chaque fonction nomme sa preuve (un
+entier rapporté à l'ouverture du flux, ou la version de l'agent) à un seul
+endroit. Les en-têtes de fonction du fil ne changent pas.
+
 | Droit | Portée | Ce qu'il permet |
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
@@ -522,7 +541,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   Ré-enrôler avec ce droit déjà coché (`reenrollPath`, `lib/rights.ts`). La cause
   est corrigée au composant partagé : `Failure` reçoit la machine (`gesture`) et
   lit le droit dans le refus (`deploy.right_missing`, `backup.right_missing`,
-  `backup.source_right_missing`) ou chez l'écran qui sait quel ordre il a envoyé ;
+  `backup.source_right_missing`, la table de « Les refus ») ou chez l'écran qui sait quel ordre il a envoyé ;
   `MissingRight` dit un manque connu d'avance (déployer, mettre à jour un service,
   mettre à jour l'agent, sondes vers le réseau local, destination, plan, ordres
   refusés). Un droit coché d'avance reste un geste de l'opérateur : rien ne se
@@ -1643,7 +1662,7 @@ ancien ordre sans `Prefix` n'est gardée : aucun agent installé n'a reçu de
 d'avant ignore `prefix` et n'élague que `opencloud-…` : sans danger pour le
 plan `database`, mais un plan machine ne doit pas élaguer chez lui (il
 élaguerait la base avec le `keep` de ce plan) : `serve` refuse donc de le
-lancer vers un agent d'avant `agentwire.PrefixSinceVersion`
+lancer vers un agent d'avant `machine.PrunePrefixSinceVersion`
 (`backup.destination_agent_outdated`, « Une source produite par un agent »).
 
 **La vérification** est cette relecture, faite à chaque sauvegarde : jamais un
@@ -1679,7 +1698,7 @@ ordre ni colis ; sa clé s'écrit dans `last_error`.
 
 | Refus | Quand |
 | --- | --- |
-| `409 backup.destination_agent_outdated` | l'agent de la destination est plus ancien que `agentwire.PrefixSinceVersion` (`v0.2.0`), ou sa version ne se lit pas (`dev`, vide). Les agents d'avant ignorent `prefix` dans `backup.prune` et élagueraient `opencloud-…` avec le `keep` du plan : un plan machine ne part pas vers eux. Le plan `database` n'est pas concerné, il part toujours |
+| `409 backup.destination_agent_outdated` | l'agent de la destination est plus ancien que `machine.PrunePrefixSinceVersion` (`v0.2.0`), ou sa version ne se lit pas (`dev`, vide). Les agents d'avant ignorent `prefix` dans `backup.prune` et élagueraient `opencloud-…` avec le `keep` du plan : un plan machine ne part pas vers eux. Le plan `database` n'est pas concerné, il part toujours |
 | `409 backup.source_offline` | la machine source n'a pas d'agent en ligne |
 | `409 backup.source_right_missing` | pas d'agent actif, ou l'agent a rapporté ses droits et `backup.produce` ne nomme pas le producteur du plan |
 | `409 backup.selector_needs_list` | `all`, alors que la source n'a pas d'hôte Proxmox déclaré avec au moins un invité relevé (les modèles sont écartés) : `serve` n'invente pas de liste, l'opérateur donne les numéros |
@@ -5789,8 +5808,8 @@ service tourne dans des conteneurs et que l'agent de sa machine n'a pas le droit
 une note le dit (« Les liens de l'environnement des conteneurs ne sont pas lus… »)
 avec le bouton **Ré-enrôler avec « Lire l'environnement… »** : la fenêtre s'ouvre
 sur la machine, droit déjà coché, avec sa note (`GET …/links` rend
-`environment: {machine_id, right}` : `granted`, `missing` ou `unknown` tant que
-l'agent n'a rien rapporté de ses droits ; `null` pour un service sur binaire).
+`environment: {machine_id, right}` : `ok`, `missing`, `unavailable` ou `unknown`
+tant que l'agent n'a rien rapporté de ses droits (les quatre états de `Fit`) ; `null` pour un service sur binaire).
 
 **Banc de non-fuite** (valeurs semées : mot de passe, jeton, `utilisateur:mot de
 passe@`, jeton dans la requête d'une URL ; noms de variables) :
@@ -6449,6 +6468,13 @@ droit, ancre de confiance, en ligne. Une file de commandes pleine
 `restic.ErrMachineOffline` restent un lot comme alias de `machine.ErrOffline`.
 `TestOneDefinition_MachineFacts` refuse une clé `*.machine_offline`,
 `*.machine_unknown`, `*.machine_invalid` ou `*.no_agent` hors de `machine`.
+
+**Un refus de droit nomme son droit** : `refusal.Conflict(…).NeedsRight(machine.CapabilityX)`.
+Le front en tire la machine à ré-enrôler et le droit à cocher (`rightOfRefusal`,
+`lib/rights.ts`). `internal/server/testdata/refusal_rights.golden.json` écrit la
+table clé → droit ; `lib/rights.test.ts` la compare à celle du front, et
+`TestRefusalRights_EveryDeclarationIsListed` refuse un refus déclaré avec son
+droit mais absent de la liste.
 
 Aucun handler ne choisit la clé d'un refus de domaine par `errors.Is`. Deux
 cas gardent `s.apiRefuse` :

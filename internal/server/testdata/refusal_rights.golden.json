@@ -1,0 +1,13 @@
+{
+  "backup.right_missing": "backup.receive",
+  "backup.source_right_missing": "backup.produce",
+  "deploy.right_missing": "docker.deploy",
+  "restic.restore_outside_right": "files.write",
+  "restic.source_docker_right_missing": "restic.docker",
+  "restic.source_restore_right_missing": "restic.restore",
+  "restic.source_right_missing": "restic.produce",
+  "restic.source_vm_right_missing": "backup.produce",
+  "restic.target_browse_right_missing": "restic.browse",
+  "restic.target_right_missing": "restic.target",
+  "restic.target_verify_right_missing": "restic.verify"
+}

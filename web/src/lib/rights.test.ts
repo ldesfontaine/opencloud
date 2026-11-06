@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Agent, Capability, Machine } from "../api/machines";
-import { heldRights, holderOfRefusal, lacksSudo, reenrollPath, rightOfRefusal, unfitFor, wantedRightOf, withWantedRight } from "./rights";
+import { heldRights, holderOfRefusal, lacksSudo, reenrollPath, refusalRights, rightOfRefusal, unfitFor, wantedRightOf, withWantedRight } from "./rights";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join("|");
 
@@ -57,6 +57,14 @@ test("rightOfRefusal : les refus qui nomment leur droit", () => {
   expect(rightOfRefusal("action.right_missing")).toBeNull();
 });
 
+const refusalGoldens = import.meta.glob<Record<string, string>>("../../../internal/server/testdata/refusal_rights.golden.json", { eager: true, import: "default" });
+
+test("refusalRights : la table du front est celle que le serveur écrit", () => {
+  const golden = Object.values(refusalGoldens)[0];
+  expect(golden).toBeDefined();
+  expect(refusalRights).toEqual(golden);
+});
+
 test("heldRights : ce que l'agent a rapporté, sinon ce que son jeton demandait", () => {
   expect(heldRights(agentWith(["observe", "agent.update"], null)).map((right) => right.name)).toEqual(["observe", "agent.update"]);
   expect(heldRights(agentWith(["observe", "agent.update"], [{ name: "observe" }])).map((right) => right.name)).toEqual(["observe"]);
@@ -76,6 +84,9 @@ test("unfitFor : une machine convient, ou dit pourquoi pas et où aller", () => 
 
   const revoked = unfitFor(t, { id: "m3", agent: { ...agentWith([], [{ name: "backup.receive" }]), revoked_at: "2026-11-01T10:00:00Z" } }, "backup.receive");
   expect(revoked?.reason).toBe("machine.fit_no_agent");
+
+  // Un agent qui n'a rien rapporté : il jugera, la machine convient.
+  expect(unfitFor(t, { id: "m5", agent: agentWith(["observe"], null) }, "docker.deploy")).toBeNull();
 
   const unavailable = unfitFor(t, { id: "m4", agent: agentWith([], [{ name: "docker.deploy", unavailable: "docker_denied" }]) }, "docker.deploy");
   expect(unavailable?.reason).toBe("machine.capability_unavailable_docker_denied");

@@ -3,6 +3,7 @@ import { api, segment } from "./client";
 import { route } from "./routes";
 import type { ContainerState } from "./containers";
 import type { ActionRun } from "./actions";
+import type { RightState } from "./machines";
 import type { DeletionPlan } from "./deletion";
 
 // L'annuaire : ce que l'opérateur déclare (services, projets), l'écart avec
@@ -385,12 +386,6 @@ export async function fetchProjectDeletePlan(id: string): Promise<DeletionPlan> 
   return api.get<DeletionPlan>(`${projectPath(id)}/delete-plan`);
 }
 
-// Le droit du prochain geste de déploiement ; « unknown » tant que l'agent
-// n'a pas rapporté ses droits ; « unavailable » : le droit est coché mais le
-// compte de l'agent ne peut pas l'exercer (right_reason dit pourquoi). L'ordre
-// part quand même : c'est l'agent qui le refuse.
-export type DeployRight = "ok" | "missing" | "unavailable" | "unknown";
-
 // Ce que l'opérateur lit avant de déployer : où le service ira, ce qu'il y
 // aura, et où il en est.
 export interface DeployPlan {
@@ -402,7 +397,9 @@ export interface DeployPlan {
   path: string;
   // Le dossier est écrit sur la machine : le geste est « redéployer ».
   deployed: boolean;
-  right: DeployRight;
+  // Le droit du prochain geste. « unavailable » : l'ordre part quand même,
+  // c'est l'agent qui le refuse.
+  right: RightState;
   // La raison de « unavailable » ; absente sinon.
   right_reason?: string;
   compose: string;

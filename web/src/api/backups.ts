@@ -2,6 +2,7 @@ import { useResource, type Resource } from "../hooks/useResource";
 import { api } from "./client";
 import { route } from "./routes";
 import type { ActionRun } from "./actions";
+import type { RightState } from "./machines";
 
 // Les sauvegardes : la clé, les destinations, les plans et le dernier ordre
 // de chacun. Sujets du direct : « backups » et « actions » (l'état d'une
@@ -15,19 +16,15 @@ export interface BackupKeyring {
   created_at: string;
 }
 
-// ok : l'agent a rapporté un droit qui couvre le dossier ; missing : il en
-// a rapporté et aucun ne le couvre ; unavailable : le droit couvre le dossier
-// mais le compte de l'agent ne peut pas l'exercer (right_reason dit pourquoi) ;
-// unknown : il n'a rien rapporté encore.
-export type BackupRight = "ok" | "missing" | "unavailable" | "unknown";
-
+// right : le droit backup.receive de l'agent de la machine, pour ce dossier
+// (right_reason dit pourquoi quand il est « unavailable »).
 export interface BackupDestination {
   id: string;
   name: string;
   machine_id: string;
   machine_name: string;
   path: string;
-  right: BackupRight;
+  right: RightState;
   // La raison de « unavailable » ; absente sinon.
   right_reason?: string;
   created_at: string;
@@ -288,7 +285,7 @@ export interface BackupTarget {
 
 export interface BackupMachineRight {
   right: string;
-  state: BackupRight;
+  state: RightState;
   reason: string;
   // Le dossier du droit restic.target.
   path: string;

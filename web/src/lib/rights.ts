@@ -1,6 +1,7 @@
 import type { Capability, Machine } from "../api/machines";
 import type { Translate } from "../i18n/context";
 import { detectedProxmox } from "./proxmox";
+import { fitOf } from "./rightFit";
 import { alwaysGranted, capabilityLabelKey, capabilityNames, describeUnavailable, type RightsValues } from "./machines";
 
 // Les droits d'un agent manquent ici ou là ; ce fichier dit comment un écran
@@ -75,7 +76,8 @@ export interface Unfit {
 // Dit si la machine peut faire ce que demande right (null : il suffit d'un
 // agent actif), ou pourquoi elle ne le peut pas. Un droit coché que le compte
 // de l'agent ne peut pas exercer ne convient pas non plus : la raison est celle
-// que la fiche donne.
+// que la fiche donne. Tant que l'agent n'a rien rapporté, la machine convient :
+// c'est lui qui jugera, comme le serveur.
 export function unfitFor(t: Translate, machine: Pick<Machine, "id" | "agent">, right: string | null): Unfit | null {
   const agent = machine.agent;
   if (agent === null || agent.revoked_at !== null) {
@@ -84,20 +86,21 @@ export function unfitFor(t: Translate, machine: Pick<Machine, "id" | "agent">, r
   if (right === null) {
     return null;
   }
-  const held = heldRights(agent).find((capability) => capability.name === right);
-  if (held === undefined) {
+  const fit = fitOf(agent, right);
+  if (fit.state === "missing") {
     return { reason: t("machine.fit_right_missing", t(capabilityLabelKey(right))), link: { to: reenrollPath(machine.id, { name: right }), label: t("machine.reenroll_with_right") } };
   }
-  if ("unavailable" in held && typeof held.unavailable === "string" && held.unavailable !== "") {
-    return { reason: describeUnavailable(t, held.unavailable, agent.run_as), link: { to: `/machines/${machine.id}`, label: t("machine.fit_open") } };
+  if (fit.state === "unavailable") {
+    return { reason: describeUnavailable(t, fit.reason, agent.run_as), link: { to: `/machines/${machine.id}`, label: t("machine.fit_open") } };
   }
   return null;
 }
 
 // Les refus du serveur qui disent un droit manquant, avec le droit qu'ils
-// nomment ; les autres (action.right_missing) sont dits par l'écran qui sait
+// nomment (le serveur les écrit dans testdata/refusal_rights.golden.json, que
+// rights.test.ts compare à cette table) ; les autres (action.right_missing) sont dits par l'écran qui sait
 // quel ordre il a envoyé.
-const refusalRights: Readonly<Record<string, string>> = {
+export const refusalRights: Readonly<Record<string, string>> = {
   "deploy.right_missing": "docker.deploy",
   "backup.right_missing": "backup.receive",
   "backup.source_right_missing": "backup.produce",
