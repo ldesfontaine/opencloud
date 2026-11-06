@@ -3,11 +3,18 @@
 Maquette : `docs/projet/maquettes/reseau-carte.html` (trois variantes : complet, sans Proxmox ni pare-feu, quarante machines).
 Fonctionnement : `docs/projet/22-fonctionnement.md`, « La carte Réseau de la vue d'ensemble ».
 
+> **Remise en page #507** : la maquette et les captures `R1-maquette-*` sont celles
+> de la première version (hôte qui porte ses invités, colonne d'interfaces). Les
+> captures `R1-carte-*` sont celles de la mise en page actuelle : trois régions,
+> couloirs de zone, cartes de machine.
+
 | Cas | Capture (clair / sombre) |
 | --- | --- |
 | Maquette, tout configuré | `captures/R1-maquette-A-clair.png`, `R1-maquette-A-sombre.png` |
 | Carte réelle du serveur de données fictives | `captures/R1-carte-reelle-{clair,sombre}.png` |
-| Tout configuré : VPS, tunnel, pare-feu à quatre zones, hôte, invité sans agent | `captures/R1-carte-complete-{clair,sombre}.png` |
+| Forme d'un vrai réseau à 1900 px : VPS de type inconnu, tunnel, pare-feu à treize interfaces, hôte et dix invités sur cinq zones, Pi sans service, deux entrées publiques | `captures/R1-carte-complete-{clair,sombre}.png`, la page entière : `R1-carte-complete-page-clair.png` |
+| La même à 1280 px | `captures/R1-carte-complete-1280-{clair,sombre}.png` |
+| Survol de l'hôte (invités en évidence), zones sans machine dépliées | `captures/R1-carte-survol-hote-{clair,sombre}.png` |
 | Preuve d'un lien au survol (info-bulle du tunnel) | `captures/R1-carte-survol-lien-{clair,sombre}.png` |
 | Liste des liens ouverte | `captures/R1-carte-liste-liens-{clair,sombre}.png` |
 | Sans Proxmox, sans pare-feu, sans VPS | `captures/R1-carte-a-plat-{clair,sombre}.png` |

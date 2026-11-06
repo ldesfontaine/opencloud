@@ -465,7 +465,7 @@ func seedE2EAnchors(t *testing.T, ts *testServer) {
 	rights := "observe,restic.produce,backup.produce=proxmox-vzdump"
 	// Sa version lit le préfixe de backup.prune : il peut aussi être destination.
 	enrolled, _ := ts.enroll(t, "pve-ancres", e2eAnchorsNoneID)
-	none, err := ts.machines.Connect(context.Background(), enrolled, "192.0.2.30", "v0.6.0", rights+",backup.receive=/srv/sauvegardes", "", "")
+	none, err := ts.machines.Connect(context.Background(), enrolled, "10.0.2.30", "v0.6.0", rights+",backup.receive=/srv/sauvegardes", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -730,12 +730,12 @@ func e2eConnectAs(t *testing.T, ts *testServer, name, id, system, arch, rights, 
 		t.Fatal(err)
 	}
 	enrolled, err := ts.machines.Enroll(ctx, machine.Enrollment{
-		MachineID: id, PublicKey: public, Token: token, Hostname: name, Address: "192.0.2.31", OS: system, Arch: arch, AgentVersion: "v0.0.1",
+		MachineID: id, PublicKey: public, Token: token, Hostname: name, Address: "10.0.2.31", OS: system, Arch: arch, AgentVersion: "v0.0.1",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := ts.machines.Connect(ctx, enrolled, "192.0.2.31", "v0.0.1", rights, "", unavailable)
+	session, err := ts.machines.Connect(ctx, enrolled, "10.0.2.31", "v0.0.1", rights, "", unavailable)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -746,7 +746,7 @@ func e2eConnectAs(t *testing.T, ts *testServer, name, id, system, arch, rights, 
 func e2eConnect(t *testing.T, ts *testServer, name, id, rights string) *machine.Session {
 	t.Helper()
 	enrolled, _ := ts.enroll(t, name, id)
-	session, err := ts.machines.Connect(context.Background(), enrolled, "192.0.2.30", "v0.0.1", rights, "", "")
+	session, err := ts.machines.Connect(context.Background(), enrolled, "10.0.2.30", "v0.0.1", rights, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

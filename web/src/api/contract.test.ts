@@ -17,7 +17,7 @@ import type { MachineStorage, PhysicalDisk, StoragePool } from "./storage";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { LinkEnd, ServiceLinksResponse } from "./links";
-import type { MapBox, MapEntry, MapFirewall, MapGroup, MapLink, MapService, MapTunnel, MapZone, NetworkMap, NetworkResponse } from "./network";
+import type { MapBox, MapEntry, MapFirewall, MapLane, MapLink, MapService, MapTunnel, MapZone, NetworkMap, NetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
 import type { BackupGrant, ProxmoxCluster, ProxmoxHost, ProxmoxMember, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
@@ -301,10 +301,7 @@ const linkEnd = shape<LinkEnd>("LinkEnd", {
   container_id: value,
 });
 
-// Un hôte porte ses invités, qui ont la forme d'une machine : la description se
-// referme sur elle-même, une fois les deux formes faites.
 const mapService = shape<MapService>("MapService", { id: value, label: value, kind: value, state: value, replicas: value, container_id: value, service_id: value });
-const mapGroup = shape<MapGroup>("MapGroup", { zone_id: value, guests: value as never });
 const mapBox = shape<MapBox>("MapBox", {
   id: value,
   machine_id: value,
@@ -318,14 +315,17 @@ const mapBox = shape<MapBox>("MapBox", {
   address: value,
   zone_id: value,
   services: mapService,
-  groups: mapGroup,
+  host_id: value,
+  guest_count: value,
+  folded: value,
 });
-mapGroup.fields.guests = mapBox;
 
 const networkMap = shape<NetworkMap>("NetworkMap", {
   zones: shape<MapZone>("MapZone", { id: value, name: value, source: value, cidr: value, vlan: value, tone: value }),
   outside: mapBox,
-  home: mapBox,
+  home: shape<MapLane>("MapLane", { zone_id: value, boxes: mapBox }),
+  empty_zones: value,
+  folding: value,
   firewalls: shape<MapFirewall>("MapFirewall", {
     id: value,
     name: value,
@@ -1295,6 +1295,9 @@ const contract: Record<string, Shape<unknown>> = {
   "manifest_applies.golden.json": shape<AppliesResponse>("AppliesResponse", { applies: apply }),
   "manifest_apply.golden.json": apply,
   "network.golden.json": networkMap,
+  "network_big.golden.json": networkMap,
+  "network_demo.golden.json": networkMap,
+  "network_flat.golden.json": networkMap,
   "probe.golden.json": probeResponse,
   "probes.golden.json": probes,
   "projects.golden.json": projects,

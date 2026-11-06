@@ -15,7 +15,32 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 - **Des catégories d'alertes par canal** (#494) : un canal choisit les familles qu'il reçoit (machines, services, tâches, sondes, sauvegardes, mises à jour). **Migration `040`** ; un canal existant n'a aucune catégorie et reçoit tout, comme avant.
 - **Le parcours navigateur ne tombe plus sous charge** (#490) : il retrouve un choix de menu par son nom et attend l'état de la page, plus un délai. Aucun changement pour l'opérateur.
 - **Rien de visible, mais une règle** (#498, lot 7 de la factorisation) : une logique n'a qu'une définition. Les tests attendent par `waittest.Until` (borne de 30 s au lieu de 2 ou 5 s), comparent les goldens par `goldentest.Compare` et partagent leurs petits gestes dans `testkit` ; des gardes `TestOneDefinition_*` refusent la copie. La documentation ne compte plus les ordres de l'agent.
+- **La carte réseau de la vue d'ensemble est refaite** (#507) : Internet, Ailleurs, Chez vous ; un couloir par zone, une carte par machine avec ses services. Voir plus bas.
 - **Aucune clé de `config.toml` nouvelle.**
+
+## La carte réseau (#507)
+
+- **Trois régions** de gauche à droite : **Internet** (une carte par entrée publique), **Ailleurs** (les machines hors de la maison, en cartes avec leurs services), **Chez vous**.
+- **Une machine sans hôte connu dont l'adresse est publique est « ailleurs »**, quel que soit son type détecté : un VPS dont l'agent n'a pas dit le type n'est plus dessiné chez vous.
+- **Chez vous** : le pare-feu est un **bandeau** (tunnels, nom, WAN, nombre de zones) ; dessous, **un couloir par zone qui contient une machine**. Les zones sans machine se replient en une puce « N zones sans machine ». **La boucle locale n'est plus affichée.**
+- **Chaque machine est une carte** dans le couloir de sa zone, une machine sans service comme les autres. Un hôte dit « héberge N machines » : le survol ou le clic met ses invités en évidence ; « VM sur pve » mène à l'hôte.
+- **Un seul trait par tunnel**, nommé, de la machine « ailleurs » au bandeau. **Plus de trait d'interface vers une machine.**
+- **Le repli par hôte ne vient qu'à 40 machines** (il venait à 12) : en dessous, tous les hôtes sont ouverts.
+
+| Ce qui change | Où | Ce que ça demande |
+| --- | --- | --- |
+| `home[]` est une liste de **couloirs** `{zone_id, boxes[]}` (c'était une liste de machines) | `GET /api/network` (interface seule, aucun jeton) | Rien : aucun client d'API ne la lit |
+| `outside[]` : machines à plat. `groups[]` **disparaît** ; une machine gagne `host_id`, `guest_count`, `folded` | idem | idem |
+| Champs nouveaux : `empty_zones[]`, `folding` | idem | idem |
+| Les interfaces de bouclage ne sont plus dans `firewalls[].interfaces[]` ni dans `zones[]` | idem | idem |
+
+### Ce que ça coûte
+
+- **Une machine à adresse publique est « ailleurs » même si elle est chez vous** : un serveur de la maison joint par une adresse publique (pas de NAT, IPv6 globale) sort de « Chez vous ». Le type se corrige à la main sur la fiche, mais la région suit l'adresse, pas le type.
+- Les adresses de documentation (192.0.2.x, 198.51.100.x, 203.0.113.x) comptent comme publiques : les données fictives des tests ont changé d'adresse en conséquence.
+- Un trait d'entrée d'Internet qui va vers une machine « chez vous » traverse la région « Ailleurs » : plus long, parfois croisé.
+- **Les entrées et les liens ne disent plus leur preuve au survol** (seulement au clavier et dans la liste « Liens ») : leur zone de survol volait le clic des cartes qu'ils traversent. Le tunnel garde le survol.
+- À 40 machines, un hôte replié cache les cartes de ses invités : leurs services ne se lisent plus qu'en dépliant.
 
 ## Les ancres de confiance
 

@@ -234,9 +234,15 @@ func vlanOf(nics []proxmox.NIC) int {
 
 // La carte telle que le front la lit.
 type networkMapJSON struct {
-	Zones     []mapZoneJSON     `json:"zones"`
-	Outside   []mapBoxJSON      `json:"outside"`
-	Home      []mapBoxJSON      `json:"home"`
+	Zones []mapZoneJSON `json:"zones"`
+	// Les machines hors de la maison, à plat.
+	Outside []mapBoxJSON `json:"outside"`
+	// Un couloir par zone qui contient une machine ; le couloir sans zone ferme la liste.
+	Home []mapLaneJSON `json:"home"`
+	// Les zones où aucune machine ne tourne.
+	EmptyZones []string `json:"empty_zones"`
+	// Vrai quand la carte est assez grande pour que les hôtes se replient.
+	Folding   bool              `json:"folding"`
 	Firewalls []mapFirewallJSON `json:"firewalls"`
 	Tunnels   []mapTunnelJSON   `json:"tunnels"`
 	Entries   []mapEntryJSON    `json:"entries"`
@@ -254,8 +260,14 @@ type mapZoneJSON struct {
 	Tone int `json:"tone"`
 }
 
+type mapLaneJSON struct {
+	ZoneID string       `json:"zone_id"`
+	Boxes  []mapBoxJSON `json:"boxes"`
+}
+
 // Une machine. managed : un agent la lit ; faux pour un invité que seul son
-// hôte connaît. groups : les invités d'un hôte, par zone.
+// hôte connaît. host_id : la carte de son hôte ; guest_count : ses invités ;
+// folded : l'hôte se présente replié.
 type mapBoxJSON struct {
 	ID          string           `json:"id"`
 	MachineID   string           `json:"machine_id"`
@@ -269,12 +281,9 @@ type mapBoxJSON struct {
 	Address     string           `json:"address"`
 	ZoneID      string           `json:"zone_id"`
 	Services    []mapServiceJSON `json:"services"`
-	Groups      []mapGroupJSON   `json:"groups"`
-}
-
-type mapGroupJSON struct {
-	ZoneID string       `json:"zone_id"`
-	Guests []mapBoxJSON `json:"guests"`
+	HostID      string           `json:"host_id"`
+	GuestCount  int              `json:"guest_count"`
+	Folded      bool             `json:"folded"`
 }
 
 // Une puce : un service dans sa machine. state : running, degraded, stopped,
@@ -344,7 +353,11 @@ func networkMapToJSON(result netmap.Map) networkMapJSON {
 			return mapZoneJSON{ID: zone.ID, Name: zone.Name, Source: zone.Source, CIDR: zone.CIDR, VLAN: zone.VLAN, Tone: zone.Tone}
 		}),
 		Outside: httpx.ConvertAll(result.Outside, mapBoxToJSON),
-		Home:    httpx.ConvertAll(result.Home, mapBoxToJSON),
+		Home: httpx.ConvertAll(result.Home, func(lane netmap.Lane) mapLaneJSON {
+			return mapLaneJSON{ZoneID: lane.ZoneID, Boxes: httpx.ConvertAll(lane.Boxes, mapBoxToJSON)}
+		}),
+		EmptyZones: result.EmptyZones,
+		Folding:    result.Folding,
 		Firewalls: httpx.ConvertAll(result.Firewalls, func(box netmap.FirewallBox) mapFirewallJSON {
 			return mapFirewallJSON{ID: box.ID, Name: box.Name, Interfaces: httpx.ConvertAll(box.Interfaces, func(iface netmap.FirewallInterface) mapInterfaceJSON {
 				return mapInterfaceJSON{Name: iface.Name, Device: iface.Device, Role: iface.Role, CIDR: iface.CIDR, Up: iface.Up, ZoneID: iface.ZoneID, Wan: iface.Wan, Tunnel: iface.Tunnel}
@@ -375,8 +388,6 @@ func mapBoxToJSON(box netmap.Box) mapBoxJSON {
 				ContainerID: service.ContainerID, ServiceID: service.ServiceID,
 			}
 		}),
-		Groups: httpx.ConvertAll(box.Groups, func(group netmap.Group) mapGroupJSON {
-			return mapGroupJSON{ZoneID: group.ZoneID, Guests: httpx.ConvertAll(group.Guests, mapBoxToJSON)}
-		}),
+		HostID: box.HostID, GuestCount: box.GuestCount, Folded: box.Folded,
 	}
 }

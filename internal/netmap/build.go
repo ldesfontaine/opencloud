@@ -183,7 +183,8 @@ func (b *builder) ownsGuest(hypervisor Hypervisor, guest Guest) bool {
 	return guest.Node == "" || !claimed || owner == hypervisor.MachineID
 }
 
-// giveZones donne à chaque boîte de la maison sa zone.
+// giveZones donne à chaque boîte de la maison sa zone ; celles du dehors n'en
+// ont pas.
 func (b *builder) giveZones() {
 	home := map[string]subject{}
 	for id, found := range b.subjects {
@@ -198,13 +199,18 @@ func (b *builder) giveZones() {
 	}
 }
 
-// isOutside : la machine est chez un hébergeur, sans hôte à elle.
+// isOutside : la machine n'est pas dans la maison. Un invité suit son hôte.
+// Une machine sans hôte connu est dehors quand c'est un VPS ou quand son
+// adresse est publique, quel que soit le type que l'agent a pu détecter.
 func (b *builder) isOutside(box *Box) bool {
-	if box.Kind != KindVPS {
-		return false
+	if parent, hosted := b.parent[box.ID]; hosted {
+		return b.isOutside(b.boxes[parent])
 	}
-	_, hosted := b.parent[box.ID]
-	return !hosted
+	if box.Kind == KindVPS {
+		return true
+	}
+	address := b.subjects[box.ID].address
+	return address.IsValid() && isPublic(address.String())
 }
 
 // attachServices pose les puces sur leurs machines et en tire les entrées
@@ -295,7 +301,7 @@ func hostOf(address string) string {
 }
 
 func (b *builder) finish() Map {
-	result := Map{Outside: []Box{}, Home: []Box{}, Firewalls: []FirewallBox{}, Tunnels: []Tunnel{}, Entries: []Entry{}, Links: []MapLink{}}
+	result := Map{Outside: []Box{}, Home: []Lane{}, EmptyZones: []string{}, Firewalls: []FirewallBox{}, Tunnels: []Tunnel{}, Entries: []Entry{}, Links: []MapLink{}}
 	used := map[string]bool{}
 	for _, id := range b.order {
 		if zoneID := b.boxes[id].ZoneID; zoneID != "" {
@@ -303,95 +309,74 @@ func (b *builder) finish() Map {
 		}
 	}
 	result.Zones = b.zoner.list(used)
-	zoneRank := map[string]int{}
-	for index, zone := range result.Zones {
-		zoneRank[zone.ID] = index
-	}
+	result.Folding = len(b.order) >= FoldFrom
+	lanes := map[string][]Box{}
 	for _, id := range b.order {
-		if _, nested := b.parent[id]; nested {
-			continue
-		}
-		box := b.completed(id, zoneRank)
+		box := b.completed(id, result.Folding)
 		if b.isOutside(b.boxes[id]) {
 			result.Outside = append(result.Outside, box)
 			continue
 		}
-		result.Home = append(result.Home, box)
+		lanes[box.ZoneID] = append(lanes[box.ZoneID], box)
 	}
-	sortTop(result.Outside)
-	sortTop(result.Home)
+	sortHostsFirst(result.Outside)
+	for _, zone := range result.Zones {
+		if boxes, found := lanes[zone.ID]; found {
+			sortHostsFirst(boxes)
+			result.Home = append(result.Home, Lane{ZoneID: zone.ID, Boxes: boxes})
+		} else {
+			result.EmptyZones = append(result.EmptyZones, zone.ID)
+		}
+		delete(lanes, zone.ID)
+	}
+	// Ce qui reste n'a pas de zone connue : un couloir à la fin.
+	if boxes, found := lanes[""]; found {
+		sortHostsFirst(boxes)
+		result.Home = append(result.Home, Lane{Boxes: boxes})
+	}
 	result.Firewalls = b.firewallBoxes()
 	result.Tunnels = b.tunnels(result)
 	result.Entries, result.Links = b.entriesAndLinks()
 	return result
 }
 
-// sortTop met les hôtes d'abord, puis le reste par zone et par nom : la
-// maison se lit du plus gros au plus petit.
-func sortTop(boxes []Box) {
+// sortHostsFirst met les hôtes d'abord, puis le reste par nom.
+func sortHostsFirst(boxes []Box) {
 	slices.SortStableFunc(boxes, func(a, c Box) int {
-		if hostA, hostC := len(a.Groups) > 0, len(c.Groups) > 0; hostA != hostC {
+		if hostA, hostC := a.GuestCount > 0, c.GuestCount > 0; hostA != hostC {
 			if hostA {
 				return -1
 			}
 			return 1
 		}
-		if byZone := strings.Compare(a.ZoneID, c.ZoneID); byZone != 0 {
-			return byZone
-		}
 		return strings.Compare(a.Name+a.ID, c.Name+c.ID)
 	})
 }
 
-// completed rend la boîte avec ses invités, rangés par zone dans l'ordre des
-// zones.
-func (b *builder) completed(id string, zoneRank map[string]int) Box {
+// completed rend la boîte avec ce que la carte en dit : son hôte, le nombre de
+// ses invités, et s'il se présente replié.
+func (b *builder) completed(id string, folding bool) Box {
 	box := *b.boxes[id]
 	if box.Services == nil {
 		box.Services = []Service{}
 	}
-	kids := b.children[id]
-	if len(kids) == 0 {
-		return box
-	}
-	byZone := map[string][]Box{}
-	for _, kidID := range kids {
-		kid := *b.boxes[kidID]
-		if kid.Services == nil {
-			kid.Services = []Service{}
-		}
-		byZone[kid.ZoneID] = append(byZone[kid.ZoneID], kid)
-	}
-	zoneIDs := make([]string, 0, len(byZone))
-	for zoneID := range byZone {
-		zoneIDs = append(zoneIDs, zoneID)
-	}
-	slices.SortFunc(zoneIDs, func(a, c string) int {
-		rankA, knownA := zoneRank[a]
-		rankC, knownC := zoneRank[c]
-		switch {
-		case knownA && knownC:
-			return rankA - rankC
-		case knownA != knownC:
-			if knownA {
-				return -1
-			}
-			return 1
-		}
-		return strings.Compare(a, c)
-	})
-	box.Groups = make([]Group, 0, len(zoneIDs))
-	for _, zoneID := range zoneIDs {
-		guests := byZone[zoneID]
-		slices.SortFunc(guests, func(a, c Box) int {
-			if a.VMID != c.VMID {
-				return a.VMID - c.VMID
-			}
-			return strings.Compare(a.Name+a.ID, c.Name+c.ID)
-		})
-		box.Groups = append(box.Groups, Group{ZoneID: zoneID, Guests: guests})
-	}
+	box.HostID = b.parent[id]
+	box.GuestCount = len(b.children[id])
+	box.Folded = folding && box.GuestCount > 0 && !b.hasTrouble(id)
 	return box
+}
+
+// hasTrouble : un service de la machine ou de ses invités est en échec ou à
+// moitié là. Un hôte dans ce cas reste ouvert.
+func (b *builder) hasTrouble(id string) bool {
+	for _, machineID := range append([]string{id}, b.children[id]...) {
+		for _, service := range b.boxes[machineID].Services {
+			if service.State == StateFailed || service.State == StateDegraded {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (b *builder) firewallBoxes() []FirewallBox {
@@ -399,6 +384,9 @@ func (b *builder) firewallBoxes() []FirewallBox {
 	for _, firewall := range b.in.Firewalls {
 		box := FirewallBox{ID: firewall.ID, Name: firewall.Name, Interfaces: make([]FirewallInterface, 0, len(firewall.Interfaces))}
 		for _, iface := range firewall.Interfaces {
+			if isLoopback(iface) {
+				continue
+			}
 			shown := FirewallInterface{
 				Name: iface.Name, Device: iface.Device, Role: iface.Role, CIDR: iface.Address, Up: iface.Up,
 				Wan: isPublic(iface.Address), Tunnel: isTunnelDevice(iface.Device),

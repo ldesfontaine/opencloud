@@ -6034,9 +6034,10 @@ déduit d'un processus. Un service systemd d'**un autre utilisateur** (unités
 
 ## La carte Réseau de la vue d'ensemble
 
-`GET /api/network` rend **un arbre**, pas un graphe de conteneurs : le serveur
-le déduit (`internal/netmap`, fonction pure), le front le dessine (v0.5.2 R1,
-#457). Aucune zone, aucun nom, aucune adresse n'est écrit en dur.
+`GET /api/network` rend **une carte en trois régions** (Internet, ailleurs, chez
+vous), pas un graphe de conteneurs : le serveur la déduit (`internal/netmap`,
+fonction pure), le front la dessine (v0.5.2 R1, #457 ; remise en page #507).
+Aucune zone, aucun nom, aucune adresse n'est écrit en dur.
 
 **Ce que la carte lit, et d'où.** Rien ne vient de l'agent en plus : aucune
 lecture neuve, aucun droit neuf, aucun ré-enrôlement.
@@ -6059,23 +6060,37 @@ répond) :
 | Pas d'adresse, mais un **tag VLAN** : les autres machines du même tag ont voté (la zone la plus citée gagne), sinon l'appareil de l'interface porte le tag (`…vlan50`, `….50`) | la zone du vote ou de l'interface | idem ; sans pare-feu, « VLAN 50 » |
 | Un tag que rien ne rapproche | une zone de tag | « VLAN 50 » |
 | Seulement une adresse | le **sous-réseau** supposé (/24 en IPv4, /64 en IPv6) | le CIDR |
-| Ni adresse ni tag | aucune zone | l'invité va dans le groupe « sans zone » |
+| Ni adresse ni tag | aucune zone | la machine va dans le couloir « Sans zone », le dernier |
 
 Un tag appris par le vote est **dit sur la zone** (`vlan`). La **teinte** (de 0 à
 7) vient d'un hachage stable de l'identifiant de la zone ; deux zones ne
 partagent une teinte que s'il y a plus de huit zones.
 
-**Où va chaque machine.**
+**Où va chaque machine** (le serveur décide, le front dessine ; chaque machine
+a sa carte, jamais « dans » son hôte).
 
 | Machine | Place |
 | --- | --- |
-| Type `vps` sans hôte | **Dehors**, à gauche d'Internet |
-| Hôte d'invités (Proxmox ou « hôte » posé à la main) | Une boîte de la maison, avec **ses invités dedans**, rangés par zone |
-| Invité rapproché d'une machine enrôlée | Dans son hôte, avec son numéro (`VM 5010`) ; jamais à côté |
-| Invité que seul l'hôte connaît (sans agent) | Dans son hôte, sans service, son état tel que l'hôte le dit |
+| Sans hôte connu, de type `vps` **ou à adresse publique** (`machine.IsPublicAddress`), quel que soit le type que l'agent a détecté | **Ailleurs**, sans zone |
+| Un invité d'une machine « ailleurs » | **Ailleurs** : un invité suit son hôte |
+| Sans hôte connu, à adresse privée, sans adresse ou nommée plutôt qu'adressée, de type inconnu ou non | **Chez vous**, dans le couloir de sa zone |
+| Hôte d'invités (Proxmox ou « hôte » posé à la main) | Une carte dans le couloir de **sa** zone, qui dit « héberge N machines » |
+| Invité rapproché d'une machine enrôlée | Une carte dans le couloir de **sa** zone, avec son numéro (`VM 5010`) et « VM sur pve » ; jamais dans l'hôte |
+| Invité que seul l'hôte connaît (sans agent) | Idem, sans service, son état tel que l'hôte le dit |
 | Un modèle de VM | Nulle part |
-| Les autres (Pi, machine à plat) | Une boîte de la maison, avec sa zone |
-| Une chaîne d'hôtes qui boucle, un hôte inconnu | À plat |
+| Une chaîne d'hôtes qui boucle, un hôte inconnu | À plat, sans hôte |
+
+**Les couloirs.** Un couloir par zone qui contient au moins une machine, dans
+l'ordre des zones (celui du pare-feu, puis les autres par nom) ; les hôtes
+d'abord, puis les machines par nom. Les zones du pare-feu où rien ne tourne
+n'ont pas de couloir : la réponse les liste à part (`empty_zones`). **La boucle
+locale** (`lo`, `lo0`, adresse de bouclage) n'est ni une zone ni une interface
+dessinée.
+
+**Le repli par hôte.** Il ne vient qu'à **40 machines** (`netmap.FoldFrom`,
+`folding: true`) : un hôte sans service en défaut (échec ou dégradé, lui ou
+ses invités) part alors replié (`folded: true`). Sous 40, aucun hôte ne se
+replie. Le choix de l'opérateur l'emporte ensuite, côté interface.
 
 **Tunnels.** Une interface de pare-feu dont l'appareil s'appelle `wg…`, `tun…`,
 `ovpn…`, `ipsec…` ou `gif…` est un tunnel ; un service du dehors dont le nom
@@ -6095,29 +6110,37 @@ compte de l'hôte, une adresse du réseau local) : il reste sur la fiche du
 service. Une route déduite que l'opérateur a écartée : jamais.
 
 **Ce que le front en fait** (`web/src/components/netmap/`, maquette
-`docs/projet/maquettes/reseau-carte.html`).
+historique `docs/projet/maquettes/reseau-carte.html`, remplacée depuis #507 par
+la mise en page ci-dessous : régions, couloirs, cartes).
 
 | Élément | Rendu |
 | --- | --- |
-| Trois colonnes | **Hébergeur externe** (machines `vps`), bande **Internet**, **Chez vous** ; sans VPS, la première colonne disparaît |
-| Machine | Une boîte : nom (lien vers la fiche), badge de type (`VM 5010`, `LXC 5011`), adresse, ses services en **puces** (état en mot si ce n'est pas « en marche ») |
-| Hôte | Une boîte qui porte ses invités, rangés par **zone** (cadre, nom, VLAN, CIDR, teinte) ; il se replie sur son en-tête (nombre de machines et de services, pire état) |
-| Machine sans service | Jamais une boîte : une ligne « n machines sans service : a · b » par zone |
-| Repli au départ | Au-delà de **12 machines**, tous les hôtes sans service en défaut ; le choix de l'opérateur l'emporte ensuite |
-| Pare-feu | Une boîte entre Internet et les zones, une ligne par interface (teinte de sa zone, cadenas pour un tunnel, « WAN ») ; un connecteur coloré mène à chaque zone |
-| Traits | Zones (connecteurs), entrées d'Internet (ports sur la puce), liens (plein : déclaré, pointillé court : déduit, pointillé long : observé ; « ? » : à confirmer ; pâle : ancien), tunnel (épais, cadenas) |
-| Preuve | Au survol **et au clavier** (focus du trait) ; la même chose dans la liste « Liens (n) » sous la carte, ouverte d'office sous 860 px où les traits sont cachés |
+| Trois régions, de gauche à droite | **Internet** (une carte par entrée publique : service, machine, ports, « vue d'Internet »), **Ailleurs** (les machines hors de la maison, en cartes ; sans machine dehors, la région disparaît), **Chez vous** ; sous 860 px elles s'empilent dans le même ordre |
+| Pare-feu | Un **bandeau** en tête de « Chez vous » : tunnels, nom (lien vers sa fiche), WAN, nombre de zones. Plus de colonne d'interfaces |
+| Couloirs | Un couloir par zone qui contient une machine (nom, VLAN, sous-réseau, teinte) ; en colonnes de 300 px au moins, à la ligne sur un écran étroit. Les zones sans machine : une puce « N zones sans machine » qui se déplie au clic |
+| Machine | Une **carte** : état, nom (lien vers la fiche), type (`VM 5010`), adresse, « VM sur pve » (bouton), ses services en **puces** (état en mot si ce n'est pas « en marche ») ; sans service : « Aucun service » |
+| Hôte | Une carte comme les autres, avec « héberge N machines » : le survol ou ce bouton met l'hôte et ses invités en évidence (les autres s'effacent) ; « VM sur pve » amène à l'hôte et fige la mise en évidence |
+| Repli | À 40 machines : un hôte replié cache les cartes de ses invités et dit ses services, son pire état et leurs zones ; un bouton le déplie, « Tout replier / Tout déplier » en tête |
+| Traits | Entrées d'Internet (de la carte de l'entrée à la puce du service ; un clic sur la carte met la puce en évidence), liens (plein : déclaré, pointillé court : déduit, pointillé long : observé ; « ? » : à confirmer ; pâle : ancien), **un trait de tunnel** nommé (« WireGuard · chiffré », épais, cadenas) de la carte de la machine « ailleurs » à l'interface du tunnel du bandeau. **Aucun trait d'interface vers une machine** : la zone se lit au couloir |
+| Preuve | Au **clavier** (focus du trait) pour une entrée ou un lien, au survol **et** au clavier pour le tunnel : la zone de survol d'un autre trait volerait le clic des cartes qu'il traverse. La même chose dans la liste « Liens (n) » sous la carte, ouverte d'office sous 860 px où les traits sont cachés |
 | Teinte de zone | `oklch(from var(--accent) l c calc(h + n × 45))` : aucun jeton ajouté |
 
-Un hôte replié reçoit sur son en-tête les traits de ses invités (deux liens qui
+Un hôte replié reçoit sur sa carte les traits de ses invités (deux liens qui
 tombent sur les mêmes ancres n'en font qu'un).
+
+**Jeux de démonstration.** `internal/server/api_network_map_demo_test.go` dit
+trois réseaux génériques (la forme d'un vrai réseau : treize interfaces dont la
+boucle locale, un VPS de type inconnu, un hôte et dix invités sur cinq zones ;
+tout à plat ; quarante machines). Leur sortie est figée dans
+`internal/server/testdata/network_{demo,flat,big}.golden.json` ; le parcours
+navigateur et les captures les servent à la place de la réponse du serveur.
 
 **Impact mcp-maison** (source absente de cet espace de travail : déduit des
 formes de l'API).
 
 | Ce qui change | Où | Ce que mcp-maison doit suivre |
 | --- | --- | --- |
-| **`GET /api/network` change de forme** : `machines[]` et `links[]` disparaissent ; `zones[]`, `outside[]`, `home[]` (boîtes avec `services[]` et `groups[].guests[]`), `firewalls[]`, `tunnels[]`, `entries[]`, `links[]` (`from`, `to` = identifiants de puces `s:<machine>\|<clé>`) | route d'opérateur seul, **hors liste des jetons** : aucun jeton ne la lisait | Rien tant qu'un outil n'y est pas branché ; `GET /api/machines/{id}/network` (jeton ouvert) **ne change pas** |
+| **`GET /api/network` change de forme** (R1, puis #507) : `zones[]`, `outside[]` (machines à plat), `home[]` (**couloirs** `{zone_id, boxes[]}`), `empty_zones[]`, `folding`, `firewalls[]`, `tunnels[]`, `entries[]`, `links[]` (`from`, `to` = identifiants de puces `s:<machine>\|<clé>`) ; une machine porte `services[]`, `host_id`, `guest_count`, `folded` (plus de `groups[].guests[]`) | route d'opérateur seul, **hors liste des jetons** : aucun jeton ne la lisait | Rien tant qu'un outil n'y est pas branché ; `GET /api/machines/{id}/network` (jeton ouvert) **ne change pas** |
 | Aucune route, aucun verbe, aucun droit d'agent de plus | | Rien |
 
 **Coût.** La carte relit tout à chaque ouverture (machines, conteneurs,

@@ -75,7 +75,8 @@ export interface MapService {
 }
 
 // Une machine. managed : un agent la lit ; faux pour un invité que seul son
-// hôte connaît. groups : les invités d'un hôte, rangés par zone.
+// hôte connaît. host_id : la carte de son hôte, vide sinon ; guest_count : les
+// invités d'un hôte ; folded : l'hôte se présente replié (ses invités cachés).
 export interface MapBox {
   id: string;
   machine_id: string;
@@ -89,12 +90,16 @@ export interface MapBox {
   address: string;
   zone_id: string;
   services: MapService[];
-  groups: MapGroup[];
+  host_id: string;
+  guest_count: number;
+  folded: boolean;
 }
 
-export interface MapGroup {
+// Le couloir d'une zone : les machines qui y sont, les hôtes d'abord. Un
+// zone_id vide est le couloir des machines que rien ne place.
+export interface MapLane {
   zone_id: string;
-  guests: MapBox[];
+  boxes: MapBox[];
 }
 
 export interface MapInterface {
@@ -145,11 +150,16 @@ export interface MapLink {
   last_seen_at: string;
 }
 
-// La carte de la vue d'ensemble : le dehors, la maison, ce qui les relie.
+// La carte de la vue d'ensemble : Internet (les entrées), l'extérieur (à plat),
+// la maison (un couloir par zone qui contient une machine), ce qui les relie.
+// empty_zones : les zones où aucune machine ne tourne. folding : la carte est
+// assez grande pour que les hôtes se replient.
 export interface NetworkMap {
   zones: MapZone[];
   outside: MapBox[];
-  home: MapBox[];
+  home: MapLane[];
+  empty_zones: string[];
+  folding: boolean;
   firewalls: MapFirewall[];
   tunnels: MapTunnel[];
   entries: MapEntry[];

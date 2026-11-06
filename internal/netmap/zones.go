@@ -24,6 +24,9 @@ var tunnelDevices = []string{"wg", "tun", "ovpn", "ipsec", "gif"}
 // igc1_vlan50, igc1.50.
 var vlanDevice = regexp.MustCompile(`(?:vlan0*|[._])([0-9]{1,4})$`)
 
+// loopbackDevice reconnaît l'appareil de la boucle locale : lo, lo0.
+var loopbackDevice = regexp.MustCompile(`(?i)^lo[0-9]*$`)
+
 // subject est ce qui a une zone : une machine ou un invité, par son adresse
 // et son tag VLAN, quand les données les disent.
 type subject struct {
@@ -51,7 +54,7 @@ func newZoner(firewalls []Firewall) *zoner {
 	z := &zoner{zones: map[string]*Zone{}, byTag: map[int]string{}}
 	for _, firewall := range firewalls {
 		for _, iface := range firewall.Interfaces {
-			if isTunnelDevice(iface.Device) || isPublic(iface.Address) {
+			if isLoopback(iface) || isTunnelDevice(iface.Device) || isPublic(iface.Address) {
 				continue
 			}
 			prefix, err := netip.ParsePrefix(iface.Address)
@@ -246,6 +249,16 @@ func subnetOf(address netip.Addr) netip.Prefix {
 		bits = 24
 	}
 	return netip.PrefixFrom(address, bits).Masked()
+}
+
+// isLoopback : la boucle locale d'un pare-feu (lo0, lo, 127.0.0.1/8) n'est ni
+// une zone ni une interface qu'on dessine.
+func isLoopback(iface Interface) bool {
+	if loopbackDevice.MatchString(iface.Device) {
+		return true
+	}
+	prefix, err := netip.ParsePrefix(iface.Address)
+	return err == nil && prefix.Addr().IsLoopback()
 }
 
 func isTunnelDevice(device string) bool {
