@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/systemdunits"
 )
 
@@ -55,7 +56,7 @@ func TestSystemd_TheSignalWritesTheReportAndTheAPIReadsItWithTheDeclaredService(
 	if machine.Code != http.StatusOK {
 		t.Fatalf("machine: %d %s", machine.Code, machine.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "systemd_units_machine.golden.json"), normalize(machine.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "systemd_units_machine.golden.json"), normalize(machine.Body.String()))
 
 	service := callAPI(server.Server, http.MethodGet, "/api/directory/services/"+created.ID, nil)
 	var detail struct {
@@ -139,7 +140,7 @@ func TestSystemd_ProposalForAReportedUnit_AndItsRefusals(t *testing.T) {
 	if proposal.Code != http.StatusOK {
 		t.Fatalf("proposition : %d %s", proposal.Code, proposal.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "proposal_systemd_unit.golden.json"), normalize(proposal.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "proposal_systemd_unit.golden.json"), normalize(proposal.Body.String()))
 
 	gone := callAPI(server.Server, http.MethodGet, "/api/directory/proposal?machine="+remoteID+"&unit=inconnue.service", nil)
 	if gone.Code != http.StatusNotFound || !strings.Contains(gone.Body.String(), "directory.systemd_unit_not_observed") {

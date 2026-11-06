@@ -11,6 +11,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 )
 
@@ -61,7 +62,7 @@ func TestAgentUpdates_ThePlanIsReadableByAReadTokenAndRecommendsAnOrder(t *testi
 	if third.Name != "opencloud" || third.Order != nil || third.BlockedReason != "offline" || third.RollbackCapable {
 		t.Fatalf("third %+v", third)
 	}
-	compareGolden(t, filepath.Join("testdata", "agent_updates.golden.json"), normalize(got.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "agent_updates.golden.json"), normalize(got.Body.String()))
 
 	// Lire le plan n'a rien envoyé : le serveur ne met jamais plusieurs agents
 	// à jour d'un coup.
@@ -77,7 +78,7 @@ func TestAgentUpdates_TheMigrationLinesComeFromTheInterface(t *testing.T) {
 	if got.Code != http.StatusOK {
 		t.Fatalf("%d %s", got.Code, got.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "agent_migration.golden.json"), normalize(got.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "agent_migration.golden.json"), normalize(got.Body.String()))
 	// Les commandes ne sont pas pour un jeton : elles posent des fichiers à root.
 	if refused := callBearer(server.Server, "/api/agent-migration", server.issueAPIToken(t, "mcp-lecteur")); refused.Code != http.StatusForbidden {
 		t.Fatalf("a token read the migration: %d", refused.Code)

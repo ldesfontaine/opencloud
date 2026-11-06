@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agent"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 // failingReader échoue le test si l'entrée est lue.
@@ -35,21 +36,11 @@ func testCatalog(t *testing.T) lang.Catalog {
 	return catalogs.For(lang.French)
 }
 
-func emptyStateDir(t *testing.T) *os.Root {
-	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
-	return root
-}
-
 func TestEnrollmentTokenFor_ReadsTheTokenOnStandardInput(t *testing.T) {
 	var prompt bytes.Buffer
 	text := testCatalog(t)
 
-	token, err := enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", strings.NewReader("  oc_abc234 \r\nautre ligne\n"), &prompt, false, text)
+	token, err := enrollmentTokenFor(testkit.EmptyRoot(t), "https://opencloud.example.org", strings.NewReader("  oc_abc234 \r\nautre ligne\n"), &prompt, false, text)
 	if err != nil || token != "oc_abc234" {
 		t.Fatalf("token %q, err %v", token, err)
 	}
@@ -58,13 +49,13 @@ func TestEnrollmentTokenFor_ReadsTheTokenOnStandardInput(t *testing.T) {
 	}
 
 	// Sans retour à la ligne final, la ligne vaut quand même.
-	token, err = enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", strings.NewReader("oc_abc234"), &prompt, false, text)
+	token, err = enrollmentTokenFor(testkit.EmptyRoot(t), "https://opencloud.example.org", strings.NewReader("oc_abc234"), &prompt, false, text)
 	if err != nil || token != "oc_abc234" {
 		t.Fatalf("token %q, err %v", token, err)
 	}
 
 	// Sur un terminal, l'invite dit quoi saisir.
-	token, err = enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", strings.NewReader("oc_abc234\n"), &prompt, true, text)
+	token, err = enrollmentTokenFor(testkit.EmptyRoot(t), "https://opencloud.example.org", strings.NewReader("oc_abc234\n"), &prompt, true, text)
 	if err != nil || token != "oc_abc234" || prompt.String() != text.Get("agent.token_prompt") {
 		t.Fatalf("token %q, err %v, prompt %q", token, err, prompt.String())
 	}
@@ -74,7 +65,7 @@ func TestEnrollmentTokenFor_RefusesAnEmptyOrClosedInput(t *testing.T) {
 	text := testCatalog(t)
 	for name, input := range map[string]string{"fermée": "", "ligne vide": "\n", "espaces": "   \t \n"} {
 		t.Run(name, func(t *testing.T) {
-			_, err := enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", strings.NewReader(input), io.Discard, false, text)
+			_, err := enrollmentTokenFor(testkit.EmptyRoot(t), "https://opencloud.example.org", strings.NewReader(input), io.Discard, false, text)
 			if !errors.Is(err, agent.ErrTokenMissing) {
 				t.Fatalf("got %v", err)
 			}
@@ -86,7 +77,7 @@ func TestEnrollmentTokenFor_RefusesAnEmptyOrClosedInput(t *testing.T) {
 }
 
 func TestEnrollmentTokenFor_NeverReadsInputOfAnEnrolledAgent(t *testing.T) {
-	root := emptyStateDir(t)
+	root := testkit.EmptyRoot(t)
 	identity, err := agent.NewIdentity("https://opencloud.example.org", "", lang.French, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +95,7 @@ func TestEnrollmentTokenFor_NeverReadsInputOfAnEnrolledAgent(t *testing.T) {
 }
 
 func TestEnrollmentTokenFor_WithoutServerLeavesTheRefusalToTheAgent(t *testing.T) {
-	token, err := enrollmentTokenFor(emptyStateDir(t), "", failingReader{t}, io.Discard, true, testCatalog(t))
+	token, err := enrollmentTokenFor(testkit.EmptyRoot(t), "", failingReader{t}, io.Discard, true, testCatalog(t))
 	if err != nil || token != "" {
 		t.Fatalf("token %q, err %v", token, err)
 	}

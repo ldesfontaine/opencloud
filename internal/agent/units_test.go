@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/systemdunits"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 func aUnitReport(active systemdunits.Active) systemdunits.Report {
@@ -57,7 +58,7 @@ func TestUnitsLoop_ReadsEveryPeriodAndLogsOnlyCounts(t *testing.T) {
 		unitsLoop(ctx, read, reports, 5*time.Millisecond, slog.New(slog.NewTextHandler(&journal, nil)))
 		close(done)
 	}()
-	waitUntil(t, "plusieurs lectures", func() bool { return reads.Load() >= 3 })
+	waittest.Until(t, "plusieurs lectures", func() bool { return reads.Load() >= 3 })
 	cancel()
 	select {
 	case <-done:

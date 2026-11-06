@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -72,7 +73,7 @@ func TestDirectoryAPI_ReadsMatchGoldenFiles(t *testing.T) {
 			if recorder.Code != http.StatusOK {
 				t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
 			}
-			compareGolden(t, filepath.Join("testdata", name+".golden.json"), normalize(recorder.Body.String()))
+			goldentest.Compare(t, filepath.Join("testdata", name+".golden.json"), normalize(recorder.Body.String()))
 		})
 	}
 }

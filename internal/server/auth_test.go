@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
@@ -317,7 +318,7 @@ func TestAuthAPI_EnableChangeDisable(t *testing.T) {
 	if read.Code != http.StatusOK {
 		t.Fatalf("new password: %d", read.Code)
 	}
-	compareGolden(t, filepath.Join("testdata", "auth.golden.json"), read.Body.String())
+	goldentest.Compare(t, filepath.Join("testdata", "auth.golden.json"), read.Body.String())
 
 	again := callBasicJSON(server.Server, http.MethodPost, "/api/auth/actions/enable", `{"username":"x","password":"`+newPassword+`"}`, newPassword)
 	if again.Code != http.StatusConflict || errorCode(t, again) != "auth.already_enabled" {

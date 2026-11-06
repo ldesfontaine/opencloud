@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 )
 
@@ -56,12 +57,12 @@ func TestSSHKeys_TheSignalWritesTheReportAndTheAPIReadsIt(t *testing.T) {
 	if one.Code != http.StatusOK {
 		t.Fatalf("machine: %d %s", one.Code, one.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "ssh_keys_machine.golden.json"), normalize(one.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "ssh_keys_machine.golden.json"), normalize(one.Body.String()))
 	matrix := callAPI(server.Server, http.MethodGet, "/api/ssh-keys", nil)
 	if matrix.Code != http.StatusOK {
 		t.Fatalf("matrice: %d %s", matrix.Code, matrix.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "ssh_keys.golden.json"), normalize(matrix.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "ssh_keys.golden.json"), normalize(matrix.Body.String()))
 }
 
 func TestSSHKeys_AMachineThatReportedNothingYetReadsEmptyAndUndated(t *testing.T) {

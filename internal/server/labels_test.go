@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 )
 
 func labelledObserved(id, name string, labels map[string]string) container.Observed {
@@ -235,7 +236,7 @@ func TestManifestAPI_ExportProposeMatchesGolden(t *testing.T) {
 	if strings.Contains(body, "typo") {
 		t.Fatalf("un label orphelin ne se propose pas :\n%s", body)
 	}
-	compareGolden(t, filepath.Join("testdata", "manifest_export_propose.golden.yaml"), normalizeYAML(body))
+	goldentest.Compare(t, filepath.Join("testdata", "manifest_export_propose.golden.yaml"), normalizeYAML(body))
 
 	// Toute autre valeur vaut sans propositions.
 	for _, value := range []string{"0", "true", "yes", ""} {

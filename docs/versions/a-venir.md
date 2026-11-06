@@ -14,6 +14,7 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 - **Des alertes de processeur et de mémoire**, des **seuils réglables par machine**, « **Lu / Non lu** » à la place d'« acquitter », et un **rappel** des alertes de danger restées sans lecture (#489) : voir plus bas.
 - **Des catégories d'alertes par canal** (#494) : un canal choisit les familles qu'il reçoit (machines, services, tâches, sondes, sauvegardes, mises à jour). **Migration `040`** ; un canal existant n'a aucune catégorie et reçoit tout, comme avant.
 - **Le parcours navigateur ne tombe plus sous charge** (#490) : il retrouve un choix de menu par son nom et attend l'état de la page, plus un délai. Aucun changement pour l'opérateur.
+- **Rien de visible, mais une règle** (#498, lot 7 de la factorisation) : une logique n'a qu'une définition. Les tests attendent par `waittest.Until` (borne de 30 s au lieu de 2 ou 5 s), comparent les goldens par `goldentest.Compare` et partagent leurs petits gestes dans `testkit` ; des gardes `TestOneDefinition_*` refusent la copie. La documentation ne compte plus les ordres de l'agent.
 - **Aucune clé de `config.toml` nouvelle.**
 
 ## Les ancres de confiance

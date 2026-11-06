@@ -2,17 +2,18 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/live"
 )
@@ -68,18 +69,13 @@ func TestAlertsAPI_ReadsMatchGoldenFiles(t *testing.T) {
 			if strings.Contains(body, "s3cret") {
 				t.Fatal("the secret must never leave the process")
 			}
-			compareGolden(t, filepath.Join("testdata", name+".golden.json"), normalize(body))
+			goldentest.Compare(t, filepath.Join("testdata", name+".golden.json"), normalize(body))
 		})
 	}
 }
 
 func itoa(id int64) string {
-	return strings.TrimSpace(strings.Repeat(" ", 0) + json.Number(strings.TrimSpace(string(mustJSON(id)))).String())
-}
-
-func mustJSON(value any) []byte {
-	encoded, _ := json.Marshal(value)
-	return encoded
+	return strconv.FormatInt(id, 10)
 }
 
 // Acquitter sort du compteur rouge ; la résolution vient du composant,

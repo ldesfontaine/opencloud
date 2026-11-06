@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 )
@@ -38,7 +39,7 @@ func TestExport_IsDeterministicAndSorted(t *testing.T) {
 	if string(again) != string(second.export(t)) {
 		t.Fatalf("the insertion order changes the file:\n%s\n----\n%s", again, second.export(t))
 	}
-	compareGolden(t, filepath.Join("testdata", "export.golden.yaml"), again)
+	goldentest.Compare(t, filepath.Join("testdata", "export.golden.yaml"), string(again))
 
 	file, problems := manifest.Parse(again)
 	if len(problems) > 0 {

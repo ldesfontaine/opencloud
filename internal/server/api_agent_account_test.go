@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 )
 
 // reconnectAs fait redire à l'agent de la machine distante son compte et les
@@ -32,7 +34,7 @@ func TestMachine_SaysTheAccountAndWhatItCannotExercise(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "machine_account.golden.json"), normalize(recorder.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "machine_account.golden.json"), normalize(recorder.Body.String()))
 
 	var fiche machineJSON
 	decodeAPI(t, recorder, &fiche)
@@ -68,7 +70,7 @@ func TestDeploy_AnUnavailableRightIsShownAndTheOrderStillGoes(t *testing.T) {
 	if plan.Code != http.StatusOK {
 		t.Fatalf("plan: %d %s", plan.Code, plan.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "deploy_plan_unavailable.golden.json"), normalize(plan.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "deploy_plan_unavailable.golden.json"), normalize(plan.Body.String()))
 
 	sent := callAPI(server.Server, http.MethodPost, "/api/directory/services/"+id+"/actions/deploy", map[string]any{})
 	if sent.Code != http.StatusCreated {
@@ -87,7 +89,7 @@ func TestBackups_AnUnavailableRightIsShownAndTheRunStillGoes(t *testing.T) {
 	if overview.Code != http.StatusOK {
 		t.Fatalf("overview: %d %s", overview.Code, overview.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "backups_unavailable.golden.json"), normalizeBackups(overview.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "backups_unavailable.golden.json"), normalizeBackups(overview.Body.String()))
 
 	run := callAPI(server.Server, http.MethodPost, "/api/backups/plans/database/actions/run", map[string]any{})
 	if run.Code != http.StatusCreated {

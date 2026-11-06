@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/firewall"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense/opnsensetest"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -71,7 +72,7 @@ func TestFirewalls_NoneDeclaredIsAnEmptyListAndNothingElseChanges(t *testing.T) 
 	if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"firewalls":[]`) {
 		t.Fatalf("%d %s", got.Code, got.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "firewalls_empty.golden.json"), normalize(got.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "firewalls_empty.golden.json"), normalize(got.Body.String()))
 	if got := callAPI(server.Server, http.MethodGet, "/api/firewalls/inconnu", nil); got.Code != http.StatusNotFound {
 		t.Fatalf("unknown firewall: %d", got.Code)
 	}
@@ -135,11 +136,11 @@ func TestFirewalls_DeclareReadRedeclareAndRemove(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodGet, path, nil); got.Body.String() != created.Body.String() {
 		t.Fatalf("the post answers with the card:\n%s\n%s", created.Body.String(), got.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "firewall.golden.json"), goldenFirewall(fake, created.Body.String()))
-	compareGolden(t, filepath.Join("testdata", "firewalls.golden.json"), goldenFirewall(fake, callAPI(server.Server, http.MethodGet, "/api/firewalls", nil).Body.String()))
-	compareGolden(t, filepath.Join("testdata", "firewall_rules.golden.json"), goldenFirewall(fake, callAPI(server.Server, http.MethodGet, path+"/rules", nil).Body.String()))
-	compareGolden(t, filepath.Join("testdata", "firewall_interfaces.golden.json"), goldenFirewall(fake, callAPI(server.Server, http.MethodGet, path+"/interfaces", nil).Body.String()))
-	compareGolden(t, filepath.Join("testdata", "firewall_leases.golden.json"), goldenFirewall(fake, callAPI(server.Server, http.MethodGet, path+"/leases", nil).Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "firewall.golden.json"), goldenFirewall(fake, created.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "firewalls.golden.json"), goldenFirewall(fake, callAPI(server.Server, http.MethodGet, "/api/firewalls", nil).Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "firewall_rules.golden.json"), goldenFirewall(fake, callAPI(server.Server, http.MethodGet, path+"/rules", nil).Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "firewall_interfaces.golden.json"), goldenFirewall(fake, callAPI(server.Server, http.MethodGet, path+"/interfaces", nil).Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "firewall_leases.golden.json"), goldenFirewall(fake, callAPI(server.Server, http.MethodGet, path+"/leases", nil).Body.String()))
 
 	var detail firewallDetailJSON
 	decodeAPI(t, created, &detail)
@@ -336,7 +337,7 @@ func TestFirewallFlows_AreTheGridOfTheGenericModel(t *testing.T) {
 	if got.Code != http.StatusOK {
 		t.Fatalf("flows: %d %s", got.Code, got.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "firewall_flows.golden.json"), goldenFirewall(fake, got.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "firewall_flows.golden.json"), goldenFirewall(fake, got.Body.String()))
 	var flows firewallFlowsResponse
 	decodeAPI(t, got, &flows)
 	if len(flows.Cells) == 0 || len(flows.Rows) == 0 || flows.Disabled != 1 {

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // Le serveur envoie ce que Probe.Task() lui fait bâtir d'une définition
@@ -254,10 +256,7 @@ func TestRunner_AssignNeverStartsARefusedTask(t *testing.T) {
 		t.Fatalf("écartées %d, attendu %d", got, len(refused))
 	}
 	// Run démarre à part : un jeu reçu avant lui s'applique à son départ.
-	deadline := time.Now().Add(3 * time.Second)
-	for runner.Count() < 1 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waittest.Until(t, "the kept task to start", func() bool { return runner.Count() >= 1 })
 	if runner.Count() != 1 {
 		t.Fatalf("%d sondes en cours, attendu 1", runner.Count())
 	}

@@ -2,8 +2,6 @@ package agentapi
 
 import (
 	"bufio"
-	"crypto/sha256"
-	"encoding/hex"
 	"io"
 	"net"
 	"net/http"
@@ -16,6 +14,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 // Un colis ne se sert qu'à la machine pour laquelle il a été écrit, sous le
@@ -111,11 +110,6 @@ const (
 	archiveContent = "age-encryption.org/v1\nune archive de test"
 )
 
-func sumOf(content string) string {
-	sum := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(sum[:])
-}
-
 // Le producteur téléverse dans le colis que le serveur lui a ouvert, la
 // destination le lit ensuite, et nul autre ne touche ni à l'un ni à l'autre.
 func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
@@ -170,26 +164,26 @@ func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
 	// Les refus d'avant le colis : pas de session, pas de protocole, et un colis
 	// qui n'attend ni la destination ni une machine inconnue.
 	for name, got := range map[string]*httptest.ResponseRecorder{
-		"no token":      put("", archiveContent, sumOf(archiveContent)),
-		"a wrong token": put("not-a-session", archiveContent, sumOf(archiveContent)),
-		"protocol 1":    call(http.MethodPut, path, producerSession, archiveContent, sumOf(archiveContent), false),
+		"no token":      put("", archiveContent, testkit.SHA256Hex([]byte(archiveContent))),
+		"a wrong token": put("not-a-session", archiveContent, testkit.SHA256Hex([]byte(archiveContent))),
+		"protocol 1":    call(http.MethodPut, path, producerSession, archiveContent, testkit.SHA256Hex([]byte(archiveContent)), false),
 	} {
 		want := map[string]int{"no token": http.StatusUnauthorized, "a wrong token": http.StatusUnauthorized, "protocol 1": http.StatusUpgradeRequired}[name]
 		if got.Code != want {
 			t.Errorf("%s: %d %s", name, got.Code, got.Body.String())
 		}
 	}
-	if got := put(destinationSession, archiveContent, sumOf(archiveContent)); got.Code != http.StatusNotFound {
+	if got := put(destinationSession, archiveContent, testkit.SHA256Hex([]byte(archiveContent))); got.Code != http.StatusNotFound {
 		t.Fatalf("the destination fills its own parcel: %d %s", got.Code, got.Body.String())
 	}
-	if got := call(http.MethodPut, agentwire.ParcelPath("colis-inconnu", archiveName), producerSession, archiveContent, sumOf(archiveContent), true); got.Code != http.StatusNotFound {
+	if got := call(http.MethodPut, agentwire.ParcelPath("colis-inconnu", archiveName), producerSession, archiveContent, testkit.SHA256Hex([]byte(archiveContent)), true); got.Code != http.StatusNotFound {
 		t.Fatalf("an unknown parcel: %d", got.Code)
 	}
 
 	// Les refus du fichier : somme absente ou fausse, nom, taille annoncée.
 	missing := put(producerSession, archiveContent, "")
-	wrong := put(producerSession, archiveContent, sumOf("autre"))
-	badName := call(http.MethodPut, agentwire.ParcelPath(upload.ID(), "autre.txt"), producerSession, archiveContent, sumOf(archiveContent), true)
+	wrong := put(producerSession, archiveContent, testkit.SHA256Hex([]byte("autre")))
+	badName := call(http.MethodPut, agentwire.ParcelPath(upload.ID(), "autre.txt"), producerSession, archiveContent, testkit.SHA256Hex([]byte(archiveContent)), true)
 	for name, got := range map[string]*httptest.ResponseRecorder{"no sum": missing, "a wrong sum": wrong, "a bad name": badName} {
 		if got.Code != http.StatusUnprocessableEntity {
 			t.Errorf("%s: %d %s", name, got.Code, got.Body.String())
@@ -204,7 +198,7 @@ func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
 	chunked.ContentLength = -1
 	chunked.Header.Set(agentwire.HeaderProtocol, agentwire.ProtocolVersion)
 	chunked.Header.Set("Authorization", "Bearer "+producerSession)
-	chunked.Header.Set(agentwire.HeaderParcelSHA256, sumOf(archiveContent))
+	chunked.Header.Set(agentwire.HeaderParcelSHA256, testkit.SHA256Hex([]byte(archiveContent)))
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, chunked)
 	if recorder.Code != http.StatusLengthRequired {
@@ -214,7 +208,7 @@ func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
 	oversized.ContentLength = action.MaxUploadBytes + 1
 	oversized.Header.Set(agentwire.HeaderProtocol, agentwire.ProtocolVersion)
 	oversized.Header.Set("Authorization", "Bearer "+producerSession)
-	oversized.Header.Set(agentwire.HeaderParcelSHA256, sumOf(archiveContent))
+	oversized.Header.Set(agentwire.HeaderParcelSHA256, testkit.SHA256Hex([]byte(archiveContent)))
 	recorder = httptest.NewRecorder()
 	server.ServeHTTP(recorder, oversized)
 	if recorder.Code != http.StatusRequestEntityTooLarge || !strings.Contains(recorder.Body.String(), "parcel_too_large") {
@@ -228,7 +222,7 @@ func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
 		"/agent/parcels/" + upload.ID() + "/..",
 		"/agent/parcels/" + upload.ID() + "/../" + upload.ID() + "/" + archiveName,
 	} {
-		got := call(http.MethodPut, hostile, producerSession, archiveContent, sumOf(archiveContent), true)
+		got := call(http.MethodPut, hostile, producerSession, archiveContent, testkit.SHA256Hex([]byte(archiveContent)), true)
 		if got.Code == http.StatusCreated || got.Code == http.StatusOK {
 			t.Errorf("%s: %d %s", hostile, got.Code, got.Body.String())
 		}
@@ -241,10 +235,10 @@ func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
 	}
 
 	// Le bon envoi : écrit, puis un second du même nom refusé.
-	if got := put(producerSession, archiveContent, sumOf(archiveContent)); got.Code != http.StatusCreated {
+	if got := put(producerSession, archiveContent, testkit.SHA256Hex([]byte(archiveContent))); got.Code != http.StatusCreated {
 		t.Fatalf("the upload: %d %s", got.Code, got.Body.String())
 	}
-	if got := put(producerSession, archiveContent, sumOf(archiveContent)); got.Code != http.StatusConflict || !strings.Contains(got.Body.String(), "parcel_conflict") {
+	if got := put(producerSession, archiveContent, testkit.SHA256Hex([]byte(archiveContent))); got.Code != http.StatusConflict || !strings.Contains(got.Body.String(), "parcel_conflict") {
 		t.Fatalf("the same name twice: %d %s", got.Code, got.Body.String())
 	}
 	read := call(http.MethodGet, path, destinationSession, "", "", true)
@@ -261,7 +255,7 @@ func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPut, agentwire.ParcelPath(upload.ID(), second), strings.NewReader(archiveContent))
 	request.Header.Set(agentwire.HeaderProtocol, agentwire.ProtocolVersion)
 	request.Header.Set("Authorization", "Bearer "+producerSession)
-	request.Header.Set(agentwire.HeaderParcelSHA256, sumOf(archiveContent))
+	request.Header.Set(agentwire.HeaderParcelSHA256, testkit.SHA256Hex([]byte(archiveContent)))
 	recorder = httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusRequestEntityTooLarge || !strings.Contains(recorder.Body.String(), "disk_full") {
@@ -308,7 +302,7 @@ func TestParcelUpload_ABodyShorterThanItsLengthKeepsNothing(t *testing.T) {
 	request := "PUT " + agentwire.ParcelPath(upload.ID(), archiveName) + " HTTP/1.1\r\nHost: opencloud.test\r\n" +
 		agentwire.HeaderProtocol + ": " + agentwire.ProtocolVersion + "\r\n" +
 		"Authorization: Bearer " + session + "\r\n" +
-		agentwire.HeaderParcelSHA256 + ": " + sumOf(archiveContent) + "\r\n" +
+		agentwire.HeaderParcelSHA256 + ": " + testkit.SHA256Hex([]byte(archiveContent)) + "\r\n" +
 		"Content-Length: " + strconv.Itoa(len(archiveContent)+10) + "\r\n\r\n" + archiveContent
 	if _, err := io.WriteString(connection, request); err != nil {
 		t.Fatal(err)
@@ -331,7 +325,7 @@ func TestParcelUpload_ABodyShorterThanItsLengthKeepsNothing(t *testing.T) {
 	if files := upload.Files(); len(files) != 0 {
 		t.Fatalf("a cut upload is listed: %+v", files)
 	}
-	if err := outbox.Receive(producer.ID, upload.ID(), archiveName, strings.NewReader(archiveContent), int64(len(archiveContent)), sumOf(archiveContent)); err != nil {
+	if err := outbox.Receive(producer.ID, upload.ID(), archiveName, strings.NewReader(archiveContent), int64(len(archiveContent)), testkit.SHA256Hex([]byte(archiveContent))); err != nil {
 		t.Fatalf("the retry: %v", err)
 	}
 }

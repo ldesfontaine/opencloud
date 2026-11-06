@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -110,7 +111,7 @@ func TestUpgrade_ChangesTheVersionAndRedeploysInOneGesture(t *testing.T) {
 	if !strings.Contains(sent.Body.String(), "image: postgres:16.5") || strings.Contains(sent.Body.String(), "postgres:16.4") || strings.Contains(sent.Body.String(), `"env_sent":true`) {
 		t.Fatalf("the order must carry the new compose and no .env: %s", sent.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "deploy_upgrade.golden.json"), normalize(sent.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "deploy_upgrade.golden.json"), normalize(sent.Body.String()))
 	if got := server.versionOf(t, unitID); got != "16.5" {
 		t.Fatalf("declared version %q", got)
 	}

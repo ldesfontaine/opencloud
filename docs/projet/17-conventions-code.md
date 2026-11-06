@@ -20,6 +20,9 @@ internal/server/public/      # la page de statut publique sous /statut : page, i
 internal/server/sse/         # la boucle des flux text/event-stream, partagée par l'administration et la page publique
 internal/server/httpx/       # les gestes de réponse que la racine et ses sous-paquets partagent : JSON, événement SSE, 429, adresse du pair
 internal/server/servertest/  # ce que les tests de server et de ses sous-paquets partagent
+internal/wait/waittest/      # attendre une condition dans un test (borne de 30 s)
+internal/goldentest/         # comparer une sortie à son fichier de référence, drapeau -update
+internal/testkit/            # les petits gestes de test partagés : racine vide, port fermé, empreinte, JSON
 web/                         # le front React : src/, public/, dist/ embarqué par web/embed.go
 migrations/                  # SQL numéroté, embarqué ; 001_schema.sql est le schéma lisible
 docs/projet/                 # méthode, conventions, direction artistique
@@ -198,7 +201,7 @@ Qui peut importer qui :
 | `agentwire` | les types qu'il transporte : `container`, `probe`, `update`, `sampler` | un composant dont il ne transporte pas les types (`machine`), `server`, `store` |
 | Un outil | d'autres outils, la bibliothèque standard | un composant, `server`, `store` |
 | `agent`, `dockerwatch` | les composants (leurs types), les outils, `agentwire` | `server`, `store` |
-| `servertest`, `storetest`, `smtptest` | ce qu'un banc demande, `store` compris | — ; seuls des `_test.go` les importent |
+| `servertest`, `storetest`, `smtptest`, `wait/waittest`, `goldentest`, `testkit` | ce qu'un banc demande, `store` compris | — ; seuls des `_test.go` les importent |
 
 Deux composants qui ont besoin l'un de l'autre ne s'importent pas tous les
 deux (Go le refuse) : l'un déclare une interface et reçoit l'autre par un
@@ -295,6 +298,28 @@ nouveau suit le même ordre, de haut en bas du fichier :
 Un générique se justifie quand la même forme revient souvent et que seul le
 type change : `httpx.ConvertAll`, `orEmpty`, `collect`, `sliceOf`, `guarded`.
 Petit, nommé, à cette échelle.
+
+## Une seule définition
+
+Chaque logique vit à un seul endroit. Avant d'écrire une fonction de forme,
+un refus, une borne ou un geste de test, on cherche s'il existe : par le nom
+**et** par le corps. Les gardes `TestOneDefinition_*`
+(`internal/server/onedefinition_test.go`) lisent le source avec
+`go/ast` ; une exception se déclare dans `oneDefinitionExceptions`, avec sa
+raison. Une garde a son test en négatif : elle échoue sur un source fautif.
+
+| Ce qui | Vit dans | Garde |
+| --- | --- | --- |
+| Attente d'une condition dans un test | `waittest.Until` | aucun `deadline := time.Now().Add(…)` dans un `_test.go`, aucun `waitFor` qui ne fait que relayer `waittest.Until` |
+| Comparaison à un golden, drapeau `-update` | `goldentest.Compare` | aucun `flag.Bool("update", …)` ni `compareGolden` hors `goldentest` |
+| Racine vide, port fermé, empreinte SHA-256, JSON d'un test | `testkit` | aucune copie (`closedPort`, `sumOf`, `mustJSON`, `openRoot`…) hors `testkit` |
+| Pointeur vers une valeur | `new(valeur)` (Go 1.26) | aucune fonction `ptr` |
+| La liste des ordres de l'agent | `agentwire.OrderKinds` | `22-fonctionnement.md` ne les compte pas |
+
+Chaque lot de factorisation ajoute ses lignes au tableau avec sa garde : un
+fait de machine (hors ligne, inconnue) vivra dans `machine`, une forme (nom
+affiché, port, empreinte) dans son outil. Une ligne n'entre ici que le jour
+où sa garde existe.
 
 ## Les erreurs
 
@@ -520,7 +545,7 @@ scripts relus.
   machine tient le style, l'humain garde l'attention pour le sens.
 - **Fixtures figées** : l'arbre des
   routes, les réponses JSON de l'API (`internal/server/testdata/*.golden.json`,
-  `go test ./internal/server -update` pour les réécrire après vérification),
+  `go test ./internal/server -update` pour les réécrire après vérification ; la comparaison est `goldentest.Compare`, qui déclare le drapeau `-update`),
   relues aussi par le front (`web/src/api/contract.test.ts`). Tout
   changement casse un test — c'est voulu.
 - **La vraie base** : un composant et ses consommateurs se testent sur une
@@ -537,7 +562,8 @@ scripts relus.
   canal, une condition relue), fixer l'ordre de ce qui se croise. Jamais un
   `time.Sleep` de plus ni un délai allongé pour « laisser le temps ». Le
   test avance dès le signal ; la borne de l'attente est large (30 s) et ne
-  sert qu'à ne pas bloquer la CI si le code est cassé.
+  sert qu'à ne pas bloquer la CI si le code est cassé. Une attente s'écrit `waittest.Until(t, what, condition)`,
+  jamais une boucle `deadline` à la main.
 - **Avec les actions, à venir** : `shellcheck`, un test qui vérifie que
   chaque action du catalogue a son `run.sh` et inversement, et
   l'idempotence : chaque `run.sh` rejoué **deux fois**, la seconde exécution

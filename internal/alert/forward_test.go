@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 const auditTestSecret = "secret de canal pour le test" // gitleaks:allow
@@ -39,18 +40,6 @@ func (f *fixture) auditChannel(t *testing.T, url string) alert.Channel {
 		t.Fatal(err)
 	}
 	return channel
-}
-
-func waitUntil(t *testing.T, what string, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
 }
 
 type auditBody struct {
@@ -88,7 +77,7 @@ func TestForwardAuditEvent_DeliversToTheReceivingChannel(t *testing.T) {
 	f.auditChannel(t, target.URL+"/hook")
 
 	recorder.Record(ctx, audit.Event{Action: audit.ProbePause, ObjectID: "p1", ObjectName: "api", Details: audit.Details{"kind": "http"}})
-	waitUntil(t, "the two audit events", func() bool { return target.count() == 2 })
+	waittest.Until(t, "the two audit events", func() bool { return target.count() == 2 })
 
 	target.mu.Lock()
 	requests := append([]received(nil), target.requests...)
@@ -113,7 +102,7 @@ func TestForwardAuditEvent_DeliversToTheReceivingChannel(t *testing.T) {
 	if paused.headers.Get("OpenCloud-Event") != "audit" {
 		t.Fatalf("headers %v", paused.headers)
 	}
-	waitUntil(t, "the delivery to be noted delivered", func() bool {
+	waittest.Until(t, "the delivery to be noted delivered", func() bool {
 		deliveries, err := f.db.ListAuditDeliveries(context.Background(), body.Audit.ID)
 		return err == nil && len(deliveries) == 1 && deliveries[0].Status == alert.DeliveryDelivered
 	})
@@ -136,7 +125,7 @@ func TestForwardAuditEvent_AFailureIsRetriedFromTheBaseWithoutWaitingInTheWorker
 
 	recorder.Record(ctx, audit.Event{Action: audit.ProbePause, ObjectID: "p1", ObjectName: "api"})
 	var failed alert.Delivery
-	waitUntil(t, "the first attempt to fail", func() bool {
+	waittest.Until(t, "the first attempt to fail", func() bool {
 		pending, _ := f.db.ListPendingAuditDeliveries(context.Background())
 		due, _ := f.db.ListDueAuditDeliveries(context.Background(), f.clock.Add(time.Hour))
 		if len(pending) == 0 && len(due) == 1 {
@@ -164,7 +153,7 @@ func TestForwardAuditEvent_AFailureIsRetriedFromTheBaseWithoutWaitingInTheWorker
 	}
 	f.advance(5 * time.Second)
 	f.Sweep(context.Background())
-	waitUntil(t, "the retry to be delivered", func() bool {
+	waittest.Until(t, "the retry to be delivered", func() bool {
 		deliveries, err := f.db.ListAuditDeliveries(context.Background(), failed.AuditID)
 		return err == nil && len(deliveries) == 1 && deliveries[0].Status == alert.DeliveryDelivered
 	})
@@ -192,7 +181,7 @@ func TestRequeue_ReplaysPendingAuditDeliveries(t *testing.T) {
 	if err := f.Requeue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	waitUntil(t, "the delivery", func() bool {
+	waittest.Until(t, "the delivery", func() bool {
 		deliveries, _ := f.db.ListAuditDeliveries(context.Background(), pending[0].AuditID)
 		return len(deliveries) == 1 && deliveries[0].Status == alert.DeliveryDelivered
 	})
@@ -303,7 +292,7 @@ func TestMatrixTransactionID_AuditNeverEqualsAnAlertDelivery(t *testing.T) {
 	ctx, recorder := f.journal(t)
 	recorder.Record(ctx, audit.Event{Action: audit.ProbePause, ObjectID: "p1", ObjectName: "api"})
 	f.Open(ctx, volumeFact(alert.SeverityAttention, 86))
-	waitUntil(t, "both messages", func() bool { return len(server.all()) == 2 })
+	waittest.Until(t, "both messages", func() bool { return len(server.all()) == 2 })
 
 	sends := server.all()
 	if sends[0].path == sends[1].path {

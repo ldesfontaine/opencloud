@@ -3,6 +3,7 @@ package alert_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // Un récepteur de test : il note chaque requête et répond ce qu'on lui dit.
@@ -80,19 +82,19 @@ func (f *fixture) notifier(t *testing.T, code lang.Code) *alert.Notifier {
 // waitDelivery attend que la livraison de l'alerte quitte l'attente.
 func (f *fixture) waitDelivery(t *testing.T, alertID int64) alert.Delivery {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	var settled alert.Delivery
+	waittest.Until(t, "delivery to leave pending", func() bool {
 		deliveries, err := f.db.ListDeliveries(context.Background(), alertID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(deliveries) > 0 && deliveries[len(deliveries)-1].Status != alert.DeliveryPending {
-			return deliveries[len(deliveries)-1]
+		if len(deliveries) == 0 || deliveries[len(deliveries)-1].Status == alert.DeliveryPending {
+			return false
 		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatal("delivery still pending")
-	return alert.Delivery{}
+		settled = deliveries[len(deliveries)-1]
+		return true
+	})
+	return settled
 }
 
 func (f *fixture) webhook(t *testing.T, url string, format alert.Format, secret string) alert.Channel {
@@ -168,16 +170,8 @@ func TestNotifier_LinksToTheAlertPageWhenThePublicURLIsKnown(t *testing.T) {
 	f.Open(context.Background(), volumeFact(alert.SeverityAttention, 86))
 	opened := f.only(t, alert.StatusOpen)
 	want := "https://oc.example.fr/alertes/alerte/" + strconv.FormatInt(opened.ID, 10)
-	deadline := time.Now().Add(5 * time.Second)
-	for _, target := range targets {
-		for target.count() == 0 && time.Now().Before(deadline) {
-			time.Sleep(5 * time.Millisecond)
-		}
-	}
 	for format, target := range targets {
-		if target.count() == 0 {
-			t.Fatalf("%s: nothing received", format)
-		}
+		waittest.Until(t, string(format)+": a delivery", func() bool { return target.count() > 0 })
 		got := target.last()
 		if !alert.Verify("s3cret", got.body, got.headers.Get("OpenCloud-Signature")) {
 			t.Errorf("%s: signature does not match the body", format)
@@ -336,16 +330,12 @@ func TestNotifier_RequeueAfterARestartDoesNotSendTwice(t *testing.T) {
 // nombre de fois et soit sortie de l'attente.
 func (f *fixture) waitAttempts(t *testing.T, alertID int64, attempts int) alert.Delivery {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		delivery := f.waitDelivery(t, alertID)
-		if delivery.Attempts >= attempts {
-			return delivery
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("delivery not tried %d times", attempts)
-	return alert.Delivery{}
+	var tried alert.Delivery
+	waittest.Until(t, fmt.Sprintf("delivery tried %d times", attempts), func() bool {
+		tried = f.waitDelivery(t, alertID)
+		return tried.Attempts >= attempts
+	})
+	return tried
 }
 
 // Un canal en panne quelques minutes reçoit encore l'alerte : le balayage

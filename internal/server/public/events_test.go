@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // Le direct public ne porte que « status », sur son propre bus.
@@ -78,7 +79,7 @@ func TestPublicEvents_OneSourceCannotHoldMoreThanItsShare(t *testing.T) {
 
 	// Une place rendue se reprend (le seau d'ouverture est rempli entre-temps).
 	cancels[0]()
-	waitFor(t, func() bool { return server.handler.tabs.Taken() == maxPublicStreamsPerSource })
+	waittest.Until(t, "the freed stream slot to be taken back", func() bool { return server.handler.tabs.Taken() == maxPublicStreamsPerSource })
 	server.handler.streamLimit.SetClock(func() time.Time { return testNow.Add(time.Minute) })
 	if _, again, _ := server.openLive(t, holder, ""); again.StatusCode != http.StatusOK {
 		t.Fatalf("after a stream ended: status %d", again.StatusCode)
@@ -123,7 +124,7 @@ func TestPublicEvents_StreamEndsAfterItsMaximumLifetime(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the stream outlived its maximum lifetime")
 	}
-	waitFor(t, func() bool { return server.handler.tabs.Taken() == 0 })
+	waittest.Until(t, "the expired stream to release its tab", func() bool { return server.handler.tabs.Taken() == 0 })
 	if held := server.handler.tabsBySource.Sources(); held != 0 {
 		t.Fatalf("%d sources still hold a share", held)
 	}

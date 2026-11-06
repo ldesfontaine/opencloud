@@ -27,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/anchor"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/restic"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 // Les secrets semés : le serveur les enverrait dans le secret des ordres ;
@@ -272,17 +273,6 @@ func reachableTarget(t *testing.T) (int, string) {
 	return listener.Addr().(*net.TCPAddr).Port, string(certificatePEM)
 }
 
-func closedLoopbackPort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	_ = listener.Close()
-	return port
-}
-
 // Cible joignable : restic part en direct, l'URL du dépôt est celle de la
 // cible (dans un fichier, mot de passe REST compris), le certificat épinglé
 // par RESTIC_CACERT, et aucun mandataire.
@@ -330,7 +320,7 @@ func TestResticBackup_ReachableTargetRunsDirectWithThePinnedCertificate(t *testi
 func TestResticBackup_UnreachableTargetFallsBackToTheRelayAlone(t *testing.T) {
 	b := newResticBench(t, "restic.produce")
 	_, certificatePEM := reachableTarget(t)
-	port := closedLoopbackPort(t)
+	port := testkit.ClosedPort(t)
 	b.provision(t, "127.0.0.1", port, certificatePEM)
 	b.service(t, "forgejo")
 	b.restic.answer = func(call fakeCall, _ int, stdout, _ io.Writer) int {

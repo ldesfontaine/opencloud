@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/role"
 )
 
@@ -50,7 +51,7 @@ func TestRoles_TheSignalWritesTheRoleAndTheMachineSaysIt(t *testing.T) {
 	}
 
 	one := callAPI(server.Server, http.MethodGet, "/api/machines/"+pveID, nil)
-	compareGolden(t, filepath.Join("testdata", "machine_role.golden.json"), normalize(one.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "machine_role.golden.json"), normalize(one.Body.String()))
 	var listed machinesResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/machines", nil), &listed)
 	for _, listedMachine := range listed.Machines {

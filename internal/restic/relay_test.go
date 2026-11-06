@@ -18,6 +18,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 const restV2 = "application/vnd.x.restic.rest.v2"
@@ -269,7 +270,7 @@ func TestRelay_BoundsTheQueueAndTheWait(t *testing.T) {
 		status, _, _, _ := send("GET", direct, nil, firstProof)
 		done <- status
 	}()
-	waitFor(t, func() bool { return h.pushCount() == 1 })
+	waittest.Until(t, "the first push to reach the target", func() bool { return h.pushCount() == 1 })
 	status, body, _ = call(t, "GET", direct, nil, signedHeaders(t, sourceID, sourceKey))
 	if status != http.StatusServiceUnavailable || body != `{"error":"target_busy"}` {
 		t.Errorf("busy: %d %s", status, body)
@@ -474,17 +475,4 @@ func signedHeaders(t *testing.T, machineID string, key ed25519.PrivateKey) http.
 	header.Set(agentwire.HeaderTimestamp, strconv.FormatInt(timestamp, 10))
 	header.Set(agentwire.HeaderSignature, base64.StdEncoding.EncodeToString(machine.Sign(key, payload)))
 	return header
-}
-
-// waitFor relit une condition jusqu'à ce qu'elle tienne ; la borne ne sert
-// qu'à ne pas bloquer si le code est cassé.
-func waitFor(t *testing.T, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for !condition() {
-		if time.Now().After(deadline) {
-			t.Fatal("condition never held")
-		}
-		time.Sleep(time.Millisecond)
-	}
 }

@@ -3,27 +3,17 @@ package action
 import (
 	"crypto/ed25519"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
-
-func openRoot(t *testing.T) *os.Root {
-	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
-	return root
-}
 
 // La clé naît au premier démarrage, en 0600, et se relit la même ensuite.
 func TestLoadOrCreateKey_CreatesOnceThenReloads(t *testing.T) {
-	root := openRoot(t)
+	root := testkit.EmptyRoot(t)
 	first, created, err := LoadOrCreateKey(root)
 	if err != nil || !created {
 		t.Fatalf("first start: created %v, %v", created, err)
@@ -44,7 +34,7 @@ func TestLoadOrCreateKey_CreatesOnceThenReloads(t *testing.T) {
 // Les règles de secret.key : lisible par d'autres comptes ou abîmée, la clé
 // est refusée, jamais remplacée.
 func TestLoadKey_RefusesAnOpenOrDamagedFile(t *testing.T) {
-	root := openRoot(t)
+	root := testkit.EmptyRoot(t)
 	if _, err := LoadKey(root); !errors.Is(err, ErrNoKey) {
 		t.Fatalf("missing: %v", err)
 	}
@@ -61,7 +51,7 @@ func TestLoadKey_RefusesAnOpenOrDamagedFile(t *testing.T) {
 		t.Fatalf("readable by others: %v", err)
 	}
 	for _, content := range []string{"", "ed25519-v1:\n", "ed25519-v2:AAAA\n", "ed25519-v1:@@@\n", "a\nb\n"} {
-		damaged := openRoot(t)
+		damaged := testkit.EmptyRoot(t)
 		if err := damaged.WriteFile(brand.ServerKeyFile, []byte(content), keyFileMode); err != nil {
 			t.Fatal(err)
 		}
@@ -101,7 +91,7 @@ func TestSign_SignsTheBytesThatTravel(t *testing.T) {
 // resté sur elle ; le fichier porte les deux, puis la neuve seule. Une seule
 // rotation à la fois.
 func TestKey_RotationSignsWithTheKeyTheAgentPinned(t *testing.T) {
-	root := openRoot(t)
+	root := testkit.EmptyRoot(t)
 	old := GenerateKey()
 	rotated, err := old.Rotated()
 	if err != nil {

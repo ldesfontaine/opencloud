@@ -21,6 +21,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 var testNow = time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
@@ -486,13 +487,7 @@ func TestWatch_RefreshesOnAnyTopicOfTheBus(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go f.status.Watch(ctx)
-	deadline := time.Now().Add(2 * time.Second)
-	for f.bus.Count() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if f.bus.Count() != 1 {
-		t.Fatal("the service must listen to the bus")
-	}
+	waittest.Until(t, "the service to listen to the bus", func() bool { return f.bus.Count() == 1 })
 	// Un objet qui change sans passer par le service : seul le bus le dit.
 	if _, err := f.probes.Create(ctx, probe.Definition{Name: "site", Kind: probe.KindHTTP, Target: "https://site.exemple.fr/", MachineID: machine.LocalID}); err != nil {
 		t.Fatal(err)
@@ -503,13 +498,7 @@ func TestWatch_RefreshesOnAnyTopicOfTheBus(t *testing.T) {
 	f.bus.Publish(live.TopicProbes)
 	time.Sleep(50 * time.Millisecond)
 	cancel()
-	deadline = time.Now().Add(2 * time.Second)
-	for f.bus.Count() != 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if f.bus.Count() != 0 {
-		t.Fatal("the subscription must close with the context")
-	}
+	waittest.Until(t, "the subscription to close with the context", func() bool { return f.bus.Count() == 0 })
 }
 
 // Une machine passe en ligne sans que le service le sache : un lot de
@@ -524,10 +513,7 @@ func TestWatch_IgnoresTopicsOutsideTheMembers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go f.status.Watch(ctx)
-	deadline := time.Now().Add(2 * time.Second)
-	for f.bus.Count() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waittest.Until(t, "the service to listen to the bus", func() bool { return f.bus.Count() > 0 })
 	enrolled, err := f.machines.Get(ctx, remote)
 	if err != nil {
 		t.Fatal(err)
@@ -543,10 +529,7 @@ func TestWatch_IgnoresTopicsOutsideTheMembers(t *testing.T) {
 		t.Fatalf("resources, alerts or status refreshed the snapshot: published %d", got)
 	}
 	f.bus.Publish(live.TopicMachines)
-	deadline = time.Now().Add(2 * time.Second)
-	for published.count.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waittest.Until(t, "the machines topic to refresh the snapshot", func() bool { return published.count.Load() > 0 })
 	if got := published.count.Load(); got != 1 {
 		t.Fatalf("machines must refresh the snapshot: published %d, want 1", got)
 	}

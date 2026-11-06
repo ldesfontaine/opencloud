@@ -19,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // fakeServer joue le serveur openCloud du point de vue de l'agent : flux,
@@ -142,17 +143,6 @@ func startAgentWith(t *testing.T, ctx context.Context, server *fakeServer, logs 
 	return done
 }
 
-func waitUntil(t *testing.T, what string, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !condition() {
-		if time.Now().After(deadline) {
-			t.Fatalf("never happened: %s", what)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
 // Le serveur a redémarré entre deux signaux : il ne connaît plus la
 // session. L'agent rouvre un flux tout de suite, sans attendre le délai.
 func TestKeepConnected_ExpiredSession_ReconnectsAtOnce(t *testing.T) {
@@ -161,7 +151,7 @@ func TestKeepConnected_ExpiredSession_ReconnectsAtOnce(t *testing.T) {
 	defer cancel()
 	done := startAgent(t, ctx, server, &bytes.Buffer{})
 
-	waitUntil(t, "a signal accepted on a second stream", func() bool {
+	waittest.Until(t, "a signal accepted on a second stream", func() bool {
 		streams, _, accepted := server.snapshot()
 		return len(streams) >= 2 && accepted > 0
 	})
@@ -189,7 +179,7 @@ func TestKeepConnected_ThrottledSignals_KeepTheStreamOpen(t *testing.T) {
 	defer cancel()
 	done := startAgent(t, ctx, server, &bytes.Buffer{})
 
-	waitUntil(t, "a signal accepted after the two throttled ones", func() bool {
+	waittest.Until(t, "a signal accepted after the two throttled ones", func() bool {
 		_, refused, accepted := server.snapshot()
 		return len(refused) == 2 && accepted > 0
 	})
@@ -216,7 +206,7 @@ func TestKeepConnected_ClockSkew_KeepsRetryingAndSaysToFixTheClock(t *testing.T)
 	logs := &bytes.Buffer{}
 	done := startAgent(t, ctx, server, logs)
 
-	waitUntil(t, "a second attempt", func() bool {
+	waittest.Until(t, "a second attempt", func() bool {
 		streams, _, _ := server.snapshot()
 		return len(streams) >= 2
 	})
@@ -250,7 +240,7 @@ func TestKeepConnected_ReplayedProof_KeepsRetrying(t *testing.T) {
 	defer cancel()
 	done := startAgent(t, ctx, server, &bytes.Buffer{})
 
-	waitUntil(t, "a second attempt", func() bool {
+	waittest.Until(t, "a second attempt", func() bool {
 		streams, _, _ := server.snapshot()
 		return len(streams) >= 2
 	})
@@ -362,7 +352,7 @@ func TestKeepConnected_SaysItsAccountAndWhatItCannotExerciseAtEachStream(t *test
 		}
 		useHostChecks(orders, checks)
 	})
-	waitUntil(t, "a second stream", func() bool {
+	waittest.Until(t, "a second stream", func() bool {
 		streams, _, _ := server.snapshot()
 		return len(streams) >= 2
 	})

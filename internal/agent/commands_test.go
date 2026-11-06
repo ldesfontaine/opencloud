@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/update"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 type fakeLogs struct{ requests []container.LogRequest }
@@ -163,13 +164,7 @@ func TestCommandRunner_ServesLogsUntilStopped(t *testing.T) {
 // goroutine du suivi qui l'en retire après le 404, à son heure.
 func waitUntilClosed(t *testing.T, runner *commandRunner, requestID, failure string) {
 	t.Helper()
-	deadline := time.Now().Add(waitLimit)
-	for isOpen(runner, requestID) {
-		if time.Now().After(deadline) {
-			t.Fatal(failure)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	waittest.Until(t, failure, func() bool { return !isOpen(runner, requestID) })
 }
 
 func isOpen(runner *commandRunner, requestID string) bool {

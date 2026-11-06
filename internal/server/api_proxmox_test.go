@@ -19,6 +19,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 )
 
@@ -248,7 +249,7 @@ func TestProxmox_DeclareReadAndRemove(t *testing.T) {
 		t.Fatalf("the put answers with the host card:\n%s\n%s", put.Body.String(), got.Body.String())
 	}
 	golden := strings.NewReplacer(api.URL, pveGoldenURL, api.pin(), pveGoldenPinHex).Replace(normalize(put.Body.String()))
-	compareGolden(t, filepath.Join("testdata", "machine_proxmox.golden.json"), golden)
+	goldentest.Compare(t, filepath.Join("testdata", "machine_proxmox.golden.json"), golden)
 
 	var host proxmoxHostJSON
 	decodeAPI(t, put, &host)
@@ -264,9 +265,9 @@ func TestProxmox_DeclareReadAndRemove(t *testing.T) {
 
 	// La machine de l'hôte le porte ; celle de la VM le sait de l'autre côté.
 	carrier := callAPI(server.Server, http.MethodGet, "/api/machines/"+pveID, nil)
-	compareGolden(t, filepath.Join("testdata", "machine_hosting_proxmox.golden.json"), normalize(carrier.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "machine_hosting_proxmox.golden.json"), normalize(carrier.Body.String()))
 	guest := callAPI(server.Server, http.MethodGet, "/api/machines/"+dockerVMID, nil)
-	compareGolden(t, filepath.Join("testdata", "machine_hosted.golden.json"), normalize(guest.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "machine_hosted.golden.json"), normalize(guest.Body.String()))
 	var listed machinesResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/machines", nil), &listed)
 	for _, entry := range listed.Machines {

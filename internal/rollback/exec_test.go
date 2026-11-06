@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // Le vrai lanceur de processus, avec de petits scripts de test : rien en
@@ -61,7 +63,7 @@ func TestExecLauncher_StopAsksTheBinaryToEnd(t *testing.T) {
 	done := make(chan Exit, 1)
 	go func() { done <- child.Wait() }()
 	// Le piège est armé quand le script l'a dit : le test n'attend pas à l'aveugle.
-	waitFor(t, "the script is ready", func() bool {
+	waittest.Until(t, "the script is ready", func() bool {
 		_, err := os.Stat(ready)
 		return err == nil
 	})

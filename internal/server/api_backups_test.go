@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 )
 
 // La phrase de test : des mots, pas un secret.
@@ -82,7 +83,7 @@ func TestBackups_ReadsMatchGoldenFiles(t *testing.T) {
 	if empty.Code != http.StatusOK {
 		t.Fatalf("empty: %d %s", empty.Code, empty.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "backups_empty.golden.json"), normalizeBackups(empty.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "backups_empty.golden.json"), normalizeBackups(empty.Body.String()))
 
 	backupSetup(t, server)
 	run := callAPI(server.Server, http.MethodPost, "/api/backups/plans/database/actions/run", map[string]any{})
@@ -98,7 +99,7 @@ func TestBackups_ReadsMatchGoldenFiles(t *testing.T) {
 			t.Fatalf("the page reads %q: %s", secret, full.Body.String())
 		}
 	}
-	compareGolden(t, filepath.Join("testdata", "backups.golden.json"), normalizeBackups(full.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "backups.golden.json"), normalizeBackups(full.Body.String()))
 }
 
 // Chaque refus du composant arrive par sa clé, avec le statut de sa nature :
@@ -218,7 +219,7 @@ func TestBackups_AnAgentPlanIsListedAfterTheDatabaseAndRefusesToRunUnready(t *te
 	if listed.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", listed.Code, listed.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "backups_plans.golden.json"), normalizeBackups(listed.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "backups_plans.golden.json"), normalizeBackups(listed.Body.String()))
 }
 
 // Les refus propres aux plans arrivent par leur clé : 422 pour une saisie,

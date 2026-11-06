@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 // Un vrai serveur openCloud sur un port éphémère, et un vrai agent contre lui.
@@ -108,18 +110,18 @@ func benchRoles() role.Report {
 
 func (b *bench) waitFor(t *testing.T, name string, want func(machine.Status) bool) machine.Status {
 	t.Helper()
-	deadline := time.Now().Add(benchTimeout)
-	for time.Now().Before(deadline) {
+	var reached machine.Status
+	waittest.Until(t, fmt.Sprintf("machine %s to reach the wanted state", name), func() bool {
 		statuses, _ := b.machines.List(context.Background())
 		for _, status := range statuses {
 			if status.Name == name && want(status) {
-				return status
+				reached = status
+				return true
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("machine %s never reached the wanted state", name)
-	return machine.Status{}
+		return false
+	})
+	return reached
 }
 
 func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
@@ -138,17 +140,10 @@ func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	}
 	b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return s.LastSeenAt.After(online.LastSeenAt) })
 	// L'agent a mesuré cette machine et l'a livré avec son signal.
-	deadline := time.Now().Add(benchTimeout)
-	for {
+	waittest.Until(t, "a reading to reach the server", func() bool {
 		current, err := b.resources.Current(context.Background(), online.ID)
-		if err == nil && current.Available && current.Sample.CPUCores > 0 && current.Sample.MemTotal > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("no reading reached the server: %+v %v", current, err)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		return err == nil && current.Available && current.Sample.CPUCores > 0 && current.Sample.MemTotal > 0
+	})
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("run: %v", err)
@@ -311,21 +306,21 @@ func TestRun_SaysItsAccountAndWhyAnEnrolledRightCannotBeExercised(t *testing.T) 
 // arrive par son signal.
 func (b *bench) waitForRun(t *testing.T, runID string, want action.State) action.Run {
 	t.Helper()
-	deadline := time.Now().Add(benchTimeout)
-	for time.Now().Before(deadline) {
+	var reached action.Run
+	waittest.Until(t, fmt.Sprintf("run %s to reach %s", runID, want), func() bool {
 		runs, err := b.db.ListActionRuns(context.Background(), action.Query{Limit: 10})
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, run := range runs {
 			if run.ID == runID && run.State == want {
-				return run
+				reached = run
+				return true
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("run %s never reached %s", runID, want)
-	return action.Run{}
+		return false
+	})
+	return reached
 }
 
 // waitForRefusalAudit attend l'entrée de refus de l'agent pour cet ordre : le
@@ -333,25 +328,21 @@ func (b *bench) waitForRun(t *testing.T, runID string, want action.State) action
 // l'opérateur existe avant elle. Rend toutes les entrées de refus de l'ordre.
 func (b *bench) waitForRefusalAudit(t *testing.T, runID string) []audit.Event {
 	t.Helper()
-	deadline := time.Now().Add(benchTimeout)
-	for time.Now().Before(deadline) {
+	var refusals []audit.Event
+	waittest.Until(t, fmt.Sprintf("a refusal audit entry for order %s", runID), func() bool {
 		events, err := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 100, ObjectKind: audit.ObjectAction, ObjectID: runID})
 		if err != nil {
 			t.Fatal(err)
 		}
-		var refusals []audit.Event
+		refusals = nil
 		for _, event := range events {
 			if event.Action == audit.ActionRefused && event.Actor.Kind == audit.ActorAgent {
 				refusals = append(refusals, event)
 			}
 		}
-		if len(refusals) > 0 {
-			return refusals
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("no refusal audit entry for order %s", runID)
-	return nil
+		return len(refusals) > 0
+	})
+	return refusals
 }
 
 // De bout en bout : l'agent épingle la clé du serveur à l'enrôlement, la

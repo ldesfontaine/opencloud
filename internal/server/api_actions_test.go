@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/goldentest"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/release/releasetest"
@@ -113,7 +114,7 @@ func TestActions_PingIsSignedSentAndAnsweredThroughTheSignal(t *testing.T) {
 	if list.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", list.Code, list.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "actions.golden.json"), normalize(list.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "actions.golden.json"), normalize(list.Body.String()))
 }
 
 // Un ordre ne part que vers un agent actif et en ligne : sinon un refus,
@@ -283,7 +284,7 @@ func TestActions_AgentUpdateOfferThenOrder(t *testing.T) {
 	if got.Code != http.StatusOK {
 		t.Fatalf("offer: %d %s", got.Code, got.Body.String())
 	}
-	compareGolden(t, filepath.Join("testdata", "agent_update_offer.golden.json"), normalize(got.Body.String()))
+	goldentest.Compare(t, filepath.Join("testdata", "agent_update_offer.golden.json"), normalize(got.Body.String()))
 
 	got = callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/update-agent", map[string]any{})
 	if got.Code != http.StatusCreated {

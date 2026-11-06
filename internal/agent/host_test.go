@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/wait/waittest"
 )
 
 func aHostReport(virt string) hostinfo.Report {
@@ -59,7 +60,7 @@ func TestHostLoop_ReadsAtStartAndEveryPeriodAndStopsWithTheAgent(t *testing.T) {
 		hostLoop(ctx, read, reports, 5*time.Millisecond, slog.New(slog.DiscardHandler))
 		close(done)
 	}()
-	waitUntil(t, "plusieurs lectures", func() bool { return reads.Load() >= 3 })
+	waittest.Until(t, "plusieurs lectures", func() bool { return reads.Load() >= 3 })
 	cancel()
 	select {
 	case <-done:
@@ -87,7 +88,7 @@ func TestRun_ReportsItsHostToTheServer(t *testing.T) {
 	go func() { done <- Run(ctx, options) }()
 	online := b.waitFor(t, "web-1", func(s machine.Status) bool { return s.Online })
 
-	waitUntil(t, "le type arrive au serveur", func() bool {
+	waittest.Until(t, "le type arrive au serveur", func() bool {
 		stored, err := b.machines.Get(context.Background(), online.ID)
 		return err == nil && stored.Kind == machine.KindVM && len(stored.MACs) == 1
 	})

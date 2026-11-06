@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 func newOutbox(t *testing.T) (*action.Outbox, *os.Root, *time.Time) {
@@ -196,13 +197,8 @@ const (
 	uploadedBytes = "archive chiffrée de test"
 )
 
-func sumOf(content string) string {
-	sum := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(sum[:])
-}
-
 func receive(outbox *action.Outbox, uploader, parcel, name, content string) error {
-	return outbox.Receive(uploader, parcel, name, strings.NewReader(content), int64(len(content)), sumOf(content))
+	return outbox.Receive(uploader, parcel, name, strings.NewReader(content), int64(len(content)), testkit.SHA256Hex([]byte(content)))
 }
 
 // Le colis téléversé s'ouvre pour la destination, pas pour le producteur : le
@@ -220,7 +216,7 @@ func TestOutbox_ReceiveFillsAParcelTheDestinationReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := upload.Files()
-	if len(files) != 1 || files[0].Name != uploadedName || files[0].Size != int64(len(uploadedBytes)) || files[0].SHA256 != sumOf(uploadedBytes) {
+	if len(files) != 1 || files[0].Name != uploadedName || files[0].Size != int64(len(uploadedBytes)) || files[0].SHA256 != testkit.SHA256Hex([]byte(uploadedBytes)) {
 		t.Fatalf("files %+v", files)
 	}
 	file, size, err := outbox.Open(machineID, upload.ID(), uploadedName)
@@ -298,13 +294,13 @@ func TestOutbox_ReceiveKeepsNothingOfAWrongUpload(t *testing.T) {
 	size := int64(len(uploadedBytes))
 	for name, call := range map[string]func() error{
 		"another sum": func() error {
-			return outbox.Receive(producerID, upload.ID(), uploadedName, strings.NewReader(uploadedBytes), size, sumOf("autre"))
+			return outbox.Receive(producerID, upload.ID(), uploadedName, strings.NewReader(uploadedBytes), size, testkit.SHA256Hex([]byte("autre")))
 		},
 		"a shorter file": func() error {
-			return outbox.Receive(producerID, upload.ID(), uploadedName, strings.NewReader(uploadedBytes[:5]), size, sumOf(uploadedBytes))
+			return outbox.Receive(producerID, upload.ID(), uploadedName, strings.NewReader(uploadedBytes[:5]), size, testkit.SHA256Hex([]byte(uploadedBytes)))
 		},
 		"a longer file": func() error {
-			return outbox.Receive(producerID, upload.ID(), uploadedName, strings.NewReader(uploadedBytes+"en trop"), size, sumOf(uploadedBytes))
+			return outbox.Receive(producerID, upload.ID(), uploadedName, strings.NewReader(uploadedBytes+"en trop"), size, testkit.SHA256Hex([]byte(uploadedBytes)))
 		},
 	} {
 		if err := call(); !errors.Is(err, action.ErrUploadDigest) {
@@ -354,7 +350,7 @@ func TestOutbox_ReceiveRefusesAFileTooLargeOrADiskTooFull(t *testing.T) {
 		return 0, io.EOF
 	})
 	for _, size := range []int64{action.MaxUploadBytes + 1, -1} {
-		if err := outbox.Receive(producerID, upload.ID(), uploadedName, untouched, size, sumOf("")); !errors.Is(err, action.ErrUploadTooLarge) {
+		if err := outbox.Receive(producerID, upload.ID(), uploadedName, untouched, size, testkit.SHA256Hex([]byte(""))); !errors.Is(err, action.ErrUploadTooLarge) {
 			t.Errorf("size %d: %v", size, err)
 		}
 	}
@@ -366,7 +362,7 @@ func TestOutbox_ReceiveRefusesAFileTooLargeOrADiskTooFull(t *testing.T) {
 		measured = append(measured, dir)
 		return free, nil
 	})
-	if err := outbox.Receive(producerID, upload.ID(), uploadedName, untouched, size, sumOf(uploadedBytes)); !errors.Is(err, action.ErrUploadDiskFull) {
+	if err := outbox.Receive(producerID, upload.ID(), uploadedName, untouched, size, testkit.SHA256Hex([]byte(uploadedBytes))); !errors.Is(err, action.ErrUploadDiskFull) {
 		t.Fatalf("one byte short of the reserve: %v", err)
 	}
 	if len(measured) != 1 || measured[0] != stateDir.Name() {
@@ -398,7 +394,7 @@ func TestOutbox_ReceiveWritesOneFileAtATimeAndNeverTwice(t *testing.T) {
 	reader, writer := io.Pipe()
 	done := make(chan error, 1)
 	go func() {
-		done <- outbox.Receive(producerID, upload.ID(), uploadedName, reader, int64(len(uploadedBytes)), sumOf(uploadedBytes))
+		done <- outbox.Receive(producerID, upload.ID(), uploadedName, reader, int64(len(uploadedBytes)), testkit.SHA256Hex([]byte(uploadedBytes)))
 	}()
 	// Le premier octet n'est lu qu'une fois le colis réservé.
 	if _, err := writer.Write([]byte(uploadedBytes[:1])); err != nil {
@@ -447,7 +443,7 @@ func TestOutbox_ReceiveFreesTheParcelWhenTheUploadIsCut(t *testing.T) {
 	}
 	cut := errors.New("connection reset")
 	reader := io.MultiReader(strings.NewReader(uploadedBytes[:5]), readerFunc(func([]byte) (int, error) { return 0, cut }))
-	if err := outbox.Receive(producerID, upload.ID(), uploadedName, reader, int64(len(uploadedBytes)), sumOf(uploadedBytes)); !errors.Is(err, cut) {
+	if err := outbox.Receive(producerID, upload.ID(), uploadedName, reader, int64(len(uploadedBytes)), testkit.SHA256Hex([]byte(uploadedBytes))); !errors.Is(err, cut) {
 		t.Fatalf("a cut upload: %v", err)
 	}
 	if entries, _ := fs.ReadDir(root.FS(), "outgoing/"+upload.ID()); len(entries) != 0 {
@@ -513,7 +509,7 @@ func TestUpload_StageThenHandoverListsEverythingAndClosesTheParcelToTheProducer(
 	if len(files) != 2 || files[0].Name != keyName || files[1].Name != uploadedName {
 		t.Fatalf("files %+v", files)
 	}
-	if files[0].SHA256 != sumOf("clé scellée de test") || files[0].Size != int64(len("clé scellée de test")) {
+	if files[0].SHA256 != testkit.SHA256Hex([]byte("clé scellée de test")) || files[0].Size != int64(len("clé scellée de test")) {
 		t.Fatalf("staged sum %+v", files[0])
 	}
 	*now = benchNow.Add(action.ParcelLifetime + time.Minute)

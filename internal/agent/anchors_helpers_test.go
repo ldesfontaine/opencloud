@@ -3,7 +3,6 @@ package agent
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"testing"
 
@@ -46,13 +45,4 @@ func (b *orderBench) storedAnchors(t *testing.T) anchor.State {
 		t.Fatal(err)
 	}
 	return identity.AnchorState()
-}
-
-func mustJSON(t *testing.T, value any) json.RawMessage {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return encoded
 }

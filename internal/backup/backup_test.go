@@ -4,8 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -26,6 +24,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
+	"github.com/ldesfontaine/opencloud/internal/testkit"
 )
 
 const (
@@ -416,11 +415,6 @@ func TestRun_StagesAnEncryptedArchiveAndSendsReceiveThenPrune(t *testing.T) {
 	}
 }
 
-func sha256Hex(content []byte) string {
-	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:])
-}
-
 func downloaded(t *testing.T, outbox *action.Outbox, receive agentwire.BackupReceiveParams, name string) []byte {
 	t.Helper()
 	file, size, err := outbox.Open(machineID, receive.Parcel, name)
@@ -433,7 +427,7 @@ func downloaded(t *testing.T, outbox *action.Outbox, receive agentwire.BackupRec
 		t.Fatalf("read %s: %v", name, err)
 	}
 	for _, listed := range receive.Files {
-		if listed.Name == name && (listed.Size != size || listed.SHA256 != sha256Hex(content)) {
+		if listed.Name == name && (listed.Size != size || listed.SHA256 != testkit.SHA256Hex(content)) {
 			t.Fatalf("%s: the order says %d bytes %s", name, listed.Size, listed.SHA256)
 		}
 	}

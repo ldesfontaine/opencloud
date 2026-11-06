@@ -190,16 +190,4 @@ func (b *bench) openLive(t *testing.T, peer, lastEventID string) (func() string,
 	return next, response, cancel
 }
 
-func waitFor(t *testing.T, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("condition never met")
-}
-
 var errNotBuilt = errors.New("statut.html is not there")
