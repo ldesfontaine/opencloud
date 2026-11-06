@@ -25,6 +25,23 @@ type rolledBackCall struct {
 type fakeAlerter struct {
 	rolledBack []rolledBackCall
 	updated    []string
+	// Les montées de version de services revenues en arrière, et fermées.
+	serviceRolledBack []serviceRolledBackCall
+	serviceUpdated    []string
+}
+
+type serviceRolledBackCall struct {
+	serviceID, serviceName, machineID, from, to string
+	failed, late                                bool
+	journal                                     []string
+}
+
+func (f *fakeAlerter) ServiceRolledBack(_ context.Context, serviceID, serviceName, machineID, _, fromVersion, toVersion string, failed, late bool, journal []string) {
+	f.serviceRolledBack = append(f.serviceRolledBack, serviceRolledBackCall{serviceID, serviceName, machineID, fromVersion, toVersion, failed, late, journal})
+}
+
+func (f *fakeAlerter) ServiceUpdated(_ context.Context, serviceID string) {
+	f.serviceUpdated = append(f.serviceUpdated, serviceID)
 }
 
 func (f *fakeAlerter) AgentRolledBack(_ context.Context, machineID, machineName, target, reason string, failed bool) {

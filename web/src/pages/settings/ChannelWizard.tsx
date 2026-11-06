@@ -5,6 +5,7 @@ import { useMailSettings } from "../../api/settings";
 import { Note } from "../../components/Card";
 import { SettingsFold } from "../../components/Disclosure";
 import { Checkbox, Checks, Field, Input } from "../../components/Field";
+import { FieldTip } from "../../components/FieldTip";
 import { Failure } from "../../components/Failure";
 import { Pill } from "../../components/Pill";
 import { Modal } from "../../components/Modal";
@@ -144,9 +145,13 @@ function stepsOf(t: Translate, form: ReturnType<typeof useForm<ReturnType<typeof
             <Checks>
               <Checkbox label={t("channel.notify_resolve_label")} checked={values.notifyResolve} onChange={(checked) => change("notifyResolve", checked)} />
               <Checkbox label={t("channel.receives_audit_label")} checked={values.receivesAudit} onChange={(checked) => change("receivesAudit", checked)} />
+              <Checkbox label={t("channel.attach_logs_label")} checked={values.attachLogs} onChange={(checked) => change("attachLogs", checked)} />
               <Checkbox label={t("channel.enabled_label")} checked={values.enabled} onChange={(checked) => change("enabled", checked)} />
             </Checks>
             <p className="field-help">{t("channel.receives_audit_help")}</p>
+            <p className="field-help">
+              {t("channel.attach_logs_help")} <FieldTip text={t("channel.attach_logs_tip")} />
+            </p>
           </SettingsFold>
         </>
       ),

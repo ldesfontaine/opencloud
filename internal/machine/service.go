@@ -44,6 +44,7 @@ type Store interface {
 	RecordServerKey(ctx context.Context, agentID, fingerprint string) error
 	RecordRootDir(ctx context.Context, agentID, root string) error
 	RecordRollbackVersion(ctx context.Context, agentID string, version int) error
+	RecordServiceRollbackVersion(ctx context.Context, agentID string, version int) error
 	// RecordAnchors garde le texte des ancres que l'agent a dit ; "" ne change rien.
 	RecordAnchors(ctx context.Context, agentID, anchors string) error
 	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) error
@@ -577,6 +578,17 @@ func (s *Service) NoteRollbackVersion(ctx context.Context, agentID, reported str
 		version = 0
 	}
 	return s.store.RecordRollbackVersion(ctx, agentID, version)
+}
+
+// NoteServiceRollbackVersion garde la version du retour arrière d'un service
+// que l'agent dit savoir faire, comme NoteRollbackVersion : rien, ou autre
+// chose qu'un petit entier positif, vaut 0.
+func (s *Service) NoteServiceRollbackVersion(ctx context.Context, agentID, reported string) error {
+	version, err := strconv.Atoi(reported)
+	if err != nil || version < 1 || version > maxRollbackVersion {
+		version = 0
+	}
+	return s.store.RecordServiceRollbackVersion(ctx, agentID, version)
 }
 
 // NoteAnchors garde les ancres de confiance locales que l'agent dit tenir,

@@ -412,6 +412,22 @@ export interface DeployPlan {
   // y en a, le serveur refuse de déployer (le fichier écrit les retirerait).
   shared_with: string[];
   last_run: ActionRun | null;
+  // L'agent sait revenir seul à la version d'avant ; faux, le serveur refuse
+  // la montée de version (deploy.rollback_unavailable).
+  rollback_capable: boolean;
+  // La dernière montée de version du service ; null : aucune.
+  last_update: ServiceUpdate | null;
+}
+
+type ServiceUpdateState = "pending" | "confirmed" | "rolled_back" | "failed" | "refused";
+
+export interface ServiceUpdate {
+  unit_name: string;
+  from_version: string;
+  to_version: string;
+  state: ServiceUpdateState;
+  requested_at: string;
+  settled_at: string | null;
 }
 
 // id nul : rien à lire. Le plan suit l'annuaire, les ordres et les machines

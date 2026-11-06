@@ -18,6 +18,51 @@ type DockerParams struct {
 	// Vrai quand un .env part dans le secret de l'ordre : le run le dit, la
 	// valeur ne s'écrit nulle part.
 	EnvSent bool `json:"env_sent"`
+	// Présent seulement sur docker.update d'une montée de version : l'agent
+	// juge la santé du service et revient seul à la version d'avant si elle
+	// ne vient pas. Absent : le redéploiement d'avant, sans filet.
+	Rollback *ServiceRollback `json:"rollback,omitempty"`
+}
+
+// ServiceRollback règle le filet d'une montée de version, en secondes.
+// L'agent rejuge les bornes : un serveur compromis ne le fait pas attendre
+// des heures ni juger sain un service à peine lancé.
+type ServiceRollback struct {
+	HealthWindowSeconds int `json:"health_window_seconds"`
+	StableSeconds       int `json:"stable_seconds"`
+}
+
+// Les bornes et les défauts du filet (décisions du 06/11/2026) : cinq minutes
+// pour devenir sain, deux minutes de marche sans redémarrage quand le
+// conteneur n'a pas de HEALTHCHECK.
+const (
+	MinHealthWindowSeconds     = 2 * 60
+	MaxHealthWindowSeconds     = 30 * 60
+	DefaultHealthWindowSeconds = 5 * 60
+	MinStableSeconds           = 60
+	MaxStableSeconds           = 10 * 60
+	DefaultStableSeconds       = 2 * 60
+)
+
+// DefaultServiceRollback est le filet que le serveur pose tant que la
+// politique n'est pas réglable.
+func DefaultServiceRollback() ServiceRollback {
+	return ServiceRollback{HealthWindowSeconds: DefaultHealthWindowSeconds, StableSeconds: DefaultStableSeconds}
+}
+
+// IsValid : la fenêtre et la stabilité dans leurs bornes, la stabilité
+// tenant dans la fenêtre.
+func (r ServiceRollback) IsValid() bool {
+	return r.HealthWindowSeconds >= MinHealthWindowSeconds && r.HealthWindowSeconds <= MaxHealthWindowSeconds &&
+		r.StableSeconds >= MinStableSeconds && r.StableSeconds <= MaxStableSeconds &&
+		r.StableSeconds < r.HealthWindowSeconds
+}
+
+// DockerRollbackParams sont les paramètres de docker.rollback : le projet,
+// rien d'autre. L'agent remet la version d'avant qu'il a lui-même gardée ;
+// l'ordre ne nomme ni image ni fichier.
+type DockerRollbackParams struct {
+	Project string `json:"project"`
 }
 
 // DockerSecret est le secret de docker.deploy et de docker.update, signé avec

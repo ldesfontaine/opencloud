@@ -10,7 +10,7 @@ import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
 import type { Firewall, FirewallCounts, FirewallDetail, FirewallFlowsResponse, FirewallInterfacesResponse, FirewallLeasesResponse, FirewallRulesResponse, FirewallsResponse, FlowEndpoint, FlowRule } from "./firewalls";
 import type { DeletionCount, DeletionPlan } from "./deletion";
-import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
+import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse, ServiceUpdate } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
 import type { Account, Agent, AgentAnchors, AnchorKind, Capability, Machine, MachineHost, MachineRole, MachinesResponse, ReportedCapability } from "./machines";
 import type { MachineStorage, PhysicalDisk, StoragePool } from "./storage";
@@ -577,6 +577,9 @@ const alert = shape<AlertJSON>("Alert", {
     not_after: optional(value),
     since: optional(value),
     bytes: optional(value),
+    version: optional(value),
+    log: optional(value),
+    late: optional(value),
   }),
   opened_at: value,
   updated_at: value,
@@ -613,6 +616,7 @@ const channels = shape<ChannelsResponse>("ChannelsResponse", {
     notify_resolve: value,
     receives_audit: value,
     categories: value,
+    attach_logs: value,
     enabled: value,
     plain: value,
     created_at: value,
@@ -984,6 +988,15 @@ const deployPlan = shape<DeployPlan>("DeployPlan", {
   data_dirs: value,
   shared_with: value,
   last_run: actionRun,
+  rollback_capable: value,
+  last_update: shape<ServiceUpdate>("ServiceUpdate", {
+    unit_name: value,
+    from_version: value,
+    to_version: value,
+    state: value,
+    requested_at: value,
+    settled_at: value,
+  }),
 });
 
 const backups = shape<Backups>("Backups", {

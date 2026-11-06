@@ -104,6 +104,8 @@ export function describeAlert(t: Translate, alert: Alert, now: number, threshold
       return lines(t, alert.kind, [], [details.target ?? "", t(`alert.reason_${details.reason ?? "chain"}`)]);
     case "agent_rolled_back":
       return lines(t, alert.kind, [], [machine, details.target ?? "", t(`alert.rollback_cause_${details.reason ?? "timeout"}`)]);
+    case "service_rolled_back":
+      return serviceRolledBackText(t, alert, machine);
     case "disk_full":
       return lines(t, alert.kind, [details.percent ?? 0], [details.mount_point ?? object, machine, details.threshold ?? thresholds.disk.attention]);
     case "cpu_high":
@@ -130,6 +132,21 @@ export function describeAlert(t: Translate, alert: Alert, now: number, threshold
 // Les raisons d'une cible injoignable (restic.ReasonTarget*) ; une autre se
 // dit comme une erreur de rest-server.
 const unreachableReasons = ["offline", "stopped", "error"];
+
+// Le retour lui-même a pu échouer : la phrase change, pas les chiffres.
+function serviceRolledBackText(t: Translate, alert: Alert, machine: string): AlertText {
+  const causeArgs = [alert.object.name, machine, alert.details.target ?? "", alert.details.version ?? ""];
+  const late = alert.details.late === true ? ` ${t("alert.late_report")}` : "";
+  if (alert.details.reason !== "rollback_failed") {
+    const text = lines(t, alert.kind, [], causeArgs);
+    return { ...text, cause: text.cause + late };
+  }
+  return {
+    fact: t("alert.fact_service_rollback_failed"),
+    cause: t("alert.cause_service_rollback_failed", ...causeArgs) + late,
+    action: t("alert.action_service_rollback_failed"),
+  };
+}
 
 function ageSince(t: Translate, alert: Alert, now: number): string {
   return formatDuration(t, alert.details.since ? since(alert.details.since, now) : 0);
@@ -296,7 +313,7 @@ export function filterChoicesOf(alerts: Alert[], chosen: AlertFilter): FilterCho
 }
 
 // Où mène un objet : sa fiche ; un volume, sa machine ; une sauvegarde, une
-// source ou une cible, la page Sauvegardes.
+// source ou une cible, la page Sauvegardes ; un service, sa fiche de l'annuaire.
 export function objectPath(object: AlertObject, machineID: string): string | null {
   switch (object.kind) {
     case "machine":
@@ -311,6 +328,8 @@ export function objectPath(object: AlertObject, machineID: string): string | nul
       return machineID !== "" ? `/machines/${machineID}` : null;
     case "backup":
       return backupsPath;
+    case "service":
+      return `/services/annuaire/${object.id}`;
   }
 }
 
@@ -470,7 +489,7 @@ export function channelPathOf(id: number | string): string {
 
 // Ce qu'on fait taire depuis une alerte : son objet, ou ce qui le porte. Un
 // volume se tait par le disque de sa machine, un conteneur par son service
-// déclaré quand il en a un.
+// déclaré quand il en a un, un service par lui-même.
 function muteTargetOf(alert: Pick<Alert, "kind" | "object" | "machine_id" | "machine_name" | "service_id">): { kind: AlertKind | ""; targetKind: MuteTargetKind; targetID: string; targetName: string } {
   switch (alert.object.kind) {
     case "volume":
@@ -481,6 +500,8 @@ function muteTargetOf(alert: Pick<Alert, "kind" | "object" | "machine_id" | "mac
         return { kind: alert.kind, targetKind: "service", targetID: alert.service_id, targetName: "" };
       }
       return { kind: alert.kind, targetKind: "container", targetID: alert.object.id, targetName: alert.object.name };
+    case "service":
+      return { kind: alert.kind, targetKind: "service", targetID: alert.object.id, targetName: "" };
   }
   return { kind: alert.kind, targetKind: alert.object.kind, targetID: alert.object.id, targetName: alert.object.name };
 }
@@ -512,6 +533,7 @@ interface ChannelFormValues {
   receivesAudit: boolean;
   // Vide : toutes les alertes.
   categories: AlertCategory[];
+  attachLogs: boolean;
   enabled: boolean;
 }
 
@@ -526,17 +548,20 @@ export const emptyChannelForm: ChannelFormValues = {
   notifyResolve: true,
   receivesAudit: false,
   categories: [],
+  // Oui par défaut, comme le serveur pour un canal d'avant la case.
+  attachLogs: true,
   enabled: true,
 };
 
 // Ce que les réglages repliés d'un canal acceptent, en clair : « dès Attention,
 // avec les résolutions ».
-export function channelSettingsHint(t: Translate, values: Pick<ChannelFormValues, "minSeverity" | "notifyResolve" | "receivesAudit" | "categories" | "enabled">): string {
+export function channelSettingsHint(t: Translate, values: Pick<ChannelFormValues, "minSeverity" | "notifyResolve" | "receivesAudit" | "categories" | "attachLogs" | "enabled">): string {
   return [
     values.categories.length === 0 ? t("channel.hint_categories_all") : values.categories.map((category) => t(`channel.category_short_${category}`)).join(", "),
     t("channel.hint_from", t(`alert.severity_${values.minSeverity}`)),
     t(values.notifyResolve ? "channel.hint_resolve_on" : "channel.hint_resolve_off"),
     ...(values.receivesAudit ? [t("channel.hint_audit")] : []),
+    ...(values.attachLogs ? [t("channel.hint_logs")] : []),
     ...(values.enabled ? [] : [t("channel.hint_disabled")]),
   ].join(", ");
 }
@@ -554,6 +579,7 @@ export function channelFormOf(channel: Channel): ChannelFormValues {
     notifyResolve: channel.notify_resolve,
     receivesAudit: channel.receives_audit,
     categories: channel.categories,
+    attachLogs: channel.attach_logs,
     enabled: channel.enabled,
   };
 }
@@ -570,6 +596,7 @@ export function channelRequestOf(values: ChannelFormValues): ChannelRequest {
     notify_resolve: values.notifyResolve,
     receives_audit: values.receivesAudit,
     categories: values.categories,
+    attach_logs: values.attachLogs,
     enabled: values.enabled,
   };
 }

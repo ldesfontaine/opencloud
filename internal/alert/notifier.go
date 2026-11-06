@@ -214,7 +214,12 @@ func (n *Notifier) renderJob(job Job) (Body, error) {
 	if job.Delivery.Event == EventAudit {
 		return RenderAudit(n.catalogs.For(n.language()), job.Channel.Format, job.Audit, n.now(), JournalLink(n.publicURL))
 	}
-	return n.render(job.Channel.Format, job.Delivery.Event, job.Alert)
+	found := job.Alert
+	if !job.Channel.AttachLogs {
+		// Le journal ne quitte la maison que par les canaux qui l'ont voulu.
+		found.Details.Log = nil
+	}
+	return n.render(job.Channel.Format, job.Delivery.Event, found)
 }
 
 func (n *Notifier) render(format Format, event Event, alert Alert) (Body, error) {

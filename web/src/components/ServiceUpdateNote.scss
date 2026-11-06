@@ -1,0 +1,7 @@
+// La pastille puis la phrase, sur une ligne tant qu'elle tient.
+.service-update-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}

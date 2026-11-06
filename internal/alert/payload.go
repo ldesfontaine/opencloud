@@ -76,7 +76,7 @@ func RenderSummary(catalog lang.Catalog, format Format, held Held, now time.Time
 	default:
 		rendered, err = jsonBody(title, link, payload{
 			Event: string(EventSummary), SentAt: now.UTC(), Language: string(catalog.Code()), Title: title,
-			Text: payloadText(text), Held: held.Count, Severity: held.Severity, Machines: held.Machines, OtherMachines: held.Others, URL: link,
+			Text: payloadText{Fact: text.Fact, Cause: text.Cause, Action: text.Action}, Held: held.Count, Severity: held.Severity, Machines: held.Machines, OtherMachines: held.Others, URL: link,
 		})
 	}
 	rendered.Urgent = held.Severity == SeverityDanger
@@ -148,7 +148,21 @@ func plainText(title string, text Text) string {
 	if text.Action != "" {
 		lines = append(lines, text.Action)
 	}
+	if len(text.Logs) > 0 {
+		lines = append(lines, "", text.LogsLabel+" :")
+		lines = append(lines, text.Logs...)
+	}
 	return strings.Join(lines, "\n")
+}
+
+// fencedLogs met le journal dans un bloc de code Markdown (Discord, Slack) :
+// une suite de trois apostrophes inverses dans une ligne ne le referme pas.
+func fencedLogs(text Text, escape func(string) string) string {
+	if len(text.Logs) == 0 {
+		return ""
+	}
+	journal := strings.ReplaceAll(strings.Join(text.Logs, "\n"), "```", "\x27\x27\x27")
+	return "\n" + text.LogsLabel + "\n```\n" + escape(journal) + "\n```"
 }
 
 // emailBody fait le texte brut, le lien en dernière ligne, et un HTML
@@ -158,6 +172,9 @@ func emailBody(title string, text Text, link, openLabel string) Body {
 	paragraphs := []string{"<p><strong>" + html.EscapeString(title) + "</strong></p>", "<p>" + html.EscapeString(text.Cause) + "</p>"}
 	if text.Action != "" {
 		paragraphs = append(paragraphs, "<p>"+html.EscapeString(text.Action)+"</p>")
+	}
+	if len(text.Logs) > 0 {
+		paragraphs = append(paragraphs, "<p>"+html.EscapeString(text.LogsLabel)+"</p><pre>"+html.EscapeString(strings.Join(text.Logs, "\n"))+"</pre>")
 	}
 	if link != "" {
 		plain += "\n\n" + openLabel + " : " + link
@@ -189,6 +206,10 @@ type payload struct {
 	URL           string   `json:"url,omitempty"`
 }
 
+func payloadTextOf(text Text) payloadText {
+	return payloadText{Fact: text.Fact, Cause: text.Cause, Action: text.Action}
+}
+
 type payloadText struct {
 	Fact   string `json:"fact"`
 	Cause  string `json:"cause"`
@@ -218,7 +239,7 @@ type payloadObject struct {
 func openCloudPayload(catalog lang.Catalog, title string, text Text, alert Alert, event Event, now time.Time, link string) payload {
 	body := payload{
 		Event: string(event), SentAt: now.UTC(), Language: string(catalog.Code()), Title: title,
-		Text: payloadText(text),
+		Text: payloadTextOf(text),
 	}
 	if event == EventTest {
 		return body
@@ -303,6 +324,9 @@ func escapeSlack(text string) string {
 	return slackEscaper.Replace(flatten(text))
 }
 
+// Dans un bloc de code, Slack ne lit que &, < et > : le reste reste littéral.
+var slackLogsEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
 var slackEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\\", "\\\\", "[", "\\[", "]", "\\]")
 
 // Discord rend le titre cliquable par url, et le lien Markdown en fin de
@@ -314,6 +338,7 @@ func discordPayload(title string, text Text, alert Alert, event Event, now time.
 	if text.Action != "" {
 		description += "\n" + text.Action
 	}
+	description += fencedLogs(text, func(journal string) string { return journal })
 	embed := map[string]any{
 		"title": title, "description": description, "color": decimal, "timestamp": now.UTC().Format(time.RFC3339),
 	}
@@ -332,6 +357,7 @@ func slackPayload(title string, text Text, alert Alert, event Event, link, openL
 	if text.Action != "" {
 		body += "\n" + text.Action
 	}
+	body += fencedLogs(text, slackLogsEscaper.Replace)
 	attachment := map[string]any{"color": hex, "text": body}
 	if link != "" {
 		attachment["title"] = openLabel

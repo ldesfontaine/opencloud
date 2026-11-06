@@ -71,4 +71,10 @@ type Plan struct {
 	// Le dernier ordre de déploiement du service, quel que soit son état ;
 	// nil s'il n'y en a jamais eu (ou plus : la purge des runs l'a emporté).
 	LastRun *action.Run
+	// Vrai quand l'agent sait revenir seul à la version d'avant d'un service :
+	// sans cela, la montée de version est refusée.
+	CanRollBack bool
+	// La dernière montée de version du service, quel que soit son état ; nil
+	// s'il n'y en a jamais eu.
+	LastUpdate *ServiceUpdate
 }

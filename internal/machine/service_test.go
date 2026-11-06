@@ -81,6 +81,17 @@ func (f *fakeStore) RecordRollbackVersion(_ context.Context, agentID string, ver
 	return ErrNotFound
 }
 
+func (f *fakeStore) RecordServiceRollbackVersion(_ context.Context, agentID string, version int) error {
+	for id, m := range f.machines {
+		if m.Agent.ID == agentID {
+			m.Agent.ServiceRollbackVersion = version
+			f.machines[id] = m
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 func (f *fakeStore) RecordAnchors(_ context.Context, agentID, anchors string) error {
 	for id, m := range f.machines {
 		if m.Agent.ID == agentID {

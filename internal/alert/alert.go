@@ -58,6 +58,9 @@ const (
 	// L'agent d'une machine est revenu à sa version d'avant : la mise à jour
 	// n'a pas été confirmée à l'échéance. Danger si la remise en état a échoué.
 	KindAgentRolledBack Kind = "agent_rolled_back"
+	// La montée de version d'un service n'a pas tenu : l'agent est revenu à la
+	// version d'avant. Danger si le retour a échoué aussi.
+	KindServiceRolledBack Kind = "service_rolled_back"
 	// La supervision des sauvegardes (module Sauvegardes) : aucune réussite
 	// depuis trop longtemps, test de restauration périmé, source sans plan,
 	// cible pleine, cible injoignable.
@@ -73,7 +76,7 @@ func Kinds() []Kind {
 	return []Kind{
 		KindMachineLost, KindServiceDown, KindServiceUnhealthy, KindServiceRestart,
 		KindJobLate, KindJobFailed, KindProbeDown,
-		KindCertExpiring, KindCertExpired, KindCertUntrusted, KindDiskFull, KindCPUHigh, KindMemoryHigh, KindAgentRolledBack,
+		KindCertExpiring, KindCertExpired, KindCertUntrusted, KindDiskFull, KindCPUHigh, KindMemoryHigh, KindAgentRolledBack, KindServiceRolledBack,
 		KindBackupStale, KindRestoreTestStale, KindSourceUnprotected, KindTargetFull, KindTargetUnreachable,
 	}
 }
@@ -110,10 +113,13 @@ const (
 	// Une sauvegarde, une source ou une cible de sauvegardes : comme un
 	// volume, il ne porte que sa machine (la source, ou la cible).
 	ObjectBackup ObjectKind = "backup"
+	// Un service déclaré : l'objet de l'alerte d'une montée de version, qui
+	// n'appartient à aucun conteneur en particulier.
+	ObjectService ObjectKind = "service"
 )
 
 func ObjectKinds() []ObjectKind {
-	return []ObjectKind{ObjectMachine, ObjectContainer, ObjectHeartbeat, ObjectProbe, ObjectVolume, ObjectBackup}
+	return []ObjectKind{ObjectMachine, ObjectContainer, ObjectHeartbeat, ObjectProbe, ObjectVolume, ObjectBackup, ObjectService}
 }
 
 func isObjectKind(kind ObjectKind) bool {
@@ -167,12 +173,22 @@ type Details struct {
 	Since time.Time `json:"since,omitzero"`
 	// La place libre d'une cible, en octets.
 	Bytes int64 `json:"bytes,omitempty"`
+	// La version d'avant, celle où un service est revenu (Target est celle
+	// qui n'a pas tenu).
+	Version string `json:"version,omitempty"`
+	// Les dernières lignes de journal des conteneurs en défaut, les valeurs
+	// de l'.env masquées par l'agent ; un canal les retire à l'envoi si sa
+	// case « joindre les journaux » est éteinte.
+	Log []string `json:"log,omitempty"`
+	// Le rapport de l'agent est arrivé après l'expiration du run : l'annuaire
+	// n'a pas été remis à la version d'avant, l'alerte le dit.
+	Late bool `json:"late,omitempty"`
 }
 
 func (d Details) Equal(other Details) bool {
 	return d.Count == other.Count && d.Percent == other.Percent && d.WindowMinutes == other.WindowMinutes && d.MountPoint == other.MountPoint && d.Threshold == other.Threshold &&
 		d.ExitCode == other.ExitCode && d.Reason == other.Reason && d.Target == other.Target &&
-		d.Bytes == other.Bytes && d.NotAfter.Equal(other.NotAfter) && d.Since.Equal(other.Since)
+		d.Bytes == other.Bytes && d.Version == other.Version && slices.Equal(d.Log, other.Log) && d.Late == other.Late && d.NotAfter.Equal(other.NotAfter) && d.Since.Equal(other.Since)
 }
 
 // Fact est ce qu'une source émet : de quoi ouvrir une alerte, ou en

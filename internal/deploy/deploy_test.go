@@ -282,7 +282,7 @@ type bench struct {
 
 func newBench(rights string, runs fakeRuns) *bench {
 	b := &bench{sender: &fakeSender{}, machines: &fakeMachines{status: activeMachine(rights)}, runs: &runs}
-	b.service = deploy.New(fakeServices{service: nextcloud()}, nil, b.machines, b.runs, b.sender, slog.New(slog.DiscardHandler))
+	b.service = deploy.New(fakeServices{service: nextcloud()}, nil, b.machines, b.runs, nil, b.sender, slog.New(slog.DiscardHandler))
 	return b
 }
 
@@ -370,7 +370,7 @@ func TestPlan_RefusesWhatCannotBeDeployed(t *testing.T) {
 	} {
 		service := nextcloud()
 		change(&service)
-		b := deploy.New(fakeServices{service: service}, nil, fakeMachines{status: activeMachine("observe,docker.deploy")}, fakeRuns{}, &fakeSender{}, slog.New(slog.DiscardHandler))
+		b := deploy.New(fakeServices{service: service}, nil, fakeMachines{status: activeMachine("observe,docker.deploy")}, fakeRuns{}, nil, &fakeSender{}, slog.New(slog.DiscardHandler))
 		_, err := b.Plan(ctx, serviceID)
 		if key, ok := refusal.KeyOf(err); !ok || !strings.HasPrefix(key, "deploy.") {
 			t.Errorf("%s: %v", name, err)
@@ -390,7 +390,7 @@ func TestPlan_RefusesWhatCannotBeDeployed(t *testing.T) {
 // unités de l'autre : ni déployer, ni redéployer, ni passer de version.
 func TestPlan_SaysAProjectAnotherServiceSharesAndTheGesturesRefuseIt(t *testing.T) {
 	neighbour := directory.Service{ID: "svc_other", Name: "authelia", MachineID: nextcloud().MachineID, Origin: directory.OriginCompose, ComposeProject: nextcloud().ComposeProject}
-	b := deploy.New(fakeServices{service: nextcloud(), neighbours: []directory.Service{neighbour}}, nil, fakeMachines{status: activeMachine("observe,docker.deploy,docker.update")}, fakeRuns{}, &fakeSender{}, slog.New(slog.DiscardHandler))
+	b := deploy.New(fakeServices{service: nextcloud(), neighbours: []directory.Service{neighbour}}, nil, fakeMachines{status: activeMachine("observe,docker.deploy,docker.update")}, fakeRuns{}, nil, &fakeSender{}, slog.New(slog.DiscardHandler))
 	plan, err := b.Plan(context.Background(), serviceID)
 	if err != nil || len(plan.SharedWith) != 1 || plan.SharedWith[0] != "authelia" {
 		t.Fatalf("plan %+v %v", plan, err)

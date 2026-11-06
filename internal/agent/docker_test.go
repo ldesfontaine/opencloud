@@ -38,6 +38,9 @@ type fakeCompose struct {
 	upErr      error
 	upDirs     []string
 	projects   []string
+	// onUp est appelé à chaque Up, avec son rang (de 1 à N) ; son erreur fait
+	// échouer ce Up.
+	onUp func(rank int) error
 }
 
 func (f *fakeCompose) Version(context.Context) (string, error) { return f.version, f.versionErr }
@@ -45,6 +48,11 @@ func (f *fakeCompose) Version(context.Context) (string, error) { return f.versio
 func (f *fakeCompose) Up(_ context.Context, dir, project string) ([]agentwire.OutputLine, error) {
 	f.upDirs = append(f.upDirs, dir)
 	f.projects = append(f.projects, project)
+	if f.onUp != nil {
+		if err := f.onUp(len(f.upDirs)); err != nil {
+			return f.lines, err
+		}
+	}
 	return f.lines, f.upErr
 }
 

@@ -45,6 +45,9 @@ type orderError struct {
 	cause  error
 	// Rien n'a été écrit sur la machine : l'ordre est refusé, pas échoué.
 	untouched bool
+	// Les dernières lignes de journal d'une montée de version revenue en
+	// arrière : elles partent dans le rapport.
+	journal []string
 }
 
 func (e *orderError) Error() string {

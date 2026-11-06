@@ -1,6 +1,7 @@
 import type { ImageCheck, Container } from "../api/containers";
-import type { ContainerDirectory, DeployPlan } from "../api/directory";
+import type { ContainerDirectory, DeployPlan, ServiceUpdate } from "../api/directory";
 import type { Translate } from "../i18n/context";
+import type { StateTone } from "./tone";
 
 type Checked = Pick<Container, "update_policy" | "image_check">;
 
@@ -78,4 +79,34 @@ export function upgradeOffer(container: Checked, directory: ContainerDirectory |
     return null;
   }
   return { version: container.image_check.newer_tag };
+}
+
+// Pourquoi « Passer à » reste grisé, la clé de sa raison : une montée de ce
+// service est encore jugée, ou l'agent ne sait pas revenir seul à la version
+// d'avant (le serveur refuserait). null : ni l'un ni l'autre.
+export function upgradeBlocker(plan: Pick<DeployPlan, "rollback_capable" | "last_update">): string | null {
+  if (plan.last_update?.state === "pending") {
+    return "update.upgrade_judging";
+  }
+  if (!plan.rollback_capable) {
+    return "update.upgrade_rollback_unavailable";
+  }
+  return null;
+}
+
+// Ce que dit une montée qui n'a pas tenu : le ton de sa pastille et la clé de
+// sa phrase. Revenue seule ou refusée, la version d'avant tourne : à
+// surveiller ; un retour raté laisse peut-être le service à l'arrêt : en échec.
+// null : aucune montée, ou elle tient, ou elle est encore jugée.
+export function failedUpdate(update: Pick<ServiceUpdate, "state"> | null): { tone: StateTone; key: string } | null {
+  switch (update?.state) {
+    case "rolled_back":
+      return { tone: "warn", key: "update.failed_rolled_back" };
+    case "refused":
+      return { tone: "warn", key: "update.failed_refused" };
+    case "failed":
+      return { tone: "danger", key: "update.failed_return" };
+    default:
+      return null;
+  }
 }

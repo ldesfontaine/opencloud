@@ -79,6 +79,9 @@ type Result struct {
 	State  State
 	Reason string
 	Output []LogLine
+	// Les dernières lignes de journal d'une montée de version revenue en
+	// arrière ; elles partent dans l'alerte et ne sont pas gardées avec le run.
+	Journal []string
 }
 
 type Service struct {
@@ -90,6 +93,7 @@ type Service struct {
 	outbox    *Outbox
 	auditor   *audit.Recorder
 	alerter   Alerter
+	updates   ServiceUpdates
 	logger    *slog.Logger
 	now       func() time.Time
 
@@ -108,6 +112,13 @@ type Service struct {
 
 func New(store Store, machines Machines, logger *slog.Logger) *Service {
 	return &Service{store: store, machines: machines, logger: logger, now: time.Now}
+}
+
+// SetServiceUpdates branche le composant qui tient les montées de version des
+// services ; sans lui, un rapport de montée ne touche ni l'annuaire ni les
+// alertes.
+func (s *Service) SetServiceUpdates(updates ServiceUpdates) {
+	s.updates = updates
 }
 
 // SetKey branche la clé qui signe les ordres ; sans elle, rien ne part.

@@ -178,6 +178,12 @@ const (
 	ReasonComposeTooOld     = "compose_too_old"
 	ReasonDiskFull          = "disk_full"
 	ReasonComposeFailed     = "compose_failed"
+	// Une montée de version qui n'a pas tenu : l'agent est revenu à la
+	// version d'avant et elle va bien (rolled_back_version) ; docker.rollback
+	// demandé hors d'une fenêtre de santé ouverte (no_pending_update). Quand
+	// la version d'avant ne va pas non plus : rollback_failed.
+	ReasonRolledBackVersion = "rolled_back_version"
+	ReasonNoPendingUpdate   = "no_pending_update"
 	// Les raisons des droits et des ordres restic : rest-server ou restic
 	// manque sur la machine (ni dans le PATH, ni au chemin déclaré) ; restic
 	// a échoué, rejeu compris (sa sortie d'erreur filtrée est dans le
@@ -277,7 +283,7 @@ func RefusalReasons() []string {
 		ReasonNoPrevious, ReasonPreviousIdentical, ReasonGuardMissing,
 		ReasonRolledBackTimeout, ReasonRolledBackCrash, ReasonRollbackFailed,
 		ReasonServiceDirExists, ReasonServiceDirMissing, ReasonRootNotOurs, ReasonDockerMissing,
-		ReasonComposeTooOld, ReasonDiskFull, ReasonComposeFailed,
+		ReasonComposeTooOld, ReasonDiskFull, ReasonComposeFailed, ReasonRolledBackVersion, ReasonNoPendingUpdate,
 		ReasonPathDenied, ReasonDockerDenied,
 		ReasonSudoMissing, ReasonProducerMissing, ReasonSudoDenied,
 		ReasonProducerUnknown, ReasonProducerFailed, ReasonUploadFailed,
@@ -324,7 +330,17 @@ type ActionResult struct {
 	// Ce qu'un parcours restic.browse a lu : des noms, jamais un contenu ;
 	// absent pour les autres ordres.
 	Browse *ResticBrowseReport `json:"browse,omitempty"`
+	// Les dernières lignes de journal des conteneurs en défaut d'une montée
+	// de version revenue en arrière, valeurs de l'.env masquées ; absent pour
+	// les autres ordres.
+	Journal []string `json:"journal,omitempty"`
 }
+
+// Ce qu'un journal de montée ratée porte au plus : vingt lignes, deux Kio.
+const (
+	MaxJournalLines = 20
+	MaxJournalBytes = 2 << 10
+)
 
 // OutputLine est une ligne de la sortie d'un ordre ; stream vaut « stdout »
 // ou « stderr ».

@@ -8,7 +8,8 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 
 - **Un serveur openCloud compromis ne peut plus exfiltrer de données par les sauvegardes** (lot 1 de l'étude « compromission du serveur », #487) : l'agent n'exécute `backup.produce` et `restic.provision` que sur des **ancres de confiance** que l'administrateur de la machine pose lui-même.
 - **La mémoire d'une machine en ZFS ne compte plus le cache ZFS** (#328) : un Pi de sauvegarde à 70 % de mémoire « utilisée » dont 9,9 Go d'ARC affiche désormais ce qu'il utilise vraiment, et le cache ZFS apparaît à part sur la fiche.
-- **Quatre migrations** (`036`, `037`, `038`, `040`) : **sauvegarde de la base obligatoire** avant la mise à jour.
+- **Une montée de version de service revient seule en arrière** (#493, lot A) : l'agent juge la santé du service pendant 5 minutes et remet la version précédente si elle ne tient pas. **Les données ne sont pas restaurées.** Voir plus bas.
+- **Cinq migrations** (`036`, `037`, `038`, `039`, `040`) : **sauvegarde de la base obligatoire** avant la mise à jour.
 - **Le protocole de l'agent ne change pas** (version `2`) : un agent v0.6.0 reste connecté et continue de tout faire, mais **n'applique pas les ancres**.
 - **Des alertes de processeur et de mémoire**, des **seuils réglables par machine**, « **Lu / Non lu** » à la place d'« acquitter », et un **rappel** des alertes de danger restées sans lecture (#489) : voir plus bas.
 - **Des catégories d'alertes par canal** (#494) : un canal choisit les familles qu'il reçoit (machines, services, tâches, sondes, sauvegardes, mises à jour). **Migration `040`** ; un canal existant n'a aucune catégorie et reçoit tout, comme avant.
@@ -60,6 +61,29 @@ renommée `<tag>.md` à la publication, et son entrée passe dans le tableau de
 - **Contrat** : `categories` (liste de noms) dans l'API des canaux ; vide ou absent, toutes. Un nom inconnu est refusé (`channel.category_invalid`).
 - **Ce que ça change** : un canal reçoit une alerte si sa gravité est atteinte **et** que sa famille est cochée. Le plafond de débit est par canal : un canal dédié aux mises à jour a son propre budget.
 - **Ce que ça coûte** : un canal restreint ne reçoit **pas** un type d'alerte qui apparaît plus tard dans une autre famille que celles cochées ; l'écran de la liste montre les familles de chaque canal. Une catégorie décochée après coup n'empêche pas d'apprendre la fin d'une alerte déjà annoncée.
+
+## Le retour de version d'un service (#493)
+
+| Quoi | Réglage |
+| --- | --- |
+| Fenêtre pour devenir sain | 5 min (bornes de l'agent : 2 à 30 min) |
+| Sans HEALTHCHECK : en marche sans redémarrage | 2 min (bornes : 1 à 10 min) |
+| Retours tentés | un seul, jamais de boucle |
+| Journal joint à la notification | 20 lignes, 2 Kio, valeurs de l'`.env` masquées ; une case par canal |
+
+- **Qui fait quoi** : l'agent garde l'ancien `compose.yml`, juge la santé, revient seul ; le serveur remet la version d'avant dans l'annuaire, écrit `action.rolled_back` et ouvre l'alerte `service_rolled_back` (attention, danger si le retour a échoué aussi).
+- **Sur l'écran** : la carte « Mise à jour de l'image » dit ce que la machine fera si la version ne tient pas, grise « Passer à » avec sa raison quand l'agent ne sait pas revenir, et garde « La version X a échoué » après un retour.
+- **Nouvel ordre `docker.rollback`** (droit `docker.update`) : refusé hors fenêtre. Rien ne l'envoie encore : le veto des sondes liées est le lot E.
+- **Protocole inchangé** (version `2`) : champs et genre optionnels. Migration `039` : table `service_updates`, `agents.service_rollback_version`, `alert_channels.attach_logs`.
+
+### Ce que ça coûte
+
+- **Les données ne sont pas restaurées** : une base migrée par la nouvelle version peut empêcher l'ancienne de démarrer ; le retour échoue alors et l'alerte passe en danger. La restauration d'une sauvegarde est un autre lot.
+- **Un agent d'avant ce lot ne peut plus monter un service de version** (`deploy.rollback_unavailable`) : mettez-le à jour d'abord. Au 5 novembre, 6 agents sur 9 sont en v0.2.0.
+- Sans HEALTHCHECK, « sain » veut dire « ne plante pas » : une erreur affichée sans plantage passe.
+- Pendant la fenêtre (jusqu'à 5 min, 60 min au pire), la machine n'exécute pas ses autres ordres longs.
+- Le journal joint peut contenir un secret que le masquage ne connaît pas, et il sort de la maison : éteignez la case du canal.
+- Un client d'API qui crée ou modifie un canal sans envoyer `attach_logs` l'éteint.
 
 ## Ce qui n'est pas couvert (lot 2)
 

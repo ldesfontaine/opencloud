@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import type { ImageCheck } from "../api/containers";
 import type { ContainerDirectory } from "../api/directory";
 import type { Translate } from "../i18n/context";
-import { checkText, imageLineChange, needsComposeEdit, shortDigest, updateAvailable, updateLabel, upgradeOffer, upgradeServiceID } from "./updates";
+import { checkText, failedUpdate, imageLineChange, needsComposeEdit, shortDigest, updateAvailable, updateLabel, upgradeBlocker, upgradeOffer, upgradeServiceID } from "./updates";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -91,4 +91,22 @@ test("upgradeServiceID ne demande pas le plan quand rien n'est offert", () => {
   expect(upgradeServiceID({ update_policy: "hold", image_check: minor }, declared)).toBeNull();
   expect(upgradeServiceID({ update_policy: "watch", image_check: check({ kind: "digest" }) }, declared)).toBeNull();
   expect(upgradeServiceID({ update_policy: "watch", image_check: minor }, null)).toBeNull();
+});
+
+const settled = { unit_name: "app", from_version: "1.0", to_version: "1.1", requested_at: "2026-09-22T12:00:00Z", settled_at: "2026-09-22T12:05:00Z" };
+
+test("upgradeBlocker grise « Passer à » pendant un jugement, ou sans filet", () => {
+  expect(upgradeBlocker({ rollback_capable: true, last_update: null })).toBeNull();
+  expect(upgradeBlocker({ rollback_capable: false, last_update: null })).toBe("update.upgrade_rollback_unavailable");
+  expect(upgradeBlocker({ rollback_capable: true, last_update: { ...settled, state: "pending", settled_at: null } })).toBe("update.upgrade_judging");
+  expect(upgradeBlocker({ rollback_capable: true, last_update: { ...settled, state: "rolled_back" } })).toBeNull();
+});
+
+test("failedUpdate ne dit que ce qui n'a pas tenu, au ton de ce qui tourne", () => {
+  expect(failedUpdate(null)).toBeNull();
+  expect(failedUpdate({ state: "pending" })).toBeNull();
+  expect(failedUpdate({ state: "confirmed" })).toBeNull();
+  expect(failedUpdate({ state: "rolled_back" })).toEqual({ tone: "warn", key: "update.failed_rolled_back" });
+  expect(failedUpdate({ state: "refused" })).toEqual({ tone: "warn", key: "update.failed_refused" });
+  expect(failedUpdate({ state: "failed" })).toEqual({ tone: "danger", key: "update.failed_return" });
 });

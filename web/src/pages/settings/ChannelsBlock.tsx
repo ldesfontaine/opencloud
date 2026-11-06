@@ -76,6 +76,7 @@ function ChannelRow({ channel }: { channel: Channel }) {
             <Subject icon="bell">{channel.name}</Subject>
           </Link>
           {channel.receives_audit && <Pill tone="neutral">{t("channel.receives_audit_pill")}</Pill>}
+          {channel.attach_logs && <Pill tone="neutral">{t("channel.attach_logs_pill")}</Pill>}
           <span className="secondary">
             {t(`channel.format_${channel.format}`)} · {t("channel.receives_line", t(`channel.receives_${channel.min_severity}`))}
             {channel.categories.length > 0 && ` · ${channel.categories.map((category) => t(`channel.category_short_${category}`)).join(", ")}`}

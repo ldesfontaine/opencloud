@@ -30,6 +30,14 @@ func TestMigration036_KeepsTheAgentAndStartsWithoutReportedAnchors(t *testing.T)
 	if err := db.apply(ctx, "036_agent_anchors.sql", 36); err != nil {
 		t.Fatal(err)
 	}
+	// La lecture d'une machine nomme les colonnes des migrations d'après.
+	for _, name := range names {
+		if version := migrationVersion(name); version > 36 {
+			if err := db.apply(ctx, name, version); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 
 	found, err := db.GetMachine(ctx, "pve")
 	if err != nil {

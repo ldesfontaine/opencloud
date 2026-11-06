@@ -15,6 +15,10 @@ type Text struct {
 	Fact   string
 	Cause  string
 	Action string
+	// Les lignes de journal jointes à l'alerte, telles que l'agent les a
+	// rapportées, et leur titre ; vides sans journal.
+	Logs      []string
+	LogsLabel string
 }
 
 // Describe rend les trois lignes d'une alerte. Un nom de machine absent,
@@ -41,6 +45,7 @@ func describe(catalog lang.Catalog, alert Alert, now time.Time, escape func(stri
 	details := alert.Details
 	details.Target = escape(details.Target)
 	details.MountPoint = escape(details.MountPoint)
+	details.Version = escape(details.Version)
 	// Arrêté ou relancé, un service qui plante en boucle se dit pareil.
 	if alert.IsLoop() {
 		return Text{
@@ -81,6 +86,8 @@ func describe(catalog lang.Catalog, alert Alert, now time.Time, escape func(stri
 		return text(catalog, "cert_untrusted", nil, []any{details.Target, catalog.Get("alert.reason_" + details.Reason)})
 	case KindAgentRolledBack:
 		return text(catalog, "agent_rolled_back", nil, []any{machine, details.Target, catalog.Get("alert.rollback_cause_" + rollbackCauseOf(details))})
+	case KindServiceRolledBack:
+		return describeServiceRolledBack(catalog, object, machine, details)
 	case KindDiskFull:
 		return text(catalog, "disk_full", []any{details.Percent}, []any{details.MountPoint, machine, thresholdOf(details, ResourceDisk)})
 	case KindCPUHigh:
@@ -104,6 +111,24 @@ func describe(catalog lang.Catalog, alert Alert, now time.Time, escape func(stri
 		}
 	}
 	return Text{Fact: string(alert.Kind), Cause: object}
+}
+
+// describeServiceRolledBack : la version qui n'a pas tenu et celle où le
+// service est revenu ; si le retour a échoué aussi, la phrase le dit. Le
+// journal part tel quel : chaque format le protège à sa façon (fence, HTML).
+func describeServiceRolledBack(catalog lang.Catalog, object, machine string, details Details) Text {
+	kind := "service_rolled_back"
+	if details.Reason == ReasonRollbackFailed {
+		kind = "service_rollback_failed"
+	}
+	described := text(catalog, kind, nil, []any{object, machine, details.Target, details.Version})
+	if details.Late {
+		described.Cause += " " + catalog.Get("alert.late_report")
+	}
+	if len(details.Log) > 0 {
+		described.Logs, described.LogsLabel = details.Log, catalog.Get("alert.logs_label")
+	}
+	return described
 }
 
 // describeRestoreTestStale : depuis quand aucun test n'a réussi ; le geste dépend de ce qui retient la vérification (le droit de la cible, ou

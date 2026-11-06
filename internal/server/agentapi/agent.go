@@ -197,6 +197,11 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	if err := h.machines.NoteRollbackVersion(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentRollback)); err != nil {
 		h.logger.Warn("note rollback version", "machine_id", authenticated.ID, "error", err)
 	}
+	// Le retour arrière d'un service : sans lui, aucune montée de version ne
+	// lui est envoyée.
+	if err := h.machines.NoteServiceRollbackVersion(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentServiceRollback)); err != nil {
+		h.logger.Warn("note service rollback version", "machine_id", authenticated.ID, "error", err)
+	}
 	// Les ancres de confiance locales qu'il tient : la fiche les montre, et le
 	// serveur n'envoie pas un ordre qu'elles feraient refuser.
 	if err := h.machines.NoteAnchors(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentAnchors)); err != nil {

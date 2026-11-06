@@ -20,6 +20,18 @@
     }
   }
 
+  // Le journal d'une montée revenue en arrière : vingt lignes au plus, qui
+  // défilent dans leur bloc plutôt que d'allonger la ligne.
+  .alert-log {
+    margin-top: 6px;
+
+    .snippet {
+      max-height: 240px;
+      overflow: auto;
+      font-size: 12px;
+    }
+  }
+
   .aside {
     display: flex;
     flex-direction: column;

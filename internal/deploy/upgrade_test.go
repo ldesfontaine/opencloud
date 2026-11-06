@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
@@ -27,6 +28,44 @@ type world struct {
 	setErr   error
 	sendErr  error
 	sentJSON []json.RawMessage
+	// Les montées de version gardées, par run.
+	updates map[string]deploy.ServiceUpdate
+}
+
+func (w *world) InsertServiceUpdate(_ context.Context, update deploy.ServiceUpdate) error {
+	if w.updates == nil {
+		w.updates = map[string]deploy.ServiceUpdate{}
+	}
+	w.updates[update.RunID] = update
+	return nil
+}
+
+func (w *world) SettleServiceUpdate(_ context.Context, runID string, state deploy.UpdateState, reason string, _ time.Time) (deploy.ServiceUpdate, bool, error) {
+	update, found := w.updates[runID]
+	if !found || update.State != deploy.UpdatePending {
+		return deploy.ServiceUpdate{}, false, nil
+	}
+	update.State, update.Reason = state, reason
+	w.updates[runID] = update
+	return update, true, nil
+}
+
+func (w *world) FindPendingServiceUpdate(_ context.Context, machineID string, _ time.Time) (deploy.ServiceUpdate, bool, error) {
+	for _, update := range w.updates {
+		if update.MachineID == machineID && update.State == deploy.UpdatePending {
+			return update, true, nil
+		}
+	}
+	return deploy.ServiceUpdate{}, false, nil
+}
+
+func (w *world) LatestServiceUpdate(_ context.Context, serviceID string) (deploy.ServiceUpdate, bool, error) {
+	for _, update := range w.updates {
+		if update.ServiceID == serviceID {
+			return update, true, nil
+		}
+	}
+	return deploy.ServiceUpdate{}, false, nil
 }
 
 func (w *world) GetDeclaredService(context.Context, string) (directory.Service, error) {
@@ -67,7 +106,7 @@ func (w *world) SendForService(_ context.Context, order action.ServiceOrder) (ac
 	if order.Secret != nil {
 		w.calls = append(w.calls, "secret")
 	}
-	return action.Run{ID: "run1", Kind: order.Kind, ServiceID: order.ServiceID}, nil
+	return action.Run{ID: "run1", Kind: order.Kind, ServiceID: order.ServiceID, MachineID: order.MachineID}, nil
 }
 
 // upgradeBench : le service est déployé, l'agent a tous ses droits, la machine
@@ -76,11 +115,12 @@ func upgradeBench(t *testing.T, change func(*world, *fakeMachines, *fakeRuns)) (
 	t.Helper()
 	w := &world{service: nextcloud(), offered: "16.5"}
 	machines := &fakeMachines{status: activeMachine("observe,docker.deploy,docker.update")}
+	machines.status.Agent.ServiceRollbackVersion = 1
 	runs := &fakeRuns{folder: succeededRun()}
 	if change != nil {
 		change(w, machines, runs)
 	}
-	return deploy.New(w, w, machines, runs, w, slog.New(slog.DiscardHandler)), w
+	return deploy.New(w, w, machines, runs, w, w, slog.New(slog.DiscardHandler)), w
 }
 
 // Le geste écrit la version, puis envoie le redéploiement dont le compose
@@ -103,6 +143,117 @@ func TestUpgrade_WritesTheVersionThenRedeploys(t *testing.T) {
 	}
 	if !strings.Contains(params.Compose, "image: postgres:16.5\n") || strings.Contains(params.Compose, "postgres:16.4") || params.EnvSent {
 		t.Fatalf("compose of the order:\n%s", params.Compose)
+	}
+}
+
+// La montée part avec son filet et reste gardée : de quelle version à quelle
+// version, en attente.
+func TestUpgrade_SendsTheSafetyNetAndKeepsTheChange(t *testing.T) {
+	service, w := upgradeBench(t, nil)
+	if _, err := service.Upgrade(context.Background(), dbUnitID, "16.5"); err != nil {
+		t.Fatal(err)
+	}
+	var params agentwire.DockerParams
+	if err := json.Unmarshal(w.sentJSON[0], &params); err != nil {
+		t.Fatal(err)
+	}
+	if params.Rollback == nil || *params.Rollback != agentwire.DefaultServiceRollback() || !params.Rollback.IsValid() {
+		t.Fatalf("safety net %+v", params.Rollback)
+	}
+	update := w.updates["run1"]
+	if update.State != deploy.UpdatePending || update.FromVersion != "16.4" || update.ToVersion != "16.5" || update.UnitID != dbUnitID || update.ServiceID != serviceID {
+		t.Fatalf("update %+v", update)
+	}
+	// Un redéploiement simple n'a pas de filet.
+	if _, err := service.Redeploy(context.Background(), serviceID, nil); err != nil {
+		t.Fatal(err)
+	}
+	var plain agentwire.DockerParams
+	if err := json.Unmarshal(w.sentJSON[1], &plain); err != nil || plain.Rollback != nil {
+		t.Fatalf("a redeployment carries a safety net: %+v %v", plain.Rollback, err)
+	}
+}
+
+// Ce que l'agent rapporte d'une montée remet, ou non, la version d'avant dans
+// l'annuaire.
+func TestSettleUpdate_PutsThePreviousVersionBackOnlyWhenTheMachineWentBack(t *testing.T) {
+	cases := []struct {
+		name     string
+		run      action.Run
+		state    deploy.UpdateState
+		restores bool
+		failed   bool
+	}{
+		{"rolled back", action.Run{State: action.StateFailed, Reason: agentwire.ReasonRolledBackVersion}, deploy.UpdateRolledBack, true, false},
+		{"return failed too", action.Run{State: action.StateFailed, Reason: agentwire.ReasonRollbackFailed}, deploy.UpdateFailed, true, true},
+		{"refused before writing", action.Run{State: action.StateRefused, Reason: agentwire.ReasonDiskFull}, deploy.UpdateRefused, true, false},
+		{"confirmed", action.Run{State: action.StateSucceeded}, deploy.UpdateConfirmed, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			service, w := upgradeBench(t, nil)
+			if _, err := service.Upgrade(context.Background(), dbUnitID, "16.5"); err != nil {
+				t.Fatal(err)
+			}
+			w.calls = nil
+			c.run.ID, c.run.Kind = "run1", agentwire.KindDockerUpdate
+
+			end, found, err := service.SettleUpdate(context.Background(), c.run)
+
+			if err != nil || !found {
+				t.Fatalf("found %v, err %v", found, err)
+			}
+			if w.updates["run1"].State != c.state {
+				t.Fatalf("state %q, want %q", w.updates["run1"].State, c.state)
+			}
+			restored := slices.Equal(w.calls, []string{"set " + dbUnitID + " 16.4"})
+			if restored != c.restores || (!c.restores && len(w.calls) != 0) {
+				t.Fatalf("calls %v, restores want %v", w.calls, c.restores)
+			}
+			if end.Confirmed != (c.state == deploy.UpdateConfirmed) || end.Failed != c.failed || end.FromVersion != "16.4" || end.ToVersion != "16.5" {
+				t.Fatalf("end %+v", end)
+			}
+			// Un rapport rejoué ne ferme rien deux fois.
+			w.calls = nil
+			if _, again, _ := service.SettleUpdate(context.Background(), c.run); again || len(w.calls) != 0 {
+				t.Fatalf("a replayed report settled twice: %v", w.calls)
+			}
+		})
+	}
+}
+
+func TestSettleUpdate_IgnoresWhatIsNotAnUpdateInTheMaking(t *testing.T) {
+	service, w := upgradeBench(t, nil)
+	if _, err := service.Upgrade(context.Background(), dbUnitID, "16.5"); err != nil {
+		t.Fatal(err)
+	}
+	w.calls = nil
+	for name, run := range map[string]action.Run{
+		"still accepted": {ID: "run1", Kind: agentwire.KindDockerUpdate, State: action.StateAccepted},
+		"timed out":      {ID: "run1", Kind: agentwire.KindDockerUpdate, State: action.StateFailed, Reason: "timeout"},
+		"another kind":   {ID: "run1", Kind: agentwire.KindDockerDeploy, State: action.StateFailed, Reason: agentwire.ReasonRolledBackVersion},
+		"a redeployment": {ID: "run9", Kind: agentwire.KindDockerUpdate, State: action.StateFailed, Reason: agentwire.ReasonRolledBackVersion},
+	} {
+		if _, found, err := service.SettleUpdate(context.Background(), run); found || err != nil {
+			t.Errorf("%s: settled (%v, %v)", name, found, err)
+		}
+	}
+	if len(w.calls) != 0 || w.updates["run1"].State != deploy.UpdatePending {
+		t.Fatalf("calls %v, state %q", w.calls, w.updates["run1"].State)
+	}
+}
+
+func TestRollBack_AsksTheAgentForTheProjectOnly(t *testing.T) {
+	service, w := upgradeBench(t, nil)
+	if _, err := service.RollBack(context.Background(), serviceID); err != nil {
+		t.Fatal(err)
+	}
+	var params map[string]any
+	if err := json.Unmarshal(w.sentJSON[0], &params); err != nil || len(params) != 1 || params["project"] != "nextcloud" {
+		t.Fatalf("params %v %v", params, err)
+	}
+	if !slices.Equal(w.calls, []string{"send docker.rollback"}) {
+		t.Fatalf("calls %v", w.calls)
 	}
 }
 
@@ -140,6 +291,16 @@ func TestUpgrade_EachRefusalWritesNothing(t *testing.T) {
 			name: "no agent", unit: dbUnitID, version: "16.5", want: deploy.ErrNoAgent,
 			change: func(_ *world, machines *fakeMachines, _ *fakeRuns) {
 				machines.status.Agent.RevokedAt = machines.status.Agent.EnrolledAt
+			},
+		},
+		{
+			name: "agent cannot go back by itself", unit: dbUnitID, version: "16.5", want: deploy.ErrRollbackUnavailable,
+			change: func(_ *world, machines *fakeMachines, _ *fakeRuns) { machines.status.Agent.ServiceRollbackVersion = 0 },
+		},
+		{
+			name: "another change is being judged on the machine", unit: dbUnitID, version: "16.5", want: deploy.ErrUpdateInProgress,
+			change: func(w *world, _ *fakeMachines, _ *fakeRuns) {
+				w.updates = map[string]deploy.ServiceUpdate{"run0": {RunID: "run0", MachineID: "m1", State: deploy.UpdatePending}}
 			},
 		},
 		{
@@ -234,5 +395,42 @@ func TestUpgrade_ARefusedWriteSendsNothing(t *testing.T) {
 	}
 	if len(w.calls) != 0 {
 		t.Fatalf("calls %v", w.calls)
+	}
+}
+
+// Une montée en attente depuis plus d'une heure (le run a expiré, l'agent n'a
+// rien rapporté) ne reste pas « en cours » à l'écran, et ne bloque plus la
+// machine.
+func TestPlan_APendingUpdateOlderThanTheRunWindowIsNotInProgress(t *testing.T) {
+	service, w := upgradeBench(t, nil)
+	w.updates = map[string]deploy.ServiceUpdate{"old": {
+		RunID: "old", ServiceID: serviceID, MachineID: "m1", State: deploy.UpdatePending, RequestedAt: time.Now().Add(-2 * time.Hour),
+	}}
+	plan, err := service.Plan(context.Background(), serviceID)
+	if err != nil || plan.LastUpdate == nil || plan.LastUpdate.State != deploy.UpdateFailed {
+		t.Fatalf("plan %+v %v", plan.LastUpdate, err)
+	}
+	w.updates["old"] = deploy.ServiceUpdate{RunID: "old", ServiceID: serviceID, MachineID: "m1", State: deploy.UpdatePending, RequestedAt: time.Now().Add(-time.Minute)}
+	if plan, err = service.Plan(context.Background(), serviceID); err != nil || plan.LastUpdate.State != deploy.UpdatePending {
+		t.Fatalf("a recent one: %+v %v", plan.LastUpdate, err)
+	}
+}
+
+// Un rapport tardif ferme la montée sans toucher à la version déclarée.
+func TestSettleLateUpdate_ClosesTheChangeWithoutPuttingTheVersionBack(t *testing.T) {
+	service, w := upgradeBench(t, nil)
+	if _, err := service.Upgrade(context.Background(), dbUnitID, "16.5"); err != nil {
+		t.Fatal(err)
+	}
+	w.calls = nil
+	end, found, err := service.SettleLateUpdate(context.Background(), "run1", agentwire.ReasonRolledBackVersion)
+	if err != nil || !found || !end.Late || !end.Reverted || end.Failed {
+		t.Fatalf("end %+v %v %v", end, found, err)
+	}
+	if len(w.calls) != 0 || w.updates["run1"].State != deploy.UpdateRolledBack {
+		t.Fatalf("calls %v, state %q: the directory must not be touched", w.calls, w.updates["run1"].State)
+	}
+	if _, again, _ := service.SettleLateUpdate(context.Background(), "run1", agentwire.ReasonRolledBackVersion); again {
+		t.Fatal("a late report settled twice")
 	}
 }

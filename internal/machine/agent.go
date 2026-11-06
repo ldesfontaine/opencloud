@@ -41,6 +41,9 @@ type Agent struct {
 	ServerKeyFingerprint string
 	// La version du retour arrière que l'agent dit savoir faire ; 0 : aucun.
 	RollbackVersion int
+	// La version du retour arrière d'un service que l'agent dit savoir faire ;
+	// 0 : aucun.
+	ServiceRollbackVersion int
 	// Les ancres de confiance locales que l'agent dit tenir ; Reported faux
 	// tant qu'il n'a rien dit (un agent d'avant les ancres, qui ne les applique
 	// pas).
@@ -52,6 +55,13 @@ type Agent struct {
 // aucune.
 func (a Agent) CanRollBack() bool {
 	return a.RollbackVersion > 0
+}
+
+// CanRollBackService dit si l'agent revient seul à la version d'avant d'un
+// service dont la montée n'est pas saine : sans cela, le serveur ne lui en
+// envoie aucune.
+func (a Agent) CanRollBackService() bool {
+	return a.ServiceRollbackVersion > 0
 }
 
 func (a Agent) Exists() bool {

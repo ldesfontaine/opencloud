@@ -47,6 +47,9 @@ type detailsJSON struct {
 	NotAfter   *time.Time `json:"not_after,omitempty"`
 	Since      *time.Time `json:"since,omitempty"`
 	Bytes      int64      `json:"bytes,omitempty"`
+	Version    string     `json:"version,omitempty"`
+	Log        []string   `json:"log,omitempty"`
+	Late       bool       `json:"late,omitempty"`
 }
 
 type alertCountsJSON struct {
@@ -90,6 +93,7 @@ type channelJSON struct {
 	ReceivesAudit bool   `json:"receives_audit"`
 	// Categories : vide, le canal reçoit toutes les alertes.
 	Categories []string `json:"categories"`
+	AttachLogs bool     `json:"attach_logs"`
 	Enabled    bool     `json:"enabled"`
 	// Plain : l'URL est en http, le canal parle en clair ; l'interface l'écrit.
 	Plain     bool      `json:"plain"`
@@ -112,6 +116,7 @@ type channelRequest struct {
 	ReceivesAudit bool   `json:"receives_audit"`
 	// Categories absent ou vide : toutes les alertes.
 	Categories []string `json:"categories"`
+	AttachLogs bool     `json:"attach_logs"`
 	Enabled    bool     `json:"enabled"`
 }
 
@@ -168,6 +173,7 @@ func alertToJSON(found alert.Alert) alertJSON {
 			Count: found.Details.Count, Percent: found.Details.Percent, MountPoint: found.Details.MountPoint, Threshold: found.Details.Threshold,
 			ExitCode: found.Details.ExitCode, Reason: found.Details.Reason, Target: probe.RedactTarget(found.Details.Target),
 			NotAfter: httpx.TimeOrNil(found.Details.NotAfter), Since: httpx.TimeOrNil(found.Details.Since), Bytes: found.Details.Bytes,
+			Version: found.Details.Version, Log: found.Details.Log, Late: found.Details.Late,
 		},
 		OpenedAt: found.OpenedAt.UTC(), UpdatedAt: found.UpdatedAt.UTC(),
 		ResolvedAt: httpx.TimeOrNil(found.ResolvedAt), AcknowledgedAt: httpx.TimeOrNil(found.AcknowledgedAt),
@@ -195,7 +201,7 @@ func categoriesOf(names []string) []alert.Category {
 func channelToJSON(channel alert.Channel) channelJSON {
 	return channelJSON{
 		ID: channel.ID, Name: channel.Name, URL: channel.URL, Format: string(channel.Format), Destination: channel.Destination, HasSecret: channel.HasSecret,
-		MinSeverity: string(channel.MinSeverity), NotifyResolve: channel.NotifyResolve, ReceivesAudit: channel.ReceivesAudit, Categories: categoryNames(channel.Categories), Enabled: channel.Enabled,
+		MinSeverity: string(channel.MinSeverity), NotifyResolve: channel.NotifyResolve, ReceivesAudit: channel.ReceivesAudit, Categories: categoryNames(channel.Categories), AttachLogs: channel.AttachLogs, Enabled: channel.Enabled,
 		Plain: channel.IsPlain(), CreatedAt: channel.CreatedAt.UTC(),
 	}
 }
@@ -335,7 +341,7 @@ func (s *Server) getChannel(w http.ResponseWriter, r *http.Request) {
 func channelDefinition(request channelRequest) alert.ChannelDefinition {
 	return alert.ChannelDefinition{
 		Name: request.Name, URL: request.URL, Format: alert.Format(request.Format), Destination: request.Destination, Secret: request.Secret, ClearSecret: request.ClearSecret,
-		MinSeverity: alert.Severity(request.MinSeverity), NotifyResolve: request.NotifyResolve, ReceivesAudit: request.ReceivesAudit, Categories: categoriesOf(request.Categories), Enabled: request.Enabled,
+		MinSeverity: alert.Severity(request.MinSeverity), NotifyResolve: request.NotifyResolve, ReceivesAudit: request.ReceivesAudit, Categories: categoriesOf(request.Categories), AttachLogs: request.AttachLogs, Enabled: request.Enabled,
 	}
 }
 
