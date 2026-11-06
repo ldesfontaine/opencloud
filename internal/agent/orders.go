@@ -72,13 +72,13 @@ func newOrderRunner(stateDir *os.Root, identity Identity, version, dockerSocket 
 		_, reason := readProxmoxToken(stateDir)
 		return reason
 	}
-	runner := &orderRunner{
-		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
-		worker: newOrderWorker(), fetch: &fetcher{}, updater: updater, docker: newDockerTools(checks), checks: checks,
-		produce: newProduceTools(stateDir), proxmox: newProxmoxTools(stateDir), restic: newResticTools(stateDir, logger),
-	}
 	if dockerSocket == "" {
 		dockerSocket = dockerapi.DefaultSocket
+	}
+	runner := &orderRunner{
+		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
+		worker: newOrderWorker(), fetch: &fetcher{}, updater: updater, docker: newDockerTools(checks, stateDir, dockerSocket), checks: checks,
+		produce: newProduceTools(stateDir), proxmox: newProxmoxTools(stateDir), restic: newResticTools(stateDir, logger),
 	}
 	runner.journal = newOrderJournal(func() *slog.Logger { return runner.logger })
 	runner.restic.source.inventory = dockerapi.New(dockerSocket)
@@ -234,6 +234,8 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 		return r.acceptDocker(body, false)
 	case agentwire.KindDockerUpdate:
 		return r.acceptDocker(body, true)
+	case agentwire.KindDockerRollback:
+		return r.requestServiceRollback(body), nil
 	case agentwire.KindResticTargetSetup:
 		return r.resticTargetSetup(body), nil
 	case agentwire.KindResticUserAdd, agentwire.KindResticUserRemove:
@@ -335,7 +337,32 @@ func (r *orderRunner) acceptDocker(body agentwire.OrderBody, update bool) (agent
 	}
 	return accepted(body), func(ctx context.Context) {
 		output, err := r.docker.deployService(ctx, job)
+		if isAgentStopping(err) {
+			// Rien à rapporter : la montée reprendra au démarrage, par son marqueur.
+			r.logger.Warn("agent stopping during a service update, it will resume", "run_id", body.RunID)
+			return
+		}
 		r.finishDocker(body, output, err)
+	}
+}
+
+// requestServiceRollback transmet le veto du serveur à la fenêtre de santé
+// ouverte du projet : la montée elle-même revient à la version d'avant et
+// rapporte. Hors fenêtre, rien à défaire.
+func (r *orderRunner) requestServiceRollback(body agentwire.OrderBody) agentwire.ActionResult {
+	var params agentwire.DockerRollbackParams
+	if err := json.Unmarshal(body.Params, &params); err != nil || !agentwire.IsComposeProject(params.Project) {
+		r.journal.notAccepted(body, agentwire.ReasonBadOrder)
+		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBadOrder}
+	}
+	if !r.docker.watches.veto(params.Project) {
+		r.journal.notAccepted(body, agentwire.ReasonNoPendingUpdate)
+		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNoPendingUpdate}
+	}
+	r.journal.executed(body)
+	return agentwire.ActionResult{
+		RunID: body.RunID, State: agentwire.ActionSucceeded,
+		Output: []agentwire.OutputLine{stdout("rollback requested for " + params.Project)},
 	}
 }
 

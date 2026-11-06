@@ -16,12 +16,14 @@ import { MissingRight } from "./MissingRight";
 import { Textarea, Field } from "./Field";
 import { Modal, ModalCancel } from "./Modal";
 import { Pill } from "./Pill";
+import { ServiceUpdateNote } from "./ServiceUpdateNote";
 import "./DeployCard.scss";
 
 // Déployer un service d'origine Compose : le plan (où, quoi), le dernier
 // ordre et son état, et le geste. Le compose.yml est celui que le serveur
 // génère de l'annuaire, montré tel qu'il sera écrit ; l'.env se tape à la
-// confirmation, part dans l'ordre signé et ne se relit nulle part.
+// confirmation, part dans l'ordre signé et ne se relit nulle part. Une montée
+// de version revenue en arrière se dit sous le dernier ordre.
 export function DeployCard({ serviceID }: { serviceID: string }) {
   const t = useT();
   const plan = useDeployPlan(serviceID);
@@ -105,6 +107,7 @@ function PlanBody({ plan }: { plan: DeployPlan }) {
           )
         }
       />
+      <ServiceUpdateNote update={plan.last_update} />
     </>
   );
 }

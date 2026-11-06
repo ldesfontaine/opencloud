@@ -21,6 +21,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -101,12 +102,33 @@ type dockerTools struct {
 	// writeFiles écrit le contenu du dossier du service ; un test le remplace
 	// pour faire échouer l'écriture.
 	writeFiles func(dir *os.Root, job dockerJob) ([]agentwire.OutputLine, error)
+	// Le filet d'une montée de version (service_update.go) : Docker pour juger
+	// la santé, l'état de l'agent pour le marqueur, les fenêtres ouvertes, et
+	// l'horloge que les tests avancent à la main.
+	engine   dockerEngine
+	stateDir *os.Root
+	watches  *updateWatches
+	now      func() time.Time
+	pause    func(ctx context.Context, duration time.Duration) error
 }
 
-func newDockerTools(checks hostChecks) dockerTools {
+func newDockerTools(checks hostChecks, stateDir *os.Root, dockerSocket string) dockerTools {
 	return dockerTools{
 		compose: execCompose{path: dockerBinary, environment: composeEnvironment(homeDir(), os.Getenv("DOCKER_CONFIG"))},
 		checks:  checks, freeBytes: freeBytesUnder, writeFiles: writeServiceFiles,
+		engine: engineClient{dockerapi.New(dockerSocket)}, stateDir: stateDir, watches: &updateWatches{}, now: time.Now, pause: sleepContext,
+	}
+}
+
+// sleepContext attend, ou rend l'erreur du contexte s'il est annulé avant.
+func sleepContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -119,14 +141,19 @@ type dockerJob struct {
 	hasEnv bool
 	update bool
 	root   string
+	runID  string
 }
 
 // readDockerOrder juge l'ordre avant de l'accepter : un ordre mal formé est
 // refusé tout de suite. Le secret, s'il y en a un, est le contenu de l'.env.
 func readDockerOrder(body agentwire.OrderBody, root string, update bool) (dockerJob, *agentwire.ActionResult) {
 	bad := &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBadOrder}
-	job := dockerJob{update: update, root: root}
+	job := dockerJob{update: update, root: root, runID: body.RunID}
 	if err := json.Unmarshal(body.Params, &job.params); err != nil || !isDeployable(job.params) {
+		return dockerJob{}, bad
+	}
+	// Le filet ne se pose que sur une montée, avec des bornes que l'agent juge.
+	if rollback := job.params.Rollback; rollback != nil && (!update || !rollback.IsValid()) {
 		return dockerJob{}, bad
 	}
 	if !job.params.EnvSent {
@@ -206,6 +233,9 @@ func (t dockerTools) deployService(ctx context.Context, job dockerJob) ([]agentw
 			return summary, err
 		}
 		defer base.Close()
+	}
+	if job.update && job.params.Rollback != nil {
+		return t.safeUpdate(ctx, base, job, summary)
 	}
 	return t.writeAndUp(ctx, base, job, summary)
 }
@@ -540,6 +570,16 @@ func envSecrets(env string) []string {
 	return secrets
 }
 
+// redactText remplace chaque secret par marker dans une ligne de texte : la
+// seule définition du masquage, pour la sortie de Compose comme pour le
+// journal d'une montée revenue en arrière.
+func redactText(text string, secrets []string, marker string) string {
+	for _, secret := range secrets {
+		text = strings.ReplaceAll(text, secret, marker)
+	}
+	return text
+}
+
 // redactLines remplace chaque secret (une valeur de l'.env, un mot de passe
 // restic) par marker dans la sortie.
 func redactLines(lines []agentwire.OutputLine, secrets []string, marker string) []agentwire.OutputLine {
@@ -548,9 +588,7 @@ func redactLines(lines []agentwire.OutputLine, secrets []string, marker string) 
 	}
 	redacted := make([]agentwire.OutputLine, 0, len(lines))
 	for _, line := range lines {
-		for _, secret := range secrets {
-			line.Line = strings.ReplaceAll(line.Line, secret, marker)
-		}
+		line.Line = redactText(line.Line, secrets, marker)
 		redacted = append(redacted, line)
 	}
 	return redacted
@@ -561,6 +599,10 @@ func redactLines(lines []agentwire.OutputLine, secrets []string, marker string) 
 // qui échoue, ou une écriture qui manque, est « échoué ».
 func dockerResultOf(runID string, output []agentwire.OutputLine, err error) agentwire.ActionResult {
 	result := resultOf(runID, output, err)
+	var failed *orderError
+	if errors.As(err, &failed) {
+		result.Journal = failed.journal
+	}
 	if result.State == agentwire.ActionFailed && (isRefusedBeforeWriting(result.Reason) || isUntouched(err)) {
 		result.State = agentwire.ActionRefused
 	}

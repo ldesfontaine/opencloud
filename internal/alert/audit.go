@@ -46,6 +46,7 @@ func channelEvent(action audit.Action, written Channel) audit.Event {
 			"min_severity":   string(written.MinSeverity),
 			"notify_resolve": strconv.FormatBool(written.NotifyResolve),
 			"receives_audit": strconv.FormatBool(written.ReceivesAudit),
+			"attach_logs":    strconv.FormatBool(written.AttachLogs),
 			"enabled":        strconv.FormatBool(written.Enabled),
 		},
 	}

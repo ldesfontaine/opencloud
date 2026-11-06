@@ -140,7 +140,7 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 		return machine.CapabilityBackupProduce, true
 	case agentwire.KindDockerDeploy:
 		return machine.CapabilityDockerDeploy, true
-	case agentwire.KindDockerUpdate:
+	case agentwire.KindDockerUpdate, agentwire.KindDockerRollback:
 		return machine.CapabilityDockerUpdate, true
 	case agentwire.KindProxmoxStart, agentwire.KindProxmoxShutdown:
 		return machine.CapabilityProxmoxPower, true

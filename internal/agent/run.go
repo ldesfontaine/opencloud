@@ -226,6 +226,8 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Logger.Warn("clear produce dir", "error", err)
 	}
 	go orders.worker.run(ctx)
+	// Une montée de version coupée par un redémarrage reprend sa fenêtre.
+	orders.resumeUpdates()
 	// Les clés SSH autorisées : relevées en lecture seule, à part du flux.
 	collectSSHKeys := opts.readSSHKeys
 	if collectSSHKeys == nil {

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { acknowledgeAlert, type Alert } from "../../api/alerts";
 import { useRefresh } from "../../api/refresh";
 import { Button } from "../../components/Button";
+import { Fold } from "../../components/Disclosure";
 import { Failure } from "../../components/Failure";
 import { Dot, Pill } from "../../components/Pill";
 import { useAction } from "../../hooks/useAction";
@@ -13,7 +14,8 @@ import { ago } from "../../lib/time";
 import "./Alerts.scss";
 
 // Une alerte : le point de sa gravité, le fait, la cause, le geste ; à
-// droite sa machine, son état, son moment, et ce qu'on peut en faire.
+// droite sa machine, son état, son moment, et ce qu'on peut en faire. Le
+// journal joint (une montée revenue en arrière) reste replié sous le geste.
 export function AlertRow({
   alert,
   compact = false,
@@ -33,6 +35,7 @@ export function AlertRow({
   const text = describeAlert(t, alert, now, thresholds);
   const state = stateOf(alert);
   const path = objectPath(alert.object, alert.machine_id);
+  const log = alert.details.log ?? [];
   // On relit même après un refus : l'alerte a pu être lue ou résolue
   // entre-temps, et la ligne doit le dire.
   const acknowledge = () => {
@@ -50,6 +53,13 @@ export function AlertRow({
         </Link>
         <span>{text.cause}</span>
         {!compact && <span className="action">{text.action}</span>}
+        {!compact && log.length > 0 && (
+          <div className="alert-log">
+            <Fold label={t("alert.logs_label")} initiallyOpen={false}>
+              <pre className="snippet mono">{log.join("\n")}</pre>
+            </Fold>
+          </div>
+        )}
       </span>
       <span className="aside">
         <span className="secondary">

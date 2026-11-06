@@ -30,6 +30,9 @@ func matrixBody(title string, text Text, link, openLabel string) (Body, error) {
 	if text.Action != "" {
 		formatted += "<br>" + html.EscapeString(text.Action)
 	}
+	if len(text.Logs) > 0 {
+		formatted += "<br>" + html.EscapeString(text.LogsLabel) + "<pre><code>" + html.EscapeString(strings.Join(text.Logs, "\n")) + "</code></pre>"
+	}
 	if link != "" {
 		plain += "\n" + openLabel + " : " + link
 		formatted += `<br><a href="` + html.EscapeString(link) + `">` + html.EscapeString(openLabel) + "</a>"

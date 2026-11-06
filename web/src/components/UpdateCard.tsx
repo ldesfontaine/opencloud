@@ -11,7 +11,7 @@ import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { editBeforeAcceptPath, isOrphan } from "../lib/gaps";
 import { ago } from "../lib/time";
-import { checkText, imageLineChange, shortDigest, updateAvailable, upgradeOffer, upgradeServiceID } from "../lib/updates";
+import { checkText, imageLineChange, shortDigest, updateAvailable, upgradeBlocker, upgradeOffer, upgradeServiceID } from "../lib/updates";
 import { AgentGate } from "./AgentGate";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue } from "./Card";
@@ -21,6 +21,7 @@ import { Failure } from "./Failure";
 import { MissingRight } from "./MissingRight";
 import { Pill } from "./Pill";
 import { EnumSelect } from "./Select";
+import { ServiceUpdateNote } from "./ServiceUpdateNote";
 import { SupportBlock } from "./SupportBlock";
 import "./UpdateCard.scss";
 
@@ -34,7 +35,11 @@ const defaultComposeFile = "compose.yaml";
 // Sur un service déployé par un ordre signé, le tag plus récent se prend d'un
 // geste : « Passer à » change la version déclarée puis redéploie, après une
 // confirmation dans la carte. Là, la ligne à copier laisse la place : le
-// compose est réécrit par le serveur, pas édité à la main.
+// compose est réécrit par le serveur, pas édité à la main. La machine juge la
+// nouvelle version 5 minutes et revient seule à l'ancienne si elle ne tient
+// pas : sans ce filet (agent trop ancien), ou pendant qu'une montée est jugée,
+// le bouton reste grisé avec sa raison. Une montée revenue en arrière se dit
+// au-dessus des gestes.
 // Les empreintes et la politique sont repliées : on les règle une fois. La
 // politique vit sur l'unité de l'annuaire, pas sur ce conteneur : elle
 // survit à sa recréation, et un conteneur non déclaré n'en a pas à régler.
@@ -59,6 +64,7 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
           version: offer.version,
           right: plan.data.right,
           inFlight: plan.data.last_run !== null && inFlightStates.has(plan.data.last_run.state),
+          blocker: upgradeBlocker(plan.data),
           unitName: directory.unit_name,
           serviceName: directory.service_name,
           machineName: plan.data.machine_name,
@@ -110,6 +116,8 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
             {t("deploy.right_missing")}
           </MissingRight>
         )}
+        <Failure error={plan.error} />
+        {plan.data !== null && offer !== null && <ServiceUpdateNote update={plan.data.last_update} />}
         {upgrade !== null && confirming && (
           <div className="update-confirm" role="group" aria-label={t("update.upgrade_to", upgrade.version)}>
             <Failure error={upgrading.error} gesture={{ machineID: container.machine_id, right: "docker.update" }} />
@@ -117,7 +125,7 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
             <div className="update-confirm-actions">
               <AgentGate machineIDs={[container.machine_id]}>
                 {(offline) => (
-                  <Button small variant="primary" icon="box" onClick={() => sendUpgrade(upgrade.version)} disabled={upgrading.busy || offline}>
+                  <Button small variant="primary" icon="box" onClick={() => sendUpgrade(upgrade.version)} disabled={upgrading.busy || offline || upgrade.blocker !== null}>
                     {t("update.upgrade_to", upgrade.version)}
                   </Button>
                 )}
@@ -150,7 +158,7 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
         )}
         <div className="update-actions">
           {upgrade !== null && !confirming && (
-            <Button small variant="primary" icon="box" onClick={() => setConfirming(true)} disabled={upgrade.right === "missing" || upgrade.inFlight}>
+            <Button small variant="primary" icon="box" onClick={() => setConfirming(true)} disabled={upgrade.right === "missing" || upgrade.inFlight || upgrade.blocker !== null}>
               {t("update.upgrade_to", upgrade.version)}
             </Button>
           )}
@@ -163,6 +171,7 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
           </AgentGate>
           {asked && <span className="secondary">{t("update.check_asked")}</span>}
         </div>
+        {upgrade !== null && !confirming && upgrade.blocker !== null && <span className="secondary">{t(upgrade.blocker)}</span>}
         <Fold label={t("update.details")} initiallyOpen={container.update_policy !== "watch"}>
           {check !== null && check.local_digest !== "" && (
             <div className="update-digests">

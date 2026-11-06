@@ -49,6 +49,10 @@ const (
 	// suivants (il existe).
 	KindDockerDeploy Kind = "docker.deploy"
 	KindDockerUpdate Kind = "docker.update"
+	// Demande à l'agent de revenir tout de suite à la version d'avant d'un
+	// service dont la montée est dans sa fenêtre de santé (le veto du serveur).
+	// Refusé hors fenêtre.
+	KindDockerRollback Kind = "docker.rollback"
 	// Les gestes réversibles sur un invité Proxmox (ProxmoxGuestParams), faits
 	// par l'agent de l'hôte avec son jeton local : démarrer, arrêter par ACPI,
 	// prendre un instantané, supprimer un instantané créé par ce produit. Ni
@@ -73,7 +77,7 @@ type ServerKeyParams struct {
 
 // OrderKinds rend les genres d'ordres, signés et journalisés.
 func OrderKinds() []Kind {
-	return []Kind{KindAgentPing, KindAgentUpdate, KindAgentRollback, KindServerKey, KindBackupReceive, KindBackupPrune, KindBackupProduce, KindDockerDeploy, KindDockerUpdate,
+	return []Kind{KindAgentPing, KindAgentUpdate, KindAgentRollback, KindServerKey, KindBackupReceive, KindBackupPrune, KindBackupProduce, KindDockerDeploy, KindDockerUpdate, KindDockerRollback,
 		KindProxmoxStart, KindProxmoxShutdown, KindProxmoxSnapshot, KindProxmoxSnapshotDelete,
 		KindResticTargetSetup, KindResticUserAdd, KindResticUserRemove, KindResticProvision, KindResticBackup, KindResticRetain, KindResticVerify, KindResticBrowse, KindResticRestore}
 }

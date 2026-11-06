@@ -21,6 +21,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/firewall/opnsense/opnsensetest"
 	"github.com/ldesfontaine/opencloud/internal/hostconn"
@@ -31,6 +32,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/systemdunits"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 // e2eAddrEnv porte l'adresse d'écoute du serveur du parcours navigateur
@@ -92,6 +94,7 @@ func seedE2E(t *testing.T, ts *testServer) {
 	seedE2EAnchors(t, ts)
 	seedE2EZFSCache(t, ts)
 	seedE2EThresholds(t, ts)
+	seedE2EServiceRollback(t, ts)
 }
 
 // seedE2EVirtualized fait rapporter « machine virtuelle » aux deux machines,
@@ -1070,5 +1073,117 @@ func seedE2EThresholds(t *testing.T, ts *testServer) {
 	}
 	if got := callAPI(ts.Server, http.MethodPut, "/api/machines/"+remoteID+"/thresholds/memory", ruleRequest{Attention: 96, Danger: 99, WindowMinutes: 30}); got.Code != http.StatusOK {
 		t.Fatalf("memory override: %d %s", got.Code, got.Body.String())
+	}
+}
+
+// Le retour de version automatique d'un service (lot A). web-1 a un agent qui
+// sait revenir seul à la version d'avant : agora, déployé par un ordre signé,
+// a tenté 1.5, qui n'a pas tenu, et la machine est revenue à 1.4 (l'alerte
+// est ouverte, avec ses lignes de journal) ; lexique, déployé lui aussi, n'a
+// jamais changé de version. web-ancien a un agent d'avant le filet : sa
+// gazette se voit offrir 1.1, mais « Passer à » reste grisé.
+const (
+	e2eWebID    = "dddddddd-1111-4222-8333-666666666666"
+	e2eWebOldID = "dddddddd-1111-4222-8333-777777777777"
+)
+
+func seedE2EServiceRollback(t *testing.T, ts *testServer) {
+	t.Helper()
+	ctx := context.Background()
+	web := e2eDeployMachine(t, ts, "web-1", e2eWebID)
+	if err := ts.machines.NoteServiceRollbackVersion(ctx, web.AgentID, "1"); err != nil {
+		t.Fatal(err)
+	}
+	agora := e2eDeployedService(t, ts, web, e2eWebID, "agora", "1.4")
+	e2eDeployedService(t, ts, web, e2eWebID, "lexique", "2.0")
+	e2eReportUpgradable(t, ts, web, []e2eUpgradable{{"agora", "1.4", "1.5", "a"}, {"lexique", "2.0", "2.1", "b"}})
+
+	old := e2eDeployMachine(t, ts, "web-ancien", e2eWebOldID)
+	e2eDeployedService(t, ts, old, e2eWebOldID, "gazette", "1.0")
+	e2eReportUpgradable(t, ts, old, []e2eUpgradable{{"gazette", "1.0", "1.1", "c"}})
+
+	requested := testNow.Add(-2 * time.Hour)
+	runID := "e2e-agora-update"
+	if err := ts.db.InsertServiceUpdate(ctx, deploy.ServiceUpdate{
+		RunID: runID, ServiceID: agora, MachineID: e2eWebID, UnitID: ts.unitIDOf(t, agora, "app"), UnitName: "app",
+		FromVersion: "1.4", ToVersion: "1.5", State: deploy.UpdatePending, RequestedAt: requested,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ts.db.SettleServiceUpdate(ctx, runID, deploy.UpdateRolledBack, agentwire.ReasonRolledBackVersion, requested.Add(6*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	journal := []string{
+		"agora-app-1  | 2026-09-12T10:01:12Z starting agora 1.5",
+		"agora-app-1  | 2026-09-12T10:01:13Z migrating schema to v42",
+		"agora-app-1  | 2026-09-12T10:01:14Z error: column \"slug\" already exists",
+		"agora-app-1  | 2026-09-12T10:01:14Z exit status 1",
+	}
+	ts.alerts.ServiceRolledBack(ctx, agora, "agora", e2eWebID, "web-1", "1.4", "1.5", false, false, journal)
+	go e2eIgnoreOrders(web)
+	go e2eIgnoreOrders(old)
+}
+
+// e2eDeployMachine enrôle une machine qui a les droits de déployer, et sa
+// racine des services.
+func e2eDeployMachine(t *testing.T, ts *testServer, name, id string) *machine.Session {
+	t.Helper()
+	session := e2eConnect(t, ts, name, id, "observe,docker.deploy,docker.update")
+	if err := ts.machines.NoteRootDir(context.Background(), session.AgentID, "/srv/workspace"); err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+// e2eDeployedService déclare un service Compose d'une unité « app », puis le
+// déploie par un ordre signé que la machine dit réussi.
+func e2eDeployedService(t *testing.T, ts *testServer, session *machine.Session, machineID, name, version string) string {
+	t.Helper()
+	created, err := ts.directory.CreateService(context.Background(), directory.ServiceDefinition{
+		MachineID: machineID, Name: name, Nature: directory.NatureApplication, Origin: directory.OriginCompose, ComposeProject: name,
+		Units: []directory.UnitDefinition{{Name: "app", Image: name, Version: version}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := callAPI(ts.Server, http.MethodPost, "/api/directory/services/"+created.ID+"/actions/deploy", map[string]any{})
+	if sent.Code != http.StatusCreated {
+		t.Fatalf("deploy %s: %d %s", name, sent.Code, sent.Body.String())
+	}
+	order := nextOrder(t, session)
+	done := agentwire.ActionReport{Results: []agentwire.ActionResult{{RunID: order.RunID, State: agentwire.ActionSucceeded}}}
+	if got := signalAnnouncingSections(ts, session.Token, agentwire.SignalRequest{Actions: &done}); got.Code != http.StatusNoContent {
+		t.Fatalf("deploy result %s: %d %s", name, got.Code, got.Body.String())
+	}
+	return created.ID
+}
+
+// Un conteneur « app » d'un service déployé, et le tag plus récent que le
+// registre propose pour son image.
+type e2eUpgradable struct {
+	project, version, newer, digit string
+}
+
+// e2eReportUpgradable fait rapporter à la machine ses conteneurs et, pour
+// chacun, un tag plus récent.
+func e2eReportUpgradable(t *testing.T, ts *testServer, session *machine.Session, units []e2eUpgradable) {
+	t.Helper()
+	var inventory container.Report
+	var checks update.Report
+	inventory.Complete = true
+	for _, unit := range units {
+		image := unit.project + ":" + unit.version
+		inventory.Inventory = append(inventory.Inventory, container.Observed{
+			ContainerID: strings.Repeat(unit.digit, 64), Name: unit.project + "-app-1", Group: unit.project, Image: image,
+			ImageID: "sha256:" + strings.Repeat(unit.digit, 64), ComposeService: "app", ComposeDir: "/srv/workspace/" + unit.project,
+			State: container.StateRunning, CreatedAt: testNow.Add(-time.Hour),
+		})
+		checks.Results = append(checks.Results, update.Result{
+			Image: image, CheckedAt: testNow, Outcome: update.OutcomeOK, NewerTag: unit.newer,
+			LocalDigest: "sha256:" + strings.Repeat(unit.digit, 64), RemoteDigest: "sha256:" + strings.Repeat(unit.digit, 64),
+		})
+	}
+	if got := signalAnnouncingSections(ts, session.Token, agentwire.SignalRequest{Services: &inventory, Images: &checks}); got.Code != http.StatusNoContent {
+		t.Fatalf("signal: %d %s", got.Code, got.Body.String())
 	}
 }

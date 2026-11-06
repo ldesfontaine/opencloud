@@ -3,6 +3,7 @@ package action
 import (
 	"context"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 )
@@ -25,6 +26,7 @@ func (s *Service) Record(ctx context.Context, machineID string, report agentwire
 			return fmt.Errorf("apply run result: %w", err)
 		}
 		if !changed {
+			s.settleLateServiceReport(ctx, machineID, result)
 			s.logger.Debug("run result ignored", "machine_id", machineID, "run_id", result.RunID, "state", string(result.State))
 			continue
 		}
@@ -37,6 +39,11 @@ func (s *Service) Record(ctx context.Context, machineID string, report agentwire
 		// l'alerte, en plus du run fermé en échec.
 		if run.State == StateFailed && isRollbackReport(run.Kind, result.Reason) {
 			s.noteRollback(ctx, run)
+		}
+		// Une montée de version fermée : la version d'avant revient dans
+		// l'annuaire si l'agent est revenu, et l'alerte suit.
+		if run.Kind == agentwire.KindDockerUpdate {
+			s.settleServiceUpdate(ctx, run, result)
 		}
 		// Un retour arrière manuel confirmé referme l'alerte de la machine.
 		if run.Kind == agentwire.KindAgentRollback && run.State == StateSucceeded && s.alerter != nil {
@@ -93,7 +100,39 @@ func readResult(reported agentwire.ActionResult) (Result, error) {
 		}
 		output = append(output, LogLine{Stream: line.Stream, Line: line.Line})
 	}
-	return Result{RunID: reported.RunID, State: state, Reason: reported.Reason, Output: output}, nil
+	journal, err := readJournal(reported.Journal)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{RunID: reported.RunID, State: state, Reason: reported.Reason, Output: output, Journal: journal}, nil
+}
+
+// readJournal juge les lignes de journal d'une montée revenue en arrière : au
+// plus ce que le protocole porte, de l'UTF-8 sans caractère de contrôle.
+func readJournal(reported []string) ([]string, error) {
+	if len(reported) > agentwire.MaxJournalLines {
+		return nil, fmt.Errorf("%w: %d journal lines", ErrReportInvalid, len(reported))
+	}
+	total := 0
+	for _, line := range reported {
+		total += len(line)
+		if total > agentwire.MaxJournalBytes || len(line) > agentwire.MaxOutputLineBytes || !isPrintable(line) {
+			return nil, fmt.Errorf("%w: journal line", ErrReportInvalid)
+		}
+	}
+	return reported, nil
+}
+
+func isPrintable(text string) bool {
+	if !utf8.ValidString(text) {
+		return false
+	}
+	for _, character := range text {
+		if character < ' ' && character != '\t' || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // agentState : seuls ces quatre états viennent d'un agent.

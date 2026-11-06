@@ -17,7 +17,7 @@ import (
 const machineSelect = `SELECT m.id, m.name, m.hostname, m.address, m.os, m.arch, m.created_at, m.update_last, m.role,
 		m.kind, m.kind_override, m.host_override,
 		a.id, a.public_key, a.version, a.root_dir, a.enrolled_at, a.last_seen_at, a.revoked_at,
-		a.server_key_fingerprint, a.run_as_uid, a.run_as_name, t.requested_capabilities, a.rollback_version, a.anchors
+		a.server_key_fingerprint, a.run_as_uid, a.run_as_name, t.requested_capabilities, a.rollback_version, a.anchors, a.service_rollback_version
 	FROM machines m
 	LEFT JOIN agents a ON a.id = (
 		SELECT id FROM agents WHERE machine_id = m.id
@@ -122,6 +122,16 @@ func (db *DB) RecordRollbackVersion(ctx context.Context, agentID string, version
 	result, err := db.sql.ExecContext(ctx, `UPDATE agents SET rollback_version = ? WHERE id = ?`, version, agentID)
 	if err != nil {
 		return fmt.Errorf("record rollback version: %w", err)
+	}
+	return notFoundIfNoRow(result, machine.ErrNotFound)
+}
+
+// RecordServiceRollbackVersion note la version du retour arrière d'un service
+// que l'agent dit savoir faire ; 0 l'efface.
+func (db *DB) RecordServiceRollbackVersion(ctx context.Context, agentID string, version int) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE agents SET service_rollback_version = ? WHERE id = ?`, version, agentID)
+	if err != nil {
+		return fmt.Errorf("record service rollback version: %w", err)
 	}
 	return notFoundIfNoRow(result, machine.ErrNotFound)
 }
@@ -415,10 +425,10 @@ func scanMachine(row scanner) (machine.Machine, error) {
 	var agentID, version, rootDir, serverKey, runAsName, requested sql.NullString
 	var publicKey []byte
 	var enrolledAt, lastSeenAt, revokedAt, runAsUID sql.NullInt64
-	var rollbackVersion sql.NullInt64
+	var rollbackVersion, serviceRollbackVersion sql.NullInt64
 	var anchors sql.NullString
 	err := row.Scan(&m.ID, &m.Name, &m.Hostname, &m.Address, &m.OS, &m.Arch, &createdAt, &m.UpdateLast, &role, &kind, &kindOverride, &hostOverride,
-		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &serverKey, &runAsUID, &runAsName, &requested, &rollbackVersion, &anchors)
+		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &serverKey, &runAsUID, &runAsName, &requested, &rollbackVersion, &anchors, &serviceRollbackVersion)
 	if err != nil {
 		return machine.Machine{}, err
 	}
@@ -433,7 +443,7 @@ func scanMachine(row scanner) (machine.Machine, error) {
 		Version: version.String, RootDir: rootDir.String, ServerKeyFingerprint: serverKey.String,
 		EnrolledAt: time.Unix(enrolledAt.Int64, 0),
 		LastSeenAt: timeOrZero(lastSeenAt), RevokedAt: timeOrZero(revokedAt),
-		RollbackVersion: int(rollbackVersion.Int64),
+		RollbackVersion: int(rollbackVersion.Int64), ServiceRollbackVersion: int(serviceRollbackVersion.Int64),
 	}
 	if runAsUID.Valid {
 		m.Agent.RunAs = &machine.Account{UID: runAsUID.Int64, Name: runAsName.String}

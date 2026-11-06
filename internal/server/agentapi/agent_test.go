@@ -451,3 +451,51 @@ func TestAgentStream_StoresTheAccountAndUnavailableRightsAndIgnoresForgedOnes(t 
 		}
 	}
 }
+
+// L'agent redit à chaque ouverture du flux qu'il sait revenir seul à la
+// version d'avant d'un service. Sans l'en-tête, ou avec un texte qui n'est pas
+// un petit entier, le serveur le tient pour incapable : aucune montée de
+// version ne lui est envoyée.
+func TestAgentStream_StoresTheServiceRollbackVersionAndDropsForgedOnes(t *testing.T) {
+	cases := []struct {
+		name    string
+		header  string
+		isSent  bool
+		capable bool
+	}{
+		{"a capable agent", "1", true, true},
+		{"no header", "", false, false},
+		{"empty", "", true, false},
+		{"zero", "0", true, false},
+		{"negative", "-1", true, false},
+		{"words", "oui", true, false},
+		{"huge", "99999999999", true, false},
+		{"injection", "1; drop", true, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			server := newBench(t)
+			enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
+			live := httptest.NewServer(server)
+			defer live.Close()
+			request := servertest.SignedStreamRequest(t, live.URL, enrolled.ID, private, servertest.NewNonce(t))
+			if c.isSent {
+				request.Header.Set(agentwire.HeaderAgentServiceRollback, c.header)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			resp, err := live.Client().Do(request.WithContext(ctx))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			status, err := server.machines.Get(context.Background(), enrolled.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := status.Agent.CanRollBackService(); got != c.capable {
+				t.Fatalf("capable %v, want %v", got, c.capable)
+			}
+		})
+	}
+}

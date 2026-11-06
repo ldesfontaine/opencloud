@@ -6,6 +6,7 @@ import {
   alertsSubtitle,
   channelFormOf,
   channelRequestOf,
+  channelSettingsHint,
   deliveryReason,
   describeAlert,
   deliveryFailure,
@@ -227,6 +228,7 @@ describe("channelFormOf et channelRequestOf", () => {
     notify_resolve: false,
     receives_audit: true,
     categories: ["backups", "updates"],
+    attach_logs: false,
     enabled: true,
     plain: false,
     created_at: "2026-10-01T10:00:00Z",
@@ -244,6 +246,7 @@ describe("channelFormOf et channelRequestOf", () => {
       notify_resolve: false,
       receives_audit: true,
       categories: ["backups", "updates"],
+      attach_logs: false,
       enabled: true,
     });
   });
@@ -265,6 +268,12 @@ describe("channelFormOf et channelRequestOf", () => {
   it("ne donnent pas le journal à un nouveau canal : il se coche", () => {
     expect(channelRequestOf(emptyChannelForm).receives_audit).toBe(false);
     expect(channelRequestOf({ ...emptyChannelForm, receivesAudit: true }).receives_audit).toBe(true);
+  });
+
+  it("joignent les journaux à un nouveau canal, et le résumé le dit", () => {
+    expect(channelRequestOf(emptyChannelForm).attach_logs).toBe(true);
+    expect(channelSettingsHint(t, emptyChannelForm)).toContain("channel.hint_logs");
+    expect(channelSettingsHint(t, { ...emptyChannelForm, attachLogs: false })).not.toContain("channel.hint_logs");
   });
 });
 
@@ -417,5 +426,37 @@ describe("la supervision des sauvegardes", () => {
     expect(text("target_full", { bytes: 300 * 2 ** 20, count: 3 }).cause).toBe("alert.cause_target_full paperless 300 3");
     expect(text("target_unreachable", { reason: "offline", count: 2 }).cause).toContain("alert.target_unreachable_offline");
     expect(text("target_unreachable", { reason: "autre", count: 2 }).cause).toContain("alert.target_unreachable_error");
+  });
+});
+
+describe("une montée de service revenue en arrière", () => {
+  const rolledBack = (details: Alert["details"]): Alert =>
+    alert({
+      kind: "service_rolled_back",
+      object: { kind: "service", id: "svc_wiki", name: "wiki" },
+      machine_id: "m1",
+      machine_name: "web-1",
+      service_id: "svc_wiki",
+      details,
+    });
+
+  it("dit la version qui n'a pas tenu, puis celle où le service est revenu", () => {
+    const text = describeAlert(t, rolledBack({ reason: "rolled_back", target: "1.1", version: "1.0" }), now, disks);
+    expect(text.fact).toBe("alert.fact_service_rolled_back");
+    expect(text.cause).toBe("alert.cause_service_rolled_back wiki web-1 1.1 1.0");
+    expect(text.action).toBe("alert.action_service_rolled_back");
+  });
+
+  it("change de phrase quand le retour a échoué aussi", () => {
+    const text = describeAlert(t, rolledBack({ reason: "rollback_failed", target: "1.1", version: "1.0" }), now, disks);
+    expect(text.fact).toBe("alert.fact_service_rollback_failed");
+    expect(text.cause).toBe("alert.cause_service_rollback_failed wiki web-1 1.1 1.0");
+    expect(text.action).toBe("alert.action_service_rollback_failed");
+  });
+
+  it("mène à la fiche du service et se tait par lui", () => {
+    const found = rolledBack({});
+    expect(objectPath(found.object, "m1")).toBe("/services/annuaire/svc_wiki");
+    expect(mutePathOf(found)).toBe("/parametres/silences/nouveau?kind=service_rolled_back&target_kind=service&target_id=svc_wiki&target_name=");
   });
 });

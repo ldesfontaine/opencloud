@@ -2311,9 +2311,93 @@ version déclarée de l'unité puis redéploie son service.
 - **Au journal** : `service.update` sur le service, avec `unit`,
   `version_before`, `version_after` et `via: upgrade`, puis le `action.order`
   habituel du redéploiement.
-- **Pas de retour arrière automatique** : un service qui ne redevient pas sain
-  reste sur la nouvelle version ; revenir, c'est redéclarer l'ancienne et
-  redéployer.
+- **Le retour de version est automatique** (voir « Le retour de version d'un
+  service » plus bas) : la montée part avec un filet, l'agent juge la santé et
+  revient seul à la version d'avant. **Les données ne sont pas restaurées.**
+  Un simple redéploiement n'a pas ce filet.
+
+### Le retour de version d'un service
+
+> Lot A du cadrage « mise à jour sûre d'un service » (#493). Le retour des
+> **données** (restauration d'une sauvegarde) n'existe pas encore : ce lot ne
+> remet que la **version**.
+
+**Qui fait quoi.** La montée est une transaction de l'**agent** : il garde
+l'ancien compose, note qu'il va écrire, juge la santé **lui-même**, revient
+**seul** si besoin, **une seule fois**. Le serveur n'est pas nécessaire pour
+revenir ; il pose le filet, range le résultat et prévient.
+
+| # | Qui | Ce qui se passe | Si ça échoue |
+| --- | --- | --- | --- |
+| 1 | Serveur | `Upgrade` juge : agent capable (`deploy.rollback_unavailable`), aucune autre montée jugée sur la machine (`deploy.update_in_progress`, une heure au plus), puis écrit la version dans l'annuaire et envoie `docker.update` avec `rollback{health_window_seconds, stable_seconds}` (300 s et 120 s) ; la ligne `service_updates` (version d'avant, d'après, `pending`) est écrite avec le run | Refus 409, rien d'écrit |
+| 2 | Agent | Rejuge les bornes (fenêtre 2 à 30 min, stabilité 1 à 10 min et plus courte que la fenêtre ; sinon `bad_order`). Copie `compose.yml` en `compose.previous.yml` (et `.env` en `.env.previous` si un `.env` part), note les redémarrages déjà comptés de chaque conteneur, écrit le **marqueur** `<état>/service-update-<projet>.json` (0600, atomique) **avant** d'écrire le nouveau compose | Refus avant écriture (`busy` si une fenêtre est déjà ouverte pour ce projet, `no_previous`, `state_unwritable`) ; une écriture qui échoue remet l'ancien fichier, sans Compose |
+| 3 | Agent | Écrit le nouveau compose, lance `compose up`, puis relit toutes les 5 s la santé des conteneurs du projet jusqu'à l'échéance | `compose_failed` → étape 4 sans attendre |
+| 4 | Agent | **Sain** : marqueur retiré, `compose.previous.yml` gardé jusqu'à la montée suivante, run `succeeded`. **Malsain** : lit les 20 dernières lignes de journal des conteneurs en défaut, remet `compose.previous.yml` (et l'`.env`), relance Compose, juge la version revenue sur la même fenêtre | — |
+| 5 | Agent | Version d'avant saine : run `failed`, raison `rolled_back_version`. Malsaine aussi, ou impossible à remettre : `rollback_failed`, **jamais de seconde remise en état**, rien n'est arrêté de plus | — |
+| 6 | Serveur | `Record` ferme la montée (`service_updates`), **remet la version d'avant dans l'annuaire** (`service.update`), écrit `action.rolled_back` (acteur : l'agent) et ouvre l'alerte `service_rolled_back` | Un rapport arrivé après l'expiration du run (une heure) n'est pas appliqué |
+
+**Ce qui est « sain »** (jugé par l'agent, tous les conteneurs du projet,
+labels Compose, ceux d'un `compose run` exclus) :
+
+| Conteneur | Sain si |
+| --- | --- |
+| Avec HEALTHCHECK | `healthy` avant l'échéance ; `unhealthy` : malsain tout de suite ; `starting` à l'échéance : malsain |
+| Sans HEALTHCHECK | `running`, **sans redémarrage depuis la montée**, depuis au moins 120 s |
+| Dans tous les cas | `restarting`, `dead` ou `exited` : malsain tout de suite. Aucun conteneur : on attend, puis malsain à l'échéance |
+
+C'est la règle de `container.NeedsAttention`, recalculée par l'agent depuis
+l'API Docker ; un test les tient égales pour ce qui tourne. **Sans HEALTHCHECK,
+« sain » veut dire « ne plante pas »** : un service qui affiche une erreur sans
+planter est jugé sain.
+
+**Reprise.** Un agent qui redémarre pendant la fenêtre relit le marqueur et
+juge ce qui tourne, avec le temps qui reste ; un marqueur illisible est écarté
+**bruyamment** (journal de l'agent), sans aucune action sur le service. Tant que
+la fenêtre est ouverte, l'agent n'accepte pas une autre montée du même projet
+(`busy`), et le worker des ordres longs de l'agent est pris : ses autres ordres
+longs attendent (une montée dure au plus deux fenêtres, 60 min en bornes
+hautes).
+
+**L'ordre `docker.rollback`.** Sans autre paramètre que le projet, droit
+`docker.update`. L'agent le refuse (`no_pending_update`) s'il n'y a pas de
+fenêtre ouverte pour ce projet ; sinon la montée revient tout de suite à la
+version d'avant (c'est elle qui rapporte). Le serveur sait l'envoyer
+(`deploy.Service.RollBack`) ; **rien ne l'appelle encore** : le veto d'une sonde
+liée au service est le lot E.
+
+**La capacité.** L'agent redit à chaque ouverture du flux
+`OpenCloud-Agent-Service-Rollback: 1` (`agents.service_rollback_version`).
+Sans elle (un agent d'avant ce lot), **la montée de version est refusée**
+(`deploy.rollback_unavailable`) ; le redéploiement simple reste permis. Le
+protocole reste en version `2` : le champ `rollback` de `DockerParams`, le champ
+`journal` d'`ActionResult` et le genre d'ordre sont optionnels.
+
+**L'alerte `service_rolled_back`.** Objet : le **service** (une alerte par
+service, `service_id` posé : taire le service la tait). Attention ; **danger** si
+le retour a échoué aussi. Elle porte la version qui n'a pas tenu (`target`),
+celle où le service est revenu (`version`) et `log` (20 lignes, 2 Kio au plus,
+valeurs de l'`.env` masquées par l'agent). Elle se referme à la prochaine
+montée confirmée du service.
+
+**Le journal dans les notifications.** Une case par canal, « Joindre les
+journaux » (`alert_channels.attach_logs`, **oui** pour les canaux existants et à
+la création dans l'interface ; **non** pour un client d'API qui n'envoie pas le
+champ). Éteinte, `Details.Log` est retiré avant le rendu : le journal ne quitte
+la maison par aucun format. Allumée : bloc de code (Discord, Slack), texte
+(ntfy, e-mail), `<pre>` (e-mail HTML, Matrix) ; le JSON d'openCloud le porte
+dans `alert.details.log`. **Le masquage ne connaît que les valeurs de l'`.env`** :
+un journal peut contenir un secret qu'il ne reconnaît pas.
+
+**Ce que ça coûte.**
+
+| Coût | Pourquoi |
+| --- | --- |
+| **Les données ne sont pas restaurées** | Écrit pendant la fenêtre, une base migrée par la nouvelle version peut empêcher l'ancienne de démarrer : le retour échoue alors (`rollback_failed`, alerte de danger). La restauration d'une sauvegarde est le lot D |
+| Un agent d'avant ce lot ne peut plus monter un service de version | Sans lui, rien ne revient seul ; il faut mettre l'agent à jour d'abord |
+| Les autres ordres longs de la machine attendent la fin de la fenêtre | Un seul worker : c'est aussi ce qui garantit une montée à la fois |
+| Une erreur sans plantage est jugée saine | Sans HEALTHCHECK, la santé est la stabilité |
+| `compose.previous.yml` et `.env.previous` restent dans le dossier du service | L'`.env.previous` garde les anciens secrets, en `0600`, jusqu'à la montée suivante ; une sauvegarde du dossier les emporte comme l'`.env` |
+| Le journal sort de la maison | Voir la case par canal ci-dessus |
 
 **Ce qui ne se fait pas.**
 
@@ -6208,7 +6292,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Incident | `incident.open`, `.update`, `.delete` | L'incident, par son titre | `impact`, `status`, `targets` (le nombre d'objets visés) |
 | Message au fil d'un incident, fenêtre d'une maintenance | `incident.post` | L'incident | `status`, `message` (déjà public) |
 | Page de statut | `status_page.create`, `.update`, `.delete` (avant la `034`, `status_page.update` nommait la page unique par son titre) | La page, par son slug | `title`, `announcement`, `language`, `project_id` |
-| Canal | `channel.create`, `.update`, `.delete` | Le canal | `format`, `min_severity`, `notify_resolve`, `receives_audit`, `enabled` ; à la modification `url_changed` et `secret_changed`, **jamais les valeurs** |
+| Canal | `channel.create`, `.update`, `.delete` | Le canal | `format`, `min_severity`, `notify_resolve`, `receives_audit`, `attach_logs`, `enabled` ; à la modification `url_changed` et `secret_changed`, **jamais les valeurs** |
 | Silence (`mutes`) | `mute.create`, `.delete` | Le silence, au nom de l'objet tu | `kind`, `target_kind`, `target_id`, `reason`, `starts_at`, `ends_at`, `announce`, `public_title` |
 | Marquer une alerte, une sélection, comme lue | `alert.acknowledge` | L'alerte ; une sélection n'a pas d'objet | `kind`, `object_kind`, `object_id` ; pour une sélection `alert_ids` et `acknowledged` |
 | Réglage | `settings.update` | `language`, `mail_relay`, `disk` ou `lifecycle` | La valeur ; le relais sans son mot de passe, avec `password_changed` |
@@ -6222,6 +6306,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Destination de sauvegarde | `backup_destination.create`, `.delete` | La destination | `name`, `machine_id`, `path` |
 | Plan de sauvegarde | `backup_plan.update`, `.delete`, `.run` | Le plan (son sujet) | `source_kind`, `destination_id`, `keep` ; source machine : `source_machine_id`, `producer`, `selector` en plus ; `.run` : `run_id`, `destination_id` (sous `rule:backup` la nuit) |
 | Un agent revenu à la version précédente, seul, rapporté par son signal | `action.rolled_back` (acteur : l'agent de la machine ; une fois : un rapport rejoué ne s'écrit pas) | Le run de la mise à jour, nommé par sa machine | `kind`, `machine_id`, `agent_id`, `reason` (`rolled_back_timeout`, `rolled_back_crash`, `rollback_failed`), `target` (la version refusée), `version` (celle qui tourne) |
+| Une montée de version de service revenue en arrière (`docker.update`, `rolled_back_version` ou `rollback_failed`) | `action.rolled_back` (acteur : l'agent ; une fois) | Le run de la montée, nommé par sa machine | `kind` (`docker.update`), `machine_id`, `service_id`, `service`, `reason`, `target` (la version qui n'a pas tenu), `version` (celle d'avant, remise dans l'annuaire) |
 | Le drapeau « à mettre à jour en dernier » | `machine.update_last` (une fois par changement) | La machine | `update_last` (`true` ou `false`) |
 | Un ordre refusé par l'agent, rapporté par son signal | `action.refused` (une fois : un rapport rejoué ne s'écrit pas) | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id`, `reason` (`right_missing:agent.update`, `bad_signature`…) |
 

@@ -25,6 +25,7 @@ import (
 func upgradeSetup(t *testing.T, server *testServer, rights string) (serviceID, dbUnitID string, session *machine.Session) {
 	t.Helper()
 	serviceID, session = deploySetupSession(t, server, rights)
+	server.makeServiceRollbackCapable(t, session)
 	sent := callAPI(server.Server, http.MethodPost, "/api/directory/services/"+serviceID+"/actions/deploy", map[string]any{})
 	if sent.Code != http.StatusCreated {
 		t.Fatalf("deploy: %d %s", sent.Code, sent.Body.String())
@@ -48,6 +49,20 @@ func upgradeSetup(t *testing.T, server *testServer, rights string) (serviceID, d
 		t.Fatalf("signal: %d %s", got.Code, got.Body.String())
 	}
 	return serviceID, server.unitIDOf(t, serviceID, "db"), session
+}
+
+// makeServiceRollbackCapable : l'agent dit, à l'ouverture de son flux, qu'il
+// revient seul à la version d'avant d'un service ; sans cela la montée est
+// refusée.
+func (ts *testServer) makeServiceRollbackCapable(t *testing.T, session *machine.Session) {
+	t.Helper()
+	status, err := ts.machines.Get(context.Background(), session.MachineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.machines.NoteServiceRollbackVersion(context.Background(), status.Agent.ID, "1"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (ts *testServer) versionOf(t *testing.T, unitID string) string {
@@ -242,7 +257,7 @@ func (failingSender) SendForService(context.Context, action.ServiceOrder) (actio
 func TestUpgrade_AFailedSendLeavesADivergedUnitToRedeploy(t *testing.T) {
 	server := newTestServer(t)
 	serviceID, unitID, _ := upgradeSetup(t, server, "observe,docker.deploy,docker.update")
-	broken := deploy.New(server.db, server.directory, server.machines, server.db, failingSender{}, slog.New(slog.DiscardHandler))
+	broken := deploy.New(server.db, server.directory, server.machines, server.db, server.db, failingSender{}, slog.New(slog.DiscardHandler))
 
 	if _, err := broken.Upgrade(context.Background(), unitID, "16.5"); !errors.Is(err, action.ErrMachineOffline) {
 		t.Fatalf("upgrade: %v", err)

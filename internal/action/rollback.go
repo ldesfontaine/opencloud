@@ -18,6 +18,12 @@ import (
 type Alerter interface {
 	AgentRolledBack(ctx context.Context, machineID, machineName, target, reason string, failed bool)
 	AgentUpdated(ctx context.Context, machineID string)
+	// ServiceRolledBack : la montée de version d'un service n'a pas tenu et
+	// l'agent est revenu à la version d'avant (failed : sans succès). journal
+	// porte les dernières lignes des conteneurs en défaut.
+	ServiceRolledBack(ctx context.Context, serviceID, serviceName, machineID, machineName, fromVersion, toVersion string, failed, late bool, journal []string)
+	// ServiceUpdated referme cette alerte : une montée a été confirmée.
+	ServiceUpdated(ctx context.Context, serviceID string)
 }
 
 // RollbackAgent envoie l'ordre agent.rollback : l'agent rebascule sur la

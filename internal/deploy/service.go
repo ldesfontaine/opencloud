@@ -8,6 +8,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
@@ -65,12 +66,14 @@ type Service struct {
 	units    Units
 	machines Machines
 	runs     Runs
+	updates  UpdateStore
 	sender   Sender
 	logger   *slog.Logger
+	now      func() time.Time
 }
 
-func New(services Services, units Units, machines Machines, runs Runs, sender Sender, logger *slog.Logger) *Service {
-	return &Service{services: services, units: units, machines: machines, runs: runs, sender: sender, logger: logger}
+func New(services Services, units Units, machines Machines, runs Runs, updates UpdateStore, sender Sender, logger *slog.Logger) *Service {
+	return &Service{services: services, units: units, machines: machines, runs: runs, updates: updates, sender: sender, logger: logger, now: time.Now}
 }
 
 func deploymentKinds() []agentwire.Kind {
@@ -118,10 +121,25 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 	plan := Plan{
 		Service: service, MachineName: target.Name, RootDir: root, Path: path.Join(root, service.ComposeProject),
 		Deployed: deployed, MachineOnline: target.Online, Right: right, RightReason: reason, Compose: string(compose), DataDirs: dataDirs,
-		SharedWith: sharedWith,
+		SharedWith: sharedWith, CanRollBack: target.Agent.CanRollBackService(),
 	}
 	if hasLast {
 		plan.LastRun = &last
+	}
+	if s.updates != nil {
+		update, found, err := s.updates.LatestServiceUpdate(ctx, serviceID)
+		if err != nil {
+			return Plan{}, fmt.Errorf("read last version change: %w", err)
+		}
+		if found {
+			plan.LastUpdate = &update
+			// Une montée dont l'agent n'a rien rapporté en une heure n'est plus
+			// jugée : l'écran ne la dit pas « en cours » pour toujours.
+			if update.State == UpdatePending && update.RequestedAt.Before(s.now().Add(-updateInFlightWindow)) {
+				plan.LastUpdate.State = UpdateFailed
+				plan.LastUpdate.Reason = "timeout"
+			}
+		}
 	}
 	return plan, nil
 }
@@ -167,13 +185,13 @@ func rightOf(target machine.Status, deployed bool) (RightState, string) {
 // Deploy est le premier geste : le dossier du service n'existe pas encore sur
 // la machine. env est le contenu de l'.env à écrire ; nil n'en écrit aucun.
 func (s *Service) Deploy(ctx context.Context, serviceID string, env *string) (action.Run, error) {
-	return s.send(ctx, serviceID, env, false)
+	return s.send(ctx, serviceID, env, false, nil)
 }
 
 // Redeploy réécrit le compose.yml et relance Compose : les versions ont
 // changé. env nil laisse l'.env de la machine où il est.
 func (s *Service) Redeploy(ctx context.Context, serviceID string, env *string) (action.Run, error) {
-	return s.send(ctx, serviceID, env, true)
+	return s.send(ctx, serviceID, env, true, nil)
 }
 
 // Upgrade passe une unité d'un service déployé à la version que l'agent
@@ -207,6 +225,12 @@ func (s *Service) Upgrade(ctx context.Context, unitID, version string) (action.R
 	if !plan.MachineOnline {
 		return action.Run{}, action.ErrMachineOffline
 	}
+	if !plan.CanRollBack {
+		return action.Run{}, ErrRollbackUnavailable
+	}
+	if err := s.refuseWhileJudging(ctx, plan.Service.MachineID); err != nil {
+		return action.Run{}, err
+	}
 	if unit.Digest != "" {
 		return action.Run{}, ErrUnitPinnedDigest
 	}
@@ -232,7 +256,13 @@ func (s *Service) Upgrade(ctx context.Context, unitID, version string) (action.R
 		return action.Run{}, err
 	}
 	s.logger.Info("unit upgrade", "service_id", plan.Service.ID, "unit_id", unitID, "from", unit.Version, "to", version)
-	return s.Redeploy(ctx, plan.Service.ID, nil)
+	safety := agentwire.DefaultServiceRollback()
+	run, err := s.send(ctx, plan.Service.ID, nil, true, &safety)
+	if err != nil {
+		return action.Run{}, err
+	}
+	s.recordUpdate(ctx, run, unit, unit.Version, version)
+	return run, nil
 }
 
 // withVersion rend le service avec la version d'une de ses unités changée ;
@@ -247,9 +277,11 @@ func withVersion(service directory.Service, unitID, version string) directory.Se
 	return service
 }
 
-// send juge, puis envoie. Ordre des contrôles : le plan, le projet partagé, le droit, déjà
+// send juge, puis envoie. safety pose le filet d'une montée de version ; nil :
+// un redéploiement sans filet.
+// Ordre des contrôles : le plan, le projet partagé, le droit, déjà
 // déployé ou non, l'.env.
-func (s *Service) send(ctx context.Context, serviceID string, env *string, redeploy bool) (action.Run, error) {
+func (s *Service) send(ctx context.Context, serviceID string, env *string, redeploy bool, safety *agentwire.ServiceRollback) (action.Run, error) {
 	plan, err := s.Plan(ctx, serviceID)
 	if err != nil {
 		return action.Run{}, err
@@ -272,7 +304,7 @@ func (s *Service) send(ctx context.Context, serviceID string, env *string, redep
 	}
 	params, err := json.Marshal(agentwire.DockerParams{
 		ServiceID: serviceID, Project: plan.Service.ComposeProject, Compose: plan.Compose,
-		DataDirs: plan.DataDirs, EnvSent: secret != nil,
+		DataDirs: plan.DataDirs, EnvSent: secret != nil, Rollback: safety,
 	})
 	if err != nil {
 		return action.Run{}, fmt.Errorf("encode params: %w", err)
@@ -319,4 +351,12 @@ func secretOf(env *string) (json.RawMessage, error) {
 // l'écrire, et l'agent ne retire pas un dossier qu'il n'a pas fini.
 func folderExists(run action.Run) bool {
 	return !(run.State == action.StateRefused && run.Reason == agentwire.ReasonServiceDirMissing)
+}
+
+func jsonOf(value any) (json.RawMessage, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("encode params: %w", err)
+	}
+	return encoded, nil
 }

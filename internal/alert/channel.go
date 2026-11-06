@@ -72,6 +72,9 @@ type Channel struct {
 	ReceivesAudit bool
 	// Categories : les familles d'alertes que le canal reçoit ; vide, toutes.
 	Categories []Category
+	// AttachLogs : joindre au message les lignes de journal d'une montée de
+	// version revenue en arrière. Éteinte, le journal ne quitte pas la maison.
+	AttachLogs bool
 	Enabled    bool
 	CreatedAt  time.Time
 }
@@ -98,6 +101,7 @@ type ChannelDefinition struct {
 	NotifyResolve bool
 	ReceivesAudit bool
 	Categories    []Category
+	AttachLogs    bool
 	Enabled       bool
 }
 

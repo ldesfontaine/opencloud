@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Le .env tient jusqu'à 64 KiB de texte ; écrit en JSON (retours à la ligne,
@@ -40,6 +42,22 @@ type deployPlanJSON struct {
 	// Le dernier ordre de déploiement du service, null s'il n'y en a pas ou
 	// plus.
 	LastRun *actionRunJSON `json:"last_run"`
+	// Vrai quand l'agent sait revenir seul à la version d'avant ; faux, la
+	// montée de version est refusée (deploy.rollback_unavailable).
+	RollbackCapable bool `json:"rollback_capable"`
+	// La dernière montée de version du service, null s'il n'y en a pas.
+	LastUpdate *serviceUpdateJSON `json:"last_update"`
+}
+
+// Une montée de version : de quelle version à quelle autre, et ce qu'elle est
+// devenue (pending, confirmed, rolled_back, failed ou refused).
+type serviceUpdateJSON struct {
+	UnitName    string     `json:"unit_name"`
+	FromVersion string     `json:"from_version"`
+	ToVersion   string     `json:"to_version"`
+	State       string     `json:"state"`
+	RequestedAt time.Time  `json:"requested_at"`
+	SettledAt   *time.Time `json:"settled_at"`
 }
 
 // Le .env part dans ce corps et nulle part ailleurs : absent ou vide, le
@@ -60,9 +78,16 @@ func deployPlanToJSON(plan deploy.Plan) deployPlanJSON {
 		RootDir: plan.RootDir, Path: plan.Path, Deployed: plan.Deployed, Right: string(plan.Right),
 		RightReason: plan.RightReason, Compose: plan.Compose, DataDirs: orEmpty(plan.DataDirs), SharedWith: orEmpty(plan.SharedWith),
 	}
+	out.RollbackCapable = plan.CanRollBack
 	if plan.LastRun != nil {
 		converted := actionRunToJSON(*plan.LastRun)
 		out.LastRun = &converted
+	}
+	if plan.LastUpdate != nil {
+		out.LastUpdate = &serviceUpdateJSON{
+			UnitName: plan.LastUpdate.UnitName, FromVersion: plan.LastUpdate.FromVersion, ToVersion: plan.LastUpdate.ToVersion,
+			State: string(plan.LastUpdate.State), RequestedAt: plan.LastUpdate.RequestedAt.UTC(), SettledAt: httpx.TimeOrNil(plan.LastUpdate.SettledAt),
+		}
 	}
 	return out
 }

@@ -64,11 +64,18 @@ const (
 	// chez un agent plus vieux ou qui n'est pas migré : le serveur refuse
 	// alors agent.update, jamais sans retour arrière.
 	HeaderAgentRollback = brand.HeaderPrefix + "Agent-Rollback"
+	// La version du retour arrière d'un service que l'agent sait faire
+	// (docker.update avec filet) ; absent chez un agent plus vieux : le
+	// serveur refuse alors la montée de version, jamais sans retour.
+	HeaderAgentServiceRollback = brand.HeaderPrefix + "Agent-Service-Rollback"
 )
 
 // RollbackVersion est la version du retour arrière que ce binaire sait faire
 // avec le lanceur stable (le marqueur, le délai, le lien previous).
 const RollbackVersion = 1
+
+// ServiceRollbackVersion est celle du retour arrière d'un service.
+const ServiceRollbackVersion = 1
 
 // ProtocolVersion est la seule que ce serveur et cet agent parlent. Le 1
 // avait un défi émis par le serveur (/agent/challenge) ; le 2 le retire.

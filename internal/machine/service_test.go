@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,17 @@ func (f *fakeStore) RecordRollbackVersion(_ context.Context, agentID string, ver
 	for id, m := range f.machines {
 		if m.Agent.ID == agentID {
 			m.Agent.RollbackVersion = version
+			f.machines[id] = m
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeStore) RecordServiceRollbackVersion(_ context.Context, agentID string, version int) error {
+	for id, m := range f.machines {
+		if m.Agent.ID == agentID {
+			m.Agent.ServiceRollbackVersion = version
 			f.machines[id] = m
 			return nil
 		}
@@ -505,5 +517,59 @@ func TestSessions_NewConnectionReplacesThePreviousOne(t *testing.T) {
 	sessions.Release(second)
 	if sessions.IsOnline("m") || sessions.CountOnline() != 0 {
 		t.Fatal("still online")
+	}
+}
+
+// La version de retour qu'un agent rapporte est un petit entier positif : tout
+// autre texte l'efface (0), même chez un agent qui venait de la dire. Les deux
+// chemins (l'agent, puis un service) passent par la même définition.
+func TestNoteRollbackVersions_OnlyASmallPositiveIntegerCounts(t *testing.T) {
+	cases := []struct {
+		name     string
+		reported string
+		want     int
+	}{
+		{"one", "1", 1},
+		{"the upper bound", strconv.Itoa(maxRollbackVersion), maxRollbackVersion},
+		{"zero", "0", 0},
+		{"negative", "-1", 0},
+		{"above the bound", strconv.Itoa(maxRollbackVersion + 1), 0},
+		{"very large", "99999999999999999999", 0},
+		{"words", "oui", 0},
+		{"empty", "", 0},
+	}
+	paths := []struct {
+		name string
+		note func(h *harness, agentID, reported string) error
+		read func(Agent) int
+	}{
+		{"agent", func(h *harness, id, v string) error {
+			return h.service.NoteRollbackVersion(context.Background(), id, v)
+		}, func(a Agent) int { return a.RollbackVersion }},
+		{"service", func(h *harness, id, v string) error {
+			return h.service.NoteServiceRollbackVersion(context.Background(), id, v)
+		}, func(a Agent) int { return a.ServiceRollbackVersion }},
+	}
+	for _, path := range paths {
+		for _, c := range cases {
+			t.Run(path.name+"/"+c.name, func(t *testing.T) {
+				h := newHarness(t)
+				enrolled, _ := h.enroll(t, "vps-1")
+				// L'agent avait dit savoir revenir : une valeur invalide l'efface.
+				if err := path.note(h, enrolled.Agent.ID, "1"); err != nil {
+					t.Fatal(err)
+				}
+				if err := path.note(h, enrolled.Agent.ID, c.reported); err != nil {
+					t.Fatal(err)
+				}
+				status, err := h.store.GetMachine(context.Background(), enrolled.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := path.read(status.Agent); got != c.want {
+					t.Fatalf("%q stored %d, want %d", c.reported, got, c.want)
+				}
+			})
+		}
 	}
 }

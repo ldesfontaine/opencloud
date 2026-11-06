@@ -83,6 +83,7 @@ type MachineService interface {
 	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
 	NoteRootDir(ctx context.Context, agentID, root string) error
 	NoteRollbackVersion(ctx context.Context, agentID, reported string) error
+	NoteServiceRollbackVersion(ctx context.Context, agentID, reported string) error
 	NoteAnchors(ctx context.Context, agentID, reported string) error
 	SetUpdateLast(ctx context.Context, machineID string, updateLast bool) (machine.Machine, error)
 	SetRole(ctx context.Context, machineID string, role machine.Role) (machine.Machine, error)

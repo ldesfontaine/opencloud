@@ -22,6 +22,7 @@ var journalFields = map[string][]string{
 	"backup.produce":             {"producer", "target", "prefix", "recipient", "parcel"},
 	"docker.deploy":              {"service_id", "project"},
 	"docker.update":              {"service_id", "project"},
+	"docker.rollback":            {"project"},
 	"proxmox.vm.start":           {"vmid", "type"},
 	"proxmox.vm.shutdown":        {"vmid", "type"},
 	"proxmox.vm.snapshot":        {"vmid", "type", "snapshot"},

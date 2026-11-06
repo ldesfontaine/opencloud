@@ -21,6 +21,7 @@ export type AlertKind =
   | "cpu_high"
   | "memory_high"
   | "agent_rolled_back"
+  | "service_rolled_back"
   | "backup_stale"
   | "restore_test_stale"
   | "source_unprotected"
@@ -43,6 +44,7 @@ export const alertKinds: readonly AlertKind[] = [
   "cpu_high",
   "memory_high",
   "agent_rolled_back",
+  "service_rolled_back",
   "backup_stale",
   "restore_test_stale",
   "source_unprotected",
@@ -55,7 +57,8 @@ export type AlertSeverity = "attention" | "danger";
 // Les familles d'alertes qu'un canal peut choisir de recevoir.
 export type AlertCategory = "machines" | "services" | "jobs" | "probes" | "backups" | "updates";
 type AlertStatus = "open" | "resolved";
-export type AlertObjectKind = "machine" | "container" | "heartbeat" | "probe" | "volume" | "backup";
+// Un service déclaré : l'objet d'une montée de version revenue en arrière.
+export type AlertObjectKind = "machine" | "container" | "heartbeat" | "probe" | "volume" | "backup" | "service";
 
 export interface AlertObject {
   kind: AlertObjectKind;
@@ -86,6 +89,12 @@ interface AlertDetails {
   since?: string;
   // La place libre d'une cible de sauvegardes.
   bytes?: number;
+  // La version où un service est revenu ; target est celle qui n'a pas tenu.
+  version?: string;
+  // Les dernières lignes de journal d'une montée revenue en arrière.
+  log?: string[];
+  // Le rapport de l'agent est arrivé après l'expiration de l'ordre.
+  late?: boolean;
 }
 
 export interface Alert {
@@ -149,6 +158,8 @@ export interface Channel {
   receives_audit: boolean;
   // Les familles d'alertes reçues ; vide, toutes.
   categories: AlertCategory[];
+  // Le canal joint les lignes de journal d'une montée revenue en arrière.
+  attach_logs: boolean;
   enabled: boolean;
   // L'URL est en http : le canal parle en clair.
   plain: boolean;
@@ -205,6 +216,7 @@ export interface ChannelRequest {
   notify_resolve: boolean;
   receives_audit: boolean;
   categories: AlertCategory[];
+  attach_logs: boolean;
   enabled: boolean;
 }
 
