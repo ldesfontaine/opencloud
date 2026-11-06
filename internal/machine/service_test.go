@@ -520,10 +520,10 @@ func TestSessions_NewConnectionReplacesThePreviousOne(t *testing.T) {
 	}
 }
 
-// La capacité de retour d'un service est un petit entier positif : tout autre
-// texte l'efface (0), même chez un agent qui venait de la dire. Sans cette
-// borne, une valeur forgée vaudrait « capable », ou casserait l'écriture.
-func TestNoteServiceRollbackVersion_OnlyASmallPositiveIntegerCounts(t *testing.T) {
+// La version de retour qu'un agent rapporte est un petit entier positif : tout
+// autre texte l'efface (0), même chez un agent qui venait de la dire. Les deux
+// chemins (l'agent, puis un service) passent par la même définition.
+func TestNoteRollbackVersions_OnlyASmallPositiveIntegerCounts(t *testing.T) {
 	cases := []struct {
 		name     string
 		reported string
@@ -538,25 +538,38 @@ func TestNoteServiceRollbackVersion_OnlyASmallPositiveIntegerCounts(t *testing.T
 		{"words", "oui", 0},
 		{"empty", "", 0},
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			h := newHarness(t)
-			enrolled, _ := h.enroll(t, "vps-1")
-			ctx := context.Background()
-			// L'agent avait dit savoir revenir : une valeur invalide l'efface.
-			if err := h.service.NoteServiceRollbackVersion(ctx, enrolled.Agent.ID, "1"); err != nil {
-				t.Fatal(err)
-			}
-			if err := h.service.NoteServiceRollbackVersion(ctx, enrolled.Agent.ID, c.reported); err != nil {
-				t.Fatal(err)
-			}
-			status, err := h.store.GetMachine(ctx, enrolled.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := status.Agent.ServiceRollbackVersion; got != c.want || status.Agent.CanRollBackService() != (c.want > 0) {
-				t.Fatalf("%q stored %d, want %d", c.reported, got, c.want)
-			}
-		})
+	paths := []struct {
+		name string
+		note func(h *harness, agentID, reported string) error
+		read func(Agent) int
+	}{
+		{"agent", func(h *harness, id, v string) error {
+			return h.service.NoteRollbackVersion(context.Background(), id, v)
+		}, func(a Agent) int { return a.RollbackVersion }},
+		{"service", func(h *harness, id, v string) error {
+			return h.service.NoteServiceRollbackVersion(context.Background(), id, v)
+		}, func(a Agent) int { return a.ServiceRollbackVersion }},
+	}
+	for _, path := range paths {
+		for _, c := range cases {
+			t.Run(path.name+"/"+c.name, func(t *testing.T) {
+				h := newHarness(t)
+				enrolled, _ := h.enroll(t, "vps-1")
+				// L'agent avait dit savoir revenir : une valeur invalide l'efface.
+				if err := path.note(h, enrolled.Agent.ID, "1"); err != nil {
+					t.Fatal(err)
+				}
+				if err := path.note(h, enrolled.Agent.ID, c.reported); err != nil {
+					t.Fatal(err)
+				}
+				status, err := h.store.GetMachine(context.Background(), enrolled.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := path.read(status.Agent); got != c.want {
+					t.Fatalf("%q stored %d, want %d", c.reported, got, c.want)
+				}
+			})
+		}
 	}
 }

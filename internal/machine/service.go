@@ -568,27 +568,30 @@ func (s *Service) NoteRootDir(ctx context.Context, agentID, root string) error {
 // entier court, jamais un texte long.
 const maxRollbackVersion = 1000
 
+// rollbackVersionOf lit la version de retour arrière qu'un agent rapporte :
+// un petit entier positif, sinon 0 (« ne sait pas revenir »). La seule
+// définition, pour le retour de l'agent comme pour celui d'un service.
+func rollbackVersionOf(reported string) int {
+	version, err := strconv.Atoi(reported)
+	if err != nil || version < 1 || version > maxRollbackVersion {
+		return 0
+	}
+	return version
+}
+
 // NoteRollbackVersion garde la version du retour arrière que l'agent dit
 // savoir faire, redite à chaque ouverture du flux. Rien, ou un texte qui n'est
 // pas un petit entier positif, vaut 0 : l'agent ne sait pas revenir en arrière
 // (aucune mise à jour ne lui sera envoyée).
 func (s *Service) NoteRollbackVersion(ctx context.Context, agentID, reported string) error {
-	version, err := strconv.Atoi(reported)
-	if err != nil || version < 1 || version > maxRollbackVersion {
-		version = 0
-	}
-	return s.store.RecordRollbackVersion(ctx, agentID, version)
+	return s.store.RecordRollbackVersion(ctx, agentID, rollbackVersionOf(reported))
 }
 
 // NoteServiceRollbackVersion garde la version du retour arrière d'un service
 // que l'agent dit savoir faire, comme NoteRollbackVersion : rien, ou autre
 // chose qu'un petit entier positif, vaut 0.
 func (s *Service) NoteServiceRollbackVersion(ctx context.Context, agentID, reported string) error {
-	version, err := strconv.Atoi(reported)
-	if err != nil || version < 1 || version > maxRollbackVersion {
-		version = 0
-	}
-	return s.store.RecordServiceRollbackVersion(ctx, agentID, version)
+	return s.store.RecordServiceRollbackVersion(ctx, agentID, rollbackVersionOf(reported))
 }
 
 // NoteAnchors garde les ancres de confiance locales que l'agent dit tenir,
